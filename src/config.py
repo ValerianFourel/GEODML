@@ -9,6 +9,9 @@ load_dotenv(PROJECT_ROOT / ".env.local")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 SEARXNG_URL = os.getenv("SEARXNG_URL", "https://searx.be")
 
+# Perplexica instance
+PERPLEXICA_URL = os.getenv("PERPLEXICA_URL", "http://localhost:3000")
+
 TOP_N = 10
 RESULTS_DIR = PROJECT_ROOT / "results"
 KEYWORDS_FILE = PROJECT_ROOT / "keywords.txt"
