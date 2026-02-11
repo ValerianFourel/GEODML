@@ -1,7 +1,7 @@
 import time
 import random
 import tldextract
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from googlesearch import search as google_search
 from src.experiment_context import utcnow_iso
 
@@ -36,18 +36,18 @@ def search_duckduckgo(query: str, num_results: int = 10) -> dict:
     }
 
     try:
-        with DDGS() as ddgs:
-            raw = ddgs.text(query, max_results=num_results * 2)
-            for position, r in enumerate(raw, 1):
-                url = r.get("href", "")
-                domain = _extract_domain(url)
-                result["raw_results"].append({
-                    "position": position,
-                    "url": url,
-                    "domain": domain,
-                    "title": r.get("title", ""),
-                    "snippet": r.get("body", ""),
-                })
+        ddgs = DDGS()
+        raw = ddgs.text(query, max_results=num_results * 2)
+        for position, r in enumerate(raw, 1):
+            url = r.get("href", "")
+            domain = _extract_domain(url)
+            result["raw_results"].append({
+                "position": position,
+                "url": url,
+                "domain": domain,
+                "title": r.get("title", ""),
+                "snippet": r.get("body", ""),
+            })
     except Exception as e:
         result["error"] = str(e)
         print(f"  [DDG] Error searching '{query}': {e}")

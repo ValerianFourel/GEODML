@@ -1,6 +1,6 @@
 requests>=2.31.0
 huggingface_hub>=0.20.0
-duckduckgo_search>=4.1.0
+ddgs>=9.0.0
 googlesearch-python>=1.2.0
 python-dotenv>=1.0.0
 tldextract>=5.0.0
