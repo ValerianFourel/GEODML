@@ -10,7 +10,7 @@ from huggingface_hub import InferenceClient
 from src.config import HF_TOKEN, TOP_N
 from src.experiment_context import utcnow_iso
 
-MODEL_ID = "Qwen/Qwen3-32B-Instruct"
+MODEL_ID = "Qwen/Qwen2.5-72B-Instruct"
 
 
 def _extract_domain(url: str) -> str:
@@ -89,7 +89,7 @@ def rank_domains_with_llm(
         "keyword": keyword,
         "llm_role": "re-ranker (LLM re-orders results by relevance)",
         "llm_model": MODEL_ID,
-        "llm_parameters": {"max_new_tokens": 500, "temperature": 0.1},
+        "llm_parameters": {"max_tokens": 500, "temperature": 0.1},
         "prompt": None,
         "raw_llm_response": None,
         "llm_query_timestamp_utc": None,
@@ -110,12 +110,15 @@ def rank_domains_with_llm(
     result["llm_query_timestamp_utc"] = utcnow_iso()
 
     try:
-        response = client.text_generation(
-            prompt,
+        response = client.chat_completion(
+            messages=[
+                {"role": "user", "content": prompt},
+            ],
             model=MODEL_ID,
-            max_new_tokens=500,
+            max_tokens=500,
             temperature=0.1,
         )
+        llm_output = response.choices[0].message.content
     except Exception as e:
         result["llm_response_timestamp_utc"] = utcnow_iso()
         result["error"] = str(e)
@@ -125,8 +128,8 @@ def rank_domains_with_llm(
         return result
 
     result["llm_response_timestamp_utc"] = utcnow_iso()
-    result["raw_llm_response"] = response
-    result["ranked_domains"] = _parse_domains(response)[:top_n]
+    result["raw_llm_response"] = llm_output
+    result["ranked_domains"] = _parse_domains(llm_output)[:top_n]
 
     return result
 
