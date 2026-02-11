@@ -1,50 +1,83 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project
 
-GEODML — B2B SaaS Keyword Search Ranking Experiment. Compares how an AI-powered search (SearXNG + LLM re-ranking) ranks B2B SaaS domains vs. traditional search engines (DuckDuckGo, Google) for 50 B2B SaaS keywords.
+GEODML — GEO (Generative Engine Optimization) vs SEO causal inference experiment using Double Machine Learning. Proves that LLM-powered search engines cite domains based on different causal factors than traditional search engines.
 
-## Setup
+## Architecture
 
-```bash
-pip install -r requirements.txt
+The experiment instruments a **local Perplexica clone** (Next.js + SearXNG + LLM) to capture pre-LLM and post-LLM data, then compares against traditional SERP rankings.
+
+### 5-Phase Pipeline
+
+```
+Phase 1: Instrument Perplexica → capture pre-LLM (raw SearXNG) + post-LLM (citations) data
+Phase 2: Batch runner → process 50 keywords through Perplexica's internal pipeline
+Phase 3: SERP collector → query Google/DDG via SearXNG for the same domains
+Phase 4: Feature extractor → scrape pages, extract treatment + confounder variables
+Phase 5: Exporter → join all tables → CSV ready for DML in Python
 ```
 
-### Required Environment Variables (`.env.local`)
-
-- `HF_TOKEN` — Hugging Face API token (https://huggingface.co/settings/tokens)
-- `SEARXNG_URL` — SearXNG instance URL (default: `https://searx.be`)
-
-## Running
+### Running the Experiment
 
 ```bash
-# AI-powered search: SearXNG → Mistral-7B LLM re-ranking
-python run_ai_search.py
+cd Perplexica
+npm install
 
-# Traditional engines: DuckDuckGo + Google scraping
-python run_engine_search.py
+# Phase 2: Run keywords through Perplexica (requires configured LLM + SearXNG)
+npx tsx src/lib/experiment/runner.ts --keywords data/keywords.txt --mode speed
+
+# Phase 3: Collect Google/DDG rankings for same domains
+npx tsx src/lib/experiment/serpCollector.ts
+
+# Phase 4: Extract page features (treatments + confounders)
+npx tsx src/lib/experiment/featureExtractor.ts
+
+# Phase 5: Export joined CSV for DML analysis
+npx tsx src/lib/experiment/exporter.ts --output data/experiment_results.csv
 ```
 
-Results are saved to `results/` as JSON and CSV files.
+Or via API (while Perplexica is running):
+```bash
+curl -X POST http://localhost:3000/api/experiment \
+  -H "Content-Type: application/json" \
+  -d '{"keywordsFile": "data/keywords.txt", "optimizationMode": "speed"}'
 
-## Project Structure
+curl http://localhost:3000/api/experiment/status
+```
 
-- `keywords.txt` — 50 B2B SaaS category keywords
-- `src/config.py` — env loading, constants (TOP_N=10)
-- `src/keywords.py` — keyword file parser
-- `src/searxng_client.py` — SearXNG JSON API client
-- `src/llm_ranker.py` — HF Inference API (Mistral-7B-Instruct) domain ranker
-- `src/engine_scraper.py` — DuckDuckGo + Google scrapers
-- `src/results_io.py` — JSON/CSV result persistence
-- `run_ai_search.py` — main script for AI search pipeline
-- `run_engine_search.py` — main script for traditional engine scraping
+### Key Files
 
-## Key Dependencies
+```
+Perplexica/
+├── src/lib/experiment/
+│   ├── types.ts             # TypeScript interfaces
+│   ├── db.ts                # Drizzle ORM schema (5 experiment tables)
+│   ├── citationParser.ts    # Parse [1][2][3] from LLM output
+│   ├── runner.ts            # Phase 2: batch keyword processor
+│   ├── serpCollector.ts     # Phase 3: Google/DDG SERP collection
+│   ├── featureExtractor.ts  # Phase 4: page feature extraction
+│   └── exporter.ts          # Phase 5: CSV export for DML
+├── src/app/api/experiment/
+│   ├── route.ts             # POST trigger experiment
+│   └── status/route.ts      # GET check progress
+├── drizzle/0001_experiment_tables.sql  # Migration
+├── data/keywords.txt        # 50 B2B SaaS keywords
+└── data/raw_html/           # Saved HTML for reproducibility
+```
 
-- `huggingface_hub` — HF Inference API client
-- `duckduckgo_search` — DDG search library
-- `googlesearch-python` — Google search library
-- `tldextract` — domain normalization
-- `python-dotenv` — env file loading
+### DB Tables
+
+- `experiment_queries` — one row per keyword run
+- `pre_llm_results` — raw SearXNG results BEFORE LLM touches them
+- `post_llm_citations` — which sources the LLM cited (and which it didn't)
+- `serp_rankings` — Google/DDG rank for each domain
+- `page_features` — treatments (T1-T5) and confounders (X1-X6)
+
+### Design Decisions
+
+- **GEO-first**: start from LLM citations, then check traditional engines (not the reverse)
+- **Internal function calls**: runner calls Perplexica internals directly (not HTTP)
+- **Checkpoint/resume**: runner skips already-processed keywords via DB check
+- **Bare keyword queries**: keywords passed as-is, no sentence wrapping
+- **All existing Perplexica functionality preserved** — experiment code is additive only

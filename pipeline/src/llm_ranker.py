@@ -1,10 +1,19 @@
+"""Standalone LLM re-ranker using HF Inference API.
+
+Used when running without Perplexica (standalone SearXNG + LLM pipeline).
+The LLM re-ranks SearXNG results — this re-ranking is the experimental variable.
+The keyword is passed as-is (bare search term, no sentence wrapping).
+"""
+
 import tldextract
 from huggingface_hub import InferenceClient
 from src.config import HF_TOKEN, TOP_N
+from src.experiment_context import utcnow_iso
+
+MODEL_ID = "Qwen/Qwen3-32B-Instruct"
 
 
 def _extract_domain(url: str) -> str:
-    """Extract the root domain from a URL using tldextract."""
     ext = tldextract.extract(url)
     if ext.domain and ext.suffix:
         return f"{ext.domain}.{ext.suffix}"
@@ -12,24 +21,31 @@ def _extract_domain(url: str) -> str:
 
 
 def _build_prompt(keyword: str, search_results: list[dict], top_n: int) -> str:
-    """Build the LLM prompt for domain ranking."""
+    """Build a minimal re-ranking prompt.
+
+    The keyword is presented bare (exactly as typed into a search engine).
+    The LLM sees the raw SERP and re-ranks by its own judgement — this
+    re-ranking is what the experiment measures.
+    """
     results_text = ""
-    for i, r in enumerate(search_results, 1):
+    for r in search_results:
         domain = _extract_domain(r["url"])
-        results_text += f"{i}. [{domain}] {r['title']} — {r['snippet'][:150]}\n"
+        results_text += (
+            f"{r['position']}. [{domain}] {r['title']} — {r['snippet'][:150]}\n"
+        )
 
-    return f"""You are an expert at identifying B2B SaaS products. Given these search results for the query "{keyword}", extract and rank the top {top_n} most relevant B2B SaaS product domains.
+    return f"""Search keyword: {keyword}
 
-Rules:
-- Only include actual B2B SaaS product websites (not review sites like G2, Capterra, not directories, not Wikipedia, not news sites).
-- Return only root domains (e.g., salesforce.com), one per line.
-- Rank by relevance to the query "{keyword}".
-- Return EXACTLY {top_n} domains or fewer if not enough qualify.
+Below are search engine results for the above keyword. Re-rank the results and return the top {top_n} software product domains, ordered by relevance to the keyword.
+
+Exclude non-product sites: review aggregators, directories, Wikipedia, news, blogs, forums, YouTube.
+
+Return only root domains, one per line. No explanations.
 
 Search results:
 {results_text}
 
-Top {top_n} B2B SaaS domains (one per line, most relevant first):"""
+Re-ranked product domains:"""
 
 
 def _parse_domains(llm_output: str) -> list[str]:
@@ -44,12 +60,10 @@ def _parse_domains(llm_output: str) -> list[str]:
             if line.startswith(prefix):
                 line = line[len(prefix):]
         if line and line[0].isdigit():
-            # Strip "1. " or "1) " patterns
             parts = line.split(".", 1) if "." in line[:3] else line.split(")", 1)
             if len(parts) > 1:
                 line = parts[1].strip()
 
-        # Normalize with tldextract
         ext = tldextract.extract(line)
         if ext.domain and ext.suffix:
             domain = f"{ext.domain}.{ext.suffix}"
@@ -60,31 +74,61 @@ def _parse_domains(llm_output: str) -> list[str]:
 
 def rank_domains_with_llm(
     keyword: str, search_results: list[dict], top_n: int = TOP_N
-) -> list[str]:
-    """Use an LLM via HF Inference API to rank domains from search results.
+) -> dict:
+    """Use an LLM to re-rank search results by relevance to the bare keyword.
 
-    Returns an ordered list of root domain strings.
+    The LLM re-ranking is the experimental variable. The keyword is passed
+    as a bare search term, not wrapped in a sentence.
+
+    Returns dict with full provenance:
+        keyword, llm_role, llm_model, prompt, raw_llm_response,
+        llm_query_timestamp_utc, llm_response_timestamp_utc,
+        ranked_domains, used_fallback, error
     """
+    result = {
+        "keyword": keyword,
+        "llm_role": "re-ranker (LLM re-orders results by relevance)",
+        "llm_model": MODEL_ID,
+        "llm_parameters": {"max_new_tokens": 500, "temperature": 0.1},
+        "prompt": None,
+        "raw_llm_response": None,
+        "llm_query_timestamp_utc": None,
+        "llm_response_timestamp_utc": None,
+        "ranked_domains": [],
+        "used_fallback": False,
+        "error": None,
+    }
+
     if not search_results:
-        return []
+        result["error"] = "no search results provided"
+        return result
 
     client = InferenceClient(token=HF_TOKEN)
     prompt = _build_prompt(keyword, search_results, top_n)
+    result["prompt"] = prompt
+
+    result["llm_query_timestamp_utc"] = utcnow_iso()
 
     try:
         response = client.text_generation(
             prompt,
-            model="mistralai/Mistral-7B-Instruct-v0.3",
-            max_new_tokens=300,
+            model=MODEL_ID,
+            max_new_tokens=500,
             temperature=0.1,
         )
     except Exception as e:
+        result["llm_response_timestamp_utc"] = utcnow_iso()
+        result["error"] = str(e)
+        result["used_fallback"] = True
+        result["ranked_domains"] = _fallback_extract(search_results, top_n)
         print(f"  [LLM] Error ranking for '{keyword}': {e}")
-        # Fallback: extract domains directly from search results
-        return _fallback_extract(search_results, top_n)
+        return result
 
-    domains = _parse_domains(response)
-    return domains[:top_n]
+    result["llm_response_timestamp_utc"] = utcnow_iso()
+    result["raw_llm_response"] = response
+    result["ranked_domains"] = _parse_domains(response)[:top_n]
+
+    return result
 
 
 def _fallback_extract(search_results: list[dict], top_n: int) -> list[str]:
@@ -93,6 +137,7 @@ def _fallback_extract(search_results: list[dict], top_n: int) -> list[str]:
         "g2.com", "capterra.com", "wikipedia.org", "youtube.com",
         "reddit.com", "quora.com", "forbes.com", "techcrunch.com",
         "gartner.com", "trustradius.com", "softwareadvice.com",
+        "getapp.com", "pcmag.com", "techradar.com", "cnet.com",
     }
     domains = []
     for r in search_results:
