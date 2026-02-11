@@ -21,10 +21,11 @@ echo "  Runtime: $CONTAINER_RUNTIME"
 
 if [ "$CONTAINER_RUNTIME" = "apptainer" ] || [ "$CONTAINER_RUNTIME" = "singularity" ]; then
     $CONTAINER_RUNTIME exec \
+        --pwd /usr/local/searxng \
         --bind "$SCRIPT_DIR/searxng-config:/etc/searxng" \
         --env SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml \
         "$SCRIPT_DIR/searxng.sif" \
-        /usr/local/searxng/.venv/bin/python3 -m searx.webapp
+        /usr/local/searxng/entrypoint.sh
 elif [ "$CONTAINER_RUNTIME" = "docker" ]; then
     docker run --rm -p 8888:8888 \
         -v "$SCRIPT_DIR/searxng-config:/etc/searxng" \
