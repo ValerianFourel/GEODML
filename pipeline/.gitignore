@@ -20,9 +20,16 @@ build/
 # HuggingFace cache
 .cache/
 huggingface/
+.pip-cache/
+
+# Containers
+*.sif
+searxng-local/
+searxng-config/
 
 # Results output
 results/
+data/raw_html/
 
 # IDE
 .vscode/
