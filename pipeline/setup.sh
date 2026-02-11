@@ -152,7 +152,7 @@ if [ "\$CONTAINER_RUNTIME" = "apptainer" ] || [ "\$CONTAINER_RUNTIME" = "singula
         --bind "\$SCRIPT_DIR/searxng-config:/etc/searxng" \\
         --env SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml \\
         "\$SCRIPT_DIR/searxng.sif" \\
-        python3 -m searx.webapp
+        /usr/local/searxng/.venv/bin/python3 -m searx.webapp
 elif [ "\$CONTAINER_RUNTIME" = "docker" ]; then
     docker run --rm -p 8888:8888 \\
         -v "\$SCRIPT_DIR/searxng-config:/etc/searxng" \\
@@ -199,7 +199,7 @@ fi
 echo ""
 
 # Run the experiment
-python "\$SCRIPT_DIR/run_ai_search.py" --mode standalone
+python "\$SCRIPT_DIR/run_ai_search.py"
 
 # Summarize
 LATEST=\$(ls -t "\$SCRIPT_DIR/results"/ai_search_rankings.json 2>/dev/null | head -1)
