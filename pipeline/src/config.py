@@ -12,10 +12,8 @@ SEARXNG_URL = os.getenv("SEARXNG_URL", "https://searx.be")
 # Fallback SearXNG instances tried in order when the primary returns 403/error
 SEARXNG_FALLBACK_URLS = [
     SEARXNG_URL,
-    "https://search.bus-hit.me",
-    "https://searx.tiekoetter.com",
-    "https://search.ononoki.org",
-    "https://searx.oxf.fi",
+    "http://localhost:8888",
+    "http://127.0.0.1:8080",
 ]
 
 # Perplexica instance
