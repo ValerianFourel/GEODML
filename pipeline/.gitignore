@@ -1,0 +1,35 @@
+# Environment
+.env
+.env.local
+.env.*
+
+# Virtual environment
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+
+# HuggingFace cache
+.cache/
+huggingface/
+
+# Results output
+results/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
