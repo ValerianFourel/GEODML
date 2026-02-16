@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import tldextract
 from datetime import datetime, timezone
 
 from src.keywords import load_keywords
@@ -25,6 +26,42 @@ from src.llm_ranker import rank_domains_with_llm, MODEL_ID
 from src.results_io import save_results, results_to_csv
 from src.experiment_context import collect_experiment_context, utcnow_iso
 from src.config import TOP_N
+
+
+def _extract_domain(url: str) -> str:
+    ext = tldextract.extract(url)
+    if ext.domain and ext.suffix:
+        return f"{ext.domain}.{ext.suffix}"
+    return ""
+
+
+def compute_rank_changes(raw_results: list[dict], post_llm_domains: list[str]) -> list[dict]:
+    """Compute the rank change vector between pre-LLM and post-LLM domain orderings.
+
+    Returns a list of dicts (one per post-LLM domain):
+        domain, pre_rank (1-indexed or null), post_rank (1-indexed),
+        rank_delta (pre - post; positive = promoted, null if new)
+    """
+    # Build pre-LLM domain ranking (deduplicated, first occurrence wins)
+    pre_domains = []
+    for r in raw_results:
+        d = _extract_domain(r.get("url", ""))
+        if d and d not in pre_domains:
+            pre_domains.append(d)
+    pre_rank_map = {d: i + 1 for i, d in enumerate(pre_domains)}
+
+    changes = []
+    for post_rank_0, domain in enumerate(post_llm_domains):
+        post_rank = post_rank_0 + 1
+        pre_rank = pre_rank_map.get(domain)
+        rank_delta = (pre_rank - post_rank) if pre_rank is not None else None
+        changes.append({
+            "domain": domain,
+            "pre_rank": pre_rank,
+            "post_rank": post_rank,
+            "rank_delta": rank_delta,
+        })
+    return changes
 
 
 def main():
@@ -80,12 +117,19 @@ def main():
         if llm_result["used_fallback"]:
             print(f"  (used fallback due to LLM error)")
 
+        # Step 3: Compute rank change vector (pre-LLM vs post-LLM)
+        rank_changes = compute_rank_changes(raw_results, domains)
+        deltas = [rc["rank_delta"] for rc in rank_changes if rc["rank_delta"] is not None]
+        print(f"  Rank deltas: {deltas}")
+
         per_keyword_data.append({
             "query": keyword,
             "query_timestamp_utc": serp_result["query_timestamp_utc"],
             "serp": serp_result,
             "llm": llm_result,
             "ranked_domains": domains,
+            "ranked_results": llm_result["ranked_results"],
+            "rank_changes": rank_changes,
         })
 
     # Build output
@@ -119,6 +163,7 @@ def main():
             "query_timestamp_utc": kd["query_timestamp_utc"],
             "raw_results": raw,
             "ranked_domains": kd["ranked_domains"],
+            "ranked_results": kd["ranked_results"],
         })
     results_to_csv(csv_rows, "ai_search", f"{base_name}.csv")
 
