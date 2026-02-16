@@ -10,7 +10,7 @@ from huggingface_hub import InferenceClient
 from src.config import HF_TOKEN, TOP_N
 from src.experiment_context import utcnow_iso
 
-MODEL_ID = "Qwen/Qwen2.5-72B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.3-70B-Instruct"
 
 
 def _extract_domain(url: str) -> str:
@@ -72,6 +72,28 @@ def _parse_domains(llm_output: str) -> list[str]:
     return domains
 
 
+def _build_domain_url_map(search_results: list[dict]) -> dict:
+    """Build domain → best URL mapping from raw search results.
+
+    For each domain, keeps the highest-ranked (lowest position) URL.
+    """
+    domain_url = {}
+    for r in search_results:
+        url = r.get("url", "")
+        domain = _extract_domain(url)
+        if domain and domain not in domain_url:
+            domain_url[domain] = url
+    return domain_url
+
+
+def _attach_urls(domains: list[str], domain_url_map: dict) -> list[dict]:
+    """Attach the original SERP URL to each ranked domain."""
+    return [
+        {"domain": d, "url": domain_url_map.get(d, "")}
+        for d in domains
+    ]
+
+
 def rank_domains_with_llm(
     keyword: str, search_results: list[dict], top_n: int = TOP_N
 ) -> dict:
@@ -83,7 +105,7 @@ def rank_domains_with_llm(
     Returns dict with full provenance:
         keyword, llm_role, llm_model, prompt, raw_llm_response,
         llm_query_timestamp_utc, llm_response_timestamp_utc,
-        ranked_domains, used_fallback, error
+        ranked_domains, ranked_results, used_fallback, error
     """
     result = {
         "keyword": keyword,
@@ -95,6 +117,7 @@ def rank_domains_with_llm(
         "llm_query_timestamp_utc": None,
         "llm_response_timestamp_utc": None,
         "ranked_domains": [],
+        "ranked_results": [],
         "used_fallback": False,
         "error": None,
     }
@@ -102,6 +125,8 @@ def rank_domains_with_llm(
     if not search_results:
         result["error"] = "no search results provided"
         return result
+
+    domain_url_map = _build_domain_url_map(search_results)
 
     client = InferenceClient(token=HF_TOKEN)
     prompt = _build_prompt(keyword, search_results, top_n)
@@ -123,13 +148,17 @@ def rank_domains_with_llm(
         result["llm_response_timestamp_utc"] = utcnow_iso()
         result["error"] = str(e)
         result["used_fallback"] = True
-        result["ranked_domains"] = _fallback_extract(search_results, top_n)
+        domains = _fallback_extract(search_results, top_n)
+        result["ranked_domains"] = domains
+        result["ranked_results"] = _attach_urls(domains, domain_url_map)
         print(f"  [LLM] Error ranking for '{keyword}': {e}")
         return result
 
     result["llm_response_timestamp_utc"] = utcnow_iso()
     result["raw_llm_response"] = llm_output
-    result["ranked_domains"] = _parse_domains(llm_output)[:top_n]
+    domains = _parse_domains(llm_output)[:top_n]
+    result["ranked_domains"] = domains
+    result["ranked_results"] = _attach_urls(domains, domain_url_map)
 
     return result
 

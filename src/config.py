@@ -9,6 +9,10 @@ load_dotenv(PROJECT_ROOT / ".env.local")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8888")
 KAGI_TOKEN = os.getenv("KAGI_TOKEN", "")
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_CX = os.getenv("GOOGLE_CX", "")
+SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 
 TOP_N = 10
 RESULTS_DIR = PROJECT_ROOT / "results"
