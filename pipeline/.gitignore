@@ -5,6 +5,7 @@
 
 # Virtual environment
 venv/
+venv312/
 
 # Python
 __pycache__/
@@ -30,6 +31,39 @@ searxng-config/
 # Results output
 results/
 data/raw_html/
+
+# Experiment result directories (outputs, figures, CSVs, logs)
+test/results/
+test_diff/results/
+test_full/results/
+test_full_rf/results/
+output/
+50_larger/data/
+50_larger/results/
+50_larger/figures/
+50_larger/*.log
+both_analysis/figures/
+both_analysis/results/
+paperSizeExperiment/output/
+paperSizeExperiment/consolidated_results/
+paperSizeExperiment/*.log
+paperSizeExperiment/classify_checkpoint*.json
+paperSizeExperiment/domains_classified.csv
+paperSizeExperiment/domains_unknown.csv
+paperSizeExperiment/domains.csv
+paperSizeExperiment/presentation.html
+paperSizeExperiment/presentation.pptx
+paperSizeExperiment/.claude/
+pipeline/earned_media_results/
+pipeline/intermediate/
+pipeline/results_*/
+data/geodml_dataset.csv
+data/url_mapping.csv
+slides_findings.html
+results_findings.md
+
+# Claude local settings
+.claude/
 
 # IDE
 .vscode/
