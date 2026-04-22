@@ -38,6 +38,13 @@ python summarize_results.py results/ai_search_rankings.json
 - `src/llm_ranker.py` — Qwen2.5-72B re-ranking via HF chat_completion API
 - `src/experiment_context.py` — IP, geolocation, machine info for provenance
 
+## Ranking Convention
+
+- **Lower rank number = better** (rank 1 is the best position, the goal)
+- In coefficients: **negative effect on post_rank or rank = GOOD** (moves the page closer to rank 1)
+- `rank_delta = pre_rank - post_rank`: **positive = LLM promoted the page** (good)
+- When interpreting results, always remember: we want to be ranked 1st, so anything that decreases rank number is beneficial
+
 ## Environment
 
 - `.env.local`: `HF_TOKEN`, `SEARXNG_URL` (default `http://127.0.0.1:8888`)

@@ -5,12 +5,14 @@ The LLM re-ranks SearXNG results — this re-ranking is the experimental variabl
 The keyword is passed as-is (bare search term, no sentence wrapping).
 """
 
+import re
+
 import tldextract
 from huggingface_hub import InferenceClient
 from src.config import HF_TOKEN, TOP_N
 from src.experiment_context import utcnow_iso
 
-MODEL_ID = "meta-llama/Llama-3.3-70B-Instruct"
+DEFAULT_MODEL_ID = "meta-llama/Llama-3.3-70B-Instruct"
 
 
 def _extract_domain(url: str) -> str:
@@ -144,6 +146,8 @@ def rank_domains_with_llm(
             temperature=0.1,
         )
         llm_output = response.choices[0].message.content
+        # Strip DeepSeek R1 <think>...</think> reasoning tags (no-op for other models)
+        llm_output = re.sub(r'<think>.*?</think>', '', llm_output, flags=re.DOTALL).strip()
     except Exception as e:
         result["llm_response_timestamp_utc"] = utcnow_iso()
         result["error"] = str(e)
