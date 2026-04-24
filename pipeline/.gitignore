@@ -57,6 +57,8 @@ paperSizeExperiment/.claude/
 pipeline/earned_media_results/
 pipeline/intermediate/
 pipeline/results_*/
+paperSizeExperiment/dataforseo/output/
+huggingface_bundle/
 data/geodml_dataset.csv
 data/url_mapping.csv
 slides_findings.html

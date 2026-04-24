@@ -153,6 +153,15 @@ CONFOUNDERS = [
     "conf_backlinks",
     "conf_referring_domains",
     "conf_serp_position",
+    # DataForSEO keyword-level confounders
+    "dfs_keyword_difficulty",
+    "dfs_search_volume",
+    "dfs_cpc",
+    "dfs_competition",
+    "dfs_intent_commercial",
+    "dfs_intent_informational",
+    "dfs_intent_navigational",
+    "dfs_intent_transactional",
 ]
 
 # Legacy confounders (fallback if new ones unavailable)
