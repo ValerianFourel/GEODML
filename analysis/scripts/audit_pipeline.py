@@ -90,7 +90,7 @@ def parquet_meta(path: Path) -> dict[str, Any]:
     try:
         import pyarrow.parquet as pq
         pf = pq.ParquetFile(path)
-        return {"rows": pf.metadata.num_rows, "n_cols": pf.schema.num_columns, "size": size}
+        return {"rows": pf.metadata.num_rows, "n_cols": pf.metadata.num_columns, "size": size}
     except Exception:
         try:
             import pandas as pd
