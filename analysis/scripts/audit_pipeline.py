@@ -83,21 +83,51 @@ def jsonl_rows(path: Path) -> int:
 
 
 def parquet_meta(path: Path) -> dict[str, Any]:
-    """Return {rows, n_cols, size}; safe on missing/corrupt files."""
+    """Return {rows, n_cols, size}; safe on missing/corrupt files.
+
+    Tries three read strategies and surfaces every captured exception when
+    ``GEODML_AUDIT_DEBUG=1`` is set in the environment.
+
+    1. ``pq.read_metadata(path)`` — lightest, no file handle held open.
+    2. ``pq.ParquetFile(path).metadata`` — standard.
+    3. ``pd.read_parquet(path)`` — heaviest but tolerant of edge cases.
+
+    Returns ``{"rows": -1, ...}`` only when all three fail. The captured
+    exception strings are kept on the dict under ``"errors"`` so callers
+    can inspect them.
+    """
     if not path.exists():
         return {"rows": 0, "n_cols": 0, "size": 0}
     size = path.stat().st_size
+    errors: list[str] = []
+    p_str = str(path)
+
     try:
         import pyarrow.parquet as pq
-        pf = pq.ParquetFile(path)
+        md = pq.read_metadata(p_str)
+        return {"rows": md.num_rows, "n_cols": md.num_columns, "size": size}
+    except Exception as e:
+        errors.append(f"read_metadata: {type(e).__name__}: {e}")
+
+    try:
+        import pyarrow.parquet as pq
+        pf = pq.ParquetFile(p_str)
         return {"rows": pf.metadata.num_rows, "n_cols": pf.metadata.num_columns, "size": size}
-    except Exception:
-        try:
-            import pandas as pd
-            df = pd.read_parquet(path)
-            return {"rows": len(df), "n_cols": df.shape[1], "size": size}
-        except Exception as e:
-            return {"rows": -1, "n_cols": -1, "size": size, "error": str(e)}
+    except Exception as e:
+        errors.append(f"ParquetFile: {type(e).__name__}: {e}")
+
+    try:
+        import pandas as pd
+        df = pd.read_parquet(p_str)
+        return {"rows": len(df), "n_cols": df.shape[1], "size": size}
+    except Exception as e:
+        errors.append(f"pd.read_parquet: {type(e).__name__}: {e}")
+
+    if os.environ.get("GEODML_AUDIT_DEBUG"):
+        print(f"[audit] parquet_meta failed on {path}:", file=sys.stderr)
+        for err in errors:
+            print(f"  - {err}", file=sys.stderr)
+    return {"rows": -1, "n_cols": -1, "size": size, "errors": errors}
 
 
 # ── Snapshot dataclasses (JSON-serialisable) ─────────────────────────────────
