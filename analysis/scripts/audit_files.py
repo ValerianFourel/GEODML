@@ -405,7 +405,7 @@ def main() -> int:
         rows = [r for r in by_stage[s] if keep(r)]
         if not rows:
             continue
-        rel = None if args.no_rel else None  # use absolute for clarity
+        rel = None if args.no_rel else REPO_ROOT
         print_section(
             {
                 "stage_a":       "Stage A — rerank keywords.jsonl",
