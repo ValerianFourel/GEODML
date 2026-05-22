@@ -104,13 +104,29 @@ def main():
         df = df[df["treatment"].isin(args.treatments)]
 
     # ── 2. canonical headline: one estimator/learner ──────────────────────────
-    head = pick_canonical_rows(df.copy(), args.estimator, args.learner)
-    keep = [c for c in ("variant", "treatment", "coef", "se", "ci_lower",
-                        "ci_upper", "p_val", "sig_stars", "n_obs")
-            if c in head.columns]
-    head = head[keep].sort_values(["treatment", "variant"]).round(4)
+    head_all = pick_canonical_rows(df.copy(), args.estimator, args.learner)
 
-    print("\n## HEADLINE — canonical DML estimates (one estimator/learner per row)\n")
+    # Reduce to ONE row per (variant, treatment): pick max-n_obs within the
+    # canonical (method,learner) pair, which is the pooled-all-data estimate.
+    if {"variant", "treatment", "n_obs"}.issubset(head_all.columns):
+        # if there's an outcome column too, pick max-n_obs per outcome
+        group_cols = ["variant", "treatment"]
+        if "outcome" in head_all.columns and head_all["outcome"].nunique() > 1:
+            group_cols.append("outcome")
+            print(f"  (multiple outcomes detected: {sorted(head_all['outcome'].unique())} — "
+                  f"keeping max-n_obs row per outcome)", file=sys.stderr)
+        idx = head_all.groupby(group_cols)["n_obs"].idxmax()
+        head = head_all.loc[idx].copy()
+    else:
+        head = head_all
+
+    keep = [c for c in ("variant", "treatment", "outcome", "subset", "coef", "se",
+                        "ci_lower", "ci_upper", "p_val", "sig_stars", "n_obs")
+            if c in head.columns]
+    head = head[keep].sort_values([c for c in ("treatment", "outcome", "variant")
+                                   if c in head.columns]).round(4)
+
+    print("\n## HEADLINE — pooled canonical DML estimates (max-n row per cell)\n")
     print(head.to_string(index=False))
 
     head_md = OUT_DIR / "dml_headline.md"
@@ -124,31 +140,38 @@ def main():
     print(f"\nwrote {head_md}", file=sys.stderr)
 
     # ── 3. wide: treatment × variant pivot of coef ────────────────────────────
+    # Use pivot_table (aggregates duplicates by mean) so multi-outcome data
+    # still pivots cleanly. If outcome is in head, we'll loop per outcome.
     if {"variant", "treatment", "coef"}.issubset(head.columns):
-        wide_coef = head.pivot(index="treatment", columns="variant", values="coef")
-        wide_se = head.pivot(index="treatment", columns="variant", values="se") if "se" in head.columns else None
-        print("\n## WIDE — point estimate (coef) by treatment × variant\n")
-        print(wide_coef.round(4).to_string())
-        if wide_se is not None:
-            print("\n## WIDE — standard error by treatment × variant\n")
-            print(wide_se.round(4).to_string())
-        wide_path = OUT_DIR / "dml_summary_wide.csv"
-        wide_coef.to_csv(wide_path)
-        print(f"\nwrote {wide_path}", file=sys.stderr)
+        outcomes = list(head["outcome"].unique()) if "outcome" in head.columns else [None]
+        for oc in outcomes:
+            sub = head if oc is None else head[head["outcome"] == oc]
+            label = f"outcome={oc}" if oc is not None else "all outcomes"
+            wide_coef = sub.pivot_table(index="treatment", columns="variant",
+                                        values="coef", aggfunc="mean")
+            print(f"\n## WIDE — coef ({label}) by treatment × variant\n")
+            print(wide_coef.round(4).to_string())
+            if "se" in sub.columns:
+                wide_se = sub.pivot_table(index="treatment", columns="variant",
+                                          values="se", aggfunc="mean")
+                print(f"\n## WIDE — se ({label}) by treatment × variant\n")
+                print(wide_se.round(4).to_string())
+            if oc is None or oc == outcomes[0]:
+                wide_path = OUT_DIR / "dml_summary_wide.csv"
+                wide_coef.to_csv(wide_path)
+                print(f"\nwrote {wide_path}", file=sys.stderr)
 
-    # ── 4. RAG impact: rag - non_rag deltas ───────────────────────────────────
-    pairs = [("biased", "biased_rag"), ("neutral", "neutral_rag")]
-    if {"variant", "treatment", "coef"}.issubset(head.columns):
-        print("\n## RAG IMPACT — coef(rag) − coef(non-rag)  per treatment\n")
-        wide_coef = head.pivot(index="treatment", columns="variant", values="coef")
-        delta_rows = []
-        for nonrag, rag in pairs:
-            if nonrag in wide_coef.columns and rag in wide_coef.columns:
-                delta_rows.append((f"{rag} − {nonrag}",
-                                  (wide_coef[rag] - wide_coef[nonrag]).round(4)))
-        if delta_rows:
-            delta_df = pd.DataFrame(dict(delta_rows))
-            print(delta_df.to_string())
+            # ── 4. RAG impact for this outcome ──
+            pairs = [("biased", "biased_rag"), ("neutral", "neutral_rag")]
+            print(f"\n## RAG IMPACT — coef(rag) − coef(non-rag)  ({label})\n")
+            delta_rows = []
+            for nonrag, rag in pairs:
+                if nonrag in wide_coef.columns and rag in wide_coef.columns:
+                    delta_rows.append((f"{rag} − {nonrag}",
+                                      (wide_coef[rag] - wide_coef[nonrag]).round(4)))
+            if delta_rows:
+                delta_df = pd.DataFrame(dict(delta_rows))
+                print(delta_df.to_string())
 
     return 0
 
