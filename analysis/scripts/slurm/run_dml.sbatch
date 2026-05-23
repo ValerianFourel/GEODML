@@ -45,12 +45,32 @@ echo "[dml] outcomes=${OUTCOMES_ARR[*]} methods=${METHODS_ARR[*]} learners=${LEA
 echo "[dml] subsets=${SUBSETS_ARR[*]}"
 
 # ── Stage C (merge) — pure pandas, ~30s, runs inline before DML.
-# Only re-merge if the main table is missing or empty (cheap so default-on).
+# ALWAYS re-merge: rerank output may have grown since the last merge (e.g. via
+# scripts/repair_loop.sh). build_main_table.py is fast and idempotent, so the
+# extra ~30s per invocation is cheaper than silently using stale data.
+# Set SKIP_MERGE=1 to override (kept for ad-hoc DML re-fits).
 MAIN_PARQUET="$GEODML_DATA_ROOT/data/main/full_experiment_data_${PROMPT_VARIANT}.parquet"
-if [ ! -s "$MAIN_PARQUET" ]; then
+if [ "${SKIP_MERGE:-0}" = "1" ] && [ -s "$MAIN_PARQUET" ]; then
+  echo "[dml] SKIP_MERGE=1: reusing existing $MAIN_PARQUET"
+else
   echo "[dml] running Stage C (merge) -> $MAIN_PARQUET"
   python scripts/build_main_table.py --variant "$PROMPT_VARIANT" \
     ${EXTERNAL_FEATURES_PARQUET:+--external-features-parquet "$EXTERNAL_FEATURES_PARQUET"}
+fi
+
+# --resume skips fits whose (subset, outcome, method, learner, treatment) key
+# is already in dml_results_long.parquet — which would re-use STALE fits when
+# the underlying per-variant parquet has been re-merged. Set DML_FORCE_REFIT=1
+# to refit from scratch (e.g. after Stage A repair grew the input data).
+RESUME_FLAG="--resume"
+if [ "${DML_FORCE_REFIT:-0}" = "1" ]; then
+  RESUME_FLAG=""
+  echo "[dml] DML_FORCE_REFIT=1: refitting from scratch (no --resume)"
+  # Move the existing long-form results aside so dml.py rebuilds cleanly.
+  if [ -s "$OUTDIR/dml_results_long.parquet" ]; then
+    mv "$OUTDIR/dml_results_long.parquet" \
+       "$OUTDIR/dml_results_long.parquet.pre_refit_$(date +%Y%m%d_%H%M%S)"
+  fi
 fi
 
 set +e
@@ -63,7 +83,7 @@ python -m interpretability.pipeline.dml \
   --subsets  "${SUBSETS_ARR[@]}" \
   --n-folds "$N_FOLDS" \
   ${DML_OLS:+--ols} \
-  --resume
+  $RESUME_FLAG
 RC=$?
 set -e
 
@@ -81,5 +101,7 @@ chain_resubmit "$0" \
   ${DML_LEARNERS:+DML_LEARNERS="$DML_LEARNERS"} \
   ${DML_SUBSETS:+DML_SUBSETS="$DML_SUBSETS"} \
   ${DML_OLS:+DML_OLS=1} \
+  ${SKIP_MERGE:+SKIP_MERGE="$SKIP_MERGE"} \
+  ${DML_FORCE_REFIT:+DML_FORCE_REFIT="$DML_FORCE_REFIT"} \
   || exit "$RC"
 exit 0

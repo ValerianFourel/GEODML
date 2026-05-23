@@ -69,6 +69,9 @@ mkdir -p logs
 
 EXPORTS_BASE="ATTEMPT=1,MAX_ATTEMPTS=6"
 [ -n "${JUWELS_PROJECT:-}" ] && EXPORTS_BASE="$EXPORTS_BASE,JUWELS_PROJECT=$JUWELS_PROJECT"
+# Forward the data-refresh flags to run_dml.sbatch when the caller set them.
+[ -n "${DML_FORCE_REFIT:-}" ] && EXPORTS_BASE="$EXPORTS_BASE,DML_FORCE_REFIT=$DML_FORCE_REFIT"
+[ -n "${SKIP_MERGE:-}" ]      && EXPORTS_BASE="$EXPORTS_BASE,SKIP_MERGE=$SKIP_MERGE"
 
 # submit jobname depend script [export key=val ...]
 # Returns the JID on stdout, status messages on stderr.
