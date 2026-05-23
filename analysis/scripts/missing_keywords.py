@@ -41,11 +41,11 @@ import pyarrow.parquet as pq
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Default data layout: SERP pool lives in repo-local mirror, everything else
-# in ~/geodml_data. Override with --data-root.
-DEFAULT_MAIN = Path.home() / "geodml_data" / "data" / "main"
-DEFAULT_COV  = Path.home() / "geodml_data" / "data" / "coverage"
-DEFAULT_SERP = REPO_ROOT / "geodml_data" / "data" / "serp"
+# Honor $GEODML_DATA_ROOT (set in JUPITER .env). Fall back to ~/geodml_data
+# only if the env var is unset (e.g. when running locally on the Mac).
+DEFAULT_DATA_ROOT = Path(os.environ.get(
+    "GEODML_DATA_ROOT",
+    str(Path.home() / "geodml_data")))
 
 VARIANTS = ["biased", "neutral", "biased_rag", "neutral_rag"]
 MODELS = ["Llama-3.3-70B-Instruct", "Qwen2.5-72B-Instruct"]
@@ -236,10 +236,12 @@ def _md_table(df: pd.DataFrame, cols: list[str]) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-root", default=str(Path.home() / "geodml_data"),
-                    help="Override base path (default: ~/geodml_data)")
-    ap.add_argument("--serp-dir", default=str(DEFAULT_SERP),
-                    help=f"SERP pool dir (default: {DEFAULT_SERP})")
+    ap.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT),
+                    help="Base data path (default: $GEODML_DATA_ROOT or "
+                         "~/geodml_data)")
+    ap.add_argument("--serp-dir", default=None,
+                    help="SERP pool dir (default: {data-root}/data/serp/, "
+                         "falls back to repo-local mirror if missing)")
     ap.add_argument("--no-write", action="store_true",
                     help="Print summary, write nothing")
     args = ap.parse_args()
@@ -247,7 +249,15 @@ def main() -> None:
     root = Path(args.data_root)
     main_dir = root / "data" / "main"
     cov_dir  = root / "data" / "coverage"
-    serp_dir = Path(args.serp_dir)
+    if args.serp_dir:
+        serp_dir = Path(args.serp_dir)
+    else:
+        # Prefer the data-root's serp/ dir (JUPITER layout). Fall back to the
+        # repo-local mirror (local Mac dev layout).
+        candidates = [root / "data" / "serp",
+                      REPO_ROOT / "geodml_data" / "data" / "serp"]
+        serp_dir = next((p for p in candidates if p.exists()),
+                        candidates[0])
 
     print(f"DATA_ROOT : {root}")
     print(f"MAIN      : {main_dir}")
