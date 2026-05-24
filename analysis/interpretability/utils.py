@@ -188,18 +188,40 @@ class HTMLLoader:
 
 
 def page_digest(html: str, max_chars: int = 8000) -> str:
-    """Strip HTML to readable body text. Keep paragraphs and headings."""
-    from bs4 import BeautifulSoup
+    """Strip HTML to readable body text. Keep paragraphs and headings.
 
-    soup = BeautifulSoup(html, "lxml")
-    for tag in soup(["script", "style", "noscript", "svg", "nav", "footer"]):
-        tag.decompose()
-    parts: list[str] = []
-    for el in soup.find_all(["h1", "h2", "h3", "h4", "p", "li"]):
-        txt = el.get_text(" ", strip=True)
-        if txt:
-            parts.append(txt)
-    text = "\n".join(parts)
+    Prefers selectolax (lexbor C parser, 30-100x faster than bs4+lxml on
+    large pages — the difference between probing finishing in walltime vs.
+    not). Falls back to bs4 if selectolax isn't installed so this stays
+    importable without the dep.
+    """
+    try:
+        from selectolax.lexbor import LexborHTMLParser  # type: ignore
+
+        tree = LexborHTMLParser(html)
+        for sel in ("script", "style", "noscript", "svg", "nav", "footer"):
+            for tag in tree.css(sel):
+                tag.decompose()
+        body = tree.body
+        parts: list[str] = []
+        if body is not None:
+            for el in body.css("h1, h2, h3, h4, p, li"):
+                txt = el.text(separator=" ", strip=True)
+                if txt:
+                    parts.append(txt)
+        text = "\n".join(parts)
+    except ImportError:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "lxml")
+        for tag in soup(["script", "style", "noscript", "svg", "nav", "footer"]):
+            tag.decompose()
+        parts = []
+        for el in soup.find_all(["h1", "h2", "h3", "h4", "p", "li"]):
+            txt = el.get_text(" ", strip=True)
+            if txt:
+                parts.append(txt)
+        text = "\n".join(parts)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_chars]
 
