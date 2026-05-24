@@ -29,7 +29,10 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / "manifests" / "repair_manifest.parquet"
-DATA_ROOT = Path(os.environ.get("GEODML_DATA_ROOT", "/e/scratch/scifi/fourel1"))
+COVERAGE_SUMMARY = REPO_ROOT / "manifests" / "missing_keywords_summary.parquet"
+_DEFAULT_DATA_ROOT = "/e/scratch/scifi/fourel1"
+DATA_ROOT_FROM_ENV = bool(os.environ.get("GEODML_DATA_ROOT"))
+DATA_ROOT = Path(os.environ.get("GEODML_DATA_ROOT", _DEFAULT_DATA_ROOT))
 
 G = "\033[32m"; Y = "\033[33m"; R = "\033[31m"; B = "\033[1m"
 D = "\033[2m"; C = "\033[36m"; X = "\033[0m"
@@ -63,8 +66,11 @@ def header(text: str) -> None:
 
 def refresh_manifest() -> None:
     print(f"{D}  refreshing manifest via repair_audit.py …{X}", file=sys.stderr)
+    env = os.environ.copy()
+    env["GEODML_DATA_ROOT"] = str(DATA_ROOT)
     res = subprocess.run([sys.executable, "scripts/repair_audit.py"],
-                         capture_output=True, text=True, cwd=REPO_ROOT)
+                         capture_output=True, text=True,
+                         cwd=REPO_ROOT, env=env)
     if res.returncode != 0:
         print(f"{R}  repair_audit failed (continuing with stale manifest):{X}",
               file=sys.stderr)
@@ -97,10 +103,12 @@ def main() -> int:
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     header(f"PIPELINE STATUS  {ts}")
-    print(f"  data_root : {DATA_ROOT}")
+    src = "env" if DATA_ROOT_FROM_ENV else f"{Y}DEFAULT — GEODML_DATA_ROOT not set in env{X}"
+    print(f"  data_root : {DATA_ROOT}  ({src})")
     print(f"  git       : {git_branch} @ {git_sha}")
-    print(f"  manifest  : {MANIFEST.relative_to(REPO_ROOT)}  "
-          f"(mtime {time.strftime('%H:%M', time.localtime(MANIFEST.stat().st_mtime))})")
+    mtime_utc = time.strftime("%H:%M UTC",
+                              time.gmtime(MANIFEST.stat().st_mtime))
+    print(f"  manifest  : {MANIFEST.relative_to(REPO_ROOT)}  (mtime {mtime_utc})")
 
     df = pd.read_parquet(MANIFEST)
     jobs = squeue_jobs()
@@ -151,18 +159,43 @@ def main() -> int:
               f"or every cell is done){X}")
 
     # ── Per-variant coverage ────────────────────────────────────────────
-    header("PER-VARIANT KEYWORD COVERAGE  (from rerank stage)")
-    rerank = df[df["stage"] == "rerank"]
-    if not rerank.empty:
-        for v in sorted(rerank["variant"].unique()):
-            s = rerank[rerank["variant"] == v]
-            actual = int(s["actual_kw"].sum())
-            target = int(s["target_kw"].sum())
-            pct = 100.0 * actual / target if target else 0
-            color = G if pct >= 95 else (Y if pct >= 80 else R)
-            print(f"  {color}{v:14s}{X}  cov={pct:5.1f}%  "
-                  f"target={target:>6,d}  actual={actual:>6,d}  "
-                  f"missing={target - actual:>5,d}")
+    # Prefer missing_keywords_summary (post-Stage-C, counts distinct kw in
+    # main parquet). Falls back to rerank manifest if summary missing.
+    if COVERAGE_SUMMARY.exists():
+        header(f"PER-VARIANT KEYWORD COVERAGE  "
+               f"(from {COVERAGE_SUMMARY.name} — post Stage C)")
+        cov = pd.read_parquet(COVERAGE_SUMMARY)
+        cov_by_v = cov.groupby("variant").agg(
+            target=("target", "sum"),
+            actual=("actual", "sum"),
+            missing=("missing", "sum"),
+        )
+        if "rag_failed" in cov.columns:
+            cov_by_v["layer3"] = cov.groupby("variant")["rag_failed"].sum()
+        cov_by_v["cov_pct"] = 100 * cov_by_v["actual"] / cov_by_v["target"]
+        for v, row in cov_by_v.iterrows():
+            color = G if row["cov_pct"] >= 95 else (
+                Y if row["cov_pct"] >= 80 else R)
+            extra = f"  layer3={int(row['layer3']):>4,}" if "layer3" in cov_by_v.columns else ""
+            print(f"  {color}{v:14s}{X}  cov={row['cov_pct']:5.1f}%  "
+                  f"target={int(row['target']):>6,d}  "
+                  f"actual={int(row['actual']):>6,d}  "
+                  f"missing={int(row['missing']):>5,d}{extra}")
+    else:
+        header("PER-VARIANT KEYWORD COVERAGE  (from rerank stage)")
+        rerank = df[df["stage"] == "rerank"]
+        if not rerank.empty:
+            for v in sorted(rerank["variant"].unique()):
+                s = rerank[rerank["variant"] == v]
+                actual = int(s["actual_kw"].sum())
+                target = int(s["target_kw"].sum())
+                pct = 100.0 * actual / target if target else 0
+                color = G if pct >= 95 else (Y if pct >= 80 else R)
+                print(f"  {color}{v:14s}{X}  cov={pct:5.1f}%  "
+                      f"target={target:>6,d}  actual={actual:>6,d}  "
+                      f"missing={target - actual:>5,d}")
+        print(f"  {D}  (run scripts/missing_keywords.py for post-Stage-C "
+              f"distinct-kw coverage){X}")
 
     # ── Slurm queue ─────────────────────────────────────────────────────
     header("SLURM QUEUE")
@@ -231,6 +264,8 @@ def main() -> int:
     # ── Next action ─────────────────────────────────────────────────────
     header("NEXT ACTION")
     total_gap = int(df["gap"].sum())
+    ready_gap = sum(int(r["gap"].sum()) for _, r in all_ready)
+    in_flight_gap = total_gap - ready_gap
     if total_gap == 0 and not jobs:
         print(f"  {G}✓ ALL CLEAR — pipeline complete{X}")
         print("    python scripts/publish_dataset.py stage --force")
@@ -238,12 +273,13 @@ def main() -> int:
               "ValerianFourel/geodml-emnlp-2026")
     elif all_ready:
         n_ready = sum(len(r) for _, r in all_ready)
-        print(f"  {Y}⚠ {n_ready} cells ready to dispatch "
-              f"({total_gap:,} kw gap total){X}")
+        print(f"  {Y}⚠ {n_ready} cells ready to dispatch  "
+              f"(ready_gap={ready_gap:,} kw, in_flight_gap={in_flight_gap:,} kw){X}")
         print("    python scripts/repair_dispatch.py --dry-run | head -30")
         print("    python scripts/repair_dispatch.py")
     else:
-        print(f"  {C}… WAITING — {len(jobs)} jobs in flight, total gap={total_gap:,}{X}")
+        print(f"  {C}… WAITING — {len(jobs)} jobs in flight, "
+              f"in_flight_gap={in_flight_gap:,} kw{X}")
         print("    watch -n 60 'python scripts/pipeline_status.py --no-refresh'")
         print(f"    {D}(or re-run this in ~30 min){X}")
 
