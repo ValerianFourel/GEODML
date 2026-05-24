@@ -358,8 +358,17 @@ def build_digest_table(
     for l in loaders.values():
         l.close()
     df = df.copy()
-    df["digest"] = digests
-    return df[df["digest"].notna() & (df["digest"].str.len() > 100)]
+    # pandas infers float64 (NaN) when assigning an all-None list, which then
+    # breaks the .str accessor below. Force object dtype so .str.len() works
+    # even when every HTML lookup returned None.
+    df["digest"] = pd.array(digests, dtype="object")
+    n_total = len(df)
+    n_with_html = int(df["digest"].notna().sum())
+    print(f"[build_digest_table] {n_with_html}/{n_total} rows had HTML available")
+    if n_with_html == 0:
+        return df.iloc[0:0]
+    df = df[df["digest"].notna()]
+    return df[df["digest"].astype(str).str.len() > 100]
 
 
 def main() -> int:
