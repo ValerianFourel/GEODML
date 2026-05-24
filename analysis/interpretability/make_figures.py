@@ -558,8 +558,11 @@ def figure_e_order_sensitivity(output_dir: Path, data_root_path: Path) -> list[P
             for ax, pair in zip(axes, pairs2):
                 d = ddf[ddf.ordering_pair == pair].sort_values("delta")
                 ys = range(len(d))
-                ax.errorbar(d["delta"], ys,
-                            xerr=[d["delta"] - d["ci_lo"], d["ci_hi"] - d["delta"]],
+                # Bootstrap CIs can fall on the "wrong" side of the point estimate
+                # for skewed small-n distributions; matplotlib requires xerr>=0.
+                xerr_lo = np.maximum(0.0, d["delta"].values - d["ci_lo"].values)
+                xerr_hi = np.maximum(0.0, d["ci_hi"].values - d["delta"].values)
+                ax.errorbar(d["delta"], ys, xerr=[xerr_lo, xerr_hi],
                             fmt="o", color="crimson", capsize=3)
                 ax.set_yticks(list(ys))
                 ax.set_yticklabels(d["cell"], fontsize=8)
