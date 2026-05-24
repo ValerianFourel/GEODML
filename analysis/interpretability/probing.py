@@ -317,21 +317,44 @@ def build_digest_table(
     df: pd.DataFrame, data_root_path: Path, run_filter: str | None
 ) -> pd.DataFrame:
     """For each row (url, run_id), load HTML and produce a digest. Drop rows
-    whose HTML is not available in the per-run cache."""
-    # Prefer one run per URL. If the main table has a `run_id` column use it.
+    whose HTML is not available in the per-run cache.
+
+    Threaded: reads are I/O-bound on /e/scratch and bs4(lxml) releases the GIL
+    during parse, so a thread pool gives near-linear speedup. Worker count is
+    tunable via DIGEST_WORKERS (default 64).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     if run_filter is not None:
         df = df[df["run_id"] == run_filter]
 
-    loaders: dict[str, HTMLLoader] = {}
-    digests: list[str | None] = []
-    for rid, url in tqdm(list(zip(df["run_id"], df["url"])), desc="html->digest"):
-        if rid not in loaders:
-            loaders[rid] = HTMLLoader(rid, root=data_root_path)
+    # Pre-build one loader per rid. After the symlink fix in §runs/.../phase2,
+    # the extracted-dir path is taken, which is thread-safe.
+    loaders: dict[str, HTMLLoader] = {
+        rid: HTMLLoader(rid, root=data_root_path) for rid in df["run_id"].unique()
+    }
+
+    items: list[tuple[str, str]] = list(zip(df["run_id"], df["url"]))
+
+    def _one(rid_url: tuple[str, str]) -> str | None:
+        rid, url = rid_url
         try:
             html = loaders[rid].get_html(url)
         except FileNotFoundError:
-            html = None
-        digests.append(page_digest(html) if html else None)
+            return None
+        return page_digest(html) if html else None
+
+    n_workers = int(os.environ.get("DIGEST_WORKERS", "64"))
+    digests: list[str | None] = [None] * len(items)
+    if items:
+        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+            # map preserves order; chunksize amortises queue overhead
+            for i, dig in enumerate(tqdm(
+                ex.map(_one, items, chunksize=16),
+                total=len(items), desc=f"html->digest [{n_workers} threads]",
+            )):
+                digests[i] = dig
+
     for l in loaders.values():
         l.close()
     df = df.copy()

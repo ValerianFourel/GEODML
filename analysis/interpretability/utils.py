@@ -143,6 +143,9 @@ class HTMLLoader:
         self.tarball = self.root / "html_cache.tar.gz"
         self._tar: tarfile.TarFile | None = None
         self._tar_names: set[str] | None = None
+        # Cache the extracted-dir existence so threaded reads don't redo
+        # a stat() on every get_html call (slow on /e/scratch).
+        self._extracted_exists = self.extracted.exists()
 
     def _open_tar(self) -> tarfile.TarFile:
         if self._tar is None:
@@ -167,11 +170,12 @@ class HTMLLoader:
 
     def get_html(self, url: str) -> str | None:
         fname = url_to_html_filename(url)
-        if self.extracted.exists():
+        if self._extracted_exists:
             p = self.extracted / fname
-            if p.exists():
+            try:
                 return p.read_text(encoding="utf-8", errors="replace")
-            return None
+            except FileNotFoundError:
+                return None
         tar = self._open_tar()
         candidates = [f"html_cache/{fname}", fname]
         for c in candidates:
