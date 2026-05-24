@@ -323,11 +323,12 @@ def push(repo_id: str, private: bool = True) -> int:
 
     sz = dir_size(STAGE_DIR)
     print(f"[push] uploading {STAGE_DIR}  ({size_h(sz)}) → {repo_id}")
-    api.upload_folder(
+    # upload_folder fails with HTTP 500 on commits over ~1 GB; use the
+    # resumable, multi-commit large-folder API instead.
+    api.upload_large_folder(
         folder_path=str(STAGE_DIR),
         repo_id=repo_id,
         repo_type="dataset",
-        commit_message=f"sync {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
     )
     url = f"https://huggingface.co/datasets/{repo_id}"
     print(f"[push] done → {url}")
