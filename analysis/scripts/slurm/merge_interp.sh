@@ -149,7 +149,7 @@ merge_weights_variant() {
 
 for v in "${VARIANTS[@]}"; do
     case "$v" in
-        biased|neutral) ;;
+        biased|neutral|biased_rag|neutral_rag) ;;
         *) echo "[merge_interp] unknown variant: $v" >&2; exit 2 ;;
     esac
     echo "[merge_interp] === variant=$v ==="
