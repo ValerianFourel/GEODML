@@ -101,17 +101,18 @@ def get_running_jobs() -> list[tuple[str, str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# tqdm overwrites with \r, so we don't anchor to ^. Just find any tqdm-shaped
+# fragment in the tail and take the last one.
 TQDM_RE = re.compile(
     r"""
-    ^                                       # line start
-    (?P<step>[A-Za-z_>][A-Za-z_> \[\]0-9\-]*?)   # step name (greedy chars excluding ':')
-    :\s+                                    # colon + space
-    (?P<pct>\d+)%                           # percent
-    \|[^\|]*\|                              # bar between two pipes (anything not-pipe inside)
-    \s*(?P<x>\d+)/(?P<y>\d+)\s*             # X/Y counts
-    \[(?P<el>[^<\]]+?)<(?P<rem>[^,\]]+?)    # elapsed<remaining
+    (?P<step>[A-Za-z][A-Za-z_> \[\]0-9\-]{1,30}?)   # step name (1-30 chars)
+    :\s+                                            # colon + space
+    (?P<pct>\d+)%                                   # percent
+    \|[^\|]*\|                                      # bar between two pipes
+    \s*(?P<x>\d+)/(?P<y>\d+)\s*                     # X/Y counts
+    \[(?P<el>[^<\]]+?)<(?P<rem>[^,\]]+?)[,\]]       # elapsed<remaining ,
     """,
-    re.MULTILINE | re.VERBOSE,
+    re.VERBOSE,
 )
 
 
@@ -123,11 +124,12 @@ def parse_logs(jid: str) -> JobInfo:
     # --- .out: model, treatment, frame markers --------------------------
     if out_path.exists():
         out_text = out_path.read_text(errors="replace")
-        m = re.search(r"MODEL=(\S+)", out_text)
+        # .out has lines like "[probing] model=meta-llama/Llama-3.3-70B-Instruct frame=both ..."
+        m = re.search(r"\bmodel=(\S+)", out_text, re.IGNORECASE)
         if m:
             info.model = m.group(1).split("/")[-1].replace("-Instruct", "")
-        m = re.search(r"treatment=(\S+)", out_text)
-        if m:
+        m = re.search(r"\btreatment=(\S+)", out_text, re.IGNORECASE)
+        if m and m.group(1) not in ("ALL", "?"):
             info.treatment = m.group(1)
         # most recent frame marker
         frames = re.findall(r"=== frame=([a-z_]+)", out_text)
@@ -190,7 +192,35 @@ def estimate_eta(info: JobInfo) -> str:
 
 
 # ---------------------------------------------------------------------------
+def debug_one(jid: str):
+    err_path = LOGS / f"geodml-prob-{jid}.err"
+    out_path = LOGS / f"geodml-prob-{jid}.out"
+    print(f"=== {jid}.out (tail) ===")
+    if out_path.exists():
+        print(out_path.read_text(errors="replace")[-2000:])
+    print(f"\n=== {jid}.err (last 3000 chars, \\r → newline) ===")
+    if err_path.exists():
+        try:
+            with err_path.open("rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 5000))
+                tail = f.read().decode(errors="replace")
+        except Exception:
+            tail = ""
+        tail = tail.replace("\r", "\n")
+        print(tail[-3000:])
+    print(f"\n=== regex match attempts on .err tail ===")
+    info = parse_logs(jid)
+    print(f"step={info.step!r}  pct={info.pct}  x_y={info.x_y!r}  rem={info.tqdm_remaining!r}")
+    print(f"raw_last={info.raw_last!r}")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--debug" and len(sys.argv) > 2:
+        debug_one(sys.argv[2])
+        return
+
     rows = get_running_jobs()
     if not rows:
         print("No running geodml-prob jobs found.")
