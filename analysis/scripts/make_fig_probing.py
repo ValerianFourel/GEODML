@@ -142,19 +142,6 @@ def make_fig_layerwise(df: pd.DataFrame):
                 marker="o", markersize=11, color=c,
                 markeredgecolor="white", markeredgewidth=1.8, zorder=6)
 
-    # peaks summary table — top-right of the plot area, well away from curves
-    if peaks:
-        rows = ["peak ROC AUC  (mean pooling)", "─" * 32]
-        for t, c, peak in sorted(peaks, key=lambda r: -r[2]["roc_mean"]):
-            short = TREAT_LABEL[t].split(" ", 1)[0]
-            rows.append(f"  {short:6s}  L{int(peak['layer']):>2}   {peak['roc_mean']:.3f}")
-        ax.text(0.985, 0.05, "\n".join(rows),
-                transform=ax.transAxes,
-                family="monospace", fontsize=10.5, color="#333",
-                ha="right", va="bottom",
-                bbox=dict(boxstyle="round,pad=0.55", facecolor="white",
-                          edgecolor="#bbb", linewidth=0.8, alpha=0.97))
-
     ax.set_xlim(-3, 83)
     ax.set_ylim(0.94, 1.012)
     ax.set_xlabel("transformer layer", fontsize=13)
@@ -163,25 +150,37 @@ def make_fig_layerwise(df: pd.DataFrame):
                  loc="left", fontsize=13.5)
     ax.grid(axis="y", alpha=0.22)
 
-    # legend BELOW the axes — guaranteed not to clash
+    # legend BELOW-LEFT, peaks table BELOW-RIGHT — both outside the data area
     ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.14),
-        ncol=3,
+        loc="upper left",
+        bbox_to_anchor=(0.0, -0.14),
+        ncol=2,
         frameon=False,
         fontsize=11,
         handlelength=2.0,
-        labelspacing=0.6,
-        columnspacing=1.6,
-        borderpad=0.4,
+        labelspacing=0.55,
+        columnspacing=1.4,
+        borderpad=0.3,
     )
+
+    if peaks:
+        rows = ["peak ROC AUC  (mean pooling)", "─" * 30]
+        for t, c, peak in sorted(peaks, key=lambda r: -r[2]["roc_mean"]):
+            short = TREAT_LABEL[t].split(" ", 1)[0]
+            rows.append(f"  {short:6s}  L{int(peak['layer']):>2}   {peak['roc_mean']:.3f}")
+        ax.text(1.0, -0.14, "\n".join(rows),
+                transform=ax.transAxes,
+                family="monospace", fontsize=10.5, color="#333",
+                ha="right", va="top",
+                bbox=dict(boxstyle="round,pad=0.55", facecolor="white",
+                          edgecolor="#bbb", linewidth=0.8))
 
     fig.text(0.50, 0.005,
              "Linear probe (logistic regression on frozen hidden states) per (treatment, layer); 80/20 stratified split.   "
              "Llama-3.3-70B + Qwen-2.5-72B; averaged across 4 prompt variants.\n"
              "Shaded band:  min–max envelope across variants  (invisibly narrow — variant has no measurable effect).",
              ha="center", va="bottom", fontsize=10, color="#444", style="italic")
-    fig.subplots_adjust(top=0.92, bottom=0.30, left=0.10, right=0.97)
+    fig.subplots_adjust(top=0.92, bottom=0.34, left=0.10, right=0.97)
     return fig
 
 
