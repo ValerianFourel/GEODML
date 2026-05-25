@@ -89,12 +89,14 @@ def make_fig(df: pd.DataFrame):
                 color=MODEL_COLOR[m], edgecolor="white", linewidth=0.8,
                 alpha=0.95, label=m if i == 0 else None,
             )
-            # number annotation — always on the BASELINE side of the bar so
-            # it never touches the y-tick label on the far left
-            xtxt = ratio + 0.06 if ratio >= 1.0 else ratio + 0.06
+            # All annotations on the RIGHT side, in the free white space:
+            #   ratio > 1.0 → just past the bar's right end
+            #   ratio < 1.0 → just past the baseline (x > 1.0), away from
+            #                 the y-tick label on the left
+            xtxt = (ratio if ratio >= 1.0 else 1.0) + 0.06
             ax.text(xtxt, y, f"{ratio:.2f}×",
                     ha="left", va="center",
-                    fontsize=10, fontweight="bold",
+                    fontsize=10.5, fontweight="bold",
                     color=MODEL_COLOR[m])
 
     # baseline reference line at 1.0
@@ -136,7 +138,11 @@ def make_fig(df: pd.DataFrame):
         handlelength=1.4, columnspacing=2.6, borderpad=0.2,
     )
 
-    fig.subplots_adjust(top=0.93, bottom=0.22, left=0.30, right=0.97)
+    fig.subplots_adjust(top=0.93, bottom=0.22, left=0.32, right=0.97)
+    # extra padding between the y-tick labels and the plot spine, so the
+    # small-ratio annotations (e.g. 0.19×) don't visually touch the (demoter)
+    # text on the left margin.
+    ax.tick_params(axis="y", pad=10)
     return fig
 
 
