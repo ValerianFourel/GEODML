@@ -50,6 +50,12 @@ EXTRA_ARGS=()
 if [ -n "${TREATMENT:-}" ]; then
   EXTRA_ARGS+=(--treatment "$TREATMENT")
 fi
+# Behavioural admission pre-commitment probe: when INCTX_ADMISSION=1 is set,
+# the job runs only the in-context probe with labels = was-admitted-by-this-
+# (model, variant). Skips digest treatment probes for speed.
+if [ "${INCTX_ADMISSION:-0}" = "1" ]; then
+  EXTRA_ARGS+=(--inctx-admission)
+fi
 
 echo "[probing] model=$MODEL frame=$FRAME sample_n=$SAMPLE_N t7_kws=$T7_KWS variant=$PROMPT_VARIANT treatment=${TREATMENT:-ALL}"
 echo "[probing] run_filter=$RUN_FILTER"
@@ -78,6 +84,6 @@ fi
 chain_resubmit "$0" \
   MODEL="$MODEL" SAMPLE_N="$SAMPLE_N" T7_KWS="$T7_KWS" FRAME="$FRAME" \
   RUN_FILTER="$RUN_FILTER" PROMPT_VARIANT="$PROMPT_VARIANT" \
-  TREATMENT="${TREATMENT:-}" \
+  TREATMENT="${TREATMENT:-}" INCTX_ADMISSION="${INCTX_ADMISSION:-0}" \
   || exit "$RC"
 exit 0

@@ -53,6 +53,28 @@ from interpretability.utils import (
 FRAME_SUFFIX = {"full": "_full", "robust_winners": "_rw"}
 
 
+def load_admitted_set(model_name: str, variant: str, root=None) -> set:
+    """Return {(keyword, url)} that the given (model, variant) admitted.
+
+    The per-variant parquet only contains admitted rows, so presence-in-table
+    IS the admission decision. We filter by model via the llm_model column
+    (or fall back to run_id substring match).
+    """
+    r = data_root(root)
+    p = r / "data" / "main" / f"full_experiment_data_{variant}.parquet"
+    if not p.exists():
+        raise FileNotFoundError(f"Per-variant parquet not found: {p}")
+    df = pd.read_parquet(p, columns=["keyword", "url", "llm_model", "run_id"])
+    model_tag = model_name.split("/")[-1]
+    short_tag = model_tag.replace("-Instruct", "")
+    mask = (
+        df["llm_model"].str.contains(short_tag, na=False, regex=False)
+        | df["run_id"].str.contains(short_tag, na=False, regex=False)
+    )
+    sub = df[mask][["keyword", "url"]].dropna().drop_duplicates()
+    return set(zip(sub["keyword"], sub["url"]))
+
+
 PROBING_TREATMENTS = {
     # original 4 (already probed; T7_source_earned is the descriptive halo flag,
     # not the canonical T7=llms.txt — keep for back-compat but excluded from
@@ -418,6 +440,14 @@ def main() -> int:
                     help="If set, run only this one treatment (key in "
                          "PROBING_TREATMENTS). Lets you fan out one Slurm "
                          "job per (treatment, model) and finish in ~1 GPU-hour.")
+    ap.add_argument("--inctx-admission", action="store_true",
+                    help="Run the in-context admission probe instead of "
+                         "(or in addition to) the treatment probes. For each "
+                         "URL span in the rerank prompt, the label becomes "
+                         "1 if the (model, variant) admitted that URL in "
+                         "the main table, else 0. Behavioural pre-commitment "
+                         "test — measures at what layer the LLM's hidden "
+                         "state predicts its own admission decision.")
     ap.add_argument(
         "--frame", choices=("full", "robust_winners", "both"), default="both",
         help="Sample frame. 'robust_winners' restricts the probing sample to "
@@ -496,6 +526,10 @@ def main() -> int:
         digest_treatments = {
             k: v for k, v in PROBING_TREATMENTS.items() if k != "T7_source_earned"
         }
+        # In admission-probe mode, skip the body-digest treatment probes entirely —
+        # the job is dedicated to the in-context admission pre-commitment probe.
+        if args.inctx_admission:
+            digest_treatments = {}
         # --treatment flag: limit to a single key so one Slurm job = one treatment.
         if args.treatment:
             digest_treatments = {
@@ -525,11 +559,20 @@ def main() -> int:
         # T7 in-context: pick keywords whose SERP candidate pool has both earned
         # and non-earned URLs, so each prompt yields informative probe examples.
         t7_prompts: list[tuple[str, str, list[dict]]] = []
-        # Skip the T7 in-context branch entirely when a different single
-        # treatment was requested via --treatment.
+        # The T7-style in-context branch is reused for both T7 earned-media
+        # probing and (new 2026-05-25) the admission pre-commitment probe.
+        inctx_admission = args.inctx_admission
+        inctx_label_name = "Y1_admission_inctx" if inctx_admission else "T7_source_earned"
+        admitted_set: set | None = None
+        if inctx_admission:
+            variant = os.environ.get("PROMPT_VARIANT", "biased")
+            print(f"[probing] inctx-admission mode  model={args.model}  variant={variant}")
+            admitted_set = load_admitted_set(args.model, variant, root=args.data_root)
+            print(f"[probing] admitted set: {len(admitted_set):,} (kw, url) pairs")
         run_t7_inctx = (
-            "T7_source_earned" in PROBING_TREATMENTS
-            and (args.treatment in (None, "T7_source_earned"))
+            inctx_admission
+            or ("T7_source_earned" in PROBING_TREATMENTS
+                and (args.treatment in (None, "T7_source_earned")))
         )
         if run_t7_inctx:
             serp_df = load_serp(
@@ -555,41 +598,56 @@ def main() -> int:
                     top = [r for r in top if (kw, r["url"]) in allowed_pairs]
                     if not top:
                         continue
-                n_earned = sum(
-                    1 for r in top if _extract_domain(r["url"]) in earned_set
-                )
-                if 0 < n_earned < len(top):
-                    mixed_kws.append(kw)
+                if inctx_admission:
+                    # Admission probe: keep keywords that have BOTH admitted and
+                    # not-admitted URLs in the SERP top — guarantees label variance.
+                    n_pos = sum(1 for r in top if (kw, r["url"]) in admitted_set)
+                    if 0 < n_pos < len(top):
+                        mixed_kws.append(kw)
+                else:
+                    n_earned = sum(
+                        1 for r in top if _extract_domain(r["url"]) in earned_set
+                    )
+                    if 0 < n_earned < len(top):
+                        mixed_kws.append(kw)
             mixed_kws.sort()
             rng.shuffle(mixed_kws)
             chosen = mixed_kws[: args.t7_keywords]
-            print(f"[probing] T7 keywords: {len(chosen)} (out of {len(mixed_kws)} mixed)")
+            print(f"[probing] {inctx_label_name} keywords: {len(chosen)} "
+                  f"(out of {len(mixed_kws)} mixed)")
 
             for kw in chosen:
                 top = serp_by_kw[kw][: args.t7_serp_pool]
                 if frame == "robust_winners":
                     top = [r for r in top if (kw, r["url"]) in allowed_pairs]
                 prompt, spans = build_rerank_prompt_with_spans(kw, top, top_n=10)
-                for s in spans:
-                    s["label"] = int(s["domain"] in earned_set)
+                if inctx_admission:
+                    for s in spans:
+                        s["label"] = int((kw, s["url"]) in admitted_set)
+                else:
+                    for s in spans:
+                        s["label"] = int(s["domain"] in earned_set)
                 t7_prompts.append((kw, prompt, spans))
 
         all_rows: list[dict] = []
 
-        # T7 first, while VRAM is freshest (full prompts can be ~2k tokens).
+        # T7-style in-context first, while VRAM is freshest (full prompts ~2k tokens).
         # Per-keyword chunked extraction: a kill loses at most one keyword.
-        if t7_prompts and not (args.resume and ckpt.seen("T7_source_earned")):
-            chunk_dir = out_dir / f"t7_chunks{suffix}"
+        # When --inctx-admission is set, this same machinery does the admission
+        # pre-commitment probe instead (labels = admitted-by-(model,variant)).
+        if t7_prompts and not (args.resume and ckpt.seen(inctx_label_name)):
+            chunk_subdir = "adm_chunks" if inctx_admission else "t7_chunks"
+            chunk_dir = out_dir / f"{chunk_subdir}{suffix}"
             mean_X, last_X, y, _meta = t7_in_context_hidden_states(
                 model, tok, t7_prompts, device,
                 max_len=args.t7_max_len, chunk_dir=chunk_dir, ckpt=ckpt,
             )
             if len(y) >= 100 and y.sum() >= 10 and (len(y) - y.sum()) >= 10:
-                print(f"[probing] T7 in-context: n={len(y)}  "
+                print(f"[probing] {inctx_label_name} in-context: n={len(y)}  "
                       f"pos_frac={y.mean():.3f}  hidden={mean_X.shape}")
                 rows = []
-                rows += train_probes(last_X, y, "last_token", "T7_source_earned", np_rng)
-                rows += train_probes(mean_X, y, "mean", "T7_source_earned", np_rng)
+                rows += train_probes(last_X, y, "last_token", inctx_label_name, np_rng)
+                rows += train_probes(mean_X, y, "mean", inctx_label_name, np_rng)
                 for r in rows:
                     r["frame"] = frame
                 all_rows.extend(rows)
@@ -597,7 +655,7 @@ def main() -> int:
                 pd.DataFrame(rows).to_csv(
                     out_path, mode=mode, header=(mode == "w"), index=False
                 )
-                ckpt.mark("T7_source_earned")
+                ckpt.mark(inctx_label_name)
                 ckpt.save()
             else:
                 print(f"[probing] T7 in-context: insufficient data (n={len(y)}, "
