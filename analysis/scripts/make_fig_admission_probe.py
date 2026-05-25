@@ -68,7 +68,7 @@ def load_admission() -> pd.DataFrame:
     ].mean().reset_index())
 
 
-def make_figure(df: pd.DataFrame):
+def _style():
     plt.rcParams.update({
         "font.family":         "serif",
         "axes.spines.top":     False,
@@ -80,27 +80,26 @@ def make_figure(df: pd.DataFrame):
         "pdf.fonttype":        42,
     })
 
-    fig, (axA, axB) = plt.subplots(
-        1, 2, figsize=(13.5, 6.0),
-        gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.24},
-    )
 
-    # ===== Panel A: pooled across variants, both poolings =====
+def make_fig_admission_pooled(df: pd.DataFrame):
+    """Single-panel: admission probe, pooled over variants, both poolings."""
+    _style()
+    fig, ax = plt.subplots(figsize=(9.5, 6.5))
     pooled = (df.groupby(["layer", "pooling"])["roc_auc"]
                 .agg(["mean", "min", "max"]).reset_index())
 
-    POOL_STYLE = {"mean": ("-", 2.4, "#1d4d8a"),
-                  "last_token": ("--", 1.6, "#5a5a5a")}
+    POOL_STYLE = {"mean": ("-", 2.6, "#1d4d8a"),
+                  "last_token": ("--", 1.7, "#5a5a5a")}
     POOL_LABEL = {"mean": "mean pooling",
                   "last_token": "last-token pooling"}
 
     for p in ("mean", "last_token"):
         sub = pooled[pooled.pooling == p].sort_values("layer")
         ls, lw, c = POOL_STYLE[p]
-        axA.fill_between(sub["layer"], sub["min"], sub["max"],
-                         color=c, alpha=0.11, linewidth=0)
-        axA.plot(sub["layer"], sub["mean"],
-                 color=c, lw=lw, linestyle=ls, label=POOL_LABEL[p])
+        ax.fill_between(sub["layer"], sub["min"], sub["max"],
+                        color=c, alpha=0.11, linewidth=0)
+        ax.plot(sub["layer"], sub["mean"],
+                color=c, lw=lw, linestyle=ls, label=POOL_LABEL[p])
 
     # headline numbers (mean pooling)
     mean_sub = pooled[pooled.pooling == "mean"]
@@ -109,77 +108,96 @@ def make_figure(df: pd.DataFrame):
     last_layer = int(mean_sub.layer.max())
     layerN = mean_sub.loc[mean_sub.layer == last_layer, "mean"].iloc[0]
 
-    # markers with arrows pointing INTO clear areas of the plot
-    axA.plot(peak["layer"], peak["mean"], marker="o", markersize=11,
-             color="#1d4d8a", markeredgecolor="white", markeredgewidth=1.8, zorder=6)
-    axA.plot(0, layer0, marker="s", markersize=9, color="#666",
-             markeredgecolor="white", markeredgewidth=1.2, zorder=6)
-    axA.plot(last_layer, layerN, marker="s", markersize=9, color="#666",
-             markeredgecolor="white", markeredgewidth=1.2, zorder=6)
+    ax.plot(peak["layer"], peak["mean"], marker="o", markersize=12,
+            color="#1d4d8a", markeredgecolor="white", markeredgewidth=2.0, zorder=6)
+    ax.plot(0, layer0, marker="s", markersize=10, color="#666",
+            markeredgecolor="white", markeredgewidth=1.4, zorder=6)
+    ax.plot(last_layer, layerN, marker="s", markersize=10, color="#666",
+            markeredgecolor="white", markeredgewidth=1.4, zorder=6)
 
-    # Annotation BOX in the wide top-left area (curves are in the middle/bottom)
-    txt = (f"layer 0:   {layer0:.3f}\n"
-           f"peak L{int(peak['layer'])}:  {peak['mean']:.3f}\n"
-           f"layer {last_layer}:  {layerN:.3f}\n"
-           f"L0 → peak: +{peak['mean'] - layer0:.3f}")
-    axA.text(2.5, 0.985, txt,
-             fontsize=10.5, color="#1d4d8a", family="monospace",
-             ha="left", va="top",
-             bbox=dict(boxstyle="round,pad=0.5", facecolor="white",
-                       edgecolor="#bbb", linewidth=0.8))
+    # Annotation box top-left (corner) — plenty of room there
+    txt = (f"layer 0:     {layer0:.3f}\n"
+           f"peak L{int(peak['layer'])}:    {peak['mean']:.3f}\n"
+           f"layer {last_layer}:    {layerN:.3f}\n"
+           f"L0 → peak:   +{peak['mean'] - layer0:.3f}")
+    ax.text(0.015, 0.97, txt, transform=ax.transAxes,
+            fontsize=11, color="#1d4d8a", family="monospace",
+            ha="left", va="top",
+            bbox=dict(boxstyle="round,pad=0.6", facecolor="white",
+                      edgecolor="#bbb", linewidth=0.8, alpha=0.97))
 
-    # chance line + label well away from data
-    axA.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
-    axA.text(80.5, 0.512, "chance", color="#777", fontsize=9,
-             ha="right", va="bottom", style="italic")
+    ax.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
+    ax.text(80.5, 0.515, "chance", color="#777", fontsize=10,
+            ha="right", va="bottom", style="italic")
 
-    axA.set_xlim(-3, 83)
-    axA.set_ylim(0.45, 1.02)
-    axA.set_xlabel("transformer layer", fontsize=12)
-    axA.set_ylabel(r"probe ROC AUC  (is URL admitted?)", fontsize=12)
-    axA.set_title("(a)  admission probe  —  pooled over 4 prompt variants",
-                  loc="left", fontsize=13)
-    axA.grid(axis="y", alpha=0.22)
+    ax.set_xlim(-3, 83)
+    ax.set_ylim(0.45, 1.03)
+    ax.set_xlabel("transformer layer", fontsize=13)
+    ax.set_ylabel(r"probe ROC AUC  (is URL admitted?)", fontsize=13)
+    ax.set_title("Admission probe  —  pooled over 4 prompt variants",
+                 loc="left", fontsize=13.5)
+    ax.grid(axis="y", alpha=0.22)
 
-    # legend in upper-right corner, away from peak marker
-    axA.legend(loc="upper right", frameon=False, fontsize=11,
-               handlelength=2.4, labelspacing=0.5, borderpad=0.3,
-               bbox_to_anchor=(0.99, 0.85))
+    # legend BELOW the axes — never clashes
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14),
+              ncol=2, frameon=False, fontsize=11.5,
+              handlelength=2.6, columnspacing=2.4)
 
-    # ===== Panel B: per-variant breakdown, mean pooling =====
+    fig.text(0.50, 0.005,
+             "For each URL span in the rerank prompt, the label is 1 if the (model, variant) admitted that URL, else 0.\n"
+             "Linear probe (logistic regression on frozen hidden states), per (layer, pooling).  "
+             "Llama-3.3-70B + Qwen-2.5-72B.   "
+             "Shaded band: min–max envelope across the 4 prompt variants.",
+             ha="center", va="bottom", fontsize=10, color="#444", style="italic")
+    fig.subplots_adjust(top=0.92, bottom=0.28, left=0.10, right=0.97)
+    return fig
+
+
+def make_fig_admission_variants(df: pd.DataFrame):
+    """Single-panel: per-variant admission probe curves, mean pooling."""
+    _style()
+    fig, ax = plt.subplots(figsize=(9.5, 6.5))
+
     sub_mean = df[df.pooling == "mean"]
     for v in VARIANTS:
         s = sub_mean[sub_mean.variant == v].sort_values("layer")
         if s.empty:
             continue
-        axB.plot(s["layer"], s["roc_auc"],
-                 color=VARIANT_COLOR[v], lw=2.0,
-                 linestyle="--" if "rag" in v else "-",
-                 label=VARIANT_LABEL[v], alpha=0.92)
+        ax.plot(s["layer"], s["roc_auc"],
+                color=VARIANT_COLOR[v], lw=2.2,
+                linestyle="--" if "rag" in v else "-",
+                label=VARIANT_LABEL[v], alpha=0.92)
 
-    axB.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
-    axB.text(80.5, 0.512, "chance", color="#777", fontsize=9,
-             ha="right", va="bottom", style="italic")
-    axB.set_xlim(-3, 83)
-    axB.set_ylim(0.45, 1.02)
-    axB.set_xlabel("transformer layer", fontsize=12)
-    axB.set_ylabel(r"probe ROC AUC", fontsize=12)
-    axB.set_title("(b)  per prompt variant  —  mean pooling",
-                  loc="left", fontsize=13)
-    axB.grid(axis="y", alpha=0.22)
-    axB.legend(loc="upper right", frameon=False, fontsize=10.5, ncol=2,
-               handlelength=2.0, labelspacing=0.5, columnspacing=1.4,
-               bbox_to_anchor=(0.99, 0.92))
+    ax.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
+    ax.text(80.5, 0.515, "chance", color="#777", fontsize=10,
+            ha="right", va="bottom", style="italic")
+    ax.set_xlim(-3, 83)
+    ax.set_ylim(0.45, 1.03)
+    ax.set_xlabel("transformer layer", fontsize=13)
+    ax.set_ylabel(r"probe ROC AUC", fontsize=13)
+    ax.set_title("Admission probe  —  per prompt variant  (mean pooling)",
+                 loc="left", fontsize=13.5)
+    ax.grid(axis="y", alpha=0.22)
 
-    # caption with generous breathing room below the panels
-    fig.text(0.50, 0.02,
-             "Behavioural pre-commitment probe.  For each URL span in the rerank prompt, the label is 1 if the (model, variant) admitted that URL, else 0.\n"
-             "Linear probe (logistic regression on frozen hidden states), one fit per (layer, pooling), 80/20 stratified split.  "
-             "Pooled across Llama-3.3-70B and Qwen-2.5-72B.   "
-             "Shaded band in (a):  min–max envelope across the 4 prompt variants.",
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14),
+              ncol=4, frameon=False, fontsize=11,
+              handlelength=2.4, columnspacing=2.0)
+
+    fig.text(0.50, 0.005,
+             "Same probe as the pooled curve, split out by the four prompt variants.\n"
+             "Solid = no-RAG prompt;  dashed = +RAG.  Red = biased system prompt;  blue = neutral.",
              ha="center", va="bottom", fontsize=10, color="#444", style="italic")
-    fig.subplots_adjust(top=0.91, bottom=0.20, left=0.06, right=0.985)
+    fig.subplots_adjust(top=0.92, bottom=0.28, left=0.10, right=0.97)
     return fig
+
+
+def _save(fig, name):
+    png = OUT_DIR / f"{name}.png"
+    pdf = OUT_DIR / f"{name}.pdf"
+    fig.savefig(png, dpi=300, bbox_inches="tight", pad_inches=0.18)
+    fig.savefig(pdf, bbox_inches="tight", pad_inches=0.18)
+    print(f"Wrote {png}")
+    print(f"Wrote {pdf}")
 
 
 def main():
@@ -198,13 +216,8 @@ def main():
     print(f"  layer 80 ROC AUC: {pooled.iloc[-1]:.3f}")
     print(f"  L0 → peak gain :  +{pooled.max() - pooled.iloc[0]:.3f}")
 
-    fig = make_figure(df)
-    png = OUT_DIR / "fig_admission_probe.png"
-    pdf = OUT_DIR / "fig_admission_probe.pdf"
-    fig.savefig(png, dpi=300, bbox_inches="tight", pad_inches=0.18)
-    fig.savefig(pdf, bbox_inches="tight", pad_inches=0.18)
-    print(f"\nWrote {png}")
-    print(f"Wrote {pdf}")
+    _save(make_fig_admission_pooled(df),   "fig_admission_pooled")
+    _save(make_fig_admission_variants(df), "fig_admission_variants")
 
 
 if __name__ == "__main__":

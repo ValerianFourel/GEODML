@@ -96,7 +96,7 @@ def load_probing() -> pd.DataFrame:
 # Plot
 # ---------------------------------------------------------------------------
 
-def make_figure(df: pd.DataFrame):
+def _style():
     plt.rcParams.update({
         "font.family":       "serif",
         "axes.spines.top":   False,
@@ -108,12 +108,12 @@ def make_figure(df: pd.DataFrame):
         "pdf.fonttype":      42,
     })
 
-    fig, (axA, axB) = plt.subplots(
-        1, 2, figsize=(14.5, 6.2),
-        gridspec_kw={"width_ratios": [1.55, 1.0], "wspace": 0.24},
-    )
 
-    # ---- Panel A: layer-wise ROC AUC (mean pooling, averaged over variants)
+def make_fig_layerwise(df: pd.DataFrame):
+    """Single-panel: layer-wise ROC AUC per treatment, mean pooling."""
+    _style()
+    fig, ax = plt.subplots(figsize=(9.5, 6.5))
+
     main = (df[df["pooling"] == "mean"]
             .groupby(["treatment", "layer"])
             .agg(roc_mean=("roc_auc", "mean"),
@@ -132,43 +132,67 @@ def make_figure(df: pd.DataFrame):
         if sub.empty:
             continue
         c = TREAT_COLOR[t]
-        axA.fill_between(sub["layer"], sub["roc_min"], sub["roc_max"],
-                         color=c, alpha=0.14, linewidth=0)
-        axA.plot(sub["layer"], sub["roc_mean"],
-                 color=c, lw=2.2, label=TREAT_LABEL[t])
+        ax.fill_between(sub["layer"], sub["roc_min"], sub["roc_max"],
+                        color=c, alpha=0.14, linewidth=0)
+        ax.plot(sub["layer"], sub["roc_mean"],
+                color=c, lw=2.4, label=TREAT_LABEL[t])
         peak = sub.loc[sub["roc_mean"].idxmax()]
         peaks.append((t, c, peak))
-        axA.plot(peak["layer"], peak["roc_mean"],
-                 marker="o", markersize=10, color=c,
-                 markeredgecolor="white", markeredgewidth=1.6, zorder=6)
+        ax.plot(peak["layer"], peak["roc_mean"],
+                marker="o", markersize=11, color=c,
+                markeredgecolor="white", markeredgewidth=1.8, zorder=6)
 
-    # Peak-layer annotations table — bottom-right area (curves stay near top)
-    # avoids the messy "labels on top of peak dots" pile-up
+    # peaks summary table — top-right of the plot area, well away from curves
     if peaks:
-        rows = ["peaks  (mean pooling)"]
-        rows.append("─" * 26)
+        rows = ["peak ROC AUC  (mean pooling)", "─" * 32]
         for t, c, peak in sorted(peaks, key=lambda r: -r[2]["roc_mean"]):
-            short = TREAT_LABEL[t].split(" ", 1)[0]  # e.g. "$T_{2}$"
+            short = TREAT_LABEL[t].split(" ", 1)[0]
             rows.append(f"  {short:6s}  L{int(peak['layer']):>2}   {peak['roc_mean']:.3f}")
-        axA.text(78, 0.951, "\n".join(rows),
-                 family="monospace", fontsize=10, color="#333",
-                 ha="right", va="bottom",
-                 bbox=dict(boxstyle="round,pad=0.45", facecolor="white",
-                           edgecolor="#bbb", linewidth=0.8, alpha=0.96))
+        ax.text(0.985, 0.05, "\n".join(rows),
+                transform=ax.transAxes,
+                family="monospace", fontsize=10.5, color="#333",
+                ha="right", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.55", facecolor="white",
+                          edgecolor="#bbb", linewidth=0.8, alpha=0.97))
 
-    axA.set_xlim(-3, 83)
-    axA.set_ylim(0.94, 1.012)
-    axA.set_xlabel("transformer layer", fontsize=12)
-    axA.set_ylabel("probe  ROC AUC", fontsize=12)
-    axA.set_title("(a)  layer-wise probing accuracy  —  mean pooling",
-                  loc="left", fontsize=13)
-    axA.grid(axis="y", alpha=0.22)
-    axA.legend(loc="lower left", frameon=False, fontsize=10.5,
-               handlelength=1.8, labelspacing=0.55, borderpad=0.4)
+    ax.set_xlim(-3, 83)
+    ax.set_ylim(0.94, 1.012)
+    ax.set_xlabel("transformer layer", fontsize=13)
+    ax.set_ylabel("probe  ROC AUC", fontsize=13)
+    ax.set_title("Layer-wise probing accuracy by treatment  (mean pooling)",
+                 loc="left", fontsize=13.5)
+    ax.grid(axis="y", alpha=0.22)
 
-    # ---- Panel B: pooling comparison
+    # legend BELOW the axes — guaranteed not to clash
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.14),
+        ncol=3,
+        frameon=False,
+        fontsize=11,
+        handlelength=2.0,
+        labelspacing=0.6,
+        columnspacing=1.6,
+        borderpad=0.4,
+    )
+
+    fig.text(0.50, 0.005,
+             "Linear probe (logistic regression on frozen hidden states) per (treatment, layer); 80/20 stratified split.   "
+             "Llama-3.3-70B + Qwen-2.5-72B; averaged across 4 prompt variants.\n"
+             "Shaded band:  min–max envelope across variants  (invisibly narrow — variant has no measurable effect).",
+             ha="center", va="bottom", fontsize=10, color="#444", style="italic")
+    fig.subplots_adjust(top=0.92, bottom=0.30, left=0.10, right=0.97)
+    return fig
+
+
+def make_fig_pooling(df: pd.DataFrame):
+    """Single-panel: mean vs last-token pooling comparison."""
+    _style()
+    fig, ax = plt.subplots(figsize=(9.5, 6.5))
+
     pool = (df.groupby(["treatment", "layer", "pooling"])["roc_auc"]
               .mean().reset_index())
+    available = set(pool["treatment"].unique())
 
     for t in TREATMENTS:
         if t not in available:
@@ -176,37 +200,51 @@ def make_figure(df: pd.DataFrame):
         c = TREAT_COLOR[t]
         sub_mean = pool[(pool.treatment == t) & (pool.pooling == "mean")].sort_values("layer")
         sub_last = pool[(pool.treatment == t) & (pool.pooling == "last_token")].sort_values("layer")
-        axB.plot(sub_mean["layer"], sub_mean["roc_auc"], color=c, lw=2.0, alpha=0.95)
-        axB.plot(sub_last["layer"], sub_last["roc_auc"], color=c, lw=1.4,
-                 linestyle="--", alpha=0.80)
+        ax.plot(sub_mean["layer"], sub_mean["roc_auc"], color=c, lw=2.2,
+                alpha=0.95, label=TREAT_LABEL[t])
+        ax.plot(sub_last["layer"], sub_last["roc_auc"], color=c, lw=1.5,
+                linestyle="--", alpha=0.80)
 
-    axB.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
-    axB.text(2.5, 0.515, "chance", color="#777",
-             fontsize=9, ha="left", va="bottom", style="italic")
-    axB.set_xlim(-3, 83)
-    axB.set_ylim(0.45, 1.02)
-    axB.set_xlabel("transformer layer", fontsize=12)
-    axB.set_ylabel("probe  ROC AUC", fontsize=12)
-    axB.set_title("(b)  pooling comparison",
-                  loc="left", fontsize=13)
-    axB.grid(axis="y", alpha=0.22)
+    ax.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
+    ax.text(2.5, 0.515, "chance", color="#777", fontsize=9.5,
+            ha="left", va="bottom", style="italic")
+    ax.set_xlim(-3, 83)
+    ax.set_ylim(0.45, 1.02)
+    ax.set_xlabel("transformer layer", fontsize=13)
+    ax.set_ylabel("probe  ROC AUC", fontsize=13)
+    ax.set_title("Pooling comparison  (mean vs. last-token, per treatment)",
+                 loc="left", fontsize=13.5)
+    ax.grid(axis="y", alpha=0.22)
 
-    pool_legend = [
-        Line2D([0], [0], color="#444", lw=2.0, label="mean pooling"),
-        Line2D([0], [0], color="#444", lw=1.4, linestyle="--",
+    # two-row legend below the axes:
+    # row 1 = treatments (same colors as fig A)
+    # row 2 = pooling style (solid vs dashed, in neutral gray)
+    treat_handles, treat_labels = ax.get_legend_handles_labels()
+    pool_handles = [
+        Line2D([0], [0], color="#444", lw=2.2, label="mean pooling"),
+        Line2D([0], [0], color="#444", lw=1.5, linestyle="--",
                label="last-token pooling"),
     ]
-    axB.legend(handles=pool_legend, loc="lower right", frameon=False,
-               fontsize=11, handlelength=2.6, labelspacing=0.55, borderpad=0.5,
-               bbox_to_anchor=(0.99, 0.05))
 
-    # ---- caption text under both panels --------------------------------
-    fig.text(0.50, 0.02,
-             "Linear probes (logistic regression on frozen hidden states), one fit per (treatment, layer, pooling) tuple, 80/20 stratified split.\n"
-             "Trained on Llama-3.3-70B and Qwen-2.5-72B; results averaged across the four prompt variants {biased, neutral, biased+RAG, neutral+RAG}.   "
-             "Shaded bands in (a):  min–max envelope across the 4 variants  (invisibly narrow — variant has no measurable effect on the probe).",
+    leg1 = ax.legend(
+        treat_handles, treat_labels,
+        loc="upper center", bbox_to_anchor=(0.5, -0.14),
+        ncol=3, frameon=False, fontsize=10.5,
+        handlelength=2.0, labelspacing=0.6, columnspacing=1.6,
+    )
+    ax.add_artist(leg1)
+    ax.legend(
+        handles=pool_handles,
+        loc="upper center", bbox_to_anchor=(0.5, -0.30),
+        ncol=2, frameon=False, fontsize=10.5,
+        handlelength=2.6, labelspacing=0.55, columnspacing=2.4,
+    )
+
+    fig.text(0.50, 0.005,
+             "Mean pooling (solid) averages hidden states over all tokens of the page; last-token pooling (dashed) takes the final token only.\n"
+             "Mean pooling near-saturates from layer 0;  last-token requires several layers to absorb context before reaching parity.",
              ha="center", va="bottom", fontsize=10, color="#444", style="italic")
-    fig.subplots_adjust(top=0.91, bottom=0.20, left=0.06, right=0.985)
+    fig.subplots_adjust(top=0.92, bottom=0.36, left=0.10, right=0.97)
     return fig
 
 
@@ -214,20 +252,23 @@ def make_figure(df: pd.DataFrame):
 # Entrypoint
 # ---------------------------------------------------------------------------
 
+def _save(fig, name):
+    png = OUT_DIR / f"{name}.png"
+    pdf = OUT_DIR / f"{name}.pdf"
+    fig.savefig(png, dpi=300, bbox_inches="tight", pad_inches=0.18)
+    fig.savefig(pdf, bbox_inches="tight", pad_inches=0.18)
+    print(f"Wrote {png}")
+    print(f"Wrote {pdf}")
+
+
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     df = load_probing()
     print(f"Loaded {len(df)} probe rows over {df['variant'].nunique()} variants "
           f"× {df['treatment'].nunique()} treatments × {df['layer'].nunique()} layers "
           f"× {df['pooling'].nunique()} poolings.")
-    fig = make_figure(df)
-
-    out_png = OUT_DIR / "fig_probing_unified.png"
-    out_pdf = OUT_DIR / "fig_probing_unified.pdf"
-    fig.savefig(out_png, dpi=300, bbox_inches="tight", pad_inches=0.18)
-    fig.savefig(out_pdf, bbox_inches="tight", pad_inches=0.18)
-    print(f"Wrote {out_png}")
-    print(f"Wrote {out_pdf}")
+    _save(make_fig_layerwise(df), "fig_probing_layerwise")
+    _save(make_fig_pooling(df),   "fig_probing_pooling")
 
 
 if __name__ == "__main__":
