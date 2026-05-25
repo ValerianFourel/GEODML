@@ -89,11 +89,12 @@ def make_fig(df: pd.DataFrame):
                 color=MODEL_COLOR[m], edgecolor="white", linewidth=0.8,
                 alpha=0.95, label=m if i == 0 else None,
             )
-            # number annotation just outside the bar end
-            xtxt = ratio + (0.06 if ratio >= 1.0 else -0.06)
+            # number annotation — always on the BASELINE side of the bar so
+            # it never touches the y-tick label on the far left
+            xtxt = ratio + 0.06 if ratio >= 1.0 else ratio + 0.06
             ax.text(xtxt, y, f"{ratio:.2f}×",
-                    ha="left" if ratio >= 1.0 else "right",
-                    va="center", fontsize=10, fontweight="bold",
+                    ha="left", va="center",
+                    fontsize=10, fontweight="bold",
                     color=MODEL_COLOR[m])
 
     # baseline reference line at 1.0
@@ -135,14 +136,7 @@ def make_fig(df: pd.DataFrame):
         handlelength=1.4, columnspacing=2.6, borderpad=0.2,
     )
 
-    fig.text(0.5, 0.005,
-             "Gradient saliency of each token w.r.t. the chosen-URL log-prob; "
-             "ratio = mean(treatment tokens) / mean(other tokens).   "
-             "Baseline = 1.0× (vertical line).",
-             ha="center", va="bottom", fontsize=9.5, color="#444",
-             style="italic")
-
-    fig.subplots_adjust(top=0.93, bottom=0.30, left=0.30, right=0.97)
+    fig.subplots_adjust(top=0.93, bottom=0.22, left=0.30, right=0.97)
     return fig
 
 
