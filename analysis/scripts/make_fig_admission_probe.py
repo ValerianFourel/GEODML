@@ -70,23 +70,27 @@ def load_admission() -> pd.DataFrame:
 
 def make_figure(df: pd.DataFrame):
     plt.rcParams.update({
-        "font.family": "serif",
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "pdf.fonttype": 42,
+        "font.family":         "serif",
+        "axes.spines.top":     False,
+        "axes.spines.right":   False,
+        "axes.titlepad":       14,
+        "axes.labelpad":       8,
+        "xtick.labelsize":     11,
+        "ytick.labelsize":     11,
+        "pdf.fonttype":        42,
     })
 
     fig, (axA, axB) = plt.subplots(
-        1, 2, figsize=(12.0, 4.8),
-        gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.26},
+        1, 2, figsize=(13.5, 6.0),
+        gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.24},
     )
 
     # ===== Panel A: pooled across variants, both poolings =====
     pooled = (df.groupby(["layer", "pooling"])["roc_auc"]
                 .agg(["mean", "min", "max"]).reset_index())
 
-    POOL_STYLE = {"mean": ("-", 2.0, "#1d4d8a"),
-                  "last_token": ("--", 1.4, "#1d4d8a")}
+    POOL_STYLE = {"mean": ("-", 2.4, "#1d4d8a"),
+                  "last_token": ("--", 1.6, "#5a5a5a")}
     POOL_LABEL = {"mean": "mean pooling",
                   "last_token": "last-token pooling"}
 
@@ -94,79 +98,87 @@ def make_figure(df: pd.DataFrame):
         sub = pooled[pooled.pooling == p].sort_values("layer")
         ls, lw, c = POOL_STYLE[p]
         axA.fill_between(sub["layer"], sub["min"], sub["max"],
-                         color=c, alpha=0.10, linewidth=0)
+                         color=c, alpha=0.11, linewidth=0)
         axA.plot(sub["layer"], sub["mean"],
                  color=c, lw=lw, linestyle=ls, label=POOL_LABEL[p])
 
-    # peak marker (mean pooling)
+    # headline numbers (mean pooling)
     mean_sub = pooled[pooled.pooling == "mean"]
     peak = mean_sub.loc[mean_sub["mean"].idxmax()]
     layer0 = mean_sub.loc[mean_sub.layer == 0, "mean"].iloc[0]
-    layerN = mean_sub.loc[mean_sub.layer == mean_sub.layer.max(), "mean"].iloc[0]
+    last_layer = int(mean_sub.layer.max())
+    layerN = mean_sub.loc[mean_sub.layer == last_layer, "mean"].iloc[0]
 
-    axA.plot(peak["layer"], peak["mean"],
-             marker="o", markersize=10, color="#1d4d8a",
-             markeredgecolor="white", markeredgewidth=1.6, zorder=5)
-    axA.annotate(f"peak L{int(peak['layer'])}\n{peak['mean']:.3f}",
-                 xy=(peak["layer"], peak["mean"]),
-                 xytext=(0, 14), textcoords="offset points",
-                 ha="center", fontsize=10, fontweight="bold", color="#1d4d8a")
+    # markers with arrows pointing INTO clear areas of the plot
+    axA.plot(peak["layer"], peak["mean"], marker="o", markersize=11,
+             color="#1d4d8a", markeredgecolor="white", markeredgewidth=1.8, zorder=6)
+    axA.plot(0, layer0, marker="s", markersize=9, color="#666",
+             markeredgecolor="white", markeredgewidth=1.2, zorder=6)
+    axA.plot(last_layer, layerN, marker="s", markersize=9, color="#666",
+             markeredgecolor="white", markeredgewidth=1.2, zorder=6)
 
-    # layer 0 and final layer annotations
-    axA.plot(0, layer0, marker="s", markersize=8, color="#666",
-             markeredgecolor="white", markeredgewidth=1.0, zorder=5)
-    axA.annotate(f"L0  {layer0:.3f}",
-                 xy=(0, layer0), xytext=(6, -14), textcoords="offset points",
-                 ha="left", fontsize=9.5, color="#555")
-    axA.plot(int(mean_sub.layer.max()), layerN, marker="s", markersize=8,
-             color="#666", markeredgecolor="white", markeredgewidth=1.0, zorder=5)
-    axA.annotate(f"L{int(mean_sub.layer.max())}  {layerN:.3f}",
-                 xy=(int(mean_sub.layer.max()), layerN), xytext=(-6, -14),
-                 textcoords="offset points", ha="right", fontsize=9.5, color="#555")
+    # Annotation BOX in the wide top-left area (curves are in the middle/bottom)
+    txt = (f"layer 0:   {layer0:.3f}\n"
+           f"peak L{int(peak['layer'])}:  {peak['mean']:.3f}\n"
+           f"layer {last_layer}:  {layerN:.3f}\n"
+           f"L0 → peak: +{peak['mean'] - layer0:.3f}")
+    axA.text(2.5, 0.985, txt,
+             fontsize=10.5, color="#1d4d8a", family="monospace",
+             ha="left", va="top",
+             bbox=dict(boxstyle="round,pad=0.5", facecolor="white",
+                       edgecolor="#bbb", linewidth=0.8))
 
+    # chance line + label well away from data
     axA.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
-    axA.text(80.5, 0.508, "chance", color="#666",
-             fontsize=8.5, ha="right", va="bottom", style="italic")
-    axA.set_xlim(-2, 82)
-    axA.set_ylim(0.48, 1.005)
-    axA.set_xlabel("transformer layer", fontsize=11)
-    axA.set_ylabel(r"probe  ROC AUC  (is URL admitted?)", fontsize=11)
-    axA.set_title("(a)  admission probe  ·  pooled over 4 prompt variants",
-                  loc="left", fontsize=11.5, pad=8)
-    axA.grid(axis="y", alpha=0.25)
-    axA.legend(loc="lower right", frameon=False, fontsize=10,
-               handlelength=2.4, labelspacing=0.5)
+    axA.text(80.5, 0.512, "chance", color="#777", fontsize=9,
+             ha="right", va="bottom", style="italic")
+
+    axA.set_xlim(-3, 83)
+    axA.set_ylim(0.45, 1.02)
+    axA.set_xlabel("transformer layer", fontsize=12)
+    axA.set_ylabel(r"probe ROC AUC  (is URL admitted?)", fontsize=12)
+    axA.set_title("(a)  admission probe  —  pooled over 4 prompt variants",
+                  loc="left", fontsize=13)
+    axA.grid(axis="y", alpha=0.22)
+
+    # legend in upper-right corner, away from peak marker
+    axA.legend(loc="upper right", frameon=False, fontsize=11,
+               handlelength=2.4, labelspacing=0.5, borderpad=0.3,
+               bbox_to_anchor=(0.99, 0.85))
 
     # ===== Panel B: per-variant breakdown, mean pooling =====
     sub_mean = df[df.pooling == "mean"]
-
     for v in VARIANTS:
         s = sub_mean[sub_mean.variant == v].sort_values("layer")
         if s.empty:
             continue
         axB.plot(s["layer"], s["roc_auc"],
-                 color=VARIANT_COLOR[v], lw=1.8,
+                 color=VARIANT_COLOR[v], lw=2.0,
                  linestyle="--" if "rag" in v else "-",
                  label=VARIANT_LABEL[v], alpha=0.92)
 
     axB.axhline(0.5, color="#888", linestyle=":", linewidth=0.9, alpha=0.7)
-    axB.set_xlim(-2, 82)
-    axB.set_ylim(0.48, 1.005)
-    axB.set_xlabel("transformer layer", fontsize=11)
-    axB.set_ylabel(r"probe  ROC AUC", fontsize=11)
-    axB.set_title("(b)  per prompt variant  ·  mean pooling",
-                  loc="left", fontsize=11.5, pad=8)
-    axB.grid(axis="y", alpha=0.25)
-    axB.legend(loc="lower right", frameon=False, fontsize=10, ncol=2,
-               handlelength=2.0, labelspacing=0.4, columnspacing=1.0)
+    axB.text(80.5, 0.512, "chance", color="#777", fontsize=9,
+             ha="right", va="bottom", style="italic")
+    axB.set_xlim(-3, 83)
+    axB.set_ylim(0.45, 1.02)
+    axB.set_xlabel("transformer layer", fontsize=12)
+    axB.set_ylabel(r"probe ROC AUC", fontsize=12)
+    axB.set_title("(b)  per prompt variant  —  mean pooling",
+                  loc="left", fontsize=13)
+    axB.grid(axis="y", alpha=0.22)
+    axB.legend(loc="upper right", frameon=False, fontsize=10.5, ncol=2,
+               handlelength=2.0, labelspacing=0.5, columnspacing=1.4,
+               bbox_to_anchor=(0.99, 0.92))
 
-    # caption beneath both panels
-    fig.text(0.50, 0.005,
-             "Behavioural pre-commitment probe: for each URL span in the rerank prompt, predict whether the (model, variant) admitted that URL.\n"
-             "Linear probe (logistic regression on frozen hidden states), per (layer, pooling), 80/20 stratified split, trained on Llama-3.3-70B + Qwen2.5-72B.   "
-             "Shaded band in (a): min–max envelope across the 4 prompt variants.",
-             ha="center", va="bottom", fontsize=9.3, color="#444", style="italic")
-    fig.subplots_adjust(bottom=0.18)
+    # caption with generous breathing room below the panels
+    fig.text(0.50, 0.02,
+             "Behavioural pre-commitment probe.  For each URL span in the rerank prompt, the label is 1 if the (model, variant) admitted that URL, else 0.\n"
+             "Linear probe (logistic regression on frozen hidden states), one fit per (layer, pooling), 80/20 stratified split.  "
+             "Pooled across Llama-3.3-70B and Qwen-2.5-72B.   "
+             "Shaded band in (a):  min–max envelope across the 4 prompt variants.",
+             ha="center", va="bottom", fontsize=10, color="#444", style="italic")
+    fig.subplots_adjust(top=0.91, bottom=0.20, left=0.06, right=0.985)
     return fig
 
 
