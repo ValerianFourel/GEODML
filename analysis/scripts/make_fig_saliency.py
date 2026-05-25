@@ -69,12 +69,11 @@ def make_fig(df: pd.DataFrame):
         "pdf.fonttype":      42,
     })
 
-    fig, ax = plt.subplots(figsize=(7.0, 3.6))
+    fig, ax = plt.subplots(figsize=(7.5, 3.8))
 
     treatments = TREATMENT_DISPLAY
     n_t = len(treatments)
-    # one row per treatment, two bars per row (Llama on top, Qwen below)
-    bar_h = 0.36
+    bar_h = 0.38
     models = ["Llama-3.3-70B", "Qwen-2.5-72B"]
 
     # We plot (ratio - 1) so the bar grows right when > 1 and left when < 1.
@@ -91,17 +90,24 @@ def make_fig(df: pd.DataFrame):
                 alpha=0.95, label=m if i == 0 else None,
             )
             # number annotation just outside the bar end
-            xtxt = ratio + (0.05 if ratio >= 1.0 else -0.05)
+            xtxt = ratio + (0.06 if ratio >= 1.0 else -0.06)
             ax.text(xtxt, y, f"{ratio:.2f}×",
                     ha="left" if ratio >= 1.0 else "right",
-                    va="center", fontsize=9.5, fontweight="bold",
+                    va="center", fontsize=10, fontweight="bold",
                     color=MODEL_COLOR[m])
 
     # baseline reference line at 1.0
-    ax.axvline(1.0, color="#333", linestyle="-", linewidth=1.0, alpha=0.6)
+    ax.axvline(1.0, color="#333", linestyle="-", linewidth=1.0, alpha=0.55)
 
-    # treatment labels include the DML direction inline — keeps the
-    # plotting area clean of overlay text.
+    # zone labels at the top of the plot area
+    ax.text(0.45, -0.85, "← model IGNORES",
+            ha="center", va="center", fontsize=10, color="#888",
+            style="italic")
+    ax.text(1.55, -0.85, "model ATTENDS →",
+            ha="center", va="center", fontsize=10, color="#444",
+            style="italic", fontweight="bold")
+
+    # treatment labels include the DML direction inline
     ytick_positions = list(range(n_t))
     yticklabels = []
     for key, label, dml_dir in treatments:
@@ -113,43 +119,30 @@ def make_fig(df: pd.DataFrame):
         yticklabels.append(f"{label}{suffix}")
     ax.set_yticks(ytick_positions)
     ax.set_yticklabels(yticklabels, fontsize=11.5)
-    ax.invert_yaxis()  # T1 on top, T3 on bottom
+    # extra headroom at top for the IGNORES/ATTENDS labels
+    ax.set_ylim(n_t - 0.45, -1.30)
 
-    # x-axis: ratio scale, slightly extended for label space
-    ax.set_xlim(0.0, 2.35)
+    ax.set_xlim(0.0, 2.40)
     ax.set_xticks([0.0, 0.5, 1.0, 1.5, 2.0])
     ax.set_xlabel("saliency ratio   (treatment-tokens / other-tokens)",
                   fontsize=11.5)
-
-    # zone labels along the x-axis, just above the tick labels
-    ax.text(0.45, -0.7, "← model IGNORES",
-            ha="center", va="center", fontsize=9.5, color="#888",
-            style="italic")
-    ax.text(1.55, -0.7, "model ATTENDS →",
-            ha="center", va="center", fontsize=9.5, color="#444",
-            style="italic", fontweight="bold")
-    # extend the y-limits a bit to make space for the zone labels
-    ax.set_ylim(n_t - 0.5, -1.2)
-
-    ax.set_title("Where does each backbone look on the page?",
-                 loc="left", fontsize=12.5, y=1.08)
-    ax.grid(axis="x", alpha=0.20)
+    ax.grid(axis="x", alpha=0.18)
 
     # legend below the axes
     ax.legend(
-        loc="upper center", bbox_to_anchor=(0.5, -0.28),
+        loc="upper center", bbox_to_anchor=(0.5, -0.22),
         ncol=2, frameon=False, fontsize=10.5,
-        handlelength=1.4, columnspacing=2.4, borderpad=0.2,
+        handlelength=1.4, columnspacing=2.6, borderpad=0.2,
     )
 
     fig.text(0.5, 0.005,
-             "Gradient saliency of each token w.r.t. the chosen-URL log-prob, "
+             "Gradient saliency of each token w.r.t. the chosen-URL log-prob; "
              "ratio = mean(treatment tokens) / mean(other tokens).   "
              "Baseline = 1.0× (vertical line).",
-             ha="center", va="bottom", fontsize=9, color="#444",
+             ha="center", va="bottom", fontsize=9.5, color="#444",
              style="italic")
 
-    fig.subplots_adjust(top=0.90, bottom=0.30, left=0.30, right=0.97)
+    fig.subplots_adjust(top=0.93, bottom=0.30, left=0.30, right=0.97)
     return fig
 
 
