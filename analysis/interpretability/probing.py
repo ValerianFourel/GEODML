@@ -54,10 +54,18 @@ FRAME_SUFFIX = {"full": "_full", "robust_winners": "_rw"}
 
 
 PROBING_TREATMENTS = {
-    "T7_source_earned": ("treat_source_earned", "binary"),
-    "T5_topical_comp": ("treat_topical_comp", "median_split"),
-    "T2a_question_headings": ("treat_question_headings", "binary"),
-    "T6_freshness": ("treat_freshness", "median_split"),
+    # original 4 (already probed; T7_source_earned is the descriptive halo flag,
+    # not the canonical T7=llms.txt — keep for back-compat but excluded from
+    # the headline figure per paper policy).
+    "T7_source_earned":      ("treat_source_earned",        "binary"),
+    "T5_topical_comp":       ("treat_topical_comp",         "median_split"),
+    "T2a_question_headings": ("treat_question_headings",    "binary"),
+    "T6_freshness":          ("treat_freshness",            "median_split"),
+    # canonical-7 additions (2026-05-25, deadline patch).
+    "T1b_stats_density":     ("treat_stats_density",        "median_split"),
+    "T3_structured_data":    ("treat_structured_data",      "binary"),
+    "T4_citation_authority": ("T4_citation_authority_code", "median_split"),
+    "T7_llms_txt":           ("has_llms_txt",               "binary"),
 }
 
 
@@ -406,6 +414,10 @@ def main() -> int:
     )
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--treatment", default=None,
+                    help="If set, run only this one treatment (key in "
+                         "PROBING_TREATMENTS). Lets you fan out one Slurm "
+                         "job per (treatment, model) and finish in ~1 GPU-hour.")
     ap.add_argument(
         "--frame", choices=("full", "robust_winners", "both"), default="both",
         help="Sample frame. 'robust_winners' restricts the probing sample to "
@@ -480,10 +492,18 @@ def main() -> int:
         rng = random.Random(args.seed)
         np_rng = np.random.default_rng(args.seed)
 
-        # T7 takes the in-context path (no body-digest sampling needed).
+        # T7_source_earned takes the in-context path (no body-digest sampling needed).
         digest_treatments = {
             k: v for k, v in PROBING_TREATMENTS.items() if k != "T7_source_earned"
         }
+        # --treatment flag: limit to a single key so one Slurm job = one treatment.
+        if args.treatment:
+            digest_treatments = {
+                k: v for k, v in digest_treatments.items() if k == args.treatment
+            }
+            if not digest_treatments and args.treatment != "T7_source_earned":
+                print(f"[probing] WARNING: --treatment {args.treatment} not in "
+                      f"PROBING_TREATMENTS: {list(PROBING_TREATMENTS)}")
 
         per_treatment_samples: dict[str, pd.DataFrame] = {}
         for label, (col, kind) in digest_treatments.items():
@@ -505,7 +525,13 @@ def main() -> int:
         # T7 in-context: pick keywords whose SERP candidate pool has both earned
         # and non-earned URLs, so each prompt yields informative probe examples.
         t7_prompts: list[tuple[str, str, list[dict]]] = []
-        if "T7_source_earned" in PROBING_TREATMENTS:
+        # Skip the T7 in-context branch entirely when a different single
+        # treatment was requested via --treatment.
+        run_t7_inctx = (
+            "T7_source_earned" in PROBING_TREATMENTS
+            and (args.treatment in (None, "T7_source_earned"))
+        )
+        if run_t7_inctx:
             serp_df = load_serp(
                 backend=args.t7_serp_backend, pool=args.t7_serp_pool,
                 root=args.data_root,

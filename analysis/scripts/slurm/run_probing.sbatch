@@ -37,13 +37,21 @@ MODEL_TAG="${MODEL##*/}"
 OUTDIR="$SLURM_SUBMIT_DIR/interpretability/output/probing_${MODEL_TAG}_${PROMPT_VARIANT}"
 mkdir -p "$OUTDIR"
 
-# Auto-pick the matching SearXNG run if RUN_FILTER wasn't passed. Pull from
-# the variant-suffixed run dir so probing reads the right rerank output.
+# Pull from the BASE run id (no variant suffix) so probing finds rows in
+# the main table and HTML files in the per-run html_cache. Variant
+# distinction is preserved via OUTDIR and PROMPT_VARIANT env.
 if [ -z "${RUN_FILTER:-}" ]; then
-  RUN_FILTER="searxng_${MODEL_TAG}_serp50_top10_${PROMPT_VARIANT}"
+  RUN_FILTER="searxng_${MODEL_TAG}_serp50_top10"
 fi
 
-echo "[probing] model=$MODEL frame=$FRAME sample_n=$SAMPLE_N t7_kws=$T7_KWS variant=$PROMPT_VARIANT"
+# Optional per-treatment fanout: TREATMENT=T1b_stats_density runs only that
+# one treatment, finishing in ~1 GPU-hour instead of ~6.
+EXTRA_ARGS=()
+if [ -n "${TREATMENT:-}" ]; then
+  EXTRA_ARGS+=(--treatment "$TREATMENT")
+fi
+
+echo "[probing] model=$MODEL frame=$FRAME sample_n=$SAMPLE_N t7_kws=$T7_KWS variant=$PROMPT_VARIANT treatment=${TREATMENT:-ALL}"
 echo "[probing] run_filter=$RUN_FILTER"
 echo "[probing] outdir=$OUTDIR"
 
@@ -55,7 +63,8 @@ python -m interpretability.probing \
   --frame "$FRAME" \
   --run-filter "$RUN_FILTER" \
   --resume \
-  --output-dir "$OUTDIR"
+  --output-dir "$OUTDIR" \
+  "${EXTRA_ARGS[@]}"
 RC=$?
 set -e
 
@@ -69,5 +78,6 @@ fi
 chain_resubmit "$0" \
   MODEL="$MODEL" SAMPLE_N="$SAMPLE_N" T7_KWS="$T7_KWS" FRAME="$FRAME" \
   RUN_FILTER="$RUN_FILTER" PROMPT_VARIANT="$PROMPT_VARIANT" \
+  TREATMENT="${TREATMENT:-}" \
   || exit "$RC"
 exit 0
