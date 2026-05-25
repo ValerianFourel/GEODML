@@ -47,7 +47,8 @@ class JobInfo:
     state: str = "?"
     model: str = "?"
     treatment: str = "?"
-    frame: str = "?"
+    frame: str = "?"            # currently active frame inferred from === markers
+    frame_arg: str = "both"     # what was passed via FRAME= (full / robust_winners / both)
     step: str = "?"
     pct: int | None = None
     x_y: str = "?"
@@ -131,7 +132,11 @@ def parse_logs(jid: str) -> JobInfo:
         m = re.search(r"\btreatment=(\S+)", out_text, re.IGNORECASE)
         if m and m.group(1) not in ("ALL", "?"):
             info.treatment = m.group(1)
-        # most recent frame marker
+        # frame=both/full/robust_winners — what the script was *invoked* with
+        m = re.search(r"\bframe=([a-z_]+)", out_text)
+        if m and m.group(1) in {"full", "robust_winners", "both"}:
+            info.frame_arg = m.group(1)
+        # most recent frame marker showing which frame the run is *currently* in
         frames = re.findall(r"=== frame=([a-z_]+)", out_text)
         if frames:
             info.frame = frames[-1]
@@ -162,33 +167,43 @@ def parse_logs(jid: str) -> JobInfo:
 
 # ---------------------------------------------------------------------------
 def estimate_eta(info: JobInfo) -> str:
-    """Project remaining time until job exits."""
-    if not info.step or info.step == "?":
-        # Model still loading, no tqdm yet → conservative
-        return f"~{fmt_minutes(TYP['load'] + TYP['digest_full'] + TYP['hidden_full'] + TYP['digest_rw'] + TYP['hidden_rw'])} (no tqdm yet)"
+    """Project remaining wall-time until the slurm job exits.
 
-    step = info.step.lower()
-    frame = info.frame
+    Accounts for what FRAME= was passed: with FRAME=full the job skips
+    the robust_winners pass and exits ~25-30 min earlier than the both-
+    frame default.
+    """
+    step = (info.step or "").lower()
+    frame_arg = info.frame_arg          # what FRAME= was set to
+    frame_now = info.frame              # what frame the script is currently in
 
-    # remaining seconds of the CURRENT step from tqdm
+    # Will this job do a robust_winners pass AFTER the current/full pass?
+    will_do_rw = (frame_arg == "both") and (frame_now != "robust_winners")
+    tail_rw = (TYP["digest_rw"] + TYP["hidden_rw"]) if will_do_rw else 0
+    tail_final = TYP["probe_training"] + TYP["csv_write"]
     rem_now = parse_hms_to_seconds(info.tqdm_remaining) or 0
 
-    # phase order: load → digest_full → hidden_full → digest_rw → hidden_rw → write
+    if not step or step == "?":
+        # No tqdm yet — assume still loading; conservative
+        full_part = (TYP["digest_full"] + TYP["hidden_full"]) if frame_arg != "robust_winners" else 0
+        return f"~{fmt_minutes(TYP['load'] + full_part + tail_rw + tail_final)} (no tqdm yet)"
+
     if "loading weights" in step:
-        return f"~{fmt_minutes(rem_now + TYP['digest_full'] + TYP['hidden_full'] + TYP['digest_rw'] + TYP['hidden_rw'])}"
+        full_part = (TYP["digest_full"] + TYP["hidden_full"]) if frame_arg != "robust_winners" else 0
+        return f"~{fmt_minutes(rem_now + full_part + tail_rw + tail_final)}"
     if "html->digest" in step:
-        if frame == "full":
-            return f"~{fmt_minutes(rem_now + TYP['hidden_full'] + TYP['digest_rw'] + TYP['hidden_rw'])}"
-        else:  # robust_winners
-            return f"~{fmt_minutes(rem_now + TYP['hidden_rw'])}"
+        if frame_now == "robust_winners":
+            return f"~{fmt_minutes(rem_now + TYP['hidden_rw'] + tail_final)}"
+        # currently doing the full-frame digest
+        return f"~{fmt_minutes(rem_now + TYP['hidden_full'] + tail_rw + tail_final)}"
     if "hidden-states" in step:
-        if frame == "full":
-            return f"~{fmt_minutes(rem_now + TYP['digest_rw'] + TYP['hidden_rw'])}"
-        else:  # robust_winners — this is the last big phase
-            return f"~{fmt_minutes(rem_now + TYP['probe_training'] + TYP['csv_write'])}"
+        if frame_now == "robust_winners":
+            return f"~{fmt_minutes(rem_now + tail_final)}"
+        # currently doing the full-frame hidden states
+        return f"~{fmt_minutes(rem_now + tail_rw + tail_final)}"
     if "t7-keywords" in step:
-        return f"~{fmt_minutes(rem_now + 5*60)}"
-    return f"~{fmt_minutes(rem_now)}"
+        return f"~{fmt_minutes(rem_now + TYP['probe_training'] + TYP['csv_write'])}"
+    return f"~{fmt_minutes(rem_now + tail_final)}"
 
 
 # ---------------------------------------------------------------------------
@@ -227,8 +242,8 @@ def main():
         return
 
     # header
-    hdr = ("JID", "ELAPSED", "MODEL", "TREATMENT", "FRAME", "STEP", "PROGRESS", "ETA-TO-END")
-    fmt = "{:<8} {:<9} {:<14} {:<25} {:<14} {:<22} {:<14} {}"
+    hdr = ("JID", "ELAPSED", "MODEL", "TREATMENT", "FRAME(arg)", "STEP", "PROGRESS", "ETA-TO-END")
+    fmt = "{:<8} {:<9} {:<14} {:<25} {:<18} {:<22} {:<14} {}"
     print(fmt.format(*hdr))
     print("-" * 130)
 
@@ -240,8 +255,9 @@ def main():
         eta = estimate_eta(info)
         info.eta_text = eta
         prog = f"{info.pct}% {info.x_y}" if info.pct is not None else "(no tqdm)"
+        frame_col = f"{info.frame}({info.frame_arg})"
         print(fmt.format(
-            jid, elapsed, info.model, info.treatment, info.frame,
+            jid, elapsed, info.model, info.treatment, frame_col,
             info.step[:22], prog, eta,
         ))
 
