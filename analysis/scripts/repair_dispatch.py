@@ -95,6 +95,19 @@ def submit_one(row: pd.Series, account: str, partition: str, dry_run: bool) -> s
         print(f"  [ERR] unknown stage: {stage}")
         return None
 
+    # Single-resubmit-authority: the dispatcher owns ALL resubmission. Force
+    # MAX_ATTEMPTS=1 so the sbatch's chain_resubmit short-circuits and does NOT
+    # spawn an afterany successor — that successor gets a fresh jobid this
+    # dispatcher never learns about, so it would keep re-launching the cell on
+    # top of a chain still running. With chaining off there is exactly one
+    # resubmit authority (this loop) and duplicates can't pile up.
+    exp += ",MAX_ATTEMPTS=1"
+    # Re-arm skip_if_at_max for Stage A/A' so an already-complete cell exits
+    # without paying the ~5 min 70B model-load. (Bare dispatch never passed
+    # MAX_KEYWORDS, so the guard was a no-op.)
+    if stage in ("rerank", "order_probe") and pd.notna(row.get("target_kw")):
+        exp += f",MAX_KEYWORDS={int(row['target_kw'])}"
+
     cmd = [
         "sbatch",
         f"--account={account}",
@@ -131,6 +144,19 @@ def main():
                     default="all")
     ap.add_argument("--max-submissions", type=int, default=32,
                     help="Maximum number of new sbatch submissions per invocation.")
+    ap.add_argument("--max-inflight", type=int,
+                    default=int(os.environ.get("REPAIR_MAX_INFLIGHT", "24")),
+                    help="Global ceiling on SUBMITTED+RUNNING cells. Never let the "
+                         "queue exceed this many GEODML jobs, no matter how many "
+                         "cells still have gap > 0.")
+    ap.add_argument("--max-attempts-per-cell", type=int,
+                    default=int(os.environ.get("REPAIR_MAX_SUBMITS_PER_CELL", "8")),
+                    help="Stop resubmitting a cell after this many total launches "
+                         "(absolute backstop; audit then marks it STUCK).")
+    ap.add_argument("--stuck-threshold", type=int,
+                    default=int(os.environ.get("REPAIR_STUCK_THRESHOLD", "2")),
+                    help="Stop resubmitting a cell after this many launches in a "
+                         "row that produced no new keywords (resets on progress).")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--account", default=os.environ.get("JUWELS_ACCOUNT", "scifi"))
     ap.add_argument("--partition", default="booster")
@@ -138,12 +164,30 @@ def main():
                     help="Print current status table and exit without submitting.")
     args = ap.parse_args()
 
+    # Clamp to sane minimums: a 0 here would either stall the queue forever
+    # (max_inflight=0 → room=0 → nothing ever submits) or quarantine untried
+    # cells (stuck_threshold=0 → ceiling hit before the first launch).
+    args.stuck_threshold = max(1, args.stuck_threshold)
+    args.max_attempts_per_cell = max(1, args.max_attempts_per_cell)
+    args.max_inflight = max(1, args.max_inflight)
+
     if not MANIFEST.exists():
         print(f"[FATAL] manifest not found: {MANIFEST}")
         print("Run `python scripts/repair_audit.py` first.", file=sys.stderr)
         sys.exit(2)
 
     df = pq.read_table(MANIFEST).to_pandas()
+
+    # Ensure circuit-breaker counter columns exist (older manifests lack them;
+    # repair_audit also creates them, but dispatch may run on a stale manifest).
+    if "submit_count" not in df.columns:
+        df["submit_count"] = 0
+    df["submit_count"] = df["submit_count"].fillna(0).astype(int)
+    if "submits_since_progress" not in df.columns:
+        df["submits_since_progress"] = 0
+    df["submits_since_progress"] = df["submits_since_progress"].fillna(0).astype(int)
+    if "best_actual_kw" not in df.columns:
+        df["best_actual_kw"] = df["actual_kw"]
 
     # ── 1. Poll SLURM and resolve SUBMITTED/RUNNING ─────────────────────────
     in_flight = df[df["status"].isin(["SUBMITTED", "RUNNING"])]
@@ -166,22 +210,45 @@ def main():
     else:
         candidates_mask = df["gap"] > 0
     candidates_mask &= df["status"].isin(["TODO", "FAILED", "PENDING_RECHECK"])
+    # Circuit-breaker: never resubmit a cell that has exhausted its attempts.
+    # These cells stop being launched here, drain out of the queue, and the next
+    # audit marks them STUCK so the loop can terminate. (STUCK / DONE are already
+    # excluded by the status filter above; this also catches cells the audit has
+    # not re-evaluated yet — e.g. a stale manifest.)
+    ceiling_hit = (
+        (df["submit_count"] >= args.max_attempts_per_cell)
+        | (df["submits_since_progress"] >= args.stuck_threshold)
+    )
+    blocked = df[candidates_mask & ceiling_hit]
+    candidates_mask &= ~ceiling_hit
     candidates = df[candidates_mask].copy()
     # Prioritise largest gaps first
     candidates = candidates.sort_values("gap", ascending=False)
 
     print(f"\n[plan] {len(candidates)} cells with gap > 0 awaiting submission")
+    if len(blocked):
+        print(f"[ceiling] {len(blocked)} cell(s) with gap > 0 held back: hit "
+              f"--max-attempts-per-cell={args.max_attempts_per_cell} or "
+              f"--stuck-threshold={args.stuck_threshold} (audit will mark STUCK).")
 
     if args.status:
         _print_status(df)
         return
 
-    # ── 3. Submit up to --max-submissions ───────────────────────────────────
+    # ── 3. Submit up to the per-cycle budget AND the global in-flight cap ────
+    inflight = int(df["status"].isin(["SUBMITTED", "RUNNING"]).sum())
+    room = max(0, args.max_inflight - inflight)
+    budget = min(args.max_submissions, room)
+    print(f"[inflight] {inflight} cell(s) in queue; room={room} "
+          f"(max_inflight={args.max_inflight}); submitting ≤ {budget} this cycle")
+
     n_submitted = 0
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     for idx, row in candidates.iterrows():
-        if n_submitted >= args.max_submissions:
-            print(f"  hit --max-submissions={args.max_submissions}; stopping for this cycle")
+        if n_submitted >= budget:
+            limiter = ("--max-submissions" if args.max_submissions <= room
+                       else "--max-inflight")
+            print(f"  hit {limiter} (budget={budget}); stopping for this cycle")
             break
         jobid = submit_one(row, args.account, args.partition, args.dry_run)
         if jobid is None:
@@ -192,6 +259,11 @@ def main():
         df.at[idx, "last_jobid"] = jobid
         df.at[idx, "last_submitted"] = now
         df.at[idx, "last_check"] = now
+        # Circuit-breaker bookkeeping: every launch counts, and counts against
+        # the no-progress streak until the next audit observes new keywords.
+        df.at[idx, "submit_count"] = int(df.at[idx, "submit_count"]) + 1
+        df.at[idx, "submits_since_progress"] = (
+            int(df.at[idx, "submits_since_progress"]) + 1)
         n_submitted += 1
 
     # ── 4. Persist + summary ────────────────────────────────────────────────

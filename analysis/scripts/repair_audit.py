@@ -195,28 +195,87 @@ def audit_probing() -> list[dict]:
 
 # ── manifest writer ─────────────────────────────────────────────────────────
 
-def merge_with_existing(new_df: pd.DataFrame) -> pd.DataFrame:
-    """Preserve status / last_jobid / last_submitted from an existing manifest
-    when re-auditing. Re-compute audit numbers fresh every time."""
-    if not MANIFEST.exists():
-        new_df["status"] = "TODO"
-        new_df["last_jobid"] = ""
-        new_df["last_submitted"] = ""
-        new_df["last_check"] = ""
-        return new_df
+# Circuit-breaker thresholds (env-overridable). These are what make the repair
+# loop CONVERGE instead of resubmitting forever. Some cells can never reach
+# gap == 0 — e.g. a RAG variant where retrieval genuinely fails for a handful
+# of keywords (see audit_rerank's docstring). Without a give-up rule the loop
+# resubmits them every cycle indefinitely.
+#
+#   STUCK_THRESHOLD       quarantine after this many submissions in a row that
+#                         produced NO new keywords (resets whenever a cell makes
+#                         progress). This is the primary, progress-aware brake.
+#   MAX_SUBMITS_PER_CELL  absolute backstop: quarantine after this many total
+#                         submissions regardless of progress, so even a cell
+#                         that crawls forward one keyword at a time can't run
+#                         unbounded.
+# max(1, …): a threshold of 0 would mark an untried cell STUCK before it is ever
+# submitted (0 >= 0), making the loop silently no-op and falsely report "converged".
+STUCK_THRESHOLD = max(1, int(os.environ.get("REPAIR_STUCK_THRESHOLD", "2")))
+MAX_SUBMITS_PER_CELL = max(1, int(os.environ.get("REPAIR_MAX_SUBMITS_PER_CELL", "8")))
 
-    old = pq.read_table(MANIFEST).to_pandas()
-    # keep run_id as the join key
-    keep = ["run_id", "status", "last_jobid", "last_submitted", "last_check"]
-    keep = [c for c in keep if c in old.columns]
-    new_df = new_df.merge(old[keep], on="run_id", how="left")
+
+def merge_with_existing(new_df: pd.DataFrame) -> pd.DataFrame:
+    """Preserve status + progress counters from an existing manifest when
+    re-auditing. Audit *measurements* (target_kw/actual_kw/gap) are recomputed
+    fresh every time; bookkeeping (status, jobids, and the circuit-breaker
+    counters submit_count / best_actual_kw / submits_since_progress) is carried
+    forward so the loop can detect non-convergence and quarantine STUCK cells.
+
+    Progress is measured against a persisted high-water mark (best_actual_kw),
+    NOT against transient status: repair_dispatch resubmits a finished cell in
+    the same cycle it detects completion, so a status like PENDING_RECHECK is
+    usually gone before the next audit sees it. Comparing actual_kw to the
+    high-water mark is race-free."""
+    if MANIFEST.exists():
+        old = pq.read_table(MANIFEST).to_pandas()
+        keep = ["run_id", "status", "last_jobid", "last_submitted", "last_check",
+                "submit_count", "best_actual_kw", "submits_since_progress"]
+        keep = [c for c in keep if c in old.columns]
+        new_df = new_df.merge(old[keep], on="run_id", how="left")
+
+    # Defaults for any missing/NaN bookkeeping column. Covers both the
+    # no-manifest case and older manifests that predate the counter columns.
+    if "status" not in new_df.columns:
+        new_df["status"] = "TODO"
     new_df["status"] = new_df["status"].fillna("TODO")
     for c in ("last_jobid", "last_submitted", "last_check"):
-        if c in new_df.columns:
-            new_df[c] = new_df[c].fillna("")
-        else:
+        if c not in new_df.columns:
             new_df[c] = ""
-    # If gap is now 0, mark DONE regardless of previous status
+        new_df[c] = new_df[c].fillna("")
+    if "submit_count" not in new_df.columns:
+        new_df["submit_count"] = 0
+    new_df["submit_count"] = new_df["submit_count"].fillna(0).astype(int)
+    if "submits_since_progress" not in new_df.columns:
+        new_df["submits_since_progress"] = 0
+    new_df["submits_since_progress"] = (
+        new_df["submits_since_progress"].fillna(0).astype(int))
+    if "best_actual_kw" not in new_df.columns:
+        new_df["best_actual_kw"] = new_df["actual_kw"]
+    new_df["best_actual_kw"] = (
+        new_df["best_actual_kw"].fillna(new_df["actual_kw"]).astype(int))
+
+    # ── progress accounting (race-free) ─────────────────────────────────────
+    # Any cell whose freshly-measured actual_kw beats its high-water mark made
+    # progress: raise the mark and clear the no-progress streak.
+    improved = new_df["actual_kw"] > new_df["best_actual_kw"]
+    new_df.loc[improved, "best_actual_kw"] = new_df.loc[improved, "actual_kw"]
+    new_df.loc[improved, "submits_since_progress"] = 0
+
+    # ── status transitions ──────────────────────────────────────────────────
+    # Quarantine cells that have stalled, but never override a cell that is
+    # currently in flight (it may still improve before it finishes).
+    not_inflight = ~new_df["status"].isin(["SUBMITTED", "RUNNING"])
+    stuck = (
+        not_inflight
+        & (new_df["gap"] > 0)
+        & (new_df["submit_count"] > 0)   # never quarantine a cell that was never tried
+        & (
+            (new_df["submits_since_progress"] >= STUCK_THRESHOLD)
+            | (new_df["submit_count"] >= MAX_SUBMITS_PER_CELL)
+        )
+    )
+    new_df.loc[stuck, "status"] = "STUCK"
+    # gap == 0 always wins: a fully-covered cell is DONE no matter its history.
     new_df.loc[new_df["gap"] == 0, "status"] = "DONE"
     return new_df
 
@@ -268,9 +327,13 @@ def main():
         n_done = int((sub["gap"] == 0).sum())
         n_partial = int(((sub["gap"] > 0) & (sub["actual_kw"] > 0)).sum())
         n_empty = int((sub["actual_kw"] == 0).sum())
+        n_stuck = int((sub["status"] == "STUCK").sum())
+        n_actionable = int(((sub["gap"] > 0)
+                            & (~sub["status"].isin(["STUCK", "DONE"]))).sum())
         total_gap = int(sub["gap"].sum())
         print(f"\n  [{stage}]  cells={n_total}  done={n_done}  "
-              f"partial={n_partial}  empty={n_empty}  total_kw_gap={total_gap:,}")
+              f"partial={n_partial}  empty={n_empty}  stuck={n_stuck}  "
+              f"actionable={n_actionable}  total_kw_gap={total_gap:,}")
         # print biggest gaps
         worst = sub[sub["gap"] > 0].sort_values("gap", ascending=False).head(10)
         if len(worst):
