@@ -1,0 +1,86 @@
+======================================================================
+VALIDATION REPORT — extract_features.py
+======================================================================
+
+Shape: (9217, 32)
+Unique keywords: 1011
+Unique domains: 5015
+Unique URLs: 7837
+
+Nulls per column:
+  keyword                           0 / 9217 (0.0%)
+  domain                            0 / 9217 (0.0%)
+  url                               0 / 9217 (0.0%)
+  treat_stats_present            1282 / 9217 (13.9%)
+  treat_stats_density            1554 / 9217 (16.9%)
+  treat_question_headings        1282 / 9217 (13.9%)
+  treat_structural_modularity    1282 / 9217 (13.9%)
+  treat_structured_data          1282 / 9217 (13.9%)
+  treat_ext_citations_any        1282 / 9217 (13.9%)
+  treat_auth_citations           1282 / 9217 (13.9%)
+  treat_topical_comp             1554 / 9217 (16.9%)
+  treat_freshness                1282 / 9217 (13.9%)
+  treat_source_brand                0 / 9217 (0.0%)
+  treat_source_earned               0 / 9217 (0.0%)
+  treat_source_type                 0 / 9217 (0.0%)
+  conf_title_kw_sim                 0 / 9217 (0.0%)
+  conf_snippet_kw_sim               0 / 9217 (0.0%)
+  conf_title_len                    0 / 9217 (0.0%)
+  conf_snippet_len                  0 / 9217 (0.0%)
+  conf_brand_recog                  0 / 9217 (0.0%)
+  conf_title_has_kw                 0 / 9217 (0.0%)
+  conf_word_count                1554 / 9217 (16.9%)
+  conf_readability               1814 / 9217 (19.7%)
+  conf_internal_links            1391 / 9217 (15.1%)
+  conf_outbound_links            1423 / 9217 (15.4%)
+  conf_images_alt                1464 / 9217 (15.9%)
+  conf_bm25                         0 / 9217 (0.0%)
+  conf_https                        0 / 9217 (0.0%)
+  conf_domain_authority          7757 / 9217 (84.2%)
+  conf_backlinks                 8110 / 9217 (88.0%)
+  conf_referring_domains         8110 / 9217 (88.0%)
+  conf_serp_position             1651 / 9217 (17.9%)
+
+Binary prevalence:
+  treat_stats_present            0.827 (6561/7935)
+  treat_question_headings        0.682 (5412/7935)
+  treat_structured_data          0.554 (4395/7935)
+  treat_ext_citations_any        0.841 (6670/7935)
+  treat_source_brand             0.090 (834/9217)
+  treat_source_earned            0.032 (291/9217)
+  conf_brand_recog               0.090 (834/9217)
+  conf_title_has_kw              0.782 (7207/9217)
+  conf_https                     0.999 (9207/9217)
+
+Continuous variable stats:
+  treat_stats_density            n=7663  mean=      2.77  std=      4.83  min=      0.00  max=    108.06
+  treat_structural_modularity    n=7935  mean=     25.35  std=     22.24  min=      0.00  max=    288.00
+  treat_auth_citations           n=7935  mean=      0.30  std=      1.69  min=      0.00  max=     64.00
+  treat_topical_comp             n=7663  mean=      0.54  std=      0.18  min=     -0.11  max=      0.86
+  treat_freshness                n=7935  mean=      1.88  std=      1.83  min=      0.00  max=      4.00
+  conf_title_kw_sim              n=9217  mean=      0.58  std=      0.30  min=     -0.03  max=      1.00
+  conf_snippet_kw_sim            n=9217  mean=      0.51  std=      0.27  min=     -0.06  max=      0.93
+  conf_title_len                 n=9217  mean=     45.29  std=     24.61  min=      0.00  max=    218.00
+  conf_snippet_len               n=9217  mean=    186.02  std=    129.73  min=      0.00  max=    963.00
+  conf_word_count                n=7663  mean=   2058.69  std=   2036.90  min=      1.00  max=  56478.00
+  conf_readability               n=7403  mean=     13.57  std=      5.98  min=     -2.07  max=    199.09
+  conf_internal_links            n=7826  mean=    138.27  std=    124.36  min=      0.00  max=   1959.00
+  conf_outbound_links            n=7794  mean=     17.16  std=     30.64  min=      0.00  max=    801.00
+  conf_images_alt                n=7753  mean=     27.57  std=     48.29  min=      0.00  max=   1129.00
+  conf_bm25                      n=9217  mean=      1.65  std=      1.20  min=     -2.60  max=     10.46
+  conf_domain_authority          n=1460  mean=     48.11  std=     32.27  min=      0.00  max=     99.00
+  conf_backlinks                 n=1107  mean=904458805.94  std=3613645671.08  min=      4.00  max=20624835208.00
+  conf_referring_domains         n=1107  mean= 329911.92  std=1243638.35  min=      1.00  max=9935979.00
+  conf_serp_position             n=7566  mean=      8.66  std=      5.69  min=      1.00  max=     33.00
+
+T7 Source type distribution:
+  other           8092 (87.8%)
+  brand            834 (9.0%)
+  earned           291 (3.2%)
+
+T6 Freshness distribution:
+  Level 0: 3540 (38.4%)
+  Level 1:  304 (3.3%)
+  Level 2:  510 (5.5%)
+  Level 3:  703 (7.6%)
+  Level 4: 2878 (31.2%)

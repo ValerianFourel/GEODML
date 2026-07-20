@@ -1,0 +1,2642 @@
+{
+  "rank_delta__T1_code": {
+    "dml": {
+      "coef": 0.27657996027818393,
+      "se": 0.17879268516939886,
+      "t_stat": 1.5469310728016394,
+      "p_val": 0.12187986733533757,
+      "ci_lower": -0.07384726335304642,
+      "ci_upper": 0.6270071839094142
+    },
+    "nuisance": {
+      "r2_ml_l": -0.13123615206793326,
+      "r2_ml_m": -0.03894951315007633,
+      "rmse_ml_l": 4.388475752126281,
+      "rmse_ml_m": 1.4560665344253398
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 181,
+          "pct": 10.9
+        },
+        "X2_domain_age_years": {
+          "splits": 183,
+          "pct": 11.0
+        },
+        "X3_word_count": {
+          "splits": 224,
+          "pct": 13.5
+        },
+        "X6_readability": {
+          "splits": 277,
+          "pct": 16.7
+        },
+        "X7_internal_links": {
+          "splits": 223,
+          "pct": 13.4
+        },
+        "X7B_outbound_links": {
+          "splits": 184,
+          "pct": 11.1
+        },
+        "X8_keyword_difficulty": {
+          "splits": 239,
+          "pct": 14.4
+        },
+        "X9_images_with_alt": {
+          "splits": 152,
+          "pct": 9.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 257,
+          "pct": 16.0
+        },
+        "X2_domain_age_years": {
+          "splits": 204,
+          "pct": 12.7
+        },
+        "X3_word_count": {
+          "splits": 196,
+          "pct": 12.2
+        },
+        "X6_readability": {
+          "splits": 252,
+          "pct": 15.7
+        },
+        "X7_internal_links": {
+          "splits": 268,
+          "pct": 16.7
+        },
+        "X7B_outbound_links": {
+          "splits": 99,
+          "pct": 6.2
+        },
+        "X8_keyword_difficulty": {
+          "splits": 124,
+          "pct": 7.7
+        },
+        "X9_images_with_alt": {
+          "splits": 207,
+          "pct": 12.9
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 0.1264686721584573,
+      "se": 0.14788442291595258,
+      "p_val": 0.39244824505987763,
+      "r2": 0.034706596759486064,
+      "coef_confounders": {
+        "X1_domain_authority": -0.14745005411998852,
+        "X2_domain_age_years": 0.5584424497290393,
+        "X3_word_count": 0.08599770490182841,
+        "X6_readability": 0.30030929816559304,
+        "X7_internal_links": -0.055210941167211085,
+        "X7B_outbound_links": -0.21705183657728946,
+        "X8_keyword_difficulty": -0.19186972219277942,
+        "X9_images_with_alt": -0.3324372860620114
+      },
+      "intercept": 3.697184743645061
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T1",
+      "path": "code",
+      "treatment_col": "T1_statistical_density_code",
+      "n_obs": 349
+    }
+  },
+  "rank_delta__T1_llm": {
+    "dml": {
+      "coef": 0.0037491196158824956,
+      "se": 0.026645412374164002,
+      "t_stat": 0.14070413184964356,
+      "p_val": 0.8881036808287206,
+      "ci_lower": -0.048474928990696844,
+      "ci_upper": 0.05597316822246183
+    },
+    "nuisance": {
+      "r2_ml_l": -0.13875696910702473,
+      "r2_ml_m": 0.10916675636705941,
+      "rmse_ml_l": 4.404314379042626,
+      "rmse_ml_m": 8.362675348200208
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 206,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 190,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 233,
+          "pct": 14.0
+        },
+        "X6_readability": {
+          "splits": 257,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X7B_outbound_links": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 230,
+          "pct": 13.8
+        },
+        "X9_images_with_alt": {
+          "splits": 168,
+          "pct": 10.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 226,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 163,
+          "pct": 9.0
+        },
+        "X3_word_count": {
+          "splits": 249,
+          "pct": 13.7
+        },
+        "X6_readability": {
+          "splits": 338,
+          "pct": 18.6
+        },
+        "X7_internal_links": {
+          "splits": 278,
+          "pct": 15.3
+        },
+        "X7B_outbound_links": {
+          "splits": 189,
+          "pct": 10.4
+        },
+        "X8_keyword_difficulty": {
+          "splits": 214,
+          "pct": 11.8
+        },
+        "X9_images_with_alt": {
+          "splits": 163,
+          "pct": 9.0
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.05187613480377794,
+      "se": 0.02725067293744581,
+      "p_val": 0.056953911156297554,
+      "r2": 0.04136956940532799,
+      "coef_confounders": {
+        "X1_domain_authority": -0.12729999091105523,
+        "X2_domain_age_years": 0.5154200037061921,
+        "X3_word_count": 0.2546369909662337,
+        "X6_readability": 0.24050869614679982,
+        "X7_internal_links": -0.04403210594275108,
+        "X7B_outbound_links": -0.12976024713084675,
+        "X8_keyword_difficulty": -0.18977722990410784,
+        "X9_images_with_alt": -0.3343934524641955
+      },
+      "intercept": 4.270667998663072
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T1",
+      "path": "llm",
+      "treatment_col": "T1_statistical_density_llm",
+      "n_obs": 355
+    }
+  },
+  "rank_delta__T2_code": {
+    "dml": {
+      "coef": 0.9634368982823672,
+      "se": 0.4356140220690537,
+      "t_stat": 2.2116755877285392,
+      "p_val": 0.026989088458425427,
+      "ci_lower": 0.10964910386638582,
+      "ci_upper": 1.8172246926983486
+    },
+    "nuisance": {
+      "r2_ml_l": -0.16711728624821132,
+      "r2_ml_m": -0.08873248502921838,
+      "rmse_ml_l": 4.458821001903798,
+      "rmse_ml_m": 0.5185538872035361
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 206,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 190,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 233,
+          "pct": 14.0
+        },
+        "X6_readability": {
+          "splits": 257,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X7B_outbound_links": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 230,
+          "pct": 13.8
+        },
+        "X9_images_with_alt": {
+          "splits": 168,
+          "pct": 10.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 179,
+          "pct": 10.7
+        },
+        "X2_domain_age_years": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X3_word_count": {
+          "splits": 262,
+          "pct": 15.7
+        },
+        "X6_readability": {
+          "splits": 154,
+          "pct": 9.2
+        },
+        "X7_internal_links": {
+          "splits": 236,
+          "pct": 14.1
+        },
+        "X7B_outbound_links": {
+          "splits": 252,
+          "pct": 15.1
+        },
+        "X8_keyword_difficulty": {
+          "splits": 156,
+          "pct": 9.3
+        },
+        "X9_images_with_alt": {
+          "splits": 218,
+          "pct": 13.1
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 1.101682320879955,
+      "se": 0.45609035143639576,
+      "p_val": 0.015713993629867806,
+      "r2": 0.048049371290048826,
+      "coef_confounders": {
+        "X1_domain_authority": -0.20053702386105068,
+        "X2_domain_age_years": 0.6193745775377955,
+        "X3_word_count": -0.053135494953921086,
+        "X6_readability": 0.2702474222655778,
+        "X7_internal_links": -0.10933886925667176,
+        "X7B_outbound_links": -0.20535515034968416,
+        "X8_keyword_difficulty": -0.1463285246071275,
+        "X9_images_with_alt": -0.30957090599682435
+      },
+      "intercept": 3.222446712075067
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T2",
+      "path": "code",
+      "treatment_col": "T2_question_heading_code",
+      "n_obs": 355
+    }
+  },
+  "rank_delta__T2_llm": {
+    "dml": {
+      "coef": -0.0923511613913571,
+      "se": 0.4643354183441374,
+      "t_stat": -0.198888901735495,
+      "p_val": 0.8423496512188853,
+      "ci_lower": -1.0024318580922056,
+      "ci_upper": 0.8177295353094913
+    },
+    "nuisance": {
+      "r2_ml_l": -0.12025614642172866,
+      "r2_ml_m": 0.09428684238156926,
+      "rmse_ml_l": 4.368390510757566,
+      "rmse_ml_m": 0.46451662409796113
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 206,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 190,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 233,
+          "pct": 14.0
+        },
+        "X6_readability": {
+          "splits": 257,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X7B_outbound_links": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 230,
+          "pct": 13.8
+        },
+        "X9_images_with_alt": {
+          "splits": 168,
+          "pct": 10.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 236,
+          "pct": 13.5
+        },
+        "X2_domain_age_years": {
+          "splits": 219,
+          "pct": 12.6
+        },
+        "X3_word_count": {
+          "splits": 262,
+          "pct": 15.0
+        },
+        "X6_readability": {
+          "splits": 213,
+          "pct": 12.2
+        },
+        "X7_internal_links": {
+          "splits": 173,
+          "pct": 9.9
+        },
+        "X7B_outbound_links": {
+          "splits": 229,
+          "pct": 13.1
+        },
+        "X8_keyword_difficulty": {
+          "splits": 197,
+          "pct": 11.3
+        },
+        "X9_images_with_alt": {
+          "splits": 216,
+          "pct": 12.4
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.18754858076273992,
+      "se": 0.491314583930509,
+      "p_val": 0.7026630576605779,
+      "r2": 0.03254747493619292,
+      "coef_confounders": {
+        "X1_domain_authority": -0.14793471848291478,
+        "X2_domain_age_years": 0.5786446707222562,
+        "X3_word_count": 0.10932557558150882,
+        "X6_readability": 0.29870013478831514,
+        "X7_internal_links": -0.0586493477255948,
+        "X7B_outbound_links": -0.19476358071359168,
+        "X8_keyword_difficulty": -0.1540099139099973,
+        "X9_images_with_alt": -0.31847370514245893
+      },
+      "intercept": 3.947916882942963
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T2",
+      "path": "llm",
+      "treatment_col": "T2_question_heading_llm",
+      "n_obs": 355
+    }
+  },
+  "rank_delta__T3_code": {
+    "dml": {
+      "coef": 1.0358307810462668,
+      "se": 0.49603590361491623,
+      "t_stat": 2.0882173518036415,
+      "p_val": 0.03677823277414575,
+      "ci_lower": 0.06361827492224925,
+      "ci_upper": 2.0080432871702842
+    },
+    "nuisance": {
+      "r2_ml_l": -0.1553963294070846,
+      "r2_ml_m": -0.13863333609396888,
+      "rmse_ml_l": 4.4363753044591805,
+      "rmse_ml_m": 0.4334436192667082
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 206,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 190,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 233,
+          "pct": 14.0
+        },
+        "X6_readability": {
+          "splits": 257,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X7B_outbound_links": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 230,
+          "pct": 13.8
+        },
+        "X9_images_with_alt": {
+          "splits": 168,
+          "pct": 10.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 236,
+          "pct": 14.8
+        },
+        "X2_domain_age_years": {
+          "splits": 192,
+          "pct": 12.0
+        },
+        "X3_word_count": {
+          "splits": 203,
+          "pct": 12.7
+        },
+        "X6_readability": {
+          "splits": 196,
+          "pct": 12.3
+        },
+        "X7_internal_links": {
+          "splits": 227,
+          "pct": 14.2
+        },
+        "X7B_outbound_links": {
+          "splits": 173,
+          "pct": 10.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 178,
+          "pct": 11.2
+        },
+        "X9_images_with_alt": {
+          "splits": 190,
+          "pct": 11.9
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 0.7171410555374464,
+      "se": 0.45167206376135344,
+      "p_val": 0.1123435147341072,
+      "r2": 0.036959881277253026,
+      "coef_confounders": {
+        "X1_domain_authority": -0.14796181822145066,
+        "X2_domain_age_years": 0.5744564732498081,
+        "X3_word_count": 0.10791572552670377,
+        "X6_readability": 0.3136782675403266,
+        "X7_internal_links": -0.070457441310157,
+        "X7B_outbound_links": -0.23540339380583397,
+        "X8_keyword_difficulty": -0.13964297673119497,
+        "X9_images_with_alt": -0.3201833573136628
+      },
+      "intercept": 3.6843142588457156
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T3",
+      "path": "code",
+      "treatment_col": "T3_structured_data_code",
+      "n_obs": 355
+    }
+  },
+  "rank_delta__T3_llm": {
+    "dml": {
+      "coef": 0.26423841877454624,
+      "se": 0.49445134682821573,
+      "t_stat": 0.5344073192834259,
+      "p_val": 0.5930597561537585,
+      "ci_lower": -0.7048684131160798,
+      "ci_upper": 1.2333452506651723
+    },
+    "nuisance": {
+      "r2_ml_l": -0.16464407045001117,
+      "r2_ml_m": -0.02896403830301142,
+      "rmse_ml_l": 4.454094195532555,
+      "rmse_ml_m": 0.5037953638676442
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 206,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 190,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 233,
+          "pct": 14.0
+        },
+        "X6_readability": {
+          "splits": 257,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X7B_outbound_links": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 230,
+          "pct": 13.8
+        },
+        "X9_images_with_alt": {
+          "splits": 168,
+          "pct": 10.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 181,
+          "pct": 11.3
+        },
+        "X2_domain_age_years": {
+          "splits": 272,
+          "pct": 17.0
+        },
+        "X3_word_count": {
+          "splits": 182,
+          "pct": 11.4
+        },
+        "X6_readability": {
+          "splits": 221,
+          "pct": 13.8
+        },
+        "X7_internal_links": {
+          "splits": 218,
+          "pct": 13.7
+        },
+        "X7B_outbound_links": {
+          "splits": 123,
+          "pct": 7.7
+        },
+        "X8_keyword_difficulty": {
+          "splits": 175,
+          "pct": 11.0
+        },
+        "X9_images_with_alt": {
+          "splits": 225,
+          "pct": 14.1
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.28685372244311036,
+      "se": 0.4474540273877312,
+      "p_val": 0.5214708607179108,
+      "r2": 0.03316256146772589,
+      "coef_confounders": {
+        "X1_domain_authority": -0.14485074056954061,
+        "X2_domain_age_years": 0.5644472340217626,
+        "X3_word_count": 0.11657010484954004,
+        "X6_readability": 0.286933471885441,
+        "X7_internal_links": -0.05011965687078895,
+        "X7B_outbound_links": -0.1863467222357028,
+        "X8_keyword_difficulty": -0.14865230268695157,
+        "X9_images_with_alt": -0.3046416131477437
+      },
+      "intercept": 3.9606648857001927
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T3",
+      "path": "llm",
+      "treatment_col": "T3_structured_data_llm",
+      "n_obs": 355
+    }
+  },
+  "rank_delta__T4_code": {
+    "dml": {
+      "coef": -1.251378887656442,
+      "se": 0.7227449419222631,
+      "t_stat": -1.731425313511274,
+      "p_val": 0.08337593502678195,
+      "ci_lower": -2.6679329438325707,
+      "ci_upper": 0.16517516851968672
+    },
+    "nuisance": {
+      "r2_ml_l": -0.1222598207065475,
+      "r2_ml_m": -0.12196184856303538,
+      "rmse_ml_l": 4.372295386200043,
+      "rmse_ml_m": 0.2593278633669547
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 206,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 190,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 233,
+          "pct": 14.0
+        },
+        "X6_readability": {
+          "splits": 257,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X7B_outbound_links": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 230,
+          "pct": 13.8
+        },
+        "X9_images_with_alt": {
+          "splits": 168,
+          "pct": 10.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.7
+        },
+        "X2_domain_age_years": {
+          "splits": 187,
+          "pct": 12.7
+        },
+        "X3_word_count": {
+          "splits": 162,
+          "pct": 11.0
+        },
+        "X6_readability": {
+          "splits": 233,
+          "pct": 15.8
+        },
+        "X7_internal_links": {
+          "splits": 156,
+          "pct": 10.6
+        },
+        "X7B_outbound_links": {
+          "splits": 197,
+          "pct": 13.4
+        },
+        "X8_keyword_difficulty": {
+          "splits": 122,
+          "pct": 8.3
+        },
+        "X9_images_with_alt": {
+          "splits": 245,
+          "pct": 16.6
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -1.607850812343943,
+      "se": 0.9311433011557002,
+      "p_val": 0.08421274207121798,
+      "r2": 0.04088757345203664,
+      "coef_confounders": {
+        "X1_domain_authority": -0.11205682924638545,
+        "X2_domain_age_years": 0.6206926859953379,
+        "X3_word_count": 0.11303872319405847,
+        "X6_readability": 0.2997015261863422,
+        "X7_internal_links": -0.0941914254609821,
+        "X7B_outbound_links": -0.20005568852544123,
+        "X8_keyword_difficulty": -0.14545521760022387,
+        "X9_images_with_alt": -0.33642753399993686
+      },
+      "intercept": 3.9062693323873328
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T4",
+      "path": "code",
+      "treatment_col": "T4_citation_authority_code",
+      "n_obs": 355
+    }
+  },
+  "rank_delta__T4_llm": {
+    "dml": {
+      "coef": -0.1589724845789521,
+      "se": 0.25351245127619143,
+      "t_stat": -0.627079592259388,
+      "p_val": 0.5306070636754008,
+      "ci_lower": -0.6558477587127526,
+      "ci_upper": 0.3379027895548483
+    },
+    "nuisance": {
+      "r2_ml_l": -0.15180709318612684,
+      "r2_ml_m": -0.06561842085550151,
+      "rmse_ml_l": 4.429479149383142,
+      "rmse_ml_m": 0.8913602331510742
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 206,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 190,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 233,
+          "pct": 14.0
+        },
+        "X6_readability": {
+          "splits": 257,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X7B_outbound_links": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 230,
+          "pct": 13.8
+        },
+        "X9_images_with_alt": {
+          "splits": 168,
+          "pct": 10.1
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 166,
+          "pct": 10.5
+        },
+        "X2_domain_age_years": {
+          "splits": 145,
+          "pct": 9.2
+        },
+        "X3_word_count": {
+          "splits": 254,
+          "pct": 16.1
+        },
+        "X6_readability": {
+          "splits": 216,
+          "pct": 13.7
+        },
+        "X7_internal_links": {
+          "splits": 233,
+          "pct": 14.8
+        },
+        "X7B_outbound_links": {
+          "splits": 278,
+          "pct": 17.7
+        },
+        "X8_keyword_difficulty": {
+          "splits": 144,
+          "pct": 9.1
+        },
+        "X9_images_with_alt": {
+          "splits": 139,
+          "pct": 8.8
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.4165722621066768,
+      "se": 0.27894766179077723,
+      "p_val": 0.13534018088371869,
+      "r2": 0.038825429400222156,
+      "coef_confounders": {
+        "X1_domain_authority": -0.14790751330160684,
+        "X2_domain_age_years": 0.5775165349608351,
+        "X3_word_count": 0.167075156675515,
+        "X6_readability": 0.323766781794079,
+        "X7_internal_links": -0.07774845428166431,
+        "X7B_outbound_links": -0.1414599138694627,
+        "X8_keyword_difficulty": -0.12042433399239136,
+        "X9_images_with_alt": -0.31394665688755025
+      },
+      "intercept": 3.979309747890783
+    },
+    "meta": {
+      "outcome": "rank_delta",
+      "treatment": "T4",
+      "path": "llm",
+      "treatment_col": "T4_citation_authority_llm",
+      "n_obs": 355
+    }
+  },
+  "pre_rank__T1_code": {
+    "dml": {
+      "coef": 0.2344272896791898,
+      "se": 0.22237509564653773,
+      "t_stat": 1.0541975889773596,
+      "p_val": 0.2917924636693089,
+      "ci_lower": -0.20141988884667394,
+      "ci_upper": 0.6702744682050535
+    },
+    "nuisance": {
+      "r2_ml_l": -0.23049166392193632,
+      "r2_ml_m": -0.10386127255275501,
+      "rmse_ml_l": 5.478067427385063,
+      "rmse_ml_m": 1.5008636759698977
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 193,
+          "pct": 11.6
+        },
+        "X2_domain_age_years": {
+          "splits": 200,
+          "pct": 12.1
+        },
+        "X3_word_count": {
+          "splits": 166,
+          "pct": 10.0
+        },
+        "X6_readability": {
+          "splits": 315,
+          "pct": 19.0
+        },
+        "X7_internal_links": {
+          "splits": 224,
+          "pct": 13.5
+        },
+        "X7B_outbound_links": {
+          "splits": 167,
+          "pct": 10.1
+        },
+        "X8_keyword_difficulty": {
+          "splits": 205,
+          "pct": 12.4
+        },
+        "X9_images_with_alt": {
+          "splits": 188,
+          "pct": 11.3
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 257,
+          "pct": 16.0
+        },
+        "X2_domain_age_years": {
+          "splits": 204,
+          "pct": 12.7
+        },
+        "X3_word_count": {
+          "splits": 196,
+          "pct": 12.2
+        },
+        "X6_readability": {
+          "splits": 252,
+          "pct": 15.7
+        },
+        "X7_internal_links": {
+          "splits": 268,
+          "pct": 16.7
+        },
+        "X7B_outbound_links": {
+          "splits": 99,
+          "pct": 6.2
+        },
+        "X8_keyword_difficulty": {
+          "splits": 124,
+          "pct": 7.7
+        },
+        "X9_images_with_alt": {
+          "splits": 207,
+          "pct": 12.9
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.004884949774353264,
+      "se": 0.19685046516941584,
+      "p_val": 0.9802020990630038,
+      "r2": 0.04162364346164571,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6282416984650903,
+        "X2_domain_age_years": 0.4999303798643949,
+        "X3_word_count": 0.6050676224085327,
+        "X6_readability": 0.28814287939509137,
+        "X7_internal_links": 0.04734653514885966,
+        "X7B_outbound_links": -0.26271711387865737,
+        "X8_keyword_difficulty": 0.03803118882169017,
+        "X9_images_with_alt": -0.6650531821520361
+      },
+      "intercept": 8.705192420009842
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T1",
+      "path": "code",
+      "treatment_col": "T1_statistical_density_code",
+      "n_obs": 349
+    }
+  },
+  "pre_rank__T1_llm": {
+    "dml": {
+      "coef": 0.06329600920422315,
+      "se": 0.03335441759217234,
+      "t_stat": 1.8976799408746847,
+      "p_val": 0.05773825654301608,
+      "ci_lower": -0.002077448001743837,
+      "ci_upper": 0.12866946641019014
+    },
+    "nuisance": {
+      "r2_ml_l": -0.13358682093985585,
+      "r2_ml_m": 0.1589216868628378,
+      "rmse_ml_l": 5.247180739264427,
+      "rmse_ml_m": 8.125783499004314
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 177,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 168,
+          "pct": 10.8
+        },
+        "X6_readability": {
+          "splits": 318,
+          "pct": 20.4
+        },
+        "X7_internal_links": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 148,
+          "pct": 9.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X9_images_with_alt": {
+          "splits": 177,
+          "pct": 11.4
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 226,
+          "pct": 12.4
+        },
+        "X2_domain_age_years": {
+          "splits": 163,
+          "pct": 9.0
+        },
+        "X3_word_count": {
+          "splits": 249,
+          "pct": 13.7
+        },
+        "X6_readability": {
+          "splits": 338,
+          "pct": 18.6
+        },
+        "X7_internal_links": {
+          "splits": 278,
+          "pct": 15.3
+        },
+        "X7B_outbound_links": {
+          "splits": 189,
+          "pct": 10.4
+        },
+        "X8_keyword_difficulty": {
+          "splits": 214,
+          "pct": 11.8
+        },
+        "X9_images_with_alt": {
+          "splits": 163,
+          "pct": 9.0
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.017612226705091848,
+      "se": 0.03247470768460114,
+      "p_val": 0.5875865584987914,
+      "r2": 0.043049770771215634,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6556760754042346,
+        "X2_domain_age_years": 0.5283856327710503,
+        "X3_word_count": 0.6588241882493654,
+        "X6_readability": 0.2669686541637092,
+        "X7_internal_links": 0.05454166359978781,
+        "X7B_outbound_links": -0.23431683159109312,
+        "X8_keyword_difficulty": 0.08454413672123416,
+        "X9_images_with_alt": -0.6612274022702318
+      },
+      "intercept": 8.84972652894677
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T1",
+      "path": "llm",
+      "treatment_col": "T1_statistical_density_llm",
+      "n_obs": 355
+    }
+  },
+  "pre_rank__T2_code": {
+    "dml": {
+      "coef": 0.6076652439132051,
+      "se": 0.5742409701659394,
+      "t_stat": 1.0582060066832344,
+      "p_val": 0.28996153339878994,
+      "ci_lower": -0.517826376059376,
+      "ci_upper": 1.7331568638857862
+    },
+    "nuisance": {
+      "r2_ml_l": -0.2045465012021792,
+      "r2_ml_m": -0.0393504185787108,
+      "rmse_ml_l": 5.4089182163775,
+      "rmse_ml_m": 0.5066572961875228
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 177,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 168,
+          "pct": 10.8
+        },
+        "X6_readability": {
+          "splits": 318,
+          "pct": 20.4
+        },
+        "X7_internal_links": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 148,
+          "pct": 9.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X9_images_with_alt": {
+          "splits": 177,
+          "pct": 11.4
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 179,
+          "pct": 10.7
+        },
+        "X2_domain_age_years": {
+          "splits": 213,
+          "pct": 12.8
+        },
+        "X3_word_count": {
+          "splits": 262,
+          "pct": 15.7
+        },
+        "X6_readability": {
+          "splits": 154,
+          "pct": 9.2
+        },
+        "X7_internal_links": {
+          "splits": 236,
+          "pct": 14.1
+        },
+        "X7B_outbound_links": {
+          "splits": 252,
+          "pct": 15.1
+        },
+        "X8_keyword_difficulty": {
+          "splits": 156,
+          "pct": 9.3
+        },
+        "X9_images_with_alt": {
+          "splits": 218,
+          "pct": 13.1
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 0.7405008870285613,
+      "se": 0.5474352058603399,
+      "p_val": 0.17616008192885735,
+      "r2": 0.047354394457359894,
+      "coef_confounders": {
+        "X1_domain_authority": -0.7003811513901819,
+        "X2_domain_age_years": 0.5796335625804433,
+        "X3_word_count": 0.5095614854092297,
+        "X6_readability": 0.2676243467658376,
+        "X7_internal_links": 0.017439321396873316,
+        "X7B_outbound_links": -0.2639563649638526,
+        "X8_keyword_difficulty": 0.10135021138871542,
+        "X9_images_with_alt": -0.6537811680993464
+      },
+      "intercept": 8.290482606353164
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T2",
+      "path": "code",
+      "treatment_col": "T2_question_heading_code",
+      "n_obs": 355
+    }
+  },
+  "pre_rank__T2_llm": {
+    "dml": {
+      "coef": -0.07717947739580831,
+      "se": 0.5911595965471449,
+      "t_stat": -0.13055607630595786,
+      "p_val": 0.8961264912561708,
+      "ci_lower": -1.2358309957434412,
+      "ci_upper": 1.0814720409518246
+    },
+    "nuisance": {
+      "r2_ml_l": -0.1542062730821896,
+      "r2_ml_m": 0.00011654378133763021,
+      "rmse_ml_l": 5.294687650122819,
+      "rmse_ml_m": 0.48806831442310783
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 177,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 168,
+          "pct": 10.8
+        },
+        "X6_readability": {
+          "splits": 318,
+          "pct": 20.4
+        },
+        "X7_internal_links": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 148,
+          "pct": 9.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X9_images_with_alt": {
+          "splits": 177,
+          "pct": 11.4
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 236,
+          "pct": 13.5
+        },
+        "X2_domain_age_years": {
+          "splits": 219,
+          "pct": 12.6
+        },
+        "X3_word_count": {
+          "splits": 262,
+          "pct": 15.0
+        },
+        "X6_readability": {
+          "splits": 213,
+          "pct": 12.2
+        },
+        "X7_internal_links": {
+          "splits": 173,
+          "pct": 9.9
+        },
+        "X7B_outbound_links": {
+          "splits": 229,
+          "pct": 13.1
+        },
+        "X8_keyword_difficulty": {
+          "splits": 197,
+          "pct": 11.3
+        },
+        "X9_images_with_alt": {
+          "splits": 216,
+          "pct": 12.4
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 0.12183393722409168,
+      "se": 0.6026209977534321,
+      "p_val": 0.8397811659023522,
+      "r2": 0.04243309793219863,
+      "coef_confounders": {
+        "X1_domain_authority": -0.655716083659554,
+        "X2_domain_age_years": 0.5426965535170787,
+        "X3_word_count": 0.5819254477153002,
+        "X6_readability": 0.2866535704301647,
+        "X7_internal_links": 0.043835838517192305,
+        "X7B_outbound_links": -0.25504365596635153,
+        "X8_keyword_difficulty": 0.09817466435271568,
+        "X9_images_with_alt": -0.6440992249641436
+      },
+      "intercept": 8.627278505801678
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T2",
+      "path": "llm",
+      "treatment_col": "T2_question_heading_llm",
+      "n_obs": 355
+    }
+  },
+  "pre_rank__T3_code": {
+    "dml": {
+      "coef": 0.041421010254970324,
+      "se": 0.6523338415368143,
+      "t_stat": 0.06349664484275072,
+      "p_val": 0.949371030882236,
+      "ci_lower": -1.2371298250538443,
+      "ci_upper": 1.319971845563785
+    },
+    "nuisance": {
+      "r2_ml_l": -0.2061513722477979,
+      "r2_ml_m": -0.10150249164221936,
+      "rmse_ml_l": 5.412520288508552,
+      "rmse_ml_m": 0.42631774368108627
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 177,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 168,
+          "pct": 10.8
+        },
+        "X6_readability": {
+          "splits": 318,
+          "pct": 20.4
+        },
+        "X7_internal_links": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 148,
+          "pct": 9.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X9_images_with_alt": {
+          "splits": 177,
+          "pct": 11.4
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 236,
+          "pct": 14.8
+        },
+        "X2_domain_age_years": {
+          "splits": 192,
+          "pct": 12.0
+        },
+        "X3_word_count": {
+          "splits": 203,
+          "pct": 12.7
+        },
+        "X6_readability": {
+          "splits": 196,
+          "pct": 12.3
+        },
+        "X7_internal_links": {
+          "splits": 227,
+          "pct": 14.2
+        },
+        "X7B_outbound_links": {
+          "splits": 173,
+          "pct": 10.8
+        },
+        "X8_keyword_difficulty": {
+          "splits": 178,
+          "pct": 11.2
+        },
+        "X9_images_with_alt": {
+          "splits": 190,
+          "pct": 11.9
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 0.08625868011146173,
+      "se": 0.6262345750291949,
+      "p_val": 0.8904444794345616,
+      "r2": 0.042349661343697,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6611411107293291,
+        "X2_domain_age_years": 0.547761359250583,
+        "X3_word_count": 0.6032112688908237,
+        "X6_readability": 0.2885107276148309,
+        "X7_internal_links": 0.046885840632649826,
+        "X7B_outbound_links": -0.26097655352690596,
+        "X8_keyword_difficulty": 0.09874505316222439,
+        "X9_images_with_alt": -0.653429889534188
+      },
+      "intercept": 8.683427768089441
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T3",
+      "path": "code",
+      "treatment_col": "T3_structured_data_code",
+      "n_obs": 355
+    }
+  },
+  "pre_rank__T3_llm": {
+    "dml": {
+      "coef": 0.20175043824413025,
+      "se": 0.6050618988793748,
+      "t_stat": 0.3334376840085104,
+      "p_val": 0.738803921344217,
+      "ci_lower": -0.9841490919768605,
+      "ci_upper": 1.387649968465121
+    },
+    "nuisance": {
+      "r2_ml_l": -0.25766300343502446,
+      "r2_ml_m": -0.09043146455496354,
+      "rmse_ml_l": 5.526889381103734,
+      "rmse_ml_m": 0.5186247704330076
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 177,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 168,
+          "pct": 10.8
+        },
+        "X6_readability": {
+          "splits": 318,
+          "pct": 20.4
+        },
+        "X7_internal_links": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 148,
+          "pct": 9.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X9_images_with_alt": {
+          "splits": 177,
+          "pct": 11.4
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 181,
+          "pct": 11.3
+        },
+        "X2_domain_age_years": {
+          "splits": 272,
+          "pct": 17.0
+        },
+        "X3_word_count": {
+          "splits": 182,
+          "pct": 11.4
+        },
+        "X6_readability": {
+          "splits": 221,
+          "pct": 13.8
+        },
+        "X7_internal_links": {
+          "splits": 218,
+          "pct": 13.7
+        },
+        "X7B_outbound_links": {
+          "splits": 123,
+          "pct": 7.7
+        },
+        "X8_keyword_difficulty": {
+          "splits": 175,
+          "pct": 11.0
+        },
+        "X9_images_with_alt": {
+          "splits": 225,
+          "pct": 14.1
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.3219633914605579,
+      "se": 0.5348690985713922,
+      "p_val": 0.5472087425631287,
+      "r2": 0.043240106869135486,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6647335233206867,
+        "X2_domain_age_years": 0.5395781738217088,
+        "X3_word_count": 0.6394389915148128,
+        "X6_readability": 0.2735746138215378,
+        "X7_internal_links": 0.06369847688317806,
+        "X7B_outbound_links": -0.2480010887032898,
+        "X8_keyword_difficulty": 0.1015234647311999,
+        "X9_images_with_alt": -0.6495765434709022
+      },
+      "intercept": 8.843797894251571
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T3",
+      "path": "llm",
+      "treatment_col": "T3_structured_data_llm",
+      "n_obs": 355
+    }
+  },
+  "pre_rank__T4_code": {
+    "dml": {
+      "coef": -2.1405194126900238,
+      "se": 0.9146948026430398,
+      "t_stat": -2.340146031774669,
+      "p_val": 0.01927620109820963,
+      "ci_lower": -3.9332882827163544,
+      "ci_upper": -0.3477505426636931
+    },
+    "nuisance": {
+      "r2_ml_l": -0.2630229105737669,
+      "r2_ml_m": -0.1653311463439242,
+      "rmse_ml_l": 5.53865410598339,
+      "rmse_ml_m": 0.2642924849321389
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 177,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 168,
+          "pct": 10.8
+        },
+        "X6_readability": {
+          "splits": 318,
+          "pct": 20.4
+        },
+        "X7_internal_links": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 148,
+          "pct": 9.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X9_images_with_alt": {
+          "splits": 177,
+          "pct": 11.4
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.7
+        },
+        "X2_domain_age_years": {
+          "splits": 187,
+          "pct": 12.7
+        },
+        "X3_word_count": {
+          "splits": 162,
+          "pct": 11.0
+        },
+        "X6_readability": {
+          "splits": 233,
+          "pct": 15.8
+        },
+        "X7_internal_links": {
+          "splits": 156,
+          "pct": 10.6
+        },
+        "X7B_outbound_links": {
+          "splits": 197,
+          "pct": 13.4
+        },
+        "X8_keyword_difficulty": {
+          "splits": 122,
+          "pct": 8.3
+        },
+        "X9_images_with_alt": {
+          "splits": 245,
+          "pct": 16.6
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -1.8743580895018317,
+      "se": 1.0828518680354875,
+      "p_val": 0.08346139946399256,
+      "r2": 0.05067688339732612,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6266755204704089,
+        "X2_domain_age_years": 0.6048445511392256,
+        "X3_word_count": 0.6368446792145711,
+        "X6_readability": 0.2879519710950704,
+        "X7_internal_links": 0.012943231459035387,
+        "X7B_outbound_links": -0.26367626259007726,
+        "X8_keyword_difficulty": 0.10541757676868123,
+        "X9_images_with_alt": -0.6865452601664834
+      },
+      "intercept": 8.785886561780364
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T4",
+      "path": "code",
+      "treatment_col": "T4_citation_authority_code",
+      "n_obs": 355
+    }
+  },
+  "pre_rank__T4_llm": {
+    "dml": {
+      "coef": -0.1035286294958664,
+      "se": 0.32460767662971773,
+      "t_stat": -0.31893463078497136,
+      "p_val": 0.7497760829897192,
+      "ci_lower": -0.7397479847953373,
+      "ci_upper": 0.5326907258036045
+    },
+    "nuisance": {
+      "r2_ml_l": -0.22464250188038748,
+      "r2_ml_m": -0.03234915132938587,
+      "rmse_ml_l": 5.453851311045926,
+      "rmse_ml_m": 0.8773354895602546
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 172,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 177,
+          "pct": 11.4
+        },
+        "X3_word_count": {
+          "splits": 168,
+          "pct": 10.8
+        },
+        "X6_readability": {
+          "splits": 318,
+          "pct": 20.4
+        },
+        "X7_internal_links": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 148,
+          "pct": 9.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 199,
+          "pct": 12.8
+        },
+        "X9_images_with_alt": {
+          "splits": 177,
+          "pct": 11.4
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 166,
+          "pct": 10.5
+        },
+        "X2_domain_age_years": {
+          "splits": 145,
+          "pct": 9.2
+        },
+        "X3_word_count": {
+          "splits": 254,
+          "pct": 16.1
+        },
+        "X6_readability": {
+          "splits": 216,
+          "pct": 13.7
+        },
+        "X7_internal_links": {
+          "splits": 233,
+          "pct": 14.8
+        },
+        "X7B_outbound_links": {
+          "splits": 278,
+          "pct": 17.7
+        },
+        "X8_keyword_difficulty": {
+          "splits": 144,
+          "pct": 9.1
+        },
+        "X9_images_with_alt": {
+          "splits": 139,
+          "pct": 8.8
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.4229494900378535,
+      "se": 0.344198168205731,
+      "p_val": 0.2191481297732234,
+      "r2": 0.047163461024668396,
+      "coef_confounders": {
+        "X1_domain_authority": -0.667413215097418,
+        "X2_domain_age_years": 0.5535933608051778,
+        "X3_word_count": 0.686957124580984,
+        "X6_readability": 0.3122241245835551,
+        "X7_internal_links": 0.034111510066386484,
+        "X7B_outbound_links": -0.20318314314589808,
+        "X8_keyword_difficulty": 0.12977086618050757,
+        "X9_images_with_alt": -0.6592360447540596
+      },
+      "intercept": 8.849142920463926
+    },
+    "meta": {
+      "outcome": "pre_rank",
+      "treatment": "T4",
+      "path": "llm",
+      "treatment_col": "T4_citation_authority_llm",
+      "n_obs": 355
+    }
+  },
+  "post_rank__T1_code": {
+    "dml": {
+      "coef": 0.07789636385691034,
+      "se": 0.04008137226622258,
+      "t_stat": 1.9434555119400254,
+      "p_val": 0.0519611456450182,
+      "ci_lower": -0.0006616822358284785,
+      "ci_upper": 0.15645440994964915
+    },
+    "nuisance": {
+      "r2_ml_l": -0.13658240162879975,
+      "r2_ml_m": -0.06328554509076056,
+      "rmse_ml_l": 3.0181737474138903,
+      "rmse_ml_m": 2.7979121207371667
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 223,
+          "pct": 13.3
+        },
+        "X2_domain_age_years": {
+          "splits": 197,
+          "pct": 11.7
+        },
+        "X3_word_count": {
+          "splits": 243,
+          "pct": 14.5
+        },
+        "X6_readability": {
+          "splits": 327,
+          "pct": 19.5
+        },
+        "X7_internal_links": {
+          "splits": 237,
+          "pct": 14.1
+        },
+        "X7B_outbound_links": {
+          "splits": 162,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 132,
+          "pct": 7.9
+        },
+        "X9_images_with_alt": {
+          "splits": 159,
+          "pct": 9.5
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 132,
+          "pct": 9.0
+        },
+        "X2_domain_age_years": {
+          "splits": 281,
+          "pct": 19.1
+        },
+        "X3_word_count": {
+          "splits": 274,
+          "pct": 18.6
+        },
+        "X6_readability": {
+          "splits": 228,
+          "pct": 15.5
+        },
+        "X7_internal_links": {
+          "splits": 185,
+          "pct": 12.6
+        },
+        "X7B_outbound_links": {
+          "splits": 112,
+          "pct": 7.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 159,
+          "pct": 10.8
+        },
+        "X9_images_with_alt": {
+          "splits": 102,
+          "pct": 6.9
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 0.12465474670722396,
+      "se": 0.04401513771425203,
+      "p_val": 0.004624510845923746,
+      "r2": 0.06439742144795568,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6332462403416548,
+        "X2_domain_age_years": 0.01717174351273011,
+        "X3_word_count": 0.09991782155412414,
+        "X6_readability": -0.023452889198151874,
+        "X7_internal_links": -0.010260142025415904,
+        "X7B_outbound_links": 0.17287745512632247,
+        "X8_keyword_difficulty": 0.32310409379164823,
+        "X9_images_with_alt": -0.012254060578743236
+      },
+      "intercept": 5.168004900930785
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T1",
+      "path": "code",
+      "treatment_col": "T1_statistical_density_code",
+      "n_obs": 411
+    }
+  },
+  "post_rank__T1_llm": {
+    "dml": {
+      "coef": 0.03418160087260145,
+      "se": 0.01968983268005961,
+      "t_stat": 1.736002607438001,
+      "p_val": 0.08256337352423812,
+      "ci_lower": -0.004409762041935161,
+      "ci_upper": 0.07277296378713806
+    },
+    "nuisance": {
+      "r2_ml_l": -0.12581593766892163,
+      "r2_ml_m": 0.18887286593370056,
+      "rmse_ml_l": 3.0119166357600156,
+      "rmse_ml_m": 7.817458368646522
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 200,
+          "pct": 11.8
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 241,
+          "pct": 14.2
+        },
+        "X6_readability": {
+          "splits": 329,
+          "pct": 19.4
+        },
+        "X7_internal_links": {
+          "splits": 222,
+          "pct": 13.1
+        },
+        "X7B_outbound_links": {
+          "splits": 163,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 150,
+          "pct": 8.9
+        },
+        "X9_images_with_alt": {
+          "splits": 197,
+          "pct": 11.6
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 213,
+          "pct": 11.0
+        },
+        "X2_domain_age_years": {
+          "splits": 185,
+          "pct": 9.6
+        },
+        "X3_word_count": {
+          "splits": 308,
+          "pct": 16.0
+        },
+        "X6_readability": {
+          "splits": 333,
+          "pct": 17.3
+        },
+        "X7_internal_links": {
+          "splits": 279,
+          "pct": 14.5
+        },
+        "X7B_outbound_links": {
+          "splits": 191,
+          "pct": 9.9
+        },
+        "X8_keyword_difficulty": {
+          "splits": 228,
+          "pct": 11.8
+        },
+        "X9_images_with_alt": {
+          "splits": 191,
+          "pct": 9.9
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": 0.023512493231668385,
+      "se": 0.01772462773351576,
+      "p_val": 0.1846596706444048,
+      "r2": 0.053312279976608035,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6770180101176575,
+        "X2_domain_age_years": 0.07206145299499804,
+        "X3_word_count": -0.01315642585514176,
+        "X6_readability": -0.031038159810603323,
+        "X7_internal_links": -0.019477874444554105,
+        "X7B_outbound_links": 0.1582313631252353,
+        "X8_keyword_difficulty": 0.388247754611773,
+        "X9_images_with_alt": -0.003423316657072132
+      },
+      "intercept": 5.209156649202807
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T1",
+      "path": "llm",
+      "treatment_col": "T1_statistical_density_llm",
+      "n_obs": 419
+    }
+  },
+  "post_rank__T2_code": {
+    "dml": {
+      "coef": -0.6269585259055043,
+      "se": 0.29269149766765856,
+      "t_stat": -2.142045569828594,
+      "p_val": 0.03218981521586023,
+      "ci_lower": -1.2006233199152043,
+      "ci_upper": -0.05329373189580422
+    },
+    "nuisance": {
+      "r2_ml_l": -0.13022483388003203,
+      "r2_ml_m": 0.0370435174988184,
+      "rmse_ml_l": 3.0178084746645086,
+      "rmse_ml_m": 0.49033721862237795
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 200,
+          "pct": 11.8
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 241,
+          "pct": 14.2
+        },
+        "X6_readability": {
+          "splits": 329,
+          "pct": 19.4
+        },
+        "X7_internal_links": {
+          "splits": 222,
+          "pct": 13.1
+        },
+        "X7B_outbound_links": {
+          "splits": 163,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 150,
+          "pct": 8.9
+        },
+        "X9_images_with_alt": {
+          "splits": 197,
+          "pct": 11.6
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 191,
+          "pct": 10.6
+        },
+        "X2_domain_age_years": {
+          "splits": 230,
+          "pct": 12.8
+        },
+        "X3_word_count": {
+          "splits": 259,
+          "pct": 14.4
+        },
+        "X6_readability": {
+          "splits": 185,
+          "pct": 10.3
+        },
+        "X7_internal_links": {
+          "splits": 242,
+          "pct": 13.5
+        },
+        "X7B_outbound_links": {
+          "splits": 261,
+          "pct": 14.5
+        },
+        "X8_keyword_difficulty": {
+          "splits": 238,
+          "pct": 13.3
+        },
+        "X9_images_with_alt": {
+          "splits": 190,
+          "pct": 10.6
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.6370558501435231,
+      "se": 0.28116295848796796,
+      "p_val": 0.02346432446319291,
+      "r2": 0.06047532198775829,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6320611035356596,
+        "X2_domain_age_years": 0.025316986096568003,
+        "X3_word_count": 0.15641024547533,
+        "X6_readability": -0.028024288331939828,
+        "X7_internal_links": 0.02504907792143167,
+        "X7B_outbound_links": 0.1759932657614379,
+        "X8_keyword_difficulty": 0.3586968850269373,
+        "X9_images_with_alt": -0.0061404881439445095
+      },
+      "intercept": 5.726112456995571
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T2",
+      "path": "code",
+      "treatment_col": "T2_question_heading_code",
+      "n_obs": 419
+    }
+  },
+  "post_rank__T2_llm": {
+    "dml": {
+      "coef": -0.15720121443066146,
+      "se": 0.29616701190010003,
+      "t_stat": -0.5307856989950216,
+      "p_val": 0.5955672912926624,
+      "ci_lower": -0.7376778911637032,
+      "ci_upper": 0.4232754623023802
+    },
+    "nuisance": {
+      "r2_ml_l": -0.16774186173619166,
+      "r2_ml_m": 0.05421345684176926,
+      "rmse_ml_l": 3.067486609866363,
+      "rmse_ml_m": 0.48435819200272956
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 200,
+          "pct": 11.8
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 241,
+          "pct": 14.2
+        },
+        "X6_readability": {
+          "splits": 329,
+          "pct": 19.4
+        },
+        "X7_internal_links": {
+          "splits": 222,
+          "pct": 13.1
+        },
+        "X7B_outbound_links": {
+          "splits": 163,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 150,
+          "pct": 8.9
+        },
+        "X9_images_with_alt": {
+          "splits": 197,
+          "pct": 11.6
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 219,
+          "pct": 11.5
+        },
+        "X2_domain_age_years": {
+          "splits": 215,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 317,
+          "pct": 16.7
+        },
+        "X6_readability": {
+          "splits": 242,
+          "pct": 12.7
+        },
+        "X7_internal_links": {
+          "splits": 239,
+          "pct": 12.6
+        },
+        "X7B_outbound_links": {
+          "splits": 241,
+          "pct": 12.7
+        },
+        "X8_keyword_difficulty": {
+          "splits": 217,
+          "pct": 11.4
+        },
+        "X9_images_with_alt": {
+          "splits": 209,
+          "pct": 11.0
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.4166792394050058,
+      "se": 0.29488512758221047,
+      "p_val": 0.15764918909358894,
+      "r2": 0.054076808245228314,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6782132244186844,
+        "X2_domain_age_years": 0.061787309949417606,
+        "X3_word_count": 0.14392308354733677,
+        "X6_readability": -0.058160113680768365,
+        "X7_internal_links": 0.009854175389950917,
+        "X7B_outbound_links": 0.14587230092866096,
+        "X8_keyword_difficulty": 0.3672846074779763,
+        "X9_images_with_alt": -0.03404417937429486
+      },
+      "intercept": 5.622918536000814
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T2",
+      "path": "llm",
+      "treatment_col": "T2_question_heading_llm",
+      "n_obs": 419
+    }
+  },
+  "post_rank__T3_code": {
+    "dml": {
+      "coef": -0.8700173952952873,
+      "se": 0.3293024917283479,
+      "t_stat": -2.6420006442374335,
+      "p_val": 0.00824178991006722,
+      "ci_lower": -1.5154384191021482,
+      "ci_upper": -0.22459637148842637
+    },
+    "nuisance": {
+      "r2_ml_l": -0.10949538325552455,
+      "r2_ml_m": -0.17191154519038498,
+      "rmse_ml_l": 2.9900055930153213,
+      "rmse_ml_m": 0.4234346536839701
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 200,
+          "pct": 11.8
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 241,
+          "pct": 14.2
+        },
+        "X6_readability": {
+          "splits": 329,
+          "pct": 19.4
+        },
+        "X7_internal_links": {
+          "splits": 222,
+          "pct": 13.1
+        },
+        "X7B_outbound_links": {
+          "splits": 163,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 150,
+          "pct": 8.9
+        },
+        "X9_images_with_alt": {
+          "splits": 197,
+          "pct": 11.6
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 250,
+          "pct": 15.1
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.5
+        },
+        "X3_word_count": {
+          "splits": 234,
+          "pct": 14.1
+        },
+        "X6_readability": {
+          "splits": 159,
+          "pct": 9.6
+        },
+        "X7_internal_links": {
+          "splits": 261,
+          "pct": 15.8
+        },
+        "X7B_outbound_links": {
+          "splits": 198,
+          "pct": 12.0
+        },
+        "X8_keyword_difficulty": {
+          "splits": 157,
+          "pct": 9.5
+        },
+        "X9_images_with_alt": {
+          "splits": 204,
+          "pct": 12.3
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.9581542934287322,
+      "se": 0.34726029881853177,
+      "p_val": 0.005794628996408591,
+      "r2": 0.06657332194093946,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6470337767302292,
+        "X2_domain_age_years": 0.04385501787051739,
+        "X3_word_count": 0.0852282346135635,
+        "X6_readability": -0.07936601809640129,
+        "X7_internal_links": 0.007851472051988453,
+        "X7B_outbound_links": 0.16731962316250537,
+        "X8_keyword_difficulty": 0.35047329425450363,
+        "X9_images_with_alt": -0.0034815396830922673
+      },
+      "intercept": 5.57683577370136
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T3",
+      "path": "code",
+      "treatment_col": "T3_structured_data_code",
+      "n_obs": 419
+    }
+  },
+  "post_rank__T3_llm": {
+    "dml": {
+      "coef": -0.4483928330306411,
+      "se": 0.3043795103427053,
+      "t_stat": -1.4731373755276402,
+      "p_val": 0.1407139971562889,
+      "ci_lower": -1.0449657109342803,
+      "ci_upper": 0.14818004487299813
+    },
+    "nuisance": {
+      "r2_ml_l": -0.15484632808678733,
+      "r2_ml_m": 0.014532481597951619,
+      "rmse_ml_l": 3.050502251723906,
+      "rmse_ml_m": 0.48502705519937667
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 200,
+          "pct": 11.8
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 241,
+          "pct": 14.2
+        },
+        "X6_readability": {
+          "splits": 329,
+          "pct": 19.4
+        },
+        "X7_internal_links": {
+          "splits": 222,
+          "pct": 13.1
+        },
+        "X7B_outbound_links": {
+          "splits": 163,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 150,
+          "pct": 8.9
+        },
+        "X9_images_with_alt": {
+          "splits": 197,
+          "pct": 11.6
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 220,
+          "pct": 11.7
+        },
+        "X2_domain_age_years": {
+          "splits": 272,
+          "pct": 14.5
+        },
+        "X3_word_count": {
+          "splits": 242,
+          "pct": 12.9
+        },
+        "X6_readability": {
+          "splits": 264,
+          "pct": 14.1
+        },
+        "X7_internal_links": {
+          "splits": 268,
+          "pct": 14.3
+        },
+        "X7B_outbound_links": {
+          "splits": 166,
+          "pct": 8.9
+        },
+        "X8_keyword_difficulty": {
+          "splits": 186,
+          "pct": 9.9
+        },
+        "X9_images_with_alt": {
+          "splits": 256,
+          "pct": 13.7
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.5055509587954058,
+      "se": 0.29710644700842975,
+      "p_val": 0.08883376899506712,
+      "r2": 0.055911764385183305,
+      "coef_confounders": {
+        "X1_domain_authority": -0.663328440546265,
+        "X2_domain_age_years": 0.0352102411939027,
+        "X3_word_count": 0.15394657664534536,
+        "X6_readability": -0.07325062269747283,
+        "X7_internal_links": 0.02097572013124805,
+        "X7B_outbound_links": 0.1526770675319715,
+        "X8_keyword_difficulty": 0.3733835565436463,
+        "X9_images_with_alt": -0.010381914477742445
+      },
+      "intercept": 5.595264697377665
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T3",
+      "path": "llm",
+      "treatment_col": "T3_structured_data_llm",
+      "n_obs": 419
+    }
+  },
+  "post_rank__T4_code": {
+    "dml": {
+      "coef": -0.5525726517244237,
+      "se": 0.5159562471647757,
+      "t_stat": -1.0709680418850596,
+      "p_val": 0.2841837994821227,
+      "ci_lower": -1.5638283137658306,
+      "ci_upper": 0.4586830103169831
+    },
+    "nuisance": {
+      "r2_ml_l": -0.13500890806878574,
+      "r2_ml_m": -0.14408559141766109,
+      "rmse_ml_l": 3.024188698131021,
+      "rmse_ml_m": 0.24166719699564268
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 200,
+          "pct": 11.8
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 241,
+          "pct": 14.2
+        },
+        "X6_readability": {
+          "splits": 329,
+          "pct": 19.4
+        },
+        "X7_internal_links": {
+          "splits": 222,
+          "pct": 13.1
+        },
+        "X7B_outbound_links": {
+          "splits": 163,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 150,
+          "pct": 8.9
+        },
+        "X9_images_with_alt": {
+          "splits": 197,
+          "pct": 11.6
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 184,
+          "pct": 12.2
+        },
+        "X2_domain_age_years": {
+          "splits": 175,
+          "pct": 11.6
+        },
+        "X3_word_count": {
+          "splits": 208,
+          "pct": 13.8
+        },
+        "X6_readability": {
+          "splits": 196,
+          "pct": 13.0
+        },
+        "X7_internal_links": {
+          "splits": 169,
+          "pct": 11.2
+        },
+        "X7B_outbound_links": {
+          "splits": 131,
+          "pct": 8.7
+        },
+        "X8_keyword_difficulty": {
+          "splits": 156,
+          "pct": 10.4
+        },
+        "X9_images_with_alt": {
+          "splits": 284,
+          "pct": 18.9
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.5616577344716891,
+      "se": 0.6646202478976896,
+      "p_val": 0.3980657915717467,
+      "r2": 0.051281375974453924,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6582760425695506,
+        "X2_domain_age_years": 0.06445979011479352,
+        "X3_word_count": 0.08384086989618311,
+        "X6_readability": -0.05770000647659403,
+        "X7_internal_links": -0.012278221353238111,
+        "X7B_outbound_links": 0.1557177017635267,
+        "X8_keyword_difficulty": 0.3784752936823747,
+        "X9_images_with_alt": -0.017727145408320048
+      },
+      "intercept": 5.417628934967892
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T4",
+      "path": "code",
+      "treatment_col": "T4_citation_authority_code",
+      "n_obs": 419
+    }
+  },
+  "post_rank__T4_llm": {
+    "dml": {
+      "coef": 0.02680547320701712,
+      "se": 0.16487998756296712,
+      "t_stat": 0.16257566247559424,
+      "p_val": 0.8708525505539088,
+      "ci_lower": -0.2963533641878105,
+      "ci_upper": 0.3499643106018447
+    },
+    "nuisance": {
+      "r2_ml_l": -0.11769960638912313,
+      "r2_ml_m": -0.04814091954008237,
+      "rmse_ml_l": 3.001040110136955,
+      "rmse_ml_m": 0.8268180272990012
+    },
+    "importances": {
+      "ml_l": {
+        "X1_domain_authority": {
+          "splits": 200,
+          "pct": 11.8
+        },
+        "X2_domain_age_years": {
+          "splits": 191,
+          "pct": 11.3
+        },
+        "X3_word_count": {
+          "splits": 241,
+          "pct": 14.2
+        },
+        "X6_readability": {
+          "splits": 329,
+          "pct": 19.4
+        },
+        "X7_internal_links": {
+          "splits": 222,
+          "pct": 13.1
+        },
+        "X7B_outbound_links": {
+          "splits": 163,
+          "pct": 9.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 150,
+          "pct": 8.9
+        },
+        "X9_images_with_alt": {
+          "splits": 197,
+          "pct": 11.6
+        }
+      },
+      "ml_m": {
+        "X1_domain_authority": {
+          "splits": 112,
+          "pct": 7.5
+        },
+        "X2_domain_age_years": {
+          "splits": 135,
+          "pct": 9.1
+        },
+        "X3_word_count": {
+          "splits": 431,
+          "pct": 28.9
+        },
+        "X6_readability": {
+          "splits": 183,
+          "pct": 12.3
+        },
+        "X7_internal_links": {
+          "splits": 191,
+          "pct": 12.8
+        },
+        "X7B_outbound_links": {
+          "splits": 217,
+          "pct": 14.6
+        },
+        "X8_keyword_difficulty": {
+          "splits": 100,
+          "pct": 6.7
+        },
+        "X9_images_with_alt": {
+          "splits": 120,
+          "pct": 8.1
+        }
+      }
+    },
+    "ols": {
+      "coef_treatment": -0.12844123285391654,
+      "se": 0.18628107512851624,
+      "p_val": 0.49050721586464086,
+      "r2": 0.050538826404299186,
+      "coef_confounders": {
+        "X1_domain_authority": -0.6668270658414851,
+        "X2_domain_age_years": 0.04961974549462556,
+        "X3_word_count": 0.10572673421927095,
+        "X6_readability": -0.05292058798370197,
+        "X7_internal_links": -0.007878327731035487,
+        "X7B_outbound_links": 0.16031606020000969,
+        "X8_keyword_difficulty": 0.38669078638414495,
+        "X9_images_with_alt": -0.01059979107909788
+      },
+      "intercept": 5.43572534376648
+    },
+    "meta": {
+      "outcome": "post_rank",
+      "treatment": "T4",
+      "path": "llm",
+      "treatment_col": "T4_citation_authority_llm",
+      "n_obs": 419
+    }
+  }
+}

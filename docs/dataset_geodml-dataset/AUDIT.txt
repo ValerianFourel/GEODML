@@ -1,0 +1,198 @@
+
+──────────────────────────────────────────────────────────────────────────────
+Audit context
+──────────────────────────────────────────────────────────────────────────────
+  timestamp:   2026-05-08T13:37:07Z
+  data_root:   /Users/valerianfourel/Hamburg/geodml-dataset
+  git:         main @ d552649
+  squeue:      (empty / unavailable)
+
+──────────────────────────────────────────────────────────────────────────────
+Inputs — cached SERP parquets (4 expected) + HTML tarballs
+──────────────────────────────────────────────────────────────────────────────
+  OK   serp     searxng   pool=20   rows= 13555  (1M)  phase0_top20_searxng.parquet
+  OK   serp     searxng   pool=50   rows= 10158  (1M)  phase0_top50_searxng.parquet
+  OK   serp     ddg       pool=20   rows= 10338  (2M)  phase0_top20_ddg.parquet
+  OK   serp     ddg       pool=50   rows= 15313  (2M)  phase0_top50_ddg.parquet
+  html_cache.tar.gz tarballs found:
+  OK   html     searxng   pool=50   (385M)  searxng_Qwen2.5-72B-Instruct_serp50_top10
+  OK   html     searxng   pool=20   (386M)  searxng_Llama-3.3-70B-Instruct_serp20_top10
+
+──────────────────────────────────────────────────────────────────────────────
+Stage A — rerank   (8 cells × 6 variant(s) = 48 jsonl files)
+──────────────────────────────────────────────────────────────────────────────
+  model                   engine    pool     biased                        neutral                       biased_passage                neutral_passage               biased_rag                    neutral_rag                 
+  ----------------------  --------  -----    ----------------------------  ----------------------------  ----------------------------  ----------------------------  ----------------------------  ----------------------------
+  Llama-3.3-70B-Instruct  searxng   20       OK  1009kw ckpt (7M)          OK  1009kw ckpt (7M)           -     0kw      (-)            -     0kw      (-)           OK   744kw ckpt (19M)         OK   400kw ckpt (8M)        
+  Llama-3.3-70B-Instruct  searxng   50       OK   980kw ckpt (6M)          OK   980kw ckpt (7M)           -     0kw      (-)            -     0kw      (-)           OK   400kw ckpt (9M)          OK   400kw ckpt (9M)        
+  Llama-3.3-70B-Instruct  ddg       20       OK    79kw ckpt (591K)        OK    79kw ckpt (626K)         -     0kw      (-)            -     0kw      (-)           OK   479kw ckpt (12M)         OK   442kw ckpt (11M)       
+  Llama-3.3-70B-Instruct  ddg       50       OK   600kw ckpt (4M)          OK   600kw ckpt (5M)           -     0kw      (-)            -     0kw      (-)           OK   400kw ckpt (10M)         OK   400kw ckpt (10M)       
+  Qwen2.5-72B-Instruct    searxng   20       OK  1009kw ckpt (7M)          OK  1009kw ckpt (7M)           -     0kw      (-)            -     0kw      (-)           OK   400kw ckpt (8M)          OK   400kw ckpt (8M)        
+  Qwen2.5-72B-Instruct    searxng   50       OK   980kw ckpt (6M)          OK   980kw ckpt (6M)           -     0kw      (-)            -     0kw      (-)           OK   478kw ckpt (11M)         OK   401kw ckpt (9M)        
+  Qwen2.5-72B-Instruct    ddg       20       OK    79kw ckpt (562K)        OK    79kw ckpt (618K)         -     0kw      (-)            -     0kw      (-)           OK   400kw ckpt (10M)         OK   400kw ckpt (10M)       
+  Qwen2.5-72B-Instruct    ddg       50       OK   600kw ckpt (4M)          OK   600kw ckpt (4M)           -     0kw      (-)            -     0kw      (-)           OK   400kw ckpt (10M)         OK   400kw ckpt (10M)       
+  [biased] cells with keywords: 8/8  total keyword-records: 5336
+  [neutral] cells with keywords: 8/8  total keyword-records: 5336
+  [biased_passage] cells with keywords: 0/8  total keyword-records: 0
+  [neutral_passage] cells with keywords: 0/8  total keyword-records: 0
+  [biased_rag] cells with keywords: 8/8  total keyword-records: 3701
+  [neutral_rag] cells with keywords: 8/8  total keyword-records: 3243
+
+──────────────────────────────────────────────────────────────────────────────
+Stage B — features (variant-agnostic; 4 parquets expected)
+──────────────────────────────────────────────────────────────────────────────
+  OK   searxng   pool=20   rows=  14285  cols= 32  (912K)
+  OK   searxng   pool=50   rows=  15723  cols= 32  (986K)
+  OK   ddg       pool=20   rows=  13603  cols= 32  (848K)
+  OK   ddg       pool=50   rows=  15737  cols= 32  (891K)
+  total: 4/4 parquets present
+
+──────────────────────────────────────────────────────────────────────────────
+Stage C — merged main table (full_experiment_data_{variant}.parquet)
+──────────────────────────────────────────────────────────────────────────────
+  OK   full_experiment_data_biased.parquet       rows=  45967  cols= 50  (2M)
+  OK   full_experiment_data_neutral.parquet      rows=  52256  cols= 50  (2M)
+   -   full_experiment_data_biased_passage.parquet  rows=      0  cols=  0  (-)
+   -   full_experiment_data_neutral_passage.parquet  rows=      0  cols=  0  (-)
+  OK   full_experiment_data_biased_rag.parquet   rows=  33384  cols= 42  (1M)
+  OK   full_experiment_data_neutral_rag.parquet  rows=  31525  cols= 42  (966K)
+
+──────────────────────────────────────────────────────────────────────────────
+Stage D — DML results (dml_results_long_{variant}.parquet)
+──────────────────────────────────────────────────────────────────────────────
+  OK   dml_results_long_biased.parquet           rows=  280  cols= 16  (29K)
+        treatments=10  methods=['plr']  learners=['lgbm', 'rf']  subsets=7
+  OK   dml_results_long_neutral.parquet          rows=  280  cols= 16  (29K)
+        treatments=10  methods=['plr']  learners=['lgbm', 'rf']  subsets=7
+   -   dml_results_long_biased_passage.parquet   rows=    0  cols=  0  (-)
+   -   dml_results_long_neutral_passage.parquet  rows=    0  cols=  0  (-)
+  OK   dml_results_long_biased_rag.parquet       rows=   90  cols= 16  (16K)
+        treatments=10  methods=['plr']  learners=['lgbm', 'rf']  subsets=3
+  OK   dml_results_long_neutral_rag.parquet      rows=  100  cols= 16  (17K)
+        treatments=10  methods=['plr']  learners=['lgbm', 'rf']  subsets=3
+
+──────────────────────────────────────────────────────────────────────────────
+Headline — POOLED, plr, lgbm, rank_delta  (Δ = neutral − biased)
+──────────────────────────────────────────────────────────────────────────────
+  treatment                     biased                  neutral                 Δ         
+  ----------------------------  ----------------------  ----------------------  ----------
+  T1a_stats_present             -0.094    (se=0.095)    -0.133*   (se=0.071)    -0.038    
+  T1b_stats_density             +0.001    (se=0.005)    +0.001    (se=0.005)    -0.000    
+  T2a_question_headings         +0.123    (se=0.076)    +0.147*** (se=0.057)    +0.024    
+  T2b_structural_modularity     +0.005*** (se=0.002)    +0.002    (se=0.001)    -0.003    
+  T3_structured_data_new        -0.013    (se=0.067)    -0.123**  (se=0.049)    -0.110    
+  T4a_ext_citations             -0.066    (se=0.119)    -0.141    (se=0.089)    -0.075    
+  T4b_auth_citations            -0.052*** (se=0.013)    -0.011    (se=0.009)    +0.041    
+  T5_topical_comp               +0.234    (se=0.250)    +0.137    (se=0.185)    -0.096    
+  T6_freshness                  -0.013    (se=0.019)    -0.049*** (se=0.013)    -0.035    
+  T7_source_earned              -1.607*** (se=0.243)    -0.417*** (se=0.120)    +1.191    
+
+──────────────────────────────────────────────────────────────────────────────
+Stage A' — order probe   (8 cells × 6 variant(s) × 2 seeds = 96 jsonl files)
+──────────────────────────────────────────────────────────────────────────────
+  model                   engine    pool   variant     seed=42     seed=123  
+  ----------------------  --------  -----  --------    ----------  ----------
+  Llama-3.3-70B-Instruct  searxng   20     biased      OK   1009  OK   1009
+  Llama-3.3-70B-Instruct  searxng   50     biased      OK    980  OK    980
+  Llama-3.3-70B-Instruct  ddg       20     biased      OK     79  OK     79
+  Llama-3.3-70B-Instruct  ddg       50     biased      OK    600  OK    600
+  Qwen2.5-72B-Instruct    searxng   20     biased      OK   1009  OK   1009
+  Qwen2.5-72B-Instruct    searxng   50     biased      OK    980  OK    980
+  Qwen2.5-72B-Instruct    ddg       20     biased      OK     79  OK     79
+  Qwen2.5-72B-Instruct    ddg       50     biased      OK    600  OK    600
+  Llama-3.3-70B-Instruct  searxng   20     neutral     OK   1009  OK   1009
+  Llama-3.3-70B-Instruct  searxng   50     neutral     OK    980  OK    980
+  Llama-3.3-70B-Instruct  ddg       20     neutral     OK     79  OK     79
+  Llama-3.3-70B-Instruct  ddg       50     neutral     OK    600  OK    600
+  Qwen2.5-72B-Instruct    searxng   20     neutral     OK   1009  OK   1009
+  Qwen2.5-72B-Instruct    searxng   50     neutral     OK    980  OK    980
+  Qwen2.5-72B-Instruct    ddg       20     neutral     OK     79  OK     79
+  Qwen2.5-72B-Instruct    ddg       50     neutral     OK    600  OK    600
+  Llama-3.3-70B-Instruct  searxng   20     biased_passage     -           -        
+  Llama-3.3-70B-Instruct  searxng   50     biased_passage     -           -        
+  Llama-3.3-70B-Instruct  ddg       20     biased_passage     -           -        
+  Llama-3.3-70B-Instruct  ddg       50     biased_passage     -           -        
+  Qwen2.5-72B-Instruct    searxng   20     biased_passage     -           -        
+  Qwen2.5-72B-Instruct    searxng   50     biased_passage     -           -        
+  Qwen2.5-72B-Instruct    ddg       20     biased_passage     -           -        
+  Qwen2.5-72B-Instruct    ddg       50     biased_passage     -           -        
+  Llama-3.3-70B-Instruct  searxng   20     neutral_passage     -           -        
+  Llama-3.3-70B-Instruct  searxng   50     neutral_passage     -           -        
+  Llama-3.3-70B-Instruct  ddg       20     neutral_passage     -           -        
+  Llama-3.3-70B-Instruct  ddg       50     neutral_passage     -           -        
+  Qwen2.5-72B-Instruct    searxng   20     neutral_passage     -           -        
+  Qwen2.5-72B-Instruct    searxng   50     neutral_passage     -           -        
+  Qwen2.5-72B-Instruct    ddg       20     neutral_passage     -           -        
+  Qwen2.5-72B-Instruct    ddg       50     neutral_passage     -           -        
+  Llama-3.3-70B-Instruct  searxng   20     biased_rag    OK    400  OK    400
+  Llama-3.3-70B-Instruct  searxng   50     biased_rag    OK    400  OK    400
+  Llama-3.3-70B-Instruct  ddg       20     biased_rag     -           -        
+  Llama-3.3-70B-Instruct  ddg       50     biased_rag     -           -        
+  Qwen2.5-72B-Instruct    searxng   20     biased_rag     -           -        
+  Qwen2.5-72B-Instruct    searxng   50     biased_rag     -           -        
+  Qwen2.5-72B-Instruct    ddg       20     biased_rag     -           -        
+  Qwen2.5-72B-Instruct    ddg       50     biased_rag     -           -        
+  Llama-3.3-70B-Instruct  searxng   20     neutral_rag    OK    400  OK    400
+  Llama-3.3-70B-Instruct  searxng   50     neutral_rag    OK     23   -        
+  Llama-3.3-70B-Instruct  ddg       20     neutral_rag     -           -        
+  Llama-3.3-70B-Instruct  ddg       50     neutral_rag     -           -        
+  Qwen2.5-72B-Instruct    searxng   20     neutral_rag     -           -        
+  Qwen2.5-72B-Instruct    searxng   50     neutral_rag     -           -        
+  Qwen2.5-72B-Instruct    ddg       20     neutral_rag     -           -        
+  Qwen2.5-72B-Instruct    ddg       50     neutral_rag     -           -        
+  cells with output: 39/96  total keyword-records: 23767
+
+──────────────────────────────────────────────────────────────────────────────
+Stage A' — order probe analysis (order_probe_summary.parquet)
+──────────────────────────────────────────────────────────────────────────────
+  rows: 98814    K=10 headline (mean overlap by variant × ordering_pair):
+  variant   ordering_pair                 mean_jacc   mean_oak       n
+  biased    orig_vs_seed123                   0.692      0.683    5336
+  biased    orig_vs_seed42                    0.689      0.684    5336
+  biased    seed42_vs_seed123                 0.699      0.694    5336
+  biased_passage  orig_vs_seed123                   0.695      0.685     160
+  biased_passage  orig_vs_seed42                    0.706      0.704     141
+  biased_passage  seed42_vs_seed123                 0.677      0.688     141
+  neutral   orig_vs_seed123                   0.822      0.855    5336
+  neutral   orig_vs_seed42                    0.823      0.856    5336
+  neutral   seed42_vs_seed123                 0.824      0.854    5336
+  neutral_passage  orig_vs_seed123                   0.718      0.758     160
+  neutral_passage  orig_vs_seed42                    0.709      0.746     160
+  neutral_passage  seed42_vs_seed123                 0.697      0.731     160
+
+──────────────────────────────────────────────────────────────────────────────
+Stage F — interpretability   (20 cells × 6 variant(s) = 120 jobs)
+──────────────────────────────────────────────────────────────────────────────
+  ablation    cells with CSVs= 48/72    done-markers= 48
+             [biased  ] OK  cells=12/12   markers=12/12   max_rows=5771
+             [neutral ] OK  cells=12/12   markers=12/12   max_rows=9160
+             [biased_passage] OK  cells=12/12   markers=12/12   max_rows=5627
+             [neutral_passage] OK  cells=12/12   markers=12/12   max_rows=9224
+             [biased_rag]  -  cells= 0/12   markers= 0/12   max_rows=0
+             [neutral_rag]  -  cells= 0/12   markers= 0/12   max_rows=0
+  saliency    cells with CSVs= 16/24    done-markers= 16
+             [biased  ] OK  cells= 4/4    markers= 4/4    max_rows=5
+             [neutral ] OK  cells= 4/4    markers= 4/4    max_rows=5
+             [biased_passage] OK  cells= 4/4    markers= 4/4    max_rows=5
+             [neutral_passage] OK  cells= 4/4    markers= 4/4    max_rows=5
+             [biased_rag]  -  cells= 0/4    markers= 0/4    max_rows=0
+             [neutral_rag]  -  cells= 0/4    markers= 0/4    max_rows=0
+  probing     cells with CSVs=  2/12    done-markers=  2
+             [biased  ] OK  cells= 2/2    markers= 2/2    max_rows=163
+             [neutral ]  -  cells= 0/2    markers= 0/2    max_rows=0
+             [biased_passage]  -  cells= 0/2    markers= 0/2    max_rows=0
+             [neutral_passage]  -  cells= 0/2    markers= 0/2    max_rows=0
+             [biased_rag]  -  cells= 0/2    markers= 0/2    max_rows=0
+             [neutral_rag]  -  cells= 0/2    markers= 0/2    max_rows=0
+  weights     cells with CSVs=  8/12    done-markers=  8
+             [biased  ] OK  cells= 2/2    markers= 2/2    max_rows=81730
+             [neutral ] OK  cells= 2/2    markers= 2/2    max_rows=81730
+             [biased_passage] OK  cells= 2/2    markers= 2/2    max_rows=81730
+             [neutral_passage] OK  cells= 2/2    markers= 2/2    max_rows=81730
+             [biased_rag]  -  cells= 0/2    markers= 0/2    max_rows=0
+             [neutral_rag]  -  cells= 0/2    markers= 0/2    max_rows=0
+
+──────────────────────────────────────────────────────────────────────────────
+Summary
+──────────────────────────────────────────────────────────────────────────────
+  Stage A   32/48   Stage B   4/4    Stage C   4/6    Stage D   4/6    Stage F  74/120   Order probe  39/96

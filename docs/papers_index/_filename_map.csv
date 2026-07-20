@@ -1,0 +1,45 @@
+arxiv_id,title,new_filename
+2412.15115,Qwen2.5 Technical Report,Qwen2.5_Technical_Report.pdf
+1908.10084,Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks,Sentence-BERT_-_Sentence_Embeddings_using_Siamese_BERT-Networks.pdf
+2311.09735,GEO: Generative Engine Optimization,GEO_-_Generative_Engine_Optimization.pdf
+2304.09542,Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents,Is_ChatGPT_Good_at_Search_Investigating_Large_Language_Models_as_Re-Ranking_Agents.pdf
+2505.19284,RankLLM: A Python Package for Reranking with LLMs,RankLLM_-_A_Python_Package_for_Reranking_with_LLMs.pdf
+2509.08919,Generative Engine Optimization: How to Dominate AI Search,Generative_Engine_Optimization_-_How_to_Dominate_AI_Search.pdf
+2510.11438,What Generative Search Engines Like and How to Optimize Web Content Cooperatively,What_Generative_Search_Engines_Like_and_How_to_Optimize_Web_Content_Cooperatively.pdf
+1608.00060,Double/Debiased Machine Learning for Treatment and Causal Parameters,Double-Debiased_Machine_Learning_for_Treatment_and_Causal_Parameters.pdf
+2602.13415,The Rise of AI Search: Implications for Information Markets and Human Judgement at Scale,The_Rise_of_AI_Search_-_Implications_for_Information_Markets_and_Human_Judgement_at_Scale.pdf
+2406.01285,Large Language Models as Recommender Systems: A Study of Popularity Bias,Large_Language_Models_as_Recommender_Systems_-_A_Study_of_Popularity_Bias.pdf
+2407.21783,The Llama 3 Herd of Models,The_Llama_3_Herd_of_Models.pdf
+2506.00152,Aligning Language Models with Observational Data: Opportunities and Risks from a Causal Perspective,Aligning_Language_Models_with_Observational_Data_-_Opportunities_and_Risks_from_a_Causal_Perspective.pdf
+2509.11353,Do Large Language Models Favor Recent Content? A Study on Recency Bias in LLM-Based Reranking,Do_Large_Language_Models_Favor_Recent_Content_A_Study_on_Recency_Bias_in_LLM-Based_Reranking.pdf
+2503.00725,Causal Inference on Outcomes Learned from Text,Causal_Inference_on_Outcomes_Learned_from_Text.pdf
+2503.19092,"Rankers, Judges, and Assistants: Towards Understanding the Interplay of LLMs in Information Retrieval Evaluation","Rankers,_Judges,_and_Assistants_-_Towards_Understanding_the_Interplay_of_LLMs_in_Information_Retrieval_Evaluation.pdf"
+2604.27495,Debiasing Reward Models via Causally Motivated Inference-Time Intervention,Debiasing_Reward_Models_via_Causally_Motivated_Inference-Time_Intervention.pdf
+1901.04085,Passage Re-ranking with BERT,Passage_Re-ranking_with_BERT.pdf
+2003.06713,Document Ranking with a Pretrained Sequence-to-Sequence Model,Document_Ranking_with_a_Pretrained_Sequence-to-Sequence_Model.pdf
+2010.06467,Pretrained Transformers for Text Ranking: BERT and Beyond,Pretrained_Transformers_for_Text_Ranking_-_BERT_and_Beyond.pdf
+2305.02156,Zero-Shot Listwise Document Reranking with a Large Language Model,Zero-Shot_Listwise_Document_Reranking_with_a_Large_Language_Model.pdf
+2204.07496,Improving Passage Retrieval with Zero-Shot Question Generation,Improving_Passage_Retrieval_with_Zero-Shot_Question_Generation.pdf
+2308.07107,Large Language Models for Information Retrieval: A Survey,Large_Language_Models_for_Information_Retrieval_-_A_Survey.pdf
+2503.06034,Rank-R1: Enhancing Reasoning in LLM-based Document Rerankers via Reinforcement Learning,Rank-R1_-_Enhancing_Reasoning_in_LLM-based_Document_Rerankers_via_Reinforcement_Learning.pdf
+2310.13243,Open-source Large Language Models are Strong Zero-shot Query Likelihood Models for Document Ranking,Open-source_Large_Language_Models_are_Strong_Zero-shot_Query_Likelihood_Models_for_Document_Ranking.pdf
+2601.05590,A Causal Information-Flow Framework for Unbiased Learning-to-Rank,A_Causal_Information-Flow_Framework_for_Unbiased_Learning-to-Rank.pdf
+2512.16553,Needle in the Web: A Benchmark for Retrieving Targeted Web Pages in the Wild,Needle_in_the_Web_-_A_Benchmark_for_Retrieving_Targeted_Web_Pages_in_the_Wild.pdf
+2312.02724,RankZephyr: Effective and Robust Zero-Shot Listwise Reranking is a Breeze!,RankZephyr_-_Effective_and_Robust_Zero-Shot_Listwise_Reranking_is_a_Breeze.pdf
+2104.03220,DoubleML -- An Object-Oriented Implementation of Double Machine Learning in Python,DoubleML_--_An_Object-Oriented_Implementation_of_Double_Machine_Learning_in_Python.pdf
+1611.09268,MS MARCO: A Human Generated MAchine Reading COmprehension Dataset,MS_MARCO_-_A_Human_Generated_MAchine_Reading_COmprehension_Dataset.pdf
+2104.09399,TREC Deep Learning Track: Reusable Test Collections in the Large Data Regime,TREC_Deep_Learning_Track_-_Reusable_Test_Collections_in_the_Large_Data_Regime.pdf
+2407.12883,BRIGHT: A Realistic and Challenging Benchmark for Reasoning-Intensive Retrieval,BRIGHT_-_A_Realistic_and_Challenging_Benchmark_for_Reasoning-Intensive_Retrieval.pdf
+2511.20867,E-GEO: A Testbed for Generative Engine Optimization in E-Commerce,E-GEO_-_A_Testbed_for_Generative_Engine_Optimization_in_E-Commerce.pdf
+2509.05607,CC-GSEO-Bench: A Content-Centric Benchmark for Measuring Source Influence in Generative Search Engines,CC-GSEO-Bench_-_A_Content-Centric_Benchmark_for_Measuring_Source_Influence_in_Generative_Search_Engines.pdf
+2602.16942,SourceBench: Can AI Answers Reference Quality Web Sources?,SourceBench_-_Can_AI_Answers_Reference_Quality_Web_Sources.pdf
+2306.17563,Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting,Large_Language_Models_are_Effective_Text_Rankers_with_Pairwise_Ranking_Prompting.pdf
+2309.15088,RankVicuna: Zero-Shot Listwise Document Reranking with Open-Source Large Language Models,RankVicuna_-_Zero-Shot_Listwise_Document_Reranking_with_Open-Source_Large_Language_Models.pdf
+2310.09497,A Setwise Approach for Effective and Highly Efficient Zero-shot Ranking with Large Language Models,A_Setwise_Approach_for_Effective_and_Highly_Efficient_Zero-shot_Ranking_with_Large_Language_Models.pdf
+2402.01785,DoubleMLDeep: Estimation of Causal Effects with Multimodal Data,DoubleMLDeep_-_Estimation_of_Causal_Effects_with_Multimodal_Data.pdf
+2403.02467,Applied Causal Inference Powered by ML and AI,Applied_Causal_Inference_Powered_by_ML_and_AI.pdf
+2403.14385,Estimating Causal Effects with Double Machine Learning -- A Method Evaluation,Estimating_Causal_Effects_with_Double_Machine_Learning_--_A_Method_Evaluation.pdf
+1802.02163,How to Make Causal Inferences Using Texts,How_to_Make_Causal_Inferences_Using_Texts.pdf
+2109.00725,"Causal Inference in Natural Language Processing: Estimation, Prediction, Interpretation and Beyond","Causal_Inference_in_Natural_Language_Processing_-_Estimation,_Prediction,_Interpretation_and_Beyond.pdf"
+2104.08663,BEIR: A Heterogenous Benchmark for Zero-shot Evaluation of Information Retrieval Models,BEIR_-_A_Heterogenous_Benchmark_for_Zero-shot_Evaluation_of_Information_Retrieval_Models.pdf
+1809.09953,Deep Neural Networks for Estimation and Inference,Deep_Neural_Networks_for_Estimation_and_Inference.pdf

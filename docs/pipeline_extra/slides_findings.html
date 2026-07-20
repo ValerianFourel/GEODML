@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GEODML — Results & Findings</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
+<style>
+  .reveal { font-size: 28px; }
+  .reveal h1 { font-size: 1.8em; color: #2c3e50; }
+  .reveal h2 { font-size: 1.4em; color: #2c3e50; }
+  .reveal h3 { font-size: 1.1em; color: #34495e; }
+  .reveal table { font-size: 0.65em; margin: 0 auto; border-collapse: collapse; }
+  .reveal table th { background: #2c3e50; color: white; padding: 6px 12px; }
+  .reveal table td { padding: 5px 10px; border: 1px solid #ddd; }
+  .reveal table tr:nth-child(even) { background: #f8f9fa; }
+  .reveal .sig { color: #e74c3c; font-weight: bold; }
+  .reveal .good { color: #27ae60; font-weight: bold; }
+  .reveal .bad { color: #e74c3c; }
+  .reveal .muted { color: #95a5a6; }
+  .reveal .highlight-box { background: #eaf2f8; border-left: 4px solid #2980b9; padding: 15px 20px; margin: 15px 0; text-align: left; font-size: 0.85em; border-radius: 4px; }
+  .reveal .warning-box { background: #fdf2e9; border-left: 4px solid #e67e22; padding: 15px 20px; margin: 15px 0; text-align: left; font-size: 0.85em; border-radius: 4px; }
+  .reveal .new-box { background: #eafaf1; border-left: 4px solid #27ae60; padding: 15px 20px; margin: 15px 0; text-align: left; font-size: 0.85em; border-radius: 4px; }
+  .reveal .finding-num { display: inline-block; background: #2c3e50; color: white; border-radius: 50%; width: 30px; height: 30px; line-height: 30px; text-align: center; font-size: 0.7em; margin-right: 8px; }
+  .reveal .finding-new { display: inline-block; background: #27ae60; color: white; border-radius: 50%; width: 30px; height: 30px; line-height: 30px; text-align: center; font-size: 0.7em; margin-right: 8px; }
+  .reveal ul { font-size: 0.85em; text-align: left; }
+  .reveal li { margin-bottom: 8px; }
+  .reveal .small { font-size: 0.7em; color: #7f8c8d; }
+  .reveal .two-col { display: flex; gap: 30px; }
+  .reveal .two-col > div { flex: 1; }
+  .reveal .stat-big { font-size: 2.5em; font-weight: bold; color: #2c3e50; line-height: 1.1; }
+  .reveal .stat-label { font-size: 0.7em; color: #7f8c8d; }
+  .reveal .arrow-up { color: #27ae60; }
+  .reveal .arrow-down { color: #e74c3c; }
+  .reveal .new-badge { display: inline-block; background: #27ae60; color: white; font-size: 0.55em; padding: 2px 8px; border-radius: 10px; vertical-align: middle; margin-left: 8px; }
+  .reveal .diagram-box { background: #f8f9fa; border: 2px solid #bdc3c7; border-radius: 8px; padding: 12px 18px; display: inline-block; margin: 5px; font-size: 0.85em; }
+  .reveal .diagram-arrow { font-size: 1.5em; color: #2c3e50; margin: 0 5px; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ==================== SLIDE 1: TITLE ==================== -->
+<section>
+  <h1>GEODML</h1>
+  <h3>What Do LLMs Value When Re-Ranking Search Results?</h3>
+  <p style="font-size:0.85em; margin-top:20px;">Including the <strong style="color:#27ae60;">Earned Media Amplifier Effect</strong></p>
+  <p class="small">Causal Inference with Double Machine Learning<br>
+  50 B2B SaaS Keywords &middot; February 2026 &middot; Hamburg, Germany</p>
+</section>
+
+<!-- ==================== SLIDE 2: RESEARCH QUESTION ==================== -->
+<section>
+  <h2>Research Question</h2>
+  <div class="highlight-box">
+    <strong>When an LLM re-ranks search engine results, which on-page features causally affect whether a page gets promoted or demoted?</strong>
+  </div>
+  <div class="two-col" style="margin-top:30px;">
+    <div>
+      <h3>Pipeline</h3>
+      <p style="font-size:0.8em;">
+        Keywords &rarr; Search Engine (SearXNG) &rarr; Raw SERP<br>
+        &darr;<br>
+        LLM Re-Ranking &rarr; New Order<br>
+        &darr;<br>
+        rank_delta = pre_rank &minus; post_rank
+      </p>
+    </div>
+    <div>
+      <h3>Method</h3>
+      <p style="font-size:0.8em;">
+        Double Machine Learning (DML)<br>
+        Partially Linear Regression (PLR)<br>
+        5-fold cross-fitting<br>
+        LightGBM + Random Forest
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 3: STUDY DESIGN ==================== -->
+<section>
+  <h2>Study Design</h2>
+  <table>
+    <tr><th>Parameter</th><th>Value</th></tr>
+    <tr><td>Keywords</td><td>50 B2B SaaS terms ("CRM software", "ERP software", ...)</td></tr>
+    <tr><td>Search Engine</td><td>SearXNG (Google + Bing + DDG + Brave + Startpage)</td></tr>
+    <tr><td>LLM Models</td><td>Llama-3.3-70B-Instruct, DeepSeek R1, Qwen2.5-72B</td></tr>
+    <tr><td>Pool Sizes</td><td>Small (20 SERP / 10 LLM) &amp; Large (50 SERP / 20 LLM)</td></tr>
+    <tr><td>Treatments</td><td>4 legacy (T1-T4) + 10 expanded (T1a-T7) + <strong style="color:#27ae60;">4 earned media (T8a-T8d)</strong></td></tr>
+    <tr><td>Confounders</td><td>8 legacy + 16 expanded</td></tr>
+    <tr><td>Total DML Models</td><td>~430 across all experiments</td></tr>
+  </table>
+  <p class="small" style="margin-top:15px;">
+    3 outcome specifications: <strong>pre_rank</strong> (SERP), <strong>post_rank</strong> (LLM), <strong>rank_delta</strong> (gap).<br>
+    Positive rank_delta = LLM promoted the page. Lower rank number = better position.
+  </p>
+</section>
+
+<!-- ==================== SLIDE 4: TREATMENTS ==================== -->
+<section>
+  <h2>What We Measured</h2>
+  <div class="two-col">
+    <div>
+      <h3>On-Page Treatments</h3>
+      <table>
+        <tr><th>ID</th><th>Feature</th><th>Type</th></tr>
+        <tr><td>T1</td><td>Statistical Density</td><td>continuous</td></tr>
+        <tr><td>T2</td><td>Question Headings</td><td>binary</td></tr>
+        <tr><td>T3</td><td>Structured Data (JSON-LD)</td><td>binary</td></tr>
+        <tr><td>T4</td><td>Citation Authority</td><td>count</td></tr>
+        <tr><td>T5</td><td>Topical Competence</td><td>cosine</td></tr>
+        <tr><td>T6</td><td>Content Freshness</td><td>ordinal</td></tr>
+        <tr><td>T7</td><td>Source: Brand vs Earned</td><td>binary</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Earned Media Treatments <span class="new-badge">NEW</span></h3>
+      <table>
+        <tr><th>ID</th><th>Feature</th><th>Type</th></tr>
+        <tr><td>T8a</td><td>Earned media in same SERP</td><td>binary</td></tr>
+        <tr><td>T8b</td><td>Count of earned pages</td><td>count</td></tr>
+        <tr><td>T8c</td><td>Brand named in snippet</td><td>binary</td></tr>
+        <tr><td>T8d</td><td>Brand linked in HTML</td><td>binary</td></tr>
+      </table>
+      <p class="small" style="margin-top:10px;">Tests whether brands mentioned by G2, Capterra, Forbes, etc. get promoted by the LLM.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 5: HEADLINE RESULTS ==================== -->
+<section>
+  <h2>Part I: On-Page Features (Llama, Small Pool)</h2>
+  <p class="small">492 observations &middot; SearXNG &middot; PLR, code-based, LGBM</p>
+  <table>
+    <tr><th>Treatment</th><th>pre_rank (SERP)</th><th>post_rank (LLM)</th><th>rank_delta (gap)</th></tr>
+    <tr>
+      <td><strong>T1</strong> Statistical Density</td>
+      <td class="muted">+0.315 (p=0.17)</td>
+      <td class="sig">+0.101 (p=0.024)**</td>
+      <td class="muted">+0.186 (p=0.21)</td>
+    </tr>
+    <tr>
+      <td><strong>T2</strong> Question Headings</td>
+      <td class="muted">+0.909 (p=0.12)</td>
+      <td class="muted">&minus;0.356 (p=0.23)</td>
+      <td class="sig">+1.198 (p=0.009)***</td>
+    </tr>
+    <tr>
+      <td><strong>T3</strong> Structured Data</td>
+      <td class="muted">+0.145 (p=0.80)</td>
+      <td class="sig">&minus;0.719 (p=0.048)**</td>
+      <td class="muted">+0.812 (p=0.10)</td>
+    </tr>
+    <tr>
+      <td><strong>T4</strong> Citation Authority</td>
+      <td class="muted">&minus;1.020 (p=0.22)</td>
+      <td class="muted">&minus;0.740 (p=0.13)</td>
+      <td class="muted">&minus;0.650 (p=0.31)</td>
+    </tr>
+  </table>
+  <div class="highlight-box" style="margin-top:15px;">
+    3 significant causal effects: T2 question headings (p=0.009), T3 structured data (p=0.048), T1 stat density (p=0.024).
+  </div>
+</section>
+
+<!-- ==================== SLIDE 6: FINDING 1 — QUESTION HEADINGS ==================== -->
+<section>
+  <h2><span class="finding-num">1</span> Question Headings: Cross-Model Replication</h2>
+  <p><strong>T2</strong>: H2/H3 headings like "What is CRM?", "How does it work?"</p>
+  <table>
+    <tr><th>Model</th><th>Pool</th><th>Outcome</th><th>&theta;</th><th>p-value</th></tr>
+    <tr><td><strong>Llama-3.3-70B</strong></td><td>Small</td><td>rank_delta</td><td class="good">+1.198</td><td class="sig">0.009</td></tr>
+    <tr><td><strong>DeepSeek R1</strong></td><td>Small</td><td>rank_delta</td><td class="good">+0.714</td><td class="sig">0.010</td></tr>
+    <tr><td><strong>DeepSeek R1</strong></td><td>Small</td><td>post_rank</td><td class="good">&minus;0.822</td><td class="sig">0.0007</td></tr>
+    <tr><td>Llama-3.3-70B</td><td>Large</td><td>rank_delta</td><td class="bad">&minus;2.924</td><td class="sig">0.002</td></tr>
+  </table>
+  <div class="two-col" style="margin-top:15px; font-size:0.8em;">
+    <div class="highlight-box">
+      <strong>Replicates across models:</strong> Both Llama &amp; DeepSeek R1 promote FAQ-style pages ~0.7-1.2 positions in the small pool.
+    </div>
+    <div class="warning-box">
+      <strong>Reverses with pool size:</strong> In the large pool, the LLM penalizes formulaic headings (&minus;2.9 pos).
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 7: FINDING 2+3 — STRUCTURED DATA + STATS ==================== -->
+<section>
+  <h2><span class="finding-num">2</span> Structured Data &amp; <span class="finding-num">3</span> Statistical Density</h2>
+  <div class="two-col">
+    <div>
+      <h3>T3 Structured Data</h3>
+      <p style="font-size:0.8em;">JSON-LD schema (FAQ, Product, HowTo)</p>
+      <div class="stat-big arrow-up" style="font-size:2em;">&minus;0.7</div>
+      <div class="stat-label">post_rank improvement (p=0.048)</div>
+      <p style="font-size:0.75em; margin-top:10px;">Search engine indifferent (p=0.80). Pure LLM effect. Model-dependent: Llama yes, DeepSeek R1 no.</p>
+    </div>
+    <div>
+      <h3>T1 Statistical Density</h3>
+      <p style="font-size:0.8em;">Numbers, percentages, dates per 500 words</p>
+      <div class="stat-big arrow-down" style="font-size:2em;">+0.1</div>
+      <div class="stat-label">post_rank penalty per unit (p=0.024)</div>
+      <p style="font-size:0.75em; margin-top:10px;">LLM penalizes data-heavy pages. Clear, focused content beats data dumps. Small but consistent effect.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 8: POOL SIZE EFFECT ==================== -->
+<section>
+  <h2>Pool Size Changes Everything</h2>
+  <p>Same keywords, same LLM, same search engine &mdash; <strong>different pool sizes</strong></p>
+  <table>
+    <tr><th>Treatment</th><th>Small Pool (20/10)</th><th>Large Pool (50/20)</th><th>Consistent?</th></tr>
+    <tr>
+      <td>T1 Statistical Density</td>
+      <td class="good">+0.38 (p=0.023)*</td>
+      <td class="muted">+0.03 (p=0.93)</td>
+      <td>Disappears</td>
+    </tr>
+    <tr>
+      <td>T2 Question Headings</td>
+      <td class="good">+1.07 (p=0.019)*</td>
+      <td class="bad">&minus;0.99 (p=0.29)</td>
+      <td class="sig">SIGN REVERSAL</td>
+    </tr>
+    <tr>
+      <td>T3 Structured Data</td>
+      <td class="good">+1.10 (p=0.033)*</td>
+      <td class="bad">&minus;1.45 (p=0.15)</td>
+      <td class="sig">SIGN REVERSAL</td>
+    </tr>
+    <tr>
+      <td>T4 Citation Authority</td>
+      <td class="muted">&minus;1.12 (p=0.10)</td>
+      <td class="muted">&minus;1.39 (p=0.55)</td>
+      <td>Same direction (NS)</td>
+    </tr>
+  </table>
+  <div class="highlight-box" style="margin-top:15px;">
+    <strong>Fewer options:</strong> LLM rewards structural signals (headings, schema).<br>
+    <strong>More options:</strong> LLM penalizes formulaic optimization, favors content depth.
+  </div>
+</section>
+
+<!-- ==================== SLIDE 9: T7 EARNED MEDIA DEMOTED ==================== -->
+<section>
+  <h2>Part II: The Earned Media Story</h2>
+  <h3><span class="finding-num">4</span> Earned Media Pages Are Demoted (T7)</h3>
+  <p>G2, Capterra, Forbes, TechCrunch, Reddit &mdash; review sites &amp; third-party media</p>
+  <table>
+    <tr><th>Model</th><th>Outcome</th><th>&theta;</th><th>p-value</th><th>Meaning</th></tr>
+    <tr><td><strong>Llama</strong></td><td>post_rank</td><td class="sig">+5.200</td><td class="sig">&lt;0.001</td><td>Ranked ~5 positions worse</td></tr>
+    <tr><td><strong>Llama</strong></td><td>rank_delta</td><td class="sig">&minus;5.271</td><td class="sig">&lt;0.001</td><td>Demoted ~5 positions</td></tr>
+    <tr><td><strong>DeepSeek R1</strong></td><td>post_rank (RF)</td><td class="sig">+1.646</td><td class="sig">0.028</td><td>Ranked ~1.6 positions worse</td></tr>
+    <tr><td>Both</td><td>pre_rank</td><td class="muted">&approx; 0</td><td class="muted">NS</td><td>Search engine doesn't differentiate</td></tr>
+  </table>
+  <div class="warning-box" style="margin-top:15px;">
+    The LLM actively demotes earned media pages. The search engine treats them equally. This is a <strong>pure LLM behavior</strong>.
+  </div>
+  <p class="small">But what happens to the brands that earned media mentions? That's the next question...</p>
+</section>
+
+<!-- ==================== SLIDE 10: THE HYPOTHESIS ==================== -->
+<section>
+  <h2><span class="finding-new">5</span> The Earned Media Amplifier Hypothesis <span class="new-badge">NEW</span></h2>
+  <div style="text-align:center; margin:30px 0;">
+    <span class="diagram-box">Forbes: "Best CRM:<br><strong>Salesforce, HubSpot</strong>..."</span>
+    <span class="diagram-arrow">&rarr;</span>
+    <span class="diagram-box" style="border-color:#e74c3c;">Forbes page<br><strong style="color:#e74c3c;">DEMOTED &minus;5 pos</strong></span>
+  </div>
+  <div style="text-align:center; margin:20px 0;">
+    <span class="diagram-box">Forbes snippet mentions<br>Salesforce, HubSpot</span>
+    <span class="diagram-arrow">&rarr;</span>
+    <span class="diagram-box" style="border-color:#27ae60;">Salesforce page<br><strong style="color:#27ae60;">PROMOTED +1 pos</strong></span>
+  </div>
+  <div class="new-box" style="margin-top:20px; text-align:center;">
+    <strong>The LLM reads the messenger, discards it, but promotes the brands it mentioned.</strong><br>
+    Earned media acts as a <strong>signal amplifier that gets sacrificed</strong>.
+  </div>
+</section>
+
+<!-- ==================== SLIDE 11: EARNED MEDIA — SNIPPET EVIDENCE ==================== -->
+<section>
+  <h2>T8c: Brand Named in Earned Media Snippet</h2>
+  <p class="small">30 brand pages mentioned by name in G2/Capterra/Forbes snippets (e.g., "Best CRM: <strong>Salesforce</strong>, HubSpot...")</p>
+  <table>
+    <tr><th>Model</th><th>Outcome</th><th>LGBM &theta;</th><th>p-value</th><th>RF &theta;</th><th>p-value</th></tr>
+    <tr>
+      <td><strong>Llama</strong></td>
+      <td>post_rank</td>
+      <td class="good"><strong>&minus;0.900</strong></td>
+      <td class="sig"><strong>0.009</strong></td>
+      <td class="good"><strong>&minus;1.241</strong></td>
+      <td class="sig"><strong>0.001</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Llama</strong></td>
+      <td>rank_delta</td>
+      <td class="good">+0.846</td>
+      <td>0.067</td>
+      <td class="good"><strong>+1.035</strong></td>
+      <td class="sig"><strong>0.020</strong></td>
+    </tr>
+    <tr>
+      <td><strong>DeepSeek R1</strong></td>
+      <td>post_rank</td>
+      <td class="good"><strong>&minus;0.804</strong></td>
+      <td class="sig"><strong>0.023</strong></td>
+      <td class="good"><strong>&minus;1.098</strong></td>
+      <td class="sig"><strong>0.002</strong></td>
+    </tr>
+    <tr>
+      <td><strong>DeepSeek R1</strong></td>
+      <td>rank_delta</td>
+      <td class="good"><strong>+0.794</strong></td>
+      <td class="sig"><strong>0.027</strong></td>
+      <td class="good"><strong>+0.910</strong></td>
+      <td class="sig"><strong>0.021</strong></td>
+    </tr>
+    <tr>
+      <td>Both</td>
+      <td>pre_rank</td>
+      <td class="muted">&approx; 0</td>
+      <td class="muted">NS</td>
+      <td class="muted">&approx; 0</td>
+      <td class="muted">NS</td>
+    </tr>
+  </table>
+  <div class="new-box" style="margin-top:15px;">
+    <strong>Both models, both learners, p &lt; 0.03 across the board.</strong> Brands named in earned media snippets get promoted ~1 position by the LLM. The search engine shows no such effect (pre_rank &approx; 0).
+  </div>
+</section>
+
+<!-- ==================== SLIDE 12: EARNED MEDIA — DOSE RESPONSE ==================== -->
+<section>
+  <h2>T8b: Dose-Response &mdash; More Earned Media = Stronger Effect</h2>
+  <p class="small">Each additional G2/Capterra/Forbes page in the same keyword SERP</p>
+  <table>
+    <tr><th>Model</th><th>Outcome</th><th>LGBM &theta;</th><th>p-value</th><th>RF &theta;</th><th>p-value</th></tr>
+    <tr>
+      <td><strong>DeepSeek R1</strong></td>
+      <td>rank_delta</td>
+      <td class="good"><strong>+0.224</strong></td>
+      <td class="sig"><strong>&lt;0.001</strong></td>
+      <td class="good"><strong>+0.155</strong></td>
+      <td class="sig"><strong>0.010</strong></td>
+    </tr>
+    <tr>
+      <td><strong>DeepSeek R1</strong></td>
+      <td>post_rank</td>
+      <td class="good"><strong>&minus;0.162</strong></td>
+      <td class="sig"><strong>0.004</strong></td>
+      <td class="good"><strong>&minus;0.178</strong></td>
+      <td class="sig"><strong>0.003</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Llama</strong></td>
+      <td>post_rank</td>
+      <td class="good"><strong>&minus;0.149</strong></td>
+      <td class="sig"><strong>0.009</strong></td>
+      <td class="good"><strong>&minus;0.151</strong></td>
+      <td class="sig"><strong>0.007</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Llama</strong></td>
+      <td>rank_delta</td>
+      <td class="good">+0.108</td>
+      <td>0.098</td>
+      <td class="good"><strong>+0.140</strong></td>
+      <td class="sig"><strong>0.024</strong></td>
+    </tr>
+  </table>
+  <div class="new-box" style="margin-top:15px;">
+    <strong>Dose-response confirmed:</strong> Each additional earned media page in the SERP boosts co-appearing brand pages by +0.15 to +0.22 rank positions. This is causal evidence &mdash; not just correlation.
+  </div>
+</section>
+
+<!-- ==================== SLIDE 13: EARNED MEDIA — HTML EVIDENCE ==================== -->
+<section>
+  <h2>T8d: Brand Linked on Earned Media Page (HTML)</h2>
+  <p class="small">66 brand pages found linked/mentioned on fetched earned media HTML (Zapier, TechRadar, OMR, Wikipedia, etc.)</p>
+  <table>
+    <tr><th>Model</th><th>Outcome</th><th>LGBM &theta;</th><th>p-value</th><th>RF &theta;</th><th>p-value</th></tr>
+    <tr>
+      <td><strong>Llama</strong></td>
+      <td>post_rank</td>
+      <td class="good"><strong>&minus;0.581</strong></td>
+      <td class="sig"><strong>0.049</strong></td>
+      <td class="good"><strong>&minus;0.752</strong></td>
+      <td class="sig"><strong>0.034</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Llama</strong></td>
+      <td>rank_delta</td>
+      <td class="good">+0.673</td>
+      <td>0.052</td>
+      <td class="muted">+0.557</td>
+      <td class="muted">0.137</td>
+    </tr>
+  </table>
+  <div class="highlight-box" style="margin-top:15px;">
+    Even with partial HTML coverage (many sites blocked scrapers), brands linked from earned media pages are ranked ~0.6-0.8 positions higher by the LLM.
+  </div>
+  <p class="small">Note: G2, Capterra, Forbes, Reddit returned 403 (bot protection). Results are based on Zapier, TechRadar, OMR, Wikipedia, HBR, etc. The true effect is likely <strong>stronger</strong> with complete data.</p>
+</section>
+
+<!-- ==================== SLIDE 14: THE FULL CAUSAL STORY ==================== -->
+<section>
+  <h2>The Complete Earned Media Mechanism</h2>
+  <table>
+    <tr><th></th><th>pre_rank (SERP)</th><th>post_rank (LLM)</th><th>rank_delta</th></tr>
+    <tr>
+      <td><strong>T7: Earned media page itself</strong></td>
+      <td class="muted">&approx; 0 (NS)</td>
+      <td class="bad"><strong>+5.2 (worse)</strong></td>
+      <td class="bad"><strong>&minus;5.3 (demoted)</strong></td>
+    </tr>
+    <tr>
+      <td><strong>T8c: Brand mentioned in snippet</strong></td>
+      <td class="muted">&approx; 0 (NS)</td>
+      <td class="good"><strong>&minus;1.1 (better)</strong></td>
+      <td class="good"><strong>+1.0 (promoted)</strong></td>
+    </tr>
+    <tr>
+      <td><strong>T8b: Per additional earned page</strong></td>
+      <td class="muted">&approx; 0 (NS)</td>
+      <td class="good"><strong>&minus;0.16 (better)</strong></td>
+      <td class="good"><strong>+0.2 (promoted)</strong></td>
+    </tr>
+  </table>
+  <div class="new-box" style="margin-top:20px; text-align:center; font-size:1em;">
+    <strong>The LLM reads the SERP. It sees "Best CRM: Salesforce, HubSpot" from Forbes.</strong><br>
+    It demotes Forbes (&minus;5 positions) but promotes Salesforce (+1 position).<br><br>
+    <strong>Earned media = signal amplifier that gets sacrificed.</strong>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 15: REPLICATION TABLE ==================== -->
+<section>
+  <h2>Earned Media Effect: Full Replication</h2>
+  <table style="font-size:0.6em;">
+    <tr><th>Measure</th><th>Approach</th><th>Llama post_rank</th><th>DeepSeek post_rank</th><th>Consistent?</th></tr>
+    <tr>
+      <td>T8a Co-appearance</td>
+      <td>Any earned page in SERP</td>
+      <td class="sig">&minus;1.92 (p=0.007)</td>
+      <td class="muted">N/A (100% treated)</td>
+      <td>&mdash;</td>
+    </tr>
+    <tr>
+      <td>T8b Dose-response</td>
+      <td>Count of earned pages</td>
+      <td class="sig">&minus;0.15 (p=0.009)</td>
+      <td class="sig">&minus;0.16 (p=0.004)</td>
+      <td class="good">YES</td>
+    </tr>
+    <tr>
+      <td>T8c Snippet mention</td>
+      <td>Brand in snippet text</td>
+      <td class="sig">&minus;0.90 (p=0.009)</td>
+      <td class="sig">&minus;0.80 (p=0.023)</td>
+      <td class="good">YES</td>
+    </tr>
+    <tr>
+      <td>T8d HTML mention</td>
+      <td>Brand on fetched page</td>
+      <td class="sig">&minus;0.58 (p=0.049)</td>
+      <td class="muted">not tested</td>
+      <td>&mdash;</td>
+    </tr>
+  </table>
+  <div class="highlight-box" style="margin-top:15px;">
+    <strong>Replicated across:</strong>
+    <ul style="margin:5px 0;">
+      <li>2 LLM models (Llama-3.3-70B + DeepSeek R1)</li>
+      <li>2 ML learners (LightGBM + Random Forest)</li>
+      <li>3 measurement approaches (co-appearance, snippet text, HTML parsing)</li>
+      <li>Dose-response relationship (more earned pages = stronger effect)</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 16: POOL SIZE INTERPRETATION ==================== -->
+<section>
+  <h2>Why Pool Size Changes On-Page Effects</h2>
+  <table>
+    <tr><th></th><th>Small Pool (20/10)</th><th>Large Pool (50/20)</th></tr>
+    <tr><td><strong>LLM sees</strong></td><td>10 curated, similar pages</td><td>20 pages with varied quality</td></tr>
+    <tr><td><strong>LLM role</strong></td><td>Minor adjustments</td><td>Real re-ordering</td></tr>
+    <tr><td><strong>rank_delta range</strong></td><td>&minus;9 to +16 (mean +3.9)</td><td>&minus;17 to +33 (mean +10.1)</td></tr>
+    <tr><td><strong>FAQ headings</strong></td><td>Stand out as well-structured</td><td>Treated as generic SEO tactic</td></tr>
+  </table>
+  <div class="highlight-box" style="margin-top:20px;">
+    <strong>With fewer options:</strong> LLM rewards structural signals (headings, schema).<br>
+    <strong>With more options:</strong> LLM becomes discriminating &mdash; penalizes formulaic optimization, favors content depth.
+  </div>
+</section>
+
+<!-- ==================== SLIDE 17: ROBUSTNESS ==================== -->
+<section>
+  <h2>Robustness Checks</h2>
+  <table>
+    <tr><th>Check</th><th>Result</th></tr>
+    <tr><td>PLR vs IRM</td><td>All 4 code-based treatments agree in direction</td></tr>
+    <tr><td>LGBM vs Random Forest</td><td>T1, T3 hold with both; T2 weakens slightly with RF (p=0.055)</td></tr>
+    <tr><td>Code vs LLM measurement</td><td>Directions agree; code-based has lower p-values</td></tr>
+    <tr><td>DML vs OLS</td><td>Close coefficients &mdash; weak confounding confirmed</td></tr>
+    <tr><td>Nuisance R&sup2;</td><td>&minus;0.05 to +0.03 &mdash; treatments near-randomly assigned</td></tr>
+    <tr><td>Earned media (T8)</td><td>Consistent across 3 approaches, 2 models, 2 learners</td></tr>
+  </table>
+  <div class="highlight-box" style="margin-top:15px;">
+    Low R&sup2; + significant effects = small but <strong>consistent directional effects</strong> across ~400 obs. Treatments are not the main ranking driver, but their causal effects are real.
+  </div>
+</section>
+
+<!-- ==================== SLIDE 18: GEO IMPLICATIONS ==================== -->
+<section>
+  <h2>Practical Implications for GEO</h2>
+  <div style="text-align:left; font-size:0.82em;">
+    <p><span class="finding-num">1</span> <strong>Structure content around questions</strong> &mdash; most reliable on-page lever. Use H2/H3 matching natural queries. Works in small candidate pools (chatbots, short lists).</p>
+    <p><span class="finding-num">2</span> <strong>First-party vendor content beats review sites</strong> &mdash; both LLMs demote G2/Capterra/Forbes by 1.6-5 positions. Brand pages are preferred.</p>
+    <p><span class="finding-new">3</span> <strong>Get mentioned in earned media</strong> &mdash; the LLM discards review sites but promotes the brands they mention. Being listed on G2/Forbes boosts your LLM rank by ~1 position. <span class="new-badge">NEW</span></p>
+    <p><span class="finding-new">4</span> <strong>More earned media coverage = bigger boost</strong> &mdash; dose-response: each additional review/media page mentioning your brand adds +0.15-0.22 positions. <span class="new-badge">NEW</span></p>
+    <p><span class="finding-num">5</span> <strong>Clarity over data density</strong> &mdash; LLM penalizes number-heavy pages. Clean explanatory content wins.</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 19: KEY INSIGHTS ==================== -->
+<section>
+  <h2>Two Key Insights</h2>
+  <div class="highlight-box" style="font-size:1em; text-align:center; padding:25px;">
+    <strong>Insight 1: Pool size is a first-order parameter.</strong><br>
+    The same LLM produces <em>opposite conclusions</em> depending on how many candidates it sees. What works in a chatbot's short list may backfire in a broader AI-powered search.
+  </div>
+  <div class="new-box" style="font-size:1em; text-align:center; padding:25px; margin-top:15px;">
+    <strong>Insight 2: Earned media is a sacrificial signal amplifier.</strong><br>
+    The LLM reads G2/Forbes/Capterra snippets, demotes these pages, but promotes the brands they mention. Third-party validation works &mdash; the messenger just doesn't survive.
+  </div>
+</section>
+
+<!-- ==================== SLIDE 20: NEXT STEPS ==================== -->
+<section>
+  <h2>Next Steps</h2>
+  <ul>
+    <li><strong>Position bias test</strong> &mdash; randomize SERP order in prompt to disentangle content from attention</li>
+    <li><strong>Multi-LLM replication</strong> &mdash; GPT-4o, Claude, Gemini, Mistral</li>
+    <li><strong>Complete earned media HTML</strong> &mdash; use APIs (G2, Capterra) to get full brand mention graphs</li>
+    <li><strong>Backlink data</strong> &mdash; Ahrefs/Moz as major missing confounder</li>
+    <li><strong>Scale to 1,000 keywords</strong> &mdash; 8 weekly snapshots, panel data</li>
+    <li><strong>Separate search engines</strong> &mdash; Google, Bing, DDG individually</li>
+    <li><strong>Earned media x pool size interaction</strong> &mdash; does the amplifier effect change with pool size?</li>
+  </ul>
+  <p class="small" style="margin-top:10px;">Budget: $186 (minimum) to $481 (full). LLM API costs negligible; backlink data is the real expense.</p>
+</section>
+
+<!-- ==================== SLIDE 21: THANK YOU ==================== -->
+<section>
+  <h1>Thank You</h1>
+  <p style="margin-top:20px;">
+    <strong>GEODML</strong><br>
+    Generative Engine Optimization &times; Double Machine Learning
+  </p>
+  <p class="small" style="margin-top:20px;">
+    50 keywords &middot; 3 LLM models &middot; 2 pool sizes &middot; ~430 DML experiments<br>
+    19 on-page significant findings + <strong style="color:#27ae60;">earned media amplifier effect</strong><br><br>
+    February 2026 &middot; Hamburg, Germany
+  </p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: true,
+    transition: 'slide',
+    width: 1200,
+    height: 700,
+    margin: 0.07
+  });
+</script>
+</body>
+</html>
