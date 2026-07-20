@@ -1,0 +1,358 @@
+{
+  "created_utc": "2026-04-16T17:07:23.490676+00:00",
+  "source": "/Users/valerianfourel/Hamburg/GEODML/paperSizeExperiment/output",
+  "include_analysis": false,
+  "include_html_cache": true,
+  "runs": [
+    {
+      "run_id": "duckduckgo_Llama-3.3-70B-Instruct_serp20_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 7890,
+          "size_bytes": 1086432
+        },
+        "features.csv": {
+          "rows": 6413,
+          "size_bytes": 4502184
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 1175
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 14057458
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 580
+        },
+        "html_cache_files": 5801
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 7890,
+          "size_bytes": 1508358
+        },
+        "features_new_moz.csv": {
+          "rows": 7890,
+          "size_bytes": 1641869
+        },
+        "features_snapshot.csv": {
+          "rows": 4374,
+          "size_bytes": 543304
+        },
+        "features.csv.bak": {
+          "rows": null,
+          "size_bytes": 4370311
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 7890
+    },
+    {
+      "run_id": "duckduckgo_Llama-3.3-70B-Instruct_serp50_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 8088,
+          "size_bytes": 1100948
+        },
+        "features.csv": {
+          "rows": 6817,
+          "size_bytes": 4787199
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 1175
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 15893265
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 535
+        },
+        "html_cache_files": 6219
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 8088,
+          "size_bytes": 1511010
+        },
+        "features_new_moz.csv": {
+          "rows": 8088,
+          "size_bytes": 1646013
+        },
+        "features.csv.bak": {
+          "rows": null,
+          "size_bytes": 4400721
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 8088
+    },
+    {
+      "run_id": "duckduckgo_Qwen2.5-72B-Instruct_serp20_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 8335,
+          "size_bytes": 1048717
+        },
+        "features.csv": {
+          "rows": 6947,
+          "size_bytes": 4335210
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 1159
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 11832016
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 569
+        },
+        "html_cache_files": 6197
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 8335,
+          "size_bytes": 1675301
+        },
+        "features.csv.bak": {
+          "rows": null,
+          "size_bytes": 4146353
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 8335
+    },
+    {
+      "run_id": "duckduckgo_Qwen2.5-72B-Instruct_serp50_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 9863,
+          "size_bytes": 1271881
+        },
+        "features.csv": {
+          "rows": 8591,
+          "size_bytes": 5407121
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 1220
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 20223918
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 556
+        },
+        "html_cache_files": 7883
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 9863,
+          "size_bytes": 1850742
+        },
+        "features.csv.bak": {
+          "rows": null,
+          "size_bytes": 5309147
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 9863
+    },
+    {
+      "run_id": "searxng_Llama-3.3-70B-Instruct_serp20_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 8313,
+          "size_bytes": 1095605
+        },
+        "features.csv": {
+          "rows": 7074,
+          "size_bytes": 4974169
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 16356595
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 13002420
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 606
+        },
+        "html_cache_files": 6493
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 8313,
+          "size_bytes": 1711401
+        },
+        "features_new_moz.csv": {
+          "rows": 8197,
+          "size_bytes": 1667619
+        },
+        "features.csv.bak": {
+          "rows": null,
+          "size_bytes": 4583737
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 8313
+    },
+    {
+      "run_id": "searxng_Llama-3.3-70B-Instruct_serp50_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 13915,
+          "size_bytes": 1787495
+        },
+        "features.csv": {
+          "rows": 8098,
+          "size_bytes": 5413758
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 1168
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 19316624
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 510
+        },
+        "html_cache_files": 7294
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 13915,
+          "size_bytes": 2822046
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 20184
+    },
+    {
+      "run_id": "searxng_Qwen2.5-72B-Instruct_serp20_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 9113,
+          "size_bytes": 1126961
+        },
+        "features.csv": {
+          "rows": 7748,
+          "size_bytes": 4667316
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 1145
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 14553112
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 510
+        },
+        "html_cache_files": 6995
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 9113,
+          "size_bytes": 1864126
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 9113
+    },
+    {
+      "run_id": "searxng_Qwen2.5-72B-Instruct_serp50_top10",
+      "phase2": {
+        "rankings.csv": {
+          "rows": 9217,
+          "size_bytes": 1141553
+        },
+        "features.csv": {
+          "rows": 7837,
+          "size_bytes": 4541054
+        },
+        "experiment.json": {
+          "rows": null,
+          "size_bytes": 1145
+        },
+        "keywords.jsonl": {
+          "rows": null,
+          "size_bytes": 16013428
+        },
+        "progress.json": {
+          "rows": null,
+          "size_bytes": 512
+        },
+        "html_cache_files": 6778
+      },
+      "phase3": {
+        "features_new.csv": {
+          "rows": 9217,
+          "size_bytes": 1867271
+        }
+      },
+      "analysis": {},
+      "final_dataset_rows": 9217
+    }
+  ],
+  "phase0_files": {
+    "phase0_top20_ddg.json": {
+      "path": "phase0_top20_ddg.json",
+      "size_bytes": 6266949,
+      "keywords": 1011,
+      "keywords_with_results": 1005
+    },
+    "phase0_top20_searxng.json": {
+      "path": "phase0_top20_searxng.json",
+      "size_bytes": 7091771,
+      "keywords": 1011,
+      "keywords_with_results": 1009
+    },
+    "phase0_top50_ddg.json": {
+      "path": "phase0_top50_ddg.json",
+      "size_bytes": 8522840,
+      "keywords": 1011,
+      "keywords_with_results": 914
+    },
+    "phase0_top50_searxng.json": {
+      "path": "phase0_top50_searxng.json",
+      "size_bytes": 5474813,
+      "keywords": 1011,
+      "keywords_with_results": 980
+    }
+  },
+  "phase2_files": {},
+  "phase3_files": {},
+  "analysis_files": {
+    "merged_all_8runs.csv": {
+      "rows": 65426,
+      "size_bytes": 24758670
+    },
+    "merged_all_runs.csv": {
+      "rows": 81003,
+      "size_bytes": 29300704
+    },
+    "meta_analysis_summary.csv": {
+      "rows": 18,
+      "size_bytes": 1864
+    }
+  }
+}

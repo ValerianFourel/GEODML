@@ -1,0 +1,57 @@
+{
+  "experiment_start_utc": "2026-04-16T09:10:30.977230+00:00",
+  "keywords_count": 1011,
+  "keywords_file": "/Users/valerianfourel/Hamburg/GEODML/paperSizeExperiment/keywords.txt",
+  "engine": "duckduckgo",
+  "models": [
+    "meta-llama/Llama-3.3-70B-Instruct",
+    "Qwen/Qwen2.5-72B-Instruct"
+  ],
+  "pool_sizes": [
+    [
+      20,
+      10
+    ],
+    [
+      50,
+      10
+    ]
+  ],
+  "total_runs": 4,
+  "runs_skipped": 4,
+  "total_elapsed_min": 0.1,
+  "run_results": [
+    {
+      "run": "duckduckgo_Llama-3.3-70B-Instruct_serp20_top10",
+      "gather": "DONE",
+      "features": "DONE",
+      "clean": "DONE",
+      "analysis": "DONE",
+      "elapsed_min": 0
+    },
+    {
+      "run": "duckduckgo_Llama-3.3-70B-Instruct_serp50_top10",
+      "gather": "DONE",
+      "features": "DONE",
+      "clean": "DONE",
+      "analysis": "DONE",
+      "elapsed_min": 0
+    },
+    {
+      "run": "duckduckgo_Qwen2.5-72B-Instruct_serp20_top10",
+      "gather": "DONE",
+      "features": "DONE",
+      "clean": "DONE",
+      "analysis": "DONE",
+      "elapsed_min": 0
+    },
+    {
+      "run": "duckduckgo_Qwen2.5-72B-Instruct_serp50_top10",
+      "gather": "DONE",
+      "features": "DONE",
+      "clean": "DONE",
+      "analysis": "DONE",
+      "elapsed_min": 0
+    }
+  ]
+}

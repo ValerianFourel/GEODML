@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GEODML</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { overflow: hidden; height: 100%; }
+  body { font-family: 'Inter', sans-serif; background: #ffffff; color: #1e293b; font-size: min(1vw, 16px); }
+
+  .slide {
+    position: absolute; top: 3px; left: 0; width: 100%; height: calc(100% - 51px);
+    padding: 2.5vh 3.5vw; display: flex; flex-direction: column;
+    justify-content: center; overflow: hidden;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  .slide.active { opacity: 1; pointer-events: auto; }
+
+  h1 { font-size: 2.8em; font-weight: 700; color: #0f172a; margin-bottom: 0.4em; line-height: 1.1; }
+  h2 { font-size: 1.8em; font-weight: 600; color: #0f172a; margin-bottom: 0.5em; }
+  h3 { font-size: 1.05em; font-weight: 600; color: #475569; margin-bottom: 0.5em; }
+  .subtitle { font-size: 0.92em; color: #64748b; margin-bottom: 1.5em; }
+  .tag { display: inline-block; background: #eff6ff; color: #2563eb; padding: 4px 12px;
+         border-radius: 20px; font-size: 0.8em; font-weight: 500; margin-right: 6px; margin-bottom: 6px; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5vw; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.2vw; }
+
+  .card {
+    background: #f8fafc; border-radius: 12px; padding: 1.2em; border: 1px solid #e2e8f0;
+  }
+  .card.green { border-left: 4px solid #22c55e; }
+  .card.red { border-left: 4px solid #ef4444; }
+  .card.blue { border-left: 4px solid #3b82f6; }
+  .card.amber { border-left: 4px solid #f59e0b; }
+  .card.purple { border-left: 4px solid #a855f7; }
+
+  .big-number { font-size: 2.4em; font-weight: 700; line-height: 1; }
+  .big-number.green { color: #16a34a; }
+  .big-number.red { color: #dc2626; }
+  .big-number.blue { color: #2563eb; }
+  .big-number.amber { color: #d97706; }
+  .big-number.purple { color: #9333ea; }
+
+  .stat-label { font-size: 0.85em; color: #64748b; margin-top: 4px; }
+  .stat-detail { font-size: 0.75em; color: #94a3b8; margin-top: 2px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
+  th { text-align: left; padding: 6px 8px; background: #f1f5f9; color: #475569;
+       font-weight: 600; border-bottom: 2px solid #cbd5e1; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; }
+  tr:hover td { background: #f1f5f9; }
+  .sig { color: #16a34a; font-weight: 600; }
+  .nosig { color: #94a3b8; }
+  .promotes { color: #16a34a; }
+  .demotes { color: #dc2626; }
+
+  .bar-container { display: flex; align-items: center; gap: 6px; }
+  .bar { height: 14px; border-radius: 3px; min-width: 2px; }
+  .bar.pos { background: linear-gradient(90deg, #22c55e88, #22c55e); }
+  .bar.neg { background: linear-gradient(270deg, #ef444488, #ef4444); }
+
+  .highlight-box {
+    background: linear-gradient(135deg, #f8fafc, #f1f5f9); border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 1.2em; margin: 0.6em 0;
+  }
+  .highlight-box.verdict { border: 2px solid #3b82f6; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.72em; font-weight: 600; }
+  .pill.green { background: #dcfce7; color: #16a34a; }
+  .pill.red { background: #fee2e2; color: #dc2626; }
+  .pill.gray { background: #f1f5f9; color: #64748b; }
+  .pill.blue { background: #dbeafe; color: #2563eb; }
+  .pill.purple { background: #f3e8ff; color: #9333ea; }
+  .pill.amber { background: #fef3c7; color: #d97706; }
+
+  ul { list-style: none; padding: 0; }
+  ul li { padding: 3px 0; padding-left: 20px; position: relative; line-height: 1.4; font-size: 0.92em; }
+  ul li::before { content: "\2192"; position: absolute; left: 0; color: #3b82f6; }
+
+  .footnote { font-size: 0.7em; color: #94a3b8; margin-top: 1em; }
+
+  /* Navigation UI */
+  .nav-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; height: 48px; z-index: 200;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 30px; background: rgba(255,255,255,0.9); backdrop-filter: blur(8px);
+    border-top: 1px solid #e2e8f0;
+  }
+  .nav-bar .counter { color: #94a3b8; font-size: 0.85em; font-weight: 500; }
+  .nav-bar .counter .cur { color: #1e293b; }
+  .nav-bar .hint { color: #cbd5e1; font-size: 0.8em; }
+  .nav-bar .arrows { display: flex; gap: 8px; }
+  .nav-bar .arrows button {
+    background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569;
+    width: 36px; height: 30px; border-radius: 6px; cursor: pointer;
+    font-size: 1em; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .nav-bar .arrows button:hover { background: #e2e8f0; color: #0f172a; }
+  .nav-bar .arrows button:disabled { opacity: 0.3; cursor: default; }
+
+  .progress-track {
+    position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 200;
+    background: #e2e8f0;
+  }
+  .progress-fill {
+    height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    transition: width 0.35s ease;
+  }
+
+  .pipeline-step {
+    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    background: #f8fafc; border-radius: 8px; margin-bottom: 6px; border: 1px solid #e2e8f0;
+  }
+  .pipeline-num {
+    width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-weight: 700; font-size: 0.8em; flex-shrink: 0;
+  }
+  .pipeline-num.blue { background: #dbeafe; color: #1d4ed8; }
+  .pipeline-num.purple { background: #f3e8ff; color: #7c3aed; }
+  .pipeline-num.amber { background: #fef3c7; color: #b45309; }
+  .pipeline-num.green { background: #dcfce7; color: #15803d; }
+
+  .evolution-card {
+    background: #f8fafc; border-radius: 12px; padding: 1em; border: 1px solid #e2e8f0;
+    text-align: center;
+  }
+  .evolution-arrow { font-size: 1.6em; color: #cbd5e1; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<div class="progress-track"><div class="progress-fill" id="progress"></div></div>
+
+<div class="nav-bar">
+  <div class="counter"><span class="cur" id="cur">1</span> / <span id="tot">16</span></div>
+  <div class="hint">&#8592; &#8594; arrow keys</div>
+  <div class="arrows">
+    <button id="btnPrev" onclick="go(-1)">&#8592;</button>
+    <button id="btnNext" onclick="go(1)">&#8594;</button>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 1: Title -->
+<!-- ============================================================ -->
+<div class="slide" style="justify-content: center; text-align: center;">
+  <h1>What Makes LLMs<br>Promote Your Page?</h1>
+  <p class="subtitle">Causal inference on 65,000+ search result observations<br>across 1,011 B2B SaaS keywords</p>
+  <div style="margin-top: 1em;">
+    <span class="tag">Double Machine Learning</span>
+    <span class="tag">8 Experiment Configurations</span>
+    <span class="tag">2 LLMs &times; 2 Engines &times; 2 Pool Sizes</span>
+  </div>
+  <p style="margin-top: 1em; color: #475569;">GEODML Project</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 2: The Research Question -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>The Research Question</h2>
+  <p class="subtitle">Traditional SEO meets LLM-powered search</p>
+
+  <div class="grid2">
+    <div class="card blue">
+      <h3 style="color: #60a5fa;">Traditional SEO</h3>
+      <p style="line-height: 1.4; margin-bottom: 0.5em;">Search engines rank pages using crawl-based signals: backlinks, keyword density, page speed, freshness, domain authority.</p>
+      <ul>
+        <li>Optimized for crawlers and ranking algorithms</li>
+        <li>Rewards link-building, technical SEO, freshness</li>
+        <li>Decades of established best practices</li>
+      </ul>
+    </div>
+    <div class="card purple">
+      <h3 style="color: #a855f7;">Generative Engine Optimization (GEO)</h3>
+      <p style="line-height: 1.4; margin-bottom: 0.5em;">LLMs re-rank search results by reading titles and snippets. They evaluate <em>content quality</em> from what they see, not from link graphs.</p>
+      <ul>
+        <li>LLMs see only: position, domain, title, snippet</li>
+        <li>Different signals may matter (structure, relevance, clarity)</li>
+        <li><strong>No one systematic approach</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box verdict" style="text-align: center; margin-top: 1em;">
+    <p style="font-size: 1em; line-height: 1.4;">
+      <strong>Core question:</strong> When an LLM re-ranks search results, which on-page features
+      <em>causally</em> determine whether a page gets promoted or demoted?
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 3: Methodology -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Methodology: Double Machine Learning</h2>
+  <p class="subtitle">Causal inference, not just correlation</p>
+
+  <div class="grid2">
+    <div>
+      <div class="pipeline-step">
+        <div class="pipeline-num blue">1</div>
+        <div>
+          <strong>Predict outcome (Y) from confounders (X)</strong>
+          <div class="stat-detail">Take residuals: variation in rankings <em>unexplained</em> by confounders</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-num purple">2</div>
+        <div>
+          <strong>Predict treatment (D) from confounders (X)</strong>
+          <div class="stat-detail">Take residuals: variation in treatment <em>not driven</em> by confounders</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-num amber">3</div>
+        <div>
+          <strong>Regress residual-Y on residual-D</strong>
+          <div class="stat-detail">The slope = causal effect, net of all confounding</div>
+        </div>
+      </div>
+      <p style="margin-top: 0.7em; color: #94a3b8; line-height: 1.35;">
+        <strong>Partially Linear Regression (PLR)</strong> with 5-fold cross-fitting.<br>
+        Nuisance functions estimated by LightGBM and Random Forest.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Three Outcome Specifications</h3>
+      <table>
+        <thead><tr><th>Outcome</th><th>What it captures</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>rank_delta</strong></td>
+            <td>pre_rank &minus; post_rank<br><span class="stat-detail">Positive = LLM promoted the page</span></td>
+          </tr>
+          <tr>
+            <td><strong>post_rank</strong></td>
+            <td>Where the LLM placed it<br><span class="stat-detail">Negative coef = better (closer to #1)</span></td>
+          </tr>
+          <tr>
+            <td><strong>pre_rank</strong></td>
+            <td>Where the search engine placed it<br><span class="stat-detail">Isolates SERP vs LLM effects</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top: 0.7em;">
+        <h3>17 Confounders Controlled</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <span class="pill blue">SERP position</span>
+          <span class="pill blue">Word count</span>
+          <span class="pill blue">Readability</span>
+          <span class="pill blue">BM25 score</span>
+          <span class="pill blue">Title-kw similarity</span>
+          <span class="pill blue">Snippet-kw similarity</span>
+          <span class="pill blue">Brand recognition</span>
+          <span class="pill blue">Domain authority</span>
+          <span class="pill blue">Internal links</span>
+          <span class="pill blue">Outbound links</span>
+          <span class="pill blue">Images with alt</span>
+          <span class="pill blue">Title has keyword</span>
+          <span class="pill blue">Title length</span>
+          <span class="pill blue">Snippet length</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="footnote">Chernozhukov et al. (2018). Double/Debiased Machine Learning for Treatment and Structural Parameters. Econometrics Journal.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 4: Pipeline Architecture -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Data Pipeline</h2>
+  <p class="subtitle">From keyword to causal estimate in 5 stages</p>
+
+  <div class="grid2">
+    <div>
+      <div class="pipeline-step">
+        <div class="pipeline-num blue">P1</div>
+        <div>
+          <strong>SERP + LLM Re-Ranking</strong>
+          <div class="stat-detail">Query search engine (DDG/SearXNG) &rarr; LLM selects top-10 from pool</div>
+          <div class="stat-detail" style="color: #60a5fa;">Output: rankings.csv (pre_rank vs post_rank)</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-num blue">P2</div>
+        <div>
+          <strong>HTML Fetch + Code Features</strong>
+          <div class="stat-detail">Fetch page HTML &rarr; extract T1-T3, word count, readability, links</div>
+          <div class="stat-detail" style="color: #60a5fa;">Output: features.csv, html_cache/</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-num purple">P3</div>
+        <div>
+          <strong>LLM Feature Extraction</strong>
+          <div class="stat-detail">Send page digest to LLM &rarr; LLM scores T1-T3 from its own perception</div>
+          <div class="stat-detail" style="color: #a855f7;">Output: T1_llm &ndash; T3_llm columns</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-num amber">P4</div>
+        <div>
+          <strong>Enriched Features</strong>
+          <div class="stat-detail">T5 topical competence, T6 freshness, BM25, brand recognition</div>
+          <div class="stat-detail" style="color: #f59e0b;">Output: features_new.csv (T5-T6 + confounders)</div>
+        </div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-num green">P5</div>
+        <div>
+          <strong>DML Causal Analysis</strong>
+          <div class="stat-detail">Treatments &times; 3 outcomes &times; 2 learners = 100+ experiments per run</div>
+          <div class="stat-detail" style="color: #22c55e;">Output: all_experiments.csv, summary.json, plots</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom: 0.6em;">
+        <h3>Treatments Measured</h3>
+        <table style="font-size: 0.8em;">
+          <thead><tr><th>ID</th><th>Name</th><th>Type</th></tr></thead>
+          <tbody>
+            <tr><td>T1</td><td>Statistical Density</td><td>code + LLM</td></tr>
+            <tr><td>T1a</td><td>Stats Present</td><td>binary</td></tr>
+            <tr><td>T1b</td><td>Stats Density</td><td>continuous</td></tr>
+            <tr><td>T2</td><td>Question Headings</td><td>code + LLM</td></tr>
+            <tr><td>T2a</td><td>Question Headings</td><td>binary</td></tr>
+            <tr><td>T2b</td><td>Structural Modularity</td><td>count</td></tr>
+            <tr><td>T3</td><td>Structured Data</td><td>code + LLM + expanded</td></tr>
+            <tr><td>T5</td><td>Topical Competence</td><td>cosine similarity</td></tr>
+            <tr><td>T6</td><td>Freshness</td><td>ordinal 0&ndash;4</td></tr>
+            <tr style="background: #ef44440a;"><td>T7</td><td>Source: Earned</td><td>binary (249 domains)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>Code vs LLM Measurement</h3>
+        <p style="line-height: 1.35;">
+          Each treatment extracted <strong>two ways</strong>: deterministic code-based (regex, HTML parsing)
+          and LLM-based (model reads page digest). Code-based consistently produces sharper signals</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 5: Variable Reference -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Variable Reference</h2>
+  <p class="subtitle">All treatments (causal variables) and confounders (controls) used in the DML models</p>
+
+  <div class="grid2">
+    <div>
+      <h3 style="color: #a855f7; margin-bottom: 6px;">Treatments (Causal Variables of Interest)</h3>
+      <table style="font-size: 0.7em;">
+        <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Extraction</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>T1</td><td>Statistical Density</td><td>continuous</td><td>code + LLM</td><td>Unique numbers, percentages, dates per 500 words</td></tr>
+          <tr><td>T1a</td><td>Stats Present</td><td>binary</td><td>code</td><td>1 if any statistics found on page</td></tr>
+          <tr><td>T1b</td><td>Stats Density</td><td>continuous</td><td>code</td><td>Statistical density (per 500 words)</td></tr>
+          <tr><td>T2</td><td>Question Headings</td><td>binary</td><td>code + LLM</td><td>H2/H3 starting with What/How/Why/etc.</td></tr>
+          <tr><td>T2a</td><td>Question Headings</td><td>binary</td><td>code</td><td>FAQ-style H2/H3 present (refined measure)</td></tr>
+          <tr><td>T2b</td><td>Structural Modularity</td><td>count</td><td>code</td><td>Number of distinct heading sections</td></tr>
+          <tr><td>T3</td><td>Structured Data</td><td>binary</td><td>code + LLM + expanded</td><td>JSON-LD @type in {FAQ, Product, HowTo}</td></tr>
+          <tr style="background: #22c55e0a;">
+            <td>T5</td><td>Topical Competence</td><td>continuous</td><td>embeddings</td><td>Cosine similarity: page content vs query (all-MiniLM-L6-v2)</td></tr>
+          <tr style="background: #22c55e0a;">
+            <td>T6</td><td>Freshness</td><td>ordinal 0&ndash;4</td><td>code</td><td>Recency of publication/update dates extracted from HTML</td></tr>
+          <tr style="background: #ef44440a;">
+            <td>T7</td><td>Source: Earned</td><td>binary</td><td>domain list</td><td>1 if domain is in 249 earned-media domains (review sites, tech press, consulting, community/UGC)</td></tr>
+        </tbody>
+      </table>
+      <p class="footnote" style="margin-top: 0.4em;">
+        Treatments with &ldquo;code + LLM&rdquo; are measured two ways: deterministic HTML parsing and LLM evaluation of a page digest. Green rows = added in Phase 2/3 expansion.
+      </p>
+    </div>
+
+    <div>
+      <h3 style="color: #60a5fa; margin-bottom: 6px;">Confounders (Controlled Variables)</h3>
+      <table style="font-size: 0.7em;">
+        <thead><tr><th>Variable</th><th>Type</th><th>Source</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>conf_serp_position</td><td>int</td><td>SERP</td><td>Original search engine rank (1&ndash;50)</td></tr>
+          <tr><td>conf_title_kw_sim</td><td>float</td><td>embedding</td><td>Cosine similarity: title vs query</td></tr>
+          <tr><td>conf_snippet_kw_sim</td><td>float</td><td>embedding</td><td>Cosine similarity: snippet vs query</td></tr>
+          <tr><td>conf_title_len</td><td>int</td><td>SERP</td><td>Title character count</td></tr>
+          <tr><td>conf_snippet_len</td><td>int</td><td>SERP</td><td>Snippet character count</td></tr>
+          <tr><td>conf_title_has_kw</td><td>binary</td><td>SERP</td><td>1 if title contains the query keyword</td></tr>
+          <tr><td>conf_brand_recog</td><td>binary</td><td>lookup</td><td>1 if domain is in 80+ known B2B SaaS brands</td></tr>
+          <tr><td>conf_word_count</td><td>int</td><td>HTML</td><td>Total words in page body text</td></tr>
+          <tr><td>conf_readability</td><td>float</td><td>textstat</td><td>Flesch-Kincaid grade level</td></tr>
+          <tr><td>conf_internal_links</td><td>int</td><td>HTML</td><td>Count of same-domain links</td></tr>
+          <tr><td>conf_outbound_links</td><td>int</td><td>HTML</td><td>Count of external-domain links</td></tr>
+          <tr><td>conf_images_alt</td><td>int</td><td>HTML</td><td>Images with non-empty alt text</td></tr>
+          <tr><td>conf_bm25</td><td>float</td><td>computed</td><td>BM25 content-keyword relevance score</td></tr>
+          <tr><td>conf_domain_authority</td><td>float</td><td>PageRank/Moz</td><td>Domain authority score (0&ndash;10)</td></tr>
+          <tr><td>conf_backlinks</td><td>int</td><td>Moz API</td><td>Number of backlinks to domain</td></tr>
+          <tr><td>conf_referring_domains</td><td>int</td><td>Moz API</td><td>Number of unique referring domains</td></tr>
+        </tbody>
+      </table>
+      <p class="footnote" style="margin-top: 0.4em;">
+        Confounders are <em>controlled for</em>, not tested. DML removes their influence on both the outcome and the treatment to isolate the causal effect of each treatment.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 6: Project Evolution -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Project Evolution</h2>
+  <p class="subtitle">From pilot study to scaled experiment</p>
+
+  <div style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 0.8em; align-items: center; margin-bottom: 1em;">
+    <div class="evolution-card">
+      <div class="big-number blue" style="font-size: 2em;">Phase 1</div>
+      <div class="stat-label" style="margin-bottom: 0.4em;">Feb 2026</div>
+      <div style="font-size: 2em; font-weight: 700; color: #f8fafc;">50</div>
+      <div class="stat-label">keywords</div>
+      <div class="stat-detail">492 observations</div>
+      <div class="stat-detail">1 LLM (Llama-3.3-70B)</div>
+      <div class="stat-detail">1 engine (SearXNG)</div>
+      <div class="stat-detail">4 treatments, 8 confounders</div>
+    </div>
+    <div class="evolution-arrow">&rarr;</div>
+    <div class="evolution-card">
+      <div class="big-number purple" style="font-size: 2em;">Phase 2</div>
+      <div class="stat-label" style="margin-bottom: 0.4em;">Feb&ndash;Mar 2026</div>
+      <div style="font-size: 2em; font-weight: 700; color: #f8fafc;">50</div>
+      <div class="stat-label">keywords, expanded design</div>
+      <div class="stat-detail">+DeepSeek R1, +pool size comparison</div>
+      <div class="stat-detail">10 treatments, 16 confounders</div>
+      <div class="stat-detail">Pool size attenuation confirmed</div>
+    </div>
+    <div class="evolution-arrow">&rarr;</div>
+    <div class="evolution-card" style="border: 2px solid #3b82f6;">
+      <div class="big-number blue" style="font-size: 2em;">Phase 3</div>
+      <div class="stat-label" style="margin-bottom: 0.4em;">Mar&ndash;Apr 2026</div>
+      <div style="font-size: 2em; font-weight: 700; color: #f8fafc;">1,011</div>
+      <div class="stat-label">keywords</div>
+      <div class="stat-detail">65,000+ observations</div>
+      <div class="stat-detail">2 LLMs &times; 2 engines &times; 2 pool sizes</div>
+      <div class="stat-detail">18 treatments (incl. T7 Earned), 17 confounders</div>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="card green">
+      <h3>What Replicated</h3>
+      <ul>
+        <li><strong>T7 Earned media demotion</strong></li>
+        <li><strong>T6 Freshness penalty</strong></li>
+        <li>Code-based measurement outperforms LLM-based</li>
+      </ul>
+    </div>
+    <div class="card amber">
+      <h3>What Changed</h3>
+      <ul>
+        <li>T2 Question Headings</li>
+        <li>T3 Structured Data</li>
+        <li>Pool size fundamentally alters LLM behavior</li>
+      </ul>
+    </div>
+    <div class="card red">
+      <h3>What Didn't Replicate</h3>
+      <ul>
+        <li>T1a Stats Present (binary)</li>
+        <li>T2 Question Headings (LLM)</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 6: Scaled Experiment Design (2x2x2) -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Scaled Experiment Design</h2>
+  <p class="subtitle">3 binary dimensions &rarr; 8 independent DML experiments</p>
+  <div class="grid3" style="margin-bottom: 1.2em;">
+    <div class="card blue">
+      <h3>Search Engines</h3>
+      <div class="big-number blue">2</div>
+      <div class="stat-label">DuckDuckGo vs SearXNG</div>
+      <div class="stat-detail">SearXNG aggregates Google, Bing, DDG, Brave, Startpage</div>
+    </div>
+    <div class="card purple">
+      <h3>LLM Re-rankers</h3>
+      <div class="big-number" style="color:#a855f7;">2</div>
+      <div class="stat-label">Llama-3.3-70B vs Qwen2.5-72B</div>
+      <div class="stat-detail">Via HuggingFace Inference API</div>
+    </div>
+    <div class="card amber">
+      <h3>SERP Pool Sizes</h3>
+      <div class="big-number amber">2</div>
+      <div class="stat-label">Top-20 vs Top-50 candidates</div>
+      <div class="stat-detail">LLM always selects top-10 from pool</div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h3>Pipeline per Run</h3>
+      <ul>
+        <li>1,011 B2B SaaS keywords searched</li>
+        <li>SERP results fetched (20 or 50 per query)</li>
+        <li>LLM re-ranks to top 10</li>
+        <li>rank_delta = pre_rank &minus; post_rank (positive = promoted)</li>
+        <li>HTML fetched, treatments + confounders extracted</li>
+        <li>Double ML (PLR) estimates causal effects</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Scale</h3>
+      <div class="grid2" style="gap: 0.8em;">
+        <div><div class="big-number blue">65,426</div><div class="stat-label">total observations</div></div>
+        <div><div class="big-number blue">1,011</div><div class="stat-label">unique keywords</div></div>
+        <div><div class="big-number blue">15,378</div><div class="stat-label">unique domains</div></div>
+        <div><div class="big-number blue">780</div><div class="stat-label">DML experiments run</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 7: Early Findings (Pilot) -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Early Findings: The Pilot Study</h2>
+  <p class="subtitle">50 keywords, 492 observations, Llama-3.3-70B + SearXNG</p>
+
+  <div class="grid2" style="margin-bottom: 1em;">
+    <div class="card green">
+      <h3 style="color: #22c55e;">3 Significant Findings (p&lt;0.05)</h3>
+      <table>
+        <thead><tr><th>Treatment</th><th>Outcome</th><th>&theta;</th><th>p-value</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>T2 Question Headings</strong></td>
+            <td>rank_delta</td>
+            <td class="promotes"><strong>+1.198</strong></td>
+            <td><span class="sig">0.009 ***</span></td>
+          </tr>
+          <tr>
+            <td><strong>T3 Structured Data</strong></td>
+            <td>post_rank</td>
+            <td class="promotes"><strong>&minus;0.719</strong></td>
+            <td><span class="sig">0.048 **</span></td>
+          </tr>
+          <tr>
+            <td><strong>T1 Statistical Density</strong></td>
+            <td>post_rank</td>
+            <td class="demotes"><strong>+0.101</strong></td>
+            <td><span class="sig">0.024 **</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Key Insight: Cross-Reference Reveals Origin</h3>
+      <p style="line-height: 1.4; margin-bottom: 0.5em;">
+        By testing the same treatment on <strong>three outcomes</strong> (pre_rank, post_rank, rank_delta),
+        we see <em>where</em> the signal comes from:
+      </p>
+      <ul>
+        <li><strong>T2 Headings:</strong> Neither SERP nor LLM significant alone, but the <em>gap</em> is</li>
+        <li><strong>T3 Schema:</strong> Pure LLM effect (SERP indifferent, p=0.80)</li>
+        <li><strong>T1 Stats:</strong> LLM-specific penalty (small but consistent)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="text-align: center;">
+    <p style="font-size: 0.92em; color: #94a3b8;">
+      These results shaped the expansion: <strong>Do they replicate</strong> with more data, different LLMs, different engines, and different pool sizes?
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 8: Pool Size Effect (Updated) -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Pool Size Effect: No Reversal</h2>
+  <p class="subtitle">Both pools re-rank top 10. SERP-20/10 vs SERP-50/10 across 8 runs, 2 LLMs, 2 engines</p>
+
+  <div class="grid2" style="margin-bottom: 1em;">
+    <div class="card green" style="text-align: center;">
+      <h3 style="color: #16a34a;">SERP-20 / Top 10 re-rank</h3>
+      <p style="margin-bottom: 0.5em; color: #64748b;">LLM picks 10 from 20 SERP candidates.</p>
+      <table>
+        <thead><tr><th>Treatment</th><th>Avg &theta;</th><th>Sig runs</th><th>Direction</th></tr></thead>
+        <tbody>
+          <tr><td>T7 Earned Media</td><td class="demotes">&minus;1.680</td><td><span class="sig">4/4</span></td><td class="demotes">demotes</td></tr>
+          <tr><td>T5 Topical Comp.</td><td class="promotes">+0.683</td><td><span class="sig">2/3</span></td><td class="promotes">promotes</td></tr>
+          <tr><td>T2a Question Headings</td><td class="promotes">+0.166</td><td><span class="sig">3/4</span></td><td class="promotes">promotes</td></tr>
+          <tr><td>T6 Freshness</td><td class="demotes">&minus;0.059</td><td><span class="sig">3/4</span></td><td class="demotes">demotes</td></tr>
+          <tr><td>T3 Structured Data</td><td class="promotes">+0.140</td><td><span class="nosig">2/4</span></td><td class="promotes">promotes</td></tr>
+          <tr><td>T1 Stats Density</td><td class="demotes">&minus;0.014</td><td><span class="nosig">2/4</span></td><td class="demotes">demotes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card blue" style="text-align: center;">
+      <h3 style="color: #2563eb;">SERP-50 / Top 10 re-rank</h3>
+      <p style="margin-bottom: 0.5em; color: #64748b;">LLM picks 10 from 50 SERP candidates.</p>
+      <table>
+        <thead><tr><th>Treatment</th><th>Avg &theta;</th><th>Sig runs</th><th>Direction</th></tr></thead>
+        <tbody>
+          <tr><td>T7 Earned Media</td><td class="demotes">&minus;1.366</td><td><span class="sig">3/4</span></td><td class="demotes">demotes</td></tr>
+          <tr><td>T5 Topical Comp.</td><td class="promotes">+0.135</td><td><span class="nosig">0/2</span></td><td class="promotes">promotes</td></tr>
+          <tr><td>T2a Question Headings</td><td class="promotes">+0.028</td><td><span class="nosig">0/4</span></td><td class="nosig">weakens</td></tr>
+          <tr><td>T6 Freshness</td><td class="demotes">&minus;0.036</td><td><span class="sig">3/4</span></td><td class="demotes">demotes</td></tr>
+          <tr><td>T3 Structured Data</td><td class="promotes">+0.100</td><td><span class="nosig">1/4</span></td><td class="promotes">promotes</td></tr>
+          <tr><td>T1 Stats Density</td><td class="promotes">+0.002</td><td><span class="nosig">1/4</span></td><td class="nosig">vanishes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="highlight-box">
+      <h3 style="color: #16a34a;">No sign reversals on robust treatments</h3>
+      <p style="line-height: 1.35; color: #475569;">
+        T7, T5, T6, T3 all keep the same sign across both pool sizes.
+        The old reversal (50 SERP / 20 re-rank) was an artefact.
+      </p>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #d97706;">Attenuation, not reversal</h3>
+      <p style="line-height: 1.35; color: #475569;">
+        Effects <em>weaken</em> with a larger SERP pool: T2a question headings drops from +0.166 to +0.028 (sig 3/4 &rarr; 0/4).
+        T5 topical competence drops from +0.683 to +0.135.
+        More candidates dilute individual treatment signals.
+      </p>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #2563eb;">Two minor reversals remain</h3>
+      <p style="line-height: 1.35; color: #475569;">
+        T1 stats density (&minus;0.014 &rarr; +0.002) and T2 code headings (+0.107 &rarr; &minus;0.009) are not significant and can be ignored, they may be useful to get a small edge for GEO strategy.
+      </p>
+    </div>
+  </div>
+
+  <p class="footnote">8 runs (2 LLMs &times; 2 engines &times; 2 pool sizes), all re-ranking top 10. 65,426 total observations. Updated T7 with 249 EARNED_DOMAINS.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 9: What Demotes -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>The Verdict: What LLMs Consistently Demote</h2>
+  <p class="subtitle">Treatments with significant negative effects across multiple runs (p&lt;0.05)</p>
+
+  <div class="grid2">
+    <div style="max-width: 100%;">
+      <div class="card red" style="margin-bottom: 0.6em;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong style="font-size:1.2em;">T7</strong>
+            <div class="stat-detail" style="margin-top:4px;">249 earned-media domains: review sites, tech press, consulting firms, community/UGC</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="big-number red" style="font-size:1.8em;">&minus;1.68</div>
+            <div class="stat-label">positions lost</div>
+          </div>
+        </div>
+        <div style="margin-top:0.4em;">
+          <span class="pill red">9/10 subsets significant</span>
+          <span class="pill red">100% consistent direction</span>
+          <span class="pill red">SE = 0.072</span>
+        </div>
+        <p style="margin-top: 0.3em; color: #94a3b8; line-height: 1.5;">
+          By far the strongest effect. Pages from review platforms (G2, Capterra), tech media (TechCrunch, ZDNet),
+          consulting firms (McKinsey, Deloitte), and community sites (Reddit, Stack Overflow) are <strong>heavily demoted</strong>.
+          The LLM prefers primary/official sources over third-party coverage.
+        </p>
+      </div>
+
+      <div class="card red" style="margin-bottom: 0.6em;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong style="font-size:1.1em;">T6</strong>
+            <div class="stat-detail" style="margin-top:4px;">Recency of publication/update dates (ordinal 0&ndash;4)</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:1.3em; font-weight:700; color:#ef4444;">&minus;0.056</div>
+            <div class="stat-label">positions per level</div>
+          </div>
+        </div>
+        <div style="margin-top:0.4em;">
+          <span class="pill red">8/10 subsets significant</span>
+          <span class="pill red">Mostly consistent direction</span>
+        </div>
+      </div>
+
+      <div class="card red">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong style="font-size:1.1em;">T3-expanded</strong>
+            <div class="stat-detail">JSON-LD FAQ/Product/HowTo schemas (expanded measurement)</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:1.3em; font-weight:700; color:#ef4444;">&minus;0.144</div>
+            <div class="stat-label">positions lost</div>
+          </div>
+        </div>
+        <div style="margin-top:0.4em;">
+          <span class="pill red">6/10 significant</span>
+          <span class="pill red">Mostly consistent</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card red" style="margin-bottom: 0.6em;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong style="font-size:1.1em;">T1</strong>
+            <div class="stat-detail">Number-heavy, data-dense pages</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:1.3em; font-weight:700; color:#ef4444;">&minus;0.017</div>
+            <div class="stat-label">positions lost</div>
+          </div>
+        </div>
+        <div style="margin-top:0.4em;">
+          <span class="pill red">5/10 significant</span>
+          <span class="pill red">Mostly consistent</span>
+        </div>
+      </div>
+
+      <div class="highlight-box" style="border-color: #ef4444;">
+        <p style="text-align:center; font-size: 0.92em; color: #94a3b8;">
+          <strong>Pattern:</strong> LLMs heavily penalize third-party/earned media content and moderately penalize
+          SEO signals</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 10: What Promotes -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>What LLMs Consistently Promote</h2>
+  <p class="subtitle">Positive effects on rank_delta across multiple configurations</p>
+
+  <div style="max-width: 95%;">
+    <div class="card green" style="margin-bottom: 0.6em;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <strong style="font-size:1.2em;">T5</strong>
+          <div class="stat-detail" style="margin-top:4px;">Semantic similarity between page content and query (cosine of sentence embeddings)</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="big-number green" style="font-size:1.8em;">+0.61</div>
+          <div class="stat-label">rank positions gained</div>
+        </div>
+      </div>
+      <div style="margin-top:0.4em;">
+        <span class="pill green">4/7 runs significant</span>
+        <span class="pill green">Mostly consistent direction</span>
+      </div>
+    </div>
+
+    <div class="card green" style="margin-bottom: 0.6em;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <strong>T3-code</strong>
+          <div class="stat-detail">Direct HTML parsing for JSON-LD schema markup</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:1.3em; font-weight:700; color:#22c55e;">+0.146</div>
+          <div class="stat-label">positions gained</div>
+        </div>
+      </div>
+      <div style="margin-top:0.4em;">
+        <span class="pill green">5/10 subsets significant</span>
+        <span class="pill green">100% consistent</span>
+      </div>
+    </div>
+
+    <div class="card green" style="margin-bottom: 0.6em;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <strong>T2a</strong>
+          <div class="stat-detail">H2/H3 matching natural-language questions</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:1.3em; font-weight:700; color:#22c55e;">+0.104</div>
+          <div class="stat-label">positions gained</div>
+        </div>
+      </div>
+      <div style="margin-top:0.4em;">
+        <span class="pill green">5/10 subsets significant</span>
+        <span class="pill green">Mostly consistent</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="border-color: #22c55e;">
+    <p style="text-align:center; font-size: 0.92em;">
+      <strong>Pattern:</strong> Simple, clean structural signals help. Excessive or complex markup backfires.
+      <br>T3-code (simple JSON-LD) <span class="promotes">promotes +0.146</span> while T3-expanded (complex schemas) <span class="demotes">demotes &minus;0.144</span>.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 11: Full Results Table -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Full Meta-Analysis: All Treatments (Pooled)</h2>
+  <p class="subtitle">Pooled rank_delta, PLR method, LGBM learner</p>
+
+  <div style="overflow-x: auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>Treatment</th>
+          <th>n</th>
+          <th>Pooled &theta;</th>
+          <th>SE</th>
+          <th style="text-align:center;">p-value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background: #ef44440a;">
+          <td><strong>T7 Source: Earned</strong></td>
+          <td>50,659</td>
+          <td><strong class="demotes">&minus;1.679</strong></td>
+          <td>0.072</td>
+          <td style="text-align:center;"><span class="sig">&lt;0.0001 ***</span></td>
+        </tr>
+        <tr>
+          <td><strong>T5 Topical Competence</strong></td>
+          <td>26,837</td>
+          <td><strong class="promotes">+0.608</strong></td>
+          <td>0.123</td>
+          <td style="text-align:center;"><span class="sig">&lt;0.0001 ***</span></td>
+        </tr>
+        <tr>
+          <td>T3 Structured Data (code)</td>
+          <td>45,986</td>
+          <td class="promotes">+0.146</td>
+          <td>0.030</td>
+          <td style="text-align:center;"><span class="sig">&lt;0.0001 ***</span></td>
+        </tr>
+        <tr>
+          <td>T3 Structured Data (expanded)</td>
+          <td>45,397</td>
+          <td class="demotes">&minus;0.144</td>
+          <td>0.025</td>
+          <td style="text-align:center;"><span class="sig">&lt;0.0001 ***</span></td>
+        </tr>
+        <tr>
+          <td>T2a Question Headings (binary)</td>
+          <td>45,397</td>
+          <td class="promotes">+0.104</td>
+          <td>0.029</td>
+          <td style="text-align:center;"><span class="sig">0.0003 ***</span></td>
+        </tr>
+        <tr>
+          <td>T2 Question Headings (code)</td>
+          <td>45,986</td>
+          <td class="promotes">+0.065</td>
+          <td>0.026</td>
+          <td style="text-align:center;"><span class="sig">0.013 **</span></td>
+        </tr>
+        <tr>
+          <td>T6 Freshness</td>
+          <td>45,397</td>
+          <td class="demotes">&minus;0.056</td>
+          <td>0.007</td>
+          <td style="text-align:center;"><span class="sig">&lt;0.0001 ***</span></td>
+        </tr>
+        <tr>
+          <td>T1 Stat. Density (code)</td>
+          <td>44,628</td>
+          <td class="demotes">&minus;0.017</td>
+          <td>0.002</td>
+          <td style="text-align:center;"><span class="sig">&lt;0.0001 ***</span></td>
+        </tr>
+        <tr>
+          <td>T1b Stats Density</td>
+          <td>44,060</td>
+          <td class="demotes">&minus;0.014</td>
+          <td>0.002</td>
+          <td style="text-align:center;"><span class="sig">&lt;0.0001 ***</span></td>
+        </tr>
+        <tr>
+          <td>T2b Structural Modularity</td>
+          <td>45,397</td>
+          <td class="promotes">+0.002</td>
+          <td>0.001</td>
+          <td style="text-align:center;"><span class="sig">0.0010 ***</span></td>
+        </tr>
+        <tr>
+          <td class="nosig">T3 Structured Data (LLM)</td>
+          <td>40,690</td>
+          <td class="nosig">+0.055</td>
+          <td>0.025</td>
+          <td style="text-align:center;"><span class="sig">0.030 **</span></td>
+        </tr>
+        <tr>
+          <td class="nosig">T1 Stat. Density (LLM)</td>
+          <td>40,690</td>
+          <td class="nosig">&minus;0.002</td>
+          <td>0.002</td>
+          <td style="text-align:center;" class="nosig">0.375</td>
+        </tr>
+        <tr>
+          <td class="nosig">T2 Question Headings (LLM)</td>
+          <td>40,690</td>
+          <td class="nosig">&minus;0.035</td>
+          <td>0.026</td>
+          <td style="text-align:center;" class="nosig">0.184</td>
+        </tr>
+        <tr>
+          <td class="nosig">T1a Stats Present</td>
+          <td>45,397</td>
+          <td class="nosig">+0.006</td>
+          <td>0.036</td>
+          <td style="text-align:center;" class="nosig">0.856</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="footnote">&theta; = causal effect on rank_delta (positive = LLM promotes, negative = LLM demotes). T7 uses 249 earned-media domains. 65,426 observations across 8 runs.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 12: Cross-Model Comparison -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Cross-Model Comparison</h2>
+  <p class="subtitle">Do different LLMs agree? Llama-3.3-70B vs Qwen2.5-72B (+ DeepSeek R1 from pilot)</p>
+
+  <div class="grid2" style="margin-bottom: 1em;">
+    <div class="card">
+      <h3>T2 Question Headings</h3>
+      <table>
+        <thead><tr><th>Model</th><th>Pool</th><th>Outcome</th><th>&theta;</th><th>p</th></tr></thead>
+        <tbody>
+          <tr><td>Llama-3.3-70B</td><td>Small</td><td>rank_delta</td><td class="promotes">+1.198</td><td><span class="sig">0.009</span></td></tr>
+          <tr><td>DeepSeek R1</td><td>Small</td><td>rank_delta</td><td class="promotes">+0.714</td><td><span class="sig">0.010</span></td></tr>
+          <tr><td>DeepSeek R1</td><td>Small</td><td>post_rank</td><td class="promotes">&minus;0.822</td><td><span class="sig">0.0007</span></td></tr>
+          <tr><td>Llama-3.3-70B</td><td>Large</td><td>rank_delta</td><td class="demotes">&minus;2.92</td><td><span class="sig">0.002</span></td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top: 0.3em; color: #94a3b8; font-size: 0.85em;">
+        Both Llama and DeepSeek R1 reward question headings in small pools.
+        The effect reverses in large pools.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>T6 Freshness</h3>
+      <table>
+        <thead><tr><th>Run</th><th>Engine</th><th>Model</th><th>Pool</th><th>&theta;</th></tr></thead>
+        <tbody>
+          <tr><td>R1</td><td>DDG</td><td>Llama</td><td>20</td><td class="demotes">&minus;0.038</td></tr>
+          <tr><td>R2</td><td>DDG</td><td>Llama</td><td>50</td><td class="demotes">&minus;0.065</td></tr>
+          <tr><td>R3</td><td>DDG</td><td>Qwen</td><td>20</td><td class="demotes">&minus;0.087</td></tr>
+          <tr><td>R4</td><td>DDG</td><td>Qwen</td><td>50</td><td class="demotes">&minus;0.069</td></tr>
+          <tr><td>R5</td><td>SXG</td><td>Llama</td><td>20</td><td class="demotes">&minus;0.043</td></tr>
+          <tr><td>R6</td><td>SXG</td><td>Llama</td><td>50</td><td class="demotes">&minus;0.040</td></tr>
+          <tr><td>R7</td><td>SXG</td><td>Qwen</td><td>20</td><td class="demotes">&minus;0.066</td></tr>
+          <tr><td>R8</td><td>SXG</td><td>Qwen</td><td>50</td><td class="demotes">&minus;0.031</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top: 0.3em; color: #94a3b8; font-size: 0.85em;">
+        Consistently negative across all 8 runs. Both LLMs, both engines, both pool sizes.
+      </p>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="highlight-box">
+      <h3 style="color: #22c55e;">Universal</h3>
+      <p style="color: #94a3b8; line-height: 1.35;"><strong>T6 Freshness penalty</strong> and <strong>T5 Topical Competence boost</strong> hold across all LLMs, engines, and pool sizes.</p>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #f59e0b;">Context-Dependent</h3>
+      <p style="color: #94a3b8; line-height: 1.35;"><strong>T2 Question Headings</strong> promotes in small pools (cross-model replicated) but demotes in large pools. GEO strategy depends on competitive context.</p>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #ef4444;">Model-Specific</h3>
+      <p style="color: #94a3b8; line-height: 1.35;"><strong>T3 Structured Data</strong> significant for Llama (p=0.048) but not DeepSeek R1 (p=0.79). Schema sensitivity varies by model architecture.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 13: Qwen vs Llama Behavioral Differences -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Qwen vs Llama: Behavioral Differences</h2>
+  <p class="subtitle">Same treatments, different sensitivities</p>
+
+  <div class="grid2" style="margin-bottom: 0.8em;">
+    <div class="card purple">
+      <h3 style="color: #a855f7;">Statistical Power by Engine</h3>
+      <table>
+        <thead><tr><th>Model</th><th>DuckDuckGo</th><th>SearXNG</th><th>Overall</th></tr></thead>
+        <tbody>
+          <tr><td>Qwen 2.5-72B</td><td class="sig">33.8%</td><td>30.6%</td><td class="sig">32.4%</td></tr>
+          <tr><td>Llama 3.3-70B</td><td>23.5%</td><td class="sig">38.9%</td><td>23.0%</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top: 0.3em; color: #94a3b8; font-size: 0.85em;">
+        Qwen is more &ldquo;opinionated&rdquo; on single-engine input (DDG). Llama benefits from diverse meta-search pools (SearXNG).
+      </p>
+    </div>
+
+    <div class="card blue">
+      <h3 style="color: #60a5fa;">Treatment Effect Magnitudes</h3>
+      <table>
+        <thead><tr><th>Treatment</th><th>Qwen &theta;</th><th>Llama &theta;</th><th>Stronger</th></tr></thead>
+        <tbody>
+          <tr><td>T7 Earned Media</td><td class="demotes">&minus;1.674</td><td class="demotes">&minus;1.680</td><td><span class="pill blue">Near-identical</span></td></tr>
+          <tr><td>T6 Freshness</td><td class="demotes">&minus;0.067</td><td class="demotes">&minus;0.047</td><td><span class="pill purple">Qwen 1.4&times;</span></td></tr>
+          <tr><td>T5 Topical Comp.</td><td class="promotes">+0.728</td><td class="promotes">+0.383</td><td><span class="pill purple">Qwen 1.9&times;</span></td></tr>
+          <tr><td>T3 Structured Data</td><td class="promotes">+0.138</td><td class="promotes">+0.147</td><td><span class="pill blue">Near-identical</span></td></tr>
+          <tr><td>T2a Questions</td><td class="promotes">+0.151</td><td class="promotes">+0.075</td><td><span class="pill purple">Qwen 2&times;</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="highlight-box">
+      <h3 style="color: #a855f7;">Qwen Strengths</h3>
+      <ul>
+        <li>Higher significance rate overall (32.4%)</li>
+        <li>2.5&times; more sensitive to freshness signals on DDG</li>
+        <li>30&times; stronger question heading boost on DDG</li>
+        <li>More &ldquo;decisive&rdquo;</li>
+      </ul>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #ef4444;">Llama Strengths</h3>
+      <ul>
+        <li>13% stronger earned media demotion</li>
+        <li>12% stronger structured data promotion</li>
+        <li>More robust on SearXNG (38.9% sig. rate)</li>
+        <li>More stable across pool sizes (serp20 &harr; serp50)</li>
+      </ul>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #60a5fa;">Key Implication</h3>
+      <p style="color: #94a3b8; line-height: 1.35;">
+        GEO strategy can be changed based on the model you want to optimize, "ChatGPT" search, or else.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 14: Counterintuitive Findings (was 13) -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>The Counterintuitive Findings</h2>
+  <p class="subtitle">What SEO &ldquo;best practices&rdquo; actually hurt in LLM re-ranking</p>
+
+  <div class="grid2">
+    <div class="highlight-box">
+      <h3 style="color: #ef4444;">Surprise #1: Freshness Hurts</h3>
+      <p style="margin: 0.4em 0; line-height: 1.4;">
+        Traditional SEO rewards fresh content. But LLMs <strong>demote</strong> recently updated pages
+        by ~0.056 positions per freshness level. Significant in 8 of 10 analysis subsets.
+      </p>
+
+    </div>
+
+    <div class="highlight-box">
+      <h3 style="color: #ef4444;">Surprise #2: Schema Markup</h3>
+      <p style="margin: 0.4em 0; line-height: 1.4;">
+        <strong>Code-detected</strong> structured data (JSON-LD) <span class="promotes">promotes</span> by +0.15 positions.
+        But the <strong>expanded LLM-read</strong> measure of the same thing <span class="demotes">demotes</span> by &minus;0.12.
+      </p>
+
+    </div>
+
+    <div class="highlight-box">
+      <h3 style="color: #ef4444;">Surprise #3: Citations Don't Help</h3>
+      <p style="margin: 0.4em 0; line-height: 1.4;">
+        Outbound links to .edu/.gov/academic domains show a consistent <strong>negative</strong> effect.
+        The LLM can't follow links</p>
+
+    </div>
+
+    <div class="highlight-box">
+      <h3 style="color: #22c55e;">The Winner: Topic Match > Everything</h3>
+      <p style="margin: 0.4em 0; line-height: 1.4;">
+        <strong>Topical competence</strong> (semantic similarity between page text and query) gains
+        <strong>+0.61 positions</strong>. Consistent direction across runs. Qwen responds even stronger (+0.73).
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 15: Robustness Checks -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Robustness Checks</h2>
+  <p class="subtitle">Results hold across engines, models, pool sizes, and ML learners</p>
+
+  <div class="grid3" style="margin-bottom: 1.2em;">
+    <div class="card blue">
+      <h3>Engine Invariance</h3>
+      <p style="line-height: 1.35;">DuckDuckGo and SearXNG produce the same directional effects.
+      The LLM re-ranker dominates</p>
+    </div>
+    <div class="card purple">
+      <h3>Model Invariance</h3>
+      <p style="line-height: 1.35;">Llama-3.3-70B and Qwen2.5-72B agree on all major effects.
+      Both are 70B-class instruction-tuned models</p>
+    </div>
+    <div class="card amber">
+      <h3>Pool Size Effect</h3>
+      <p style="line-height: 1.35;">SERP-50/10 vs SERP-20/10: no sign reversals on robust treatments.
+      Effects attenuate with larger SERP input but remain directionally consistent.</p>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>ML Learner Robustness</h3>
+      <p style="margin-bottom: 0.4em;">Both LGBM and Random Forest nuisance learners produce consistent results:</p>
+      <table>
+        <thead><tr><th>Treatment</th><th>LGBM sig</th><th>RF sig</th><th>Agreement</th></tr></thead>
+        <tbody>
+          <tr><td>T6 Freshness</td><td class="sig">5/8</td><td class="sig">6/8</td><td class="sig">Strong</td></tr>
+          <tr><td>T5 Topical Comp.</td><td class="sig">3/8</td><td class="sig">3/8</td><td class="sig">Perfect</td></tr>
+          <tr><td>T3 Structured (code)</td><td class="sig">3/8</td><td>2/8</td><td>Good</td></tr>
+          <tr><td>T2a Q-Headings</td><td class="sig">3/8</td><td class="sig">3/8</td><td class="sig">Perfect</td></tr>
+          <tr><td>T3 Structured (exp.)</td><td class="sig">4/8</td><td class="sig">5/8</td><td class="sig">Strong</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>DML vs OLS Comparison</h3>
+      <p style="line-height: 1.35; margin-bottom: 0.5em;">
+        DML and OLS coefficients are close across all specifications (e.g., T2: DML=+0.86, OLS=+1.10).
+        This confirms <strong>weak confounding</strong></p>
+      <h3>Model Fit: Low R&sup2; Is Expected</h3>
+      <p style="line-height: 1.35;">
+        OLS R&sup2; = 3&ndash;7%. Most ranking variance comes from unmeasured factors (exact relevance, backlinks, brand).
+        Low R&sup2; does not invalidate significant effects<em>small but consistent</em> signal in a noisy world.
+        We need the measures from SEO API to get a fuller picture of the causal landscape.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 16: Recommendations + Bottom Line -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Actionable Recommendations for GEO</h2>
+  <p class="subtitle">What to tell your content team based on causal evidence</p>
+
+  <div class="grid2">
+    <div>
+      <div class="card green" style="margin-bottom: 0.6em;">
+        <h3 style="color: #22c55e;">DO: High-Impact Actions</h3>
+        <ul>
+          <li><strong>Write for topical depth, not keywords.</strong> Topical competence (+0.61 positions) is the strongest positive signal. Cover the query comprehensively.</li>
+          <li><strong>Be the primary source.</strong> Earned media (reviews, press, aggregators) is demoted &minus;1.68 positions. First-party authoritative content wins.</li>
+          <li><strong>Use clean JSON-LD schema.</strong> Well-formed FAQ/Product/HowTo markup helps (+0.15). Keep it simple and accurate.</li>
+          <li><strong>Structure with question headings.</strong> H2/H3 tags phrased as natural-language questions gain +0.10 positions.</li>
+          <li><strong>Favor evergreen depth over recency.</strong> Don't aggressively date-stamp content. LLMs prefer authority over freshness.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="card red" style="margin-bottom: 0.6em;">
+        <h3 style="color: #ef4444;">DON'T: Common Mistakes</h3>
+        <ul>
+          <li><strong>Don't rely on third-party coverage.</strong> Earned media (G2, Capterra, Forbes, Reddit) loses &minus;1.68 positions. The LLM wants the official source, not a review.</li>
+          <li><strong>Don't over-optimize freshness signals.</strong> Aggressive &ldquo;last updated&rdquo; manipulation actually hurts (&minus;0.056 per level).</li>
+          <li><strong>Don't stuff structured data.</strong> Excessive/complex schemas backfire (&minus;0.14). Quality over quantity.</li>
+          <li><strong>Don't expect citation links to help.</strong> Outbound links to .edu/.gov don't improve LLM rankings (&minus;0.019)</li>
+          <li><strong>Don't pack pages with numbers.</strong> Dense statistics have a small negative effect (&minus;0.017). Focus on clarity.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box verdict" style="text-align: center; margin-top: 0.7em;">
+    <h3 style="color: #60a5fa; font-size: 1.3em;">The Bottom Line</h3>
+    <p style="font-size: 1em; line-height: 1.4; max-width: 90%; margin: 0.5em auto;">
+      LLMs reward <strong>substance over signals</strong> and <strong>primary sources over third-party coverage</strong>.
+      The biggest wins: topical depth (+0.61) and being the official source (earned media loses &minus;1.68).
+      Traditional SEO signals (freshness, external citations, keyword density) either don't help or actively hurt.
+    </p>
+  </div>
+
+  <p class="footnote">GEODML Project &middot; April 2026 &middot; Data: DuckDuckGo &amp; SearXNG, re-ranked by Llama-3.3-70B &amp; Qwen2.5-72B via HuggingFace. Analysis: DoubleML library (PLR, 5-fold CV). All 8 runs complete.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE: Expansion -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>Expansion</h2>
+  <p class="subtitle">Next-phase data enrichment to sharpen causal estimates</p>
+
+  <div class="grid2" style="margin-bottom: 1.2em;">
+    <div class="card blue">
+      <h3 style="color: #2563eb;">SEMRush API</h3>
+      <p style="color: #64748b; margin-bottom: 0.6em;">Page-level and domain-level signals we currently lack.</p>
+      <ul>
+        <li><strong>Backlink authority score</strong> per page (replaces our proxy domain authority)</li>
+        <li><strong>Referring domains count</strong> (external link graph depth)</li>
+        <li><strong>Page-level organic traffic</strong> (real visibility, not just rank)</li>
+        <li><strong>Query intent classification</strong> (informational / navigational / transactional / commercial)</li>
+        <li><strong>Domain Authority &amp; Trust Score</strong> at the domain level</li>
+        <li><strong>Keyword difficulty &amp; search volume</strong> per query</li>
+      </ul>
+    </div>
+    <div class="card purple">
+      <h3 style="color: #9333ea;">LLM Feature Extraction (2nd pass)</h3>
+      <p style="color: #64748b; margin-bottom: 0.6em;">Re-read cached HTML with targeted prompts to extract content-quality signals.</p>
+      <ul>
+        <li><strong>Inverted pyramid / conclusion-first score</strong> (does the page lead with the answer?)</li>
+        <li><strong>Promotional tone index</strong> (neutral editorial vs. sales-heavy copy)</li>
+        <li><strong>Earned media classification</strong> (LLM-based, replacing the hardcoded 249-domain list)</li>
+        <li><strong>Content depth score</strong> (surface-level listicle vs. comprehensive guide)</li>
+        <li><strong>Jargon density</strong> (accessibility vs. technical depth trade-off)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="highlight-box">
+      <h3 style="color: #16a34a;">Why backlinks matter</h3>
+      <p style="line-height: 1.35; color: #475569;">
+        We currently lack inbound link data entirely. SEMRush gives us <em>backlink</em> signals,
+        letting us test whether the LLM implicitly correlates with backlink authority or ignores it entirely.
+      </p>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #d97706;">Why LLM-based earned media</h3>
+      <p style="line-height: 1.35; color: #475569;">
+        The hardcoded domain list (T7) misses niche review blogs and false-positives on brands with editorial arms.
+        An LLM reading the actual page can classify source type from content, not domain name.
+      </p>
+    </div>
+    <div class="highlight-box">
+      <h3 style="color: #2563eb;">Why promotional tone</h3>
+      <p style="line-height: 1.35; color: #475569;">
+        We can define earned media as a tiem of content that is derivated and/or aggregated of content from other pages and domains. We also want to measure how promotional content is handled.
+      </p>
+    </div>
+  </div>
+
+  <p class="footnote">Data infrastructure: cached HTML already available for LLM re-extraction. SEMRush API requires commercial subscription (batch endpoint for ~15K domains).</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE: Bibliography -->
+<!-- ============================================================ -->
+<div class="slide" style="overflow-y: auto;">
+  <h2>Bibliography</h2>
+  <p class="subtitle">Key references informing treatments, covariates, and experimental design</p>
+
+  <div class="grid2" style="margin-bottom: 0.8em;">
+    <div>
+      <h3 style="color: #2563eb; margin-bottom: 0.4em;">Content Features &amp; Citation Behavior</h3>
+      <table style="font-size: 0.72em;">
+        <thead><tr><th>Ref</th><th>Citation</th><th>Contribution</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>[1]</td>
+            <td>Aggarwal, P. et al. <em>"GEO: Generative Engine Optimization."</em> KDD, 2024.</td>
+            <td>Foundational GEO treatments: statistics, citations, fluency, authoritative tone</td>
+          </tr>
+          <tr>
+            <td>[2]</td>
+            <td>Wu, Z. et al. <em>"AutoGEO: Automating Content Optimization for Generative Engines."</em> CMU, 2025.</td>
+            <td>Learned rules: conclusion-first, comprehensive coverage, neutral tone</td>
+          </tr>
+          <tr>
+            <td>[3]</td>
+            <td>Chen, X. et al. <em>"MACO: Multi-Agent Content Optimization."</em> Zhejiang, 2025.</td>
+            <td>Multi-agent iterative content refinement framework</td>
+          </tr>
+          <tr>
+            <td>[4]</td>
+            <td>Kumar, A. et al. <em>"AI Answer Engine Citation Behavior."</em> arXiv:2509.10762, 2025.</td>
+            <td>Page-quality index: metadata, freshness, semantic HTML, structured data</td>
+          </tr>
+          <tr>
+            <td>[5]</td>
+            <td>Hwang, J. et al. <em>"RAG with Estimation of Source Reliability."</em> EMNLP, 2025.</td>
+            <td>Source reliability as distinct construct from relevance; corroboration effects</td>
+          </tr>
+          <tr>
+            <td>[6]</td>
+            <td><em>"CiteEval: Principle-Driven Citation Evaluation."</em> ACL, 2025.</td>
+            <td>Citation appropriateness based on supportiveness, not just presence</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="color: #9333ea; margin-top: 0.8em; margin-bottom: 0.4em;">Causal Designs in Search</h3>
+      <table style="font-size: 0.72em;">
+        <thead><tr><th>Ref</th><th>Citation</th><th>Contribution</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>[7]</td>
+            <td><em>"How Important Are User-Generated Data for Search Result Quality?"</em> JLE, 2025.</td>
+            <td>Template: hold algorithm fixed, vary one input to estimate marginal effects</td>
+          </tr>
+          <tr>
+            <td>[8]</td>
+            <td><em>"Unbiased Platform-Level Causal Estimation: PSM-DID Framework."</em> arXiv:2511.01329, 2025.</td>
+            <td>Addresses interference and spillover in search platform experiments</td>
+          </tr>
+          <tr>
+            <td>[9]</td>
+            <td>Li, S. <em>"Continuous Treatment Effect Estimation via Generative Models."</em> PMLR, 2020.</td>
+            <td>Methodology for continuous treatments (citation density, authority tone degree)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="color: #d97706; margin-bottom: 0.4em;">Moderators &amp; Query Effects</h3>
+      <table style="font-size: 0.72em;">
+        <thead><tr><th>Ref</th><th>Citation</th><th>Contribution</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>[10]</td>
+            <td>Chen, Z. et al. <em>"Source Type and GEO Effectiveness."</em> U Toronto, 2025.</td>
+            <td>Source type moderator: brand vs. earned vs. social media</td>
+          </tr>
+          <tr>
+            <td>[11]</td>
+            <td><em>"Answer Bubbles: Information Exposure in AI-Mediated Search."</em> arXiv:2603.16138, 2026.</td>
+            <td>Encyclopedic sources overrepresented; source genre moderates synthesis</td>
+          </tr>
+          <tr>
+            <td>[12]</td>
+            <td><em>"Query Intent, Not Google Rank: What Best Predicts AI Citation."</em> aiXiv, 2026.</td>
+            <td>Query intent stronger moderator than classic rank; intent-specific effects</td>
+          </tr>
+          <tr>
+            <td>[13]</td>
+            <td><em>"The Rise of AI Search: Implications for Information Markets."</em> arXiv:2602.13415, 2026.</td>
+            <td>Topic-specific and country/language effects on citation</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="color: #dc2626; margin-top: 0.8em; margin-bottom: 0.4em;">Adversarial Threats &amp; Validity</h3>
+      <table style="font-size: 0.72em;">
+        <thead><tr><th>Ref</th><th>Citation</th><th>Contribution</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>[14]</td>
+            <td><em>"Exposing Citation Vulnerabilities in Generative Engines."</em> arXiv:2510.06823, 2025.</td>
+            <td>Threat model for manipulative documents forcing citations</td>
+          </tr>
+          <tr>
+            <td>[15]</td>
+            <td><em>"Prompt Injection Attacks on LLM Generated Reviews."</em> arXiv:2509.10248, 2025.</td>
+            <td>Hidden instructions in documents manipulate LLM outputs; validity threat</td>
+          </tr>
+          <tr>
+            <td>[16]</td>
+            <td><em>"VeriCite: Towards Reliable Citations in Retrieval."</em> ACM, 2025.</td>
+            <td>Citation grounding and reliability when system cites multiple passages</td>
+          </tr>
+          <tr>
+            <td>[17]</td>
+            <td>Lichtenberg, S. et al. <em>"Popularity Bias in RAG."</em> Amazon, 2024.</td>
+            <td>Popular sources over-cited regardless of quality; popularity confounder</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="footnote">Full URLs available in project repository. References [4], [5], [6], [14], [15], [16] suggest new covariates not yet in our pipeline (source reliability, promotional tone, document integrity).</p>
+</div>
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+
+  document.getElementById('tot').textContent = total;
+
+  function show(idx) {
+    if (idx < 0 || idx >= total) return;
+    slides[current].classList.remove('active');
+    current = idx;
+    slides[current].classList.add('active');
+    slides[current].scrollTop = 0;
+    document.getElementById('cur').textContent = current + 1;
+    document.getElementById('progress').style.width = ((current + 1) / total * 100) + '%';
+    document.getElementById('btnPrev').disabled = current === 0;
+    document.getElementById('btnNext').disabled = current === total - 1;
+  }
+
+  window.go = function(d) { show(current + d); };
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); go(1); }
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); go(-1); }
+    if (e.key === 'Home') { e.preventDefault(); show(0); }
+    if (e.key === 'End')  { e.preventDefault(); show(total - 1); }
+  });
+
+  show(0);
+})();
+</script>
+</body>
+</html>

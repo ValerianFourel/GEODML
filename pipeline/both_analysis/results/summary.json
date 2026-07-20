@@ -1,0 +1,31 @@
+{
+  "study": "GEODML Comparative DML Analysis",
+  "design": "20-SERP/10-rerank vs 50-SERP/20-rerank",
+  "experiments_per_dataset": "3 outcomes x 4 treatments x 2 paths x 2 methods = 48",
+  "datasets": {
+    "20serp": {
+      "rows": 492,
+      "label": "20-SERP / 10-rerank",
+      "file": "/Users/valerianfourel/Hamburg/GEODML/data/geodml_dataset.csv"
+    },
+    "50serp": {
+      "rows": 996,
+      "label": "50-SERP / 20-rerank",
+      "file": "/Users/valerianfourel/Hamburg/GEODML/50_larger/data/geodml_dataset.csv"
+    }
+  },
+  "confounders": [
+    "X1_domain_authority",
+    "X2_domain_age_years",
+    "X3_word_count",
+    "X6_readability",
+    "X7_internal_links",
+    "X7B_outbound_links",
+    "X8_keyword_difficulty",
+    "X9_images_with_alt"
+  ],
+  "nuisance_learners": "LGBM",
+  "n_folds": 5,
+  "n_experiments_total": 96,
+  "n_significant_005": 7
+}
