@@ -16,6 +16,8 @@ output/
 interpretability/output/
 checkpoints/
 *.ckpt
+logs/
+*.log
 
 # caches
 .cache/
@@ -31,6 +33,16 @@ __pycache__/
 venv/
 .venv/
 env/
+
+# local-only bulk (zips of raw results; third-party paper PDFs)
+archives/
+papers/
+
+# backups
+*.bak-*
+
+# rebuttal evidence logs are part of the record — re-include despite *.log
+!rebuttal/out/*.log
 
 # editor/OS
 .DS_Store

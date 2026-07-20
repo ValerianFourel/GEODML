@@ -7,7 +7,7 @@ bar chart centred on the baseline (ratio = 1.0):
   right side  →  saliency > 1.0   (model attends MORE than baseline → "attended")
   left side   →  saliency < 1.0   (model attends LESS than baseline → "ignored")
 
-3 canonical treatments only ($T_{1b}, T_{2a}, T_{3}$). T7_source_earned
+3 canonical treatments only ($T_{1}, T_{2}, T_{3}$). $T_{7}$_source_earned
 is excluded per paper policy. Each treatment is labelled with its DML
 direction (promoter / demoter / null) so the reader can read the
 "attention vs. effect" relationship in one glance.
@@ -24,18 +24,19 @@ import numpy as np
 import pandas as pd
 
 
-REPO = Path(__file__).resolve().parents[1]
-OUT_DIR = REPO / "docs" / "2026-05-24" / "figures_canonical" / "tmp"
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import REPO_ROOT as REPO, SALIENCY, FIGURES as OUT_DIR  # noqa: E402
 
-INPUT = REPO / "interpretability" / "output" / "saliency_summary_full.csv"
+INPUT = SALIENCY / "saliency_summary_full.csv"
 
 # Display order (top-to-bottom in the figure) + DML direction annotation
 # from the Spec B headline. Promote / Demote / Null.
 TREATMENT_DISPLAY = [
     # (key, pretty label, DML direction)
-    ("T1b_stats_density",      r"$T_{1b}$  stats density",      "null"),
-    ("T2a_question_headings",  r"$T_{2a}$  Q-headings",         "promote"),
-    ("T3_structured_data_new", r"$T_{3}$  schema (JSON-LD)",    "demote"),
+    ("T1b_stats_density",      r"$T_{1}$  stats density",      "null"),
+    ("T2a_question_headings",  r"$T_{2}$  Q-headings",         "promote"),
+    ("T3_structured_data_new", r"$T_{3}$  schema (JSON-LD)",   "demote"),
 ]
 
 MODEL_COLOR = {

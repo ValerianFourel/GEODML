@@ -27,9 +27,9 @@ from matplotlib.lines import Line2D
 # Configuration
 # ---------------------------------------------------------------------------
 
-REPO = Path(__file__).resolve().parents[1]
-PROBING_DIR = REPO / "interpretability" / "output"
-OUT_DIR = REPO / "docs" / "2026-05-24" / "figures_canonical" / "tmp"
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import REPO_ROOT as REPO, PROBING as PROBING_DIR, FIGURES as OUT_DIR  # noqa: E402
 
 VARIANTS = ["biased", "neutral", "biased_rag", "neutral_rag"]
 TREATMENTS = [

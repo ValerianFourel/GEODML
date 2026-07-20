@@ -26,9 +26,9 @@ import pandas as pd
 from matplotlib.lines import Line2D
 
 
-REPO = Path(__file__).resolve().parents[1]
-PROBING_DIR = REPO / "interpretability" / "output"
-OUT_DIR = REPO / "docs" / "2026-05-24" / "figures_canonical" / "tmp"
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import REPO_ROOT as REPO, PROBING as PROBING_DIR, FIGURES as OUT_DIR  # noqa: E402
 
 VARIANTS = ["biased", "neutral", "biased_rag", "neutral_rag"]
 
@@ -143,13 +143,7 @@ def make_fig_admission_pooled(df: pd.DataFrame):
               ncol=2, frameon=False, fontsize=11.5,
               handlelength=2.6, columnspacing=2.4)
 
-    fig.text(0.50, 0.005,
-             "For each URL span in the rerank prompt, the label is 1 if the (model, variant) admitted that URL, else 0.\n"
-             "Linear probe (logistic regression on frozen hidden states), per (layer, pooling).  "
-             "Llama-3.3-70B + Qwen-2.5-72B.   "
-             "Shaded band: min–max envelope across the 4 prompt variants.",
-             ha="center", va="bottom", fontsize=10, color="#444", style="italic")
-    fig.subplots_adjust(top=0.92, bottom=0.28, left=0.10, right=0.97)
+    fig.subplots_adjust(top=0.92, bottom=0.18, left=0.10, right=0.97)
     return fig
 
 

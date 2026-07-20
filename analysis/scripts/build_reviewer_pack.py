@@ -310,64 +310,111 @@ if __name__ == "__main__":
 
 
 def write_readme():
-    txt = f"""# GEODML — EMNLP 2026 reviewer pack
+    txt = """---
+language:
+  - en
+license: cc-by-4.0
+pretty_name: GEODML — EMNLP 2026 Reviewer Pack (Condensed)
+size_categories:
+  - n<1K
+tags:
+  - causal-inference
+  - double-ml
+  - dml
+  - llm
+  - reranker
+  - search
+  - geo
+  - generative-engine-optimization
+  - interpretability
+  - probing
+  - saliency
+  - ablation
+  - emnlp
+  - emnlp-2026
+  - reproducibility
+task_categories:
+  - text-ranking
+  - text-classification
+---
 
-Generated {datetime.now(timezone.utc).isoformat(timespec='seconds')}.
+# GEODML — EMNLP 2026 reviewer pack
 
-A **condensed** version of the paper's outputs designed for fast
-verification, not full reproduction.  Reviewer can:
+A **condensed** companion to the EMNLP 2026 submission **"Causal
+Analysis of LLM Search Rerankers via Double/Debiased Machine
+Learning."** Designed for fast verification, not full reproduction.
 
-1. Open `figures/*.pdf` to inspect any figure cited in the paper.
-2. Open `tables/*.csv` to see the exact numbers behind each claim.
-3. Run `python verify.py` to automatically assert every headline
-   number against the data (returns 0 if every claim passes).
+- **This pack** (5.6 MB) — every paper claim as a CSV + every figure
+  as PDF/PNG + a one-shot `verify.py` claim-checker.
+- **Full reproducibility dataset** (1.8 GB) →
+  [`ValerianFourel/geodml-emnlp-2026`](https://huggingface.co/datasets/ValerianFourel/geodml-emnlp-2026)
+  — raw LLM rerank outputs, page features, DFS confounders, and the
+  full DML/probing/saliency/ablation code.
 
-If you want to *re-run* the analysis from scratch, see the companion
-full reproducibility dataset `geodml-emnlp-2026/` (72 MB) which
-includes the raw experimental data and all fit scripts.
+## What we did (1-paragraph)
 
-## Layout
+We ask which content features of a web page *cause* an LLM reranker
+to keep that URL in its top-K (admission) and to push it toward the
+top — separating cause from spurious correlation with confounders
+like domain authority. Six features are declared a priori as
+treatments (stats density, question-headings, JSON-LD schema,
+citation authority, topical competence, freshness) and tested with
+Double/Debiased ML controlling for 28 confounders plus the other
+five treatments mutually. 65K (keyword × url × condition) rows
+across 4 prompt variants × 2 reranker backbones (Llama-3.3-70B,
+Qwen-2.5-72B) × 2 SERP backends × 2 candidate-pool sizes feed 216
+fitted DML models. Mechanism is verified by three orthogonal
+interpretability probes (linear probes on hidden states, gradient
+saliency, token ablation).
 
-```
-tables/                            ← condensed paper claims
-├── table2_dml_headline.csv             6 treatments × 3 outcomes, Spec B POOLED
-├── dml_all_specs_all_slices.csv        all 216 fitted DML models
-├── probing_peaks_per_variant.csv       peak ROC AUC per (treatment, model, pooling)
-├── admission_probe_headline.csv        L0, peak, final-layer AUC of the admission probe
-├── saliency_summary.csv                4 treatments × 2 backbones (Llama, Qwen)
-├── ablation_summary.csv                mean Δrank per (treatment, prompt, frame)
-└── freshness_leakage_diagnostic.md     year-token leakage table for T6
+**Headline.** T5 topical competence is the dominant promoter; T3
+JSON-LD schema is a small *demoter* (i.e. it does **not** help —
+counter to common SEO advice); T1b stats density has high Qwen
+saliency (1.93×) but zero DML coefficient — *attention is not effect*.
 
-figures/                           ← every PDF the paper references
-├── dml_estimation_framework.pdf
-├── fig01_admission_forest.pdf … fig14_robust_survivors.pdf
-├── fig_probing_layerwise.pdf
-├── fig_probing_pooling.pdf
-├── fig_admission_pooled.pdf
-├── fig_admission_variants.pdf
-└── fig_saliency.pdf
+For deeper analysis (re-fitting DML on custom slices, inspecting raw
+LLM rerank outputs, plotting layer-wise probes), grab the full pack:
+[`ValerianFourel/geodml-emnlp-2026`](https://huggingface.co/datasets/ValerianFourel/geodml-emnlp-2026).
 
-verify.py                           ← one-shot claim-checker
-README.md                           ← this file
-```
-
-## How to verify the paper in <60 seconds
+## Setup (60 seconds)
 
 ```bash
+huggingface-cli download ValerianFourel/geodml-emnlp-2026-reviewer \\
+    --repo-type=dataset --local-dir ./geodml-reviewer
+cd geodml-reviewer
 pip install pandas
 python verify.py
 ```
 
-The script prints every headline number alongside its expected value
-(from the paper text) and the tolerance.  Last line either says
+`verify.py` prints every headline number alongside its paper-text
+expected value and tolerance. Exits 0 on PASS, 1 on FAIL.
 
-```
-   All paper claims VERIFIED against the tables.
-```
+## What is what
 
-or lists which claims didn't match.
+### `tables/` — condensed paper claims
 
-## Headline numbers (Table 2, Spec B POOLED, 6 treatments, llms.txt as confounder)
+| File | What it is |
+|---|---|
+| `table2_dml_headline.csv` | The paper's Table 2 — Spec B (mutually-controlled) DML coefficients for 6 treatments × 3 outcomes, pooled. |
+| `dml_all_specs_all_slices.csv` | Every fitted DML model (Spec A + Spec B, 11 slices, 6 treatments, 3 outcomes). |
+| `probing_peaks_per_variant.csv` | Peak linear-probe ROC AUC per (variant, treatment, pooling). |
+| `admission_probe_headline.csv` | L0, peak, and final-layer ROC AUC of the admission pre-commitment probe. |
+| `saliency_summary.csv` | Llama-3.3-70B vs Qwen-2.5-72B gradient-saliency ratios on 4 treatments. |
+| `ablation_summary.csv` | Mean/median/std Δrank when treatment tokens are ablated. |
+| `freshness_leakage_diagnostic.md` | Year-token leakage diagnostic for T6 (methodological caveat). |
+
+### `figures/` — every PDF + PNG the paper references
+
+20 figures total: framework diagram + fig01–fig14 (canonical DML) +
+fig_probing_{layerwise, pooling} + fig_admission_{pooled, variants} +
+fig_saliency. Each in PDF (camera-ready) and PNG (preview).
+
+### `verify.py` — one-shot claim checker
+
+Asserts each headline number against its paper-text value within
+tolerance. Run after every pull to confirm the data matches the paper.
+
+## Headline numbers — Table 2 (Spec B POOLED)
 
 | Treatment | Y1 selected | Y2 Δrank | Y3 rank_post |
 |---|---|---|---|
@@ -378,37 +425,45 @@ or lists which claims didn't match.
 | T4 citation auth.     | +0.001    | −0.023**  | −0.015*   |
 | T1b stats density     | −0.000    | −0.003    | −0.002    |
 
-Sign:  +Y1, +Y2, −Y3  =  URL favoured by the LLM.
+Sign: +Y1, +Y2, −Y3 ⇒ URL favoured by the LLM.
 Stars: *** < .001, ** < .01, * < .05.
-T7=has_llms_txt is a confounder (not a treatment) because the
-rerankers do not retrieve `/llms.txt` at inference time.
+`has_llms_txt` is a confounder (not a treatment) because the rerankers
+do not retrieve `/llms.txt` at inference.
 
 ## Admission pre-commitment probe (mean pooling, averaged over 4 variants)
 
 | Quantity | Value | Interpretation |
 |---|---|---|
-| Layer 0 ROC AUC | 0.671 | Embedding alone has weak signal |
+| Layer 0 ROC AUC | 0.671 | Embedding alone — weak admission signal |
 | Peak ROC AUC    | 0.862 | At layer 60 (~75% network depth) |
 | L0 → peak gain  | +0.191 | Genuine compositional integration |
 
 ## Saliency (gradient attribution)
 
-| Treatment | Llama | Qwen | DML direction |
+Saliency ratio = mean |∇| on treatment tokens / mean |∇| on
+surrounding context. >1 means the model attends more to the
+treatment than context; <1 means it ignores it.
+
+| Treatment | Llama-3.3-70B | Qwen-2.5-72B | DML direction |
 |---|---|---|---|
 | T1b stats density | 0.89× | **1.93×** | null |
 | T2a Q-headings    | 1.05× | 0.90×    | promoter |
-| T3 schema         | **0.19×** | **0.40×** | demoter (consistent — model doesn't look) |
+| T3 schema         | **0.19×** | **0.40×** | demoter (consistent) |
 
 ## Citation
 
 ```bibtex
-@inproceedings{{fourel2026geodml,
-  title     = {{Causal Analysis of LLM Search Rerankers via Double/Debiased Machine Learning}},
-  author    = {{Fourel, Valerian}},
-  year      = {{2026}},
-  booktitle = {{Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing}}
-}}
+@inproceedings{fourel2026geodml,
+  title     = {Causal Analysis of LLM Search Rerankers via Double/Debiased Machine Learning},
+  author    = {Fourel, Valerian},
+  year      = {2026},
+  booktitle = {Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing}
+}
 ```
+
+## License
+
+CC BY 4.0 — free reuse with attribution.
 
 ## Contact
 

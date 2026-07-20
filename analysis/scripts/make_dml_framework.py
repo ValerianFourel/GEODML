@@ -17,9 +17,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
-REPO = Path(__file__).resolve().parent.parent
-OUT_DIR = REPO / "docs" / "2026-05-24" / "figures_canonical" / "tmp"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import REPO_ROOT as REPO, FIGURES as OUT_DIR  # noqa: E402
 
 # Palette
 CREAM_BG     = "#f5ecda"; CREAM_EDGE  = "#c9b48a"

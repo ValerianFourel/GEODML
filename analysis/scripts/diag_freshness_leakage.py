@@ -17,7 +17,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import REPO_ROOT as REPO, DOCS  # noqa: E402
 sys.path.insert(0, str(REPO))
 
 import pandas as pd
@@ -80,7 +81,7 @@ def main():
         md_rows.append((y, p0, p1, ratio))
 
     # write a short markdown report
-    out_md = REPO / "docs" / "2026-05-24" / "freshness_leakage_diagnostic.md"
+    out_md = DOCS / "freshness_leakage_diagnostic.md"
     out_md.parent.mkdir(parents=True, exist_ok=True)
     with out_md.open("w") as f:
         f.write("# T6 freshness probe — lexical-leakage diagnostic\n\n")
