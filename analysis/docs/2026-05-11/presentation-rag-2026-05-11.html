@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>GEO-DML — RAG Ablation Study · 2026-05-11</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --line: #30363d;
+    --accent: #58a6ff;
+    --accent-2: #ffa657;
+    --good: #56d364;
+    --warn: #f0883e;
+    --bad: #ff7b72;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--sans);
+    overflow: hidden;
+    height: 100vh; width: 100vw;
+  }
+  .deck { position: relative; height: 100vh; width: 100vw; }
+  .slide {
+    position: absolute; inset: 0;
+    padding: 4vh 6vw 5vh;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .slide.active { display: flex; }
+  .slide h1 {
+    font-size: clamp(28px, 3.4vw, 48px);
+    margin: 0 0 0.2em;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .slide h2 {
+    font-size: clamp(20px, 2.0vw, 28px);
+    margin: 0 0 1em;
+    color: var(--accent);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .slide h3 {
+    font-size: clamp(16px, 1.4vw, 20px);
+    margin: 0.6em 0 0.3em;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  .slide p, .slide li {
+    font-size: clamp(13px, 1.15vw, 17px);
+    line-height: 1.5;
+    margin: 0.4em 0;
+  }
+  .slide ul, .slide ol { margin: 0.4em 0 0.4em 1.2em; padding: 0; }
+  code, pre {
+    font-family: var(--mono);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  code { padding: 1px 6px; font-size: 0.92em; }
+  pre {
+    padding: 14px 18px;
+    margin: 0.6em 0;
+    overflow: auto;
+    font-size: clamp(10px, 0.95vw, 13.5px);
+    line-height: 1.45;
+    color: #d1d7de;
+  }
+  table {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    font-size: clamp(11px, 1.0vw, 14.5px);
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--accent); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .good { color: var(--good); }
+  .warn { color: var(--warn); }
+  .bad  { color: var(--bad); }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    background: rgba(88,166,255,.1); color: var(--accent);
+    border: 1px solid rgba(88,166,255,.35);
+    font-size: 0.85em; margin-right: 6px;
+  }
+  .row { display: flex; gap: 24px; }
+  .col { flex: 1; min-width: 0; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+  .header-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 18px;
+  }
+  .kicker {
+    color: var(--muted); font-family: var(--mono); font-size: 0.85em;
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+
+  /* Title slide */
+  .title-slide { justify-content: center; align-items: flex-start; }
+  .title-slide h1 { font-size: clamp(36px, 5.2vw, 80px); margin: 0 0 0.2em; }
+  .title-slide h2 { font-size: clamp(20px, 2.3vw, 34px); color: var(--accent); margin-bottom: 1.4em; }
+  .title-meta { color: var(--muted); font-family: var(--mono); font-size: 0.95em; }
+  .title-axes {
+    margin-top: 1.4em; display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .title-axes .pill { font-size: 1em; padding: 5px 14px; }
+
+  /* Slide chrome */
+  .chrome {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 10px 22px;
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--muted); font-family: var(--mono); font-size: 12px;
+    border-top: 1px solid var(--line);
+    background: rgba(13,17,23,.85);
+    backdrop-filter: blur(6px);
+  }
+  .chrome .nav { display: flex; gap: 8px; }
+  .chrome button {
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font-family: var(--mono); font-size: 12px;
+  }
+  .chrome button:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Tables compact */
+  table.compact { font-size: clamp(10px, 0.9vw, 13px); }
+  table.compact th, table.compact td { padding: 4px 8px; }
+
+  /* Headline coefficient table styling */
+  .sig-1 { color: var(--good); font-weight: 600; }
+  .sig-2 { color: var(--good); font-weight: 700; }
+  .sig-3 { color: var(--good); font-weight: 800; }
+  .neg-1 { color: var(--bad); }
+  .neg-2 { color: var(--bad); font-weight: 600; }
+  .neg-3 { color: var(--bad); font-weight: 700; }
+  .neg-strong { color: var(--bad); font-weight: 800; }
+
+  /* Box diagrams */
+  .box-row { display: flex; gap: 22px; margin: 14px 0; }
+  .box {
+    flex: 1; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .box .lbl { color: var(--accent); font-weight: 600; font-size: 0.95em; margin-bottom: 4px; }
+  .box.alt .lbl { color: var(--accent-2); }
+
+  /* 2x2 grid figure */
+  .twoxtwo {
+    display: grid;
+    grid-template-columns: 70px 1fr 1fr;
+    grid-template-rows: 40px 110px 110px;
+    gap: 8px;
+    margin: 14px 0;
+    align-items: center;
+  }
+  .twoxtwo .col-head, .twoxtwo .row-head {
+    color: var(--muted); font-family: var(--mono); font-size: 0.95em; text-align: center;
+  }
+  .twoxtwo .row-head { text-align: right; padding-right: 10px; }
+  .twoxtwo .cell {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; height: 100%; display: flex; flex-direction: column; justify-content: center;
+  }
+  .cell .nm { font-family: var(--mono); color: var(--muted); font-size: 0.85em; }
+  .cell .v { font-family: var(--mono); font-size: 1.5em; font-weight: 700; }
+
+  /* Bar visualization (slide 18) */
+  .bars { font-family: var(--mono); font-size: clamp(11px, 1vw, 14px); }
+  .bar-line { display: flex; align-items: center; margin: 6px 0; }
+  .bar-label { width: 200px; color: var(--muted); flex-shrink: 0; }
+  .bar-track { flex: 1; height: 22px; background: rgba(255,255,255,.04); border-radius: 4px; position: relative; }
+  .bar {
+    position: absolute; top: 0; bottom: 0; border-radius: 4px;
+    display: flex; align-items: center; padding: 0 8px;
+    color: #fff; font-weight: 700; font-size: 12px;
+  }
+  .bar.neg { background: linear-gradient(90deg, #ff7b72 0%, #b62324 100%); }
+  .bar.pos { background: linear-gradient(90deg, #2ea043 0%, #56d364 100%); }
+  .bar.faint { opacity: 0.35; }
+
+  /* status badges */
+  .ok { color: var(--good); }
+  .pending { color: var(--warn); }
+  .blocked { color: var(--bad); }
+
+  /* small note */
+  .footnote { color: var(--muted); font-size: 0.85em; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="deck">
+
+<!-- 1 — Title -->
+<section class="slide title-slide active">
+  <div class="kicker">2026-05-11 · Valerian Fourel · Hamburg</div>
+  <h1>GEO-DML — RAG Ablation</h1>
+  <h2>Snippet vs. retrieval-augmented LLM re-ranking, 400 keywords per cell</h2>
+  <div class="title-meta">32 cells &nbsp;·&nbsp; 12,800 rerank calls &nbsp;·&nbsp; 25,600 order-probe calls &nbsp;·&nbsp; 906 K chunks</div>
+  <div class="title-axes">
+    <span class="pill">2 search engines</span>
+    <span class="pill">2 LLMs</span>
+    <span class="pill">2 pool sizes</span>
+    <span class="pill">2 prompts</span>
+    <span class="pill">2 methods</span>
+    <span class="pill">10 treatments</span>
+  </div>
+</section>
+
+<!-- 2 — TL;DR -->
+<section class="slide">
+  <div class="header-row">
+    <h1>TL;DR</h1>
+    <div class="kicker">slide 02 · executive summary</div>
+  </div>
+  <p>We measured how 10 on-page features (stats, structure, citations, freshness,
+  earned-media, …) influence an <strong>LLM's re-ranking decision</strong> over real
+  SERPs, under a <strong>2 × 2 × 2 × 2 × 2 = 32-cell factorial</strong>:</p>
+  <table>
+    <tr><th style="width:18%">Axis</th><th>Levels</th></tr>
+    <tr><td>Search engine</td><td><strong>searxng</strong> · <strong>DuckDuckGo</strong></td></tr>
+    <tr><td>LLM</td><td><strong>Llama-3.3-70B-Instruct</strong> · <strong>Qwen2.5-72B-Instruct</strong></td></tr>
+    <tr><td>SERP pool</td><td><strong>top-20</strong> · <strong>top-50</strong></td></tr>
+    <tr><td>Prompt</td><td><strong>biased</strong> (marketing persona) · <strong>neutral</strong> (search-system persona)</td></tr>
+    <tr><td>Method</td><td><strong>snippet-only</strong> · <strong>RAG</strong> (query-conditional retrieval)</td></tr>
+  </table>
+  <p>Run scale: <span class="accent">32 cells × 400 kw = 12,800</span> rerank calls (Stage A) plus
+  <span class="accent">25,600</span> order-probe calls (Stage A', 2 seeds).</p>
+  <h3>Headline (from DML on the snippet × RAG pair)</h3>
+  <div class="panel">
+    <p><strong>Earned-media demotion (T7) survives retrieval but shrinks 35 %.</strong><br>
+    <strong>Topical-competitor preference (T5) amplifies ≈ 9× under retrieval — but only in the biased prompt.</strong></p>
+  </div>
+</section>
+
+<!-- 3 — Why 2 of everything -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Why two of everything</h1>
+    <div class="kicker">slide 03 · design rationale</div>
+  </div>
+  <p>The five binary axes are <em>not</em> redundant — each strips a different alternative
+  explanation off the table.</p>
+<pre>
+2 search engines  →  isolates SERP-distribution bias
+                     (searxng = federated metasearch, ddg = independent index)
+
+2 LLMs            →  isolates model-family idiosyncrasy
+                     (Llama dense decoder  vs.  Qwen MoE-style training mix)
+
+2 pool sizes      →  controls candidate-set effect
+                     (top-20 = harder discrimination, top-50 = more tail)
+
+2 prompts         →  manipulates instruction-induced bias
+                     (biased "marketing assistant"  vs.  neutral "search system")
+
+2 methods         →  manipulates available evidence
+                     (snippet-only ≈ 150 chars  vs.  RAG ≈ 3 × 800-char chunks)
+</pre>
+  <p>If a treatment effect survives all four <em>non-treatment</em> splits, it is
+  not an artefact of one engine, one model, one prompt, or one candidate-set size.
+  <span class="accent">That is the robustness story the paper wants.</span></p>
+</section>
+
+<!-- 4 — Search engines -->
+<section class="slide">
+  <div class="header-row">
+    <h1>The two <span class="accent">search engines</span></h1>
+    <div class="kicker">slide 04 · axis 1</div>
+  </div>
+  <table>
+    <tr><th></th><th>searxng</th><th>DuckDuckGo (ddg)</th></tr>
+    <tr><td>Type</td><td>Federated metasearch</td><td>Independent index + Bing fallback</td></tr>
+    <tr><td>URL-pool diversity</td><td>Higher (mixes Google/Bing/Brave/…)</td><td>Lower (mostly Bing-derived)</td></tr>
+    <tr><td>Phase-0 keywords scraped</td><td class="num">1,009 (top-20) / 980 (top-50)</td><td class="num">1,011 (top-20) / 1,011 (top-50)</td></tr>
+    <tr><td>Unique URLs in pool</td><td class="num">11,950 / 9,074</td><td class="num">9,141 / 14,055</td></tr>
+    <tr><td>NaN-position rows</td><td class="num">0</td><td class="num warn">6 (top-20) · 97 (top-50) — patched</td></tr>
+  </table>
+  <p>Both engines feed the <em>same</em> downstream prompt builder and the <em>same</em>
+  LLM call. Differences across engine isolate <strong>"what candidates the LLM is given"</strong>
+  from <strong>"how the LLM chooses among them"</strong>.</p>
+</section>
+
+<!-- 5 — LLMs -->
+<section class="slide">
+  <div class="header-row">
+    <h1>The two <span class="accent">LLMs</span></h1>
+    <div class="kicker">slide 05 · axis 2</div>
+  </div>
+  <table>
+    <tr><th></th><th>Llama-3.3-70B-Instruct</th><th>Qwen2.5-72B-Instruct</th></tr>
+    <tr><td>Provider</td><td>meta-llama (HF Inference)</td><td>Qwen (HF Inference)</td></tr>
+    <tr><td>Throughput (this study)</td><td class="num">~1 sec / keyword</td><td class="num">~3–4 sec / keyword</td></tr>
+    <tr><td>Sampling</td><td>temperature = 0.1, max_tokens = 500</td><td>temperature = 0.1, max_tokens = 500</td></tr>
+    <tr><td>Phase 2 rerank cells finished @ 400 kw</td><td class="num good">8 / 8</td><td class="num good">8 / 8</td></tr>
+    <tr><td>Phase 3 order_probe (interrupted 402)</td><td class="num warn">6 cells done + 1 partial</td><td class="num bad">0 cells started</td></tr>
+  </table>
+  <p>Same prompt template, same retrieval, same SERPs — only the model swaps.
+  Cross-model agreement of a treatment effect rules out model-family quirks.</p>
+</section>
+
+<!-- 6 — Pool sizes -->
+<section class="slide">
+  <div class="header-row">
+    <h1>The two <span class="accent">pool sizes</span></h1>
+    <div class="kicker">slide 06 · axis 3</div>
+  </div>
+<pre>
+Pool = how many candidate URLs the LLM must rank.
+
+   top-20  ┌────────────────────┐
+           │ 20 URLs per SERP   │  ← harder discrimination, denser bias signal
+           └────────────────────┘
+
+   top-50  ┌──────────────────────────────────────────────┐
+           │ 50 URLs per SERP                              │  ← more tail,
+           └──────────────────────────────────────────────┘    more noise
+</pre>
+  <p>Both feed the same <code>top-10</code> final cut for evaluation. The pool size
+  controls how much <strong>diversity / tail</strong> the LLM sees before deciding.</p>
+  <p>A treatment that only shows up at one pool size hints at a "rare-candidate"
+  effect; one that holds across both is <span class="good">robust</span>.</p>
+</section>
+
+<!-- 7 — Prompts -->
+<section class="slide">
+  <div class="header-row">
+    <h1>The two <span class="accent">prompts</span></h1>
+    <div class="kicker">slide 07 · axis 4</div>
+  </div>
+  <table>
+    <tr><th></th><th>biased</th><th>neutral</th></tr>
+    <tr><td>Persona</td><td>"marketing assistant for an e-commerce brand"</td><td>"neutral search-engine ranking system"</td></tr>
+    <tr><td>Implicit goal</td><td>optimise for the <em>client's</em> visibility</td><td>optimise for the <em>user's</em> information need</td></tr>
+    <tr><td>Expected effect</td><td>demote earned-media · promote topical competitors of the brand</td><td>rank by topical relevance only</td></tr>
+  </table>
+  <p>Crucially the <strong>task instruction is identical</strong> ("re-rank these results 1..N").
+  Only the persona/goal differs.</p>
+  <p>The <span class="accent">(biased − neutral) gap</span> is the paper's central observable.</p>
+</section>
+
+<!-- 8 — Methods -->
+<section class="slide">
+  <div class="header-row">
+    <h1>The two <span class="accent">methods</span> — the new axis</h1>
+    <div class="kicker">slide 08 · axis 5</div>
+  </div>
+  <div class="box-row">
+    <div class="box">
+      <div class="lbl">SNIPPET-ONLY (baseline)</div>
+<pre>
+1. [example.com] Title — snippet (~150 chars)
+</pre>
+      <p class="muted" style="font-size:0.9em">The LLM sees only what a normal SERP UI shows.</p>
+    </div>
+    <div class="box alt">
+      <div class="lbl">RAG (query-conditional, like production GEO)</div>
+<pre>
+1. [example.com] Title
+   snippet : ...
+   passage : &lt;chunk #7  sim 0.71&gt;
+             --- &lt;chunk #14 sim 0.65&gt;
+             --- &lt;chunk #2  sim 0.61&gt;
+</pre>
+      <p class="muted" style="font-size:0.9em">Top-3 chunks of <em>that page's body</em> closest to <em>this keyword</em>,
+      recomputed per (kw, url).</p>
+    </div>
+  </div>
+  <p>This is the manipulation that matters for the GEO claim: production systems
+  (ChatGPT search, Perplexity, Bing Copilot) all do query-conditional retrieval.
+  Snippet-only is the academic baseline; <span class="accent">RAG is the field reality</span>.</p>
+</section>
+
+<!-- 9 — How the RAG index was built -->
+<section class="slide">
+  <div class="header-row">
+    <h1>How the RAG index was built</h1>
+    <div class="kicker">slide 09 · one-time, ~$2.72</div>
+  </div>
+<pre>
+44,220 unique URLs across 4 (engine, pool) cells
+        │
+        │   trafilatura.extract(html, max_chars=50_000)
+        ▼
+Full page bodies  ────────────────────────  ~136 M tokens total
+        │
+        │   recursive char chunker (size=800, overlap=200, min=100)
+        ▼
+906,322 chunks       (mean 24.8 chunks per page)
+        │
+        │   OpenAI text-embedding-3-small  (1536-dim, L2-normalised)
+        ▼
+chunk_embeddings.npy   per cell  (~1.3 GB × 4 = 5.3 GB on disk)
+
+For each keyword (4,011 total):
+        keyword_embeddings.npy   (1536-dim)
+
+At rerank time, for each (keyword, url) on the SERP:
+        sims    = chunk_emb[url] @ keyword_emb[kw]      # cosine
+        passage = " --- ".join(top-3 chunks by similarity)
+        →  cached in retrieved_top3.parquet  (~13 K rows / cell)
+</pre>
+  <p>Sanity check: keyword <code>"educational software for schools"</code> →
+  top global chunk on searxng_top20 came from
+  <code>research.com/software/best-education-software</code> with cosine similarity
+  <span class="accent">0.654</span>. Semantically appropriate.</p>
+</section>
+
+<!-- 10 — Run summary -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Run summary — what finished, what didn't</h1>
+    <div class="kicker">slide 10 · 2026-05-08 end-of-day</div>
+  </div>
+  <h3>Phase 2 — Stage A rerank (<code>keywords.jsonl</code>)</h3>
+  <p class="ok">✅ All 16 RAG cells × 400 keywords = 6,919 records. 0 fallbacks.<br>
+  Combined with last week's 16 snippet cells → <strong>32 / 32 cells.</strong></p>
+
+  <h3>Phase 3 — Stage A' order_probe (<code>*_seed{42,123}.jsonl</code>)</h3>
+  <table class="compact">
+    <tr><th>Status</th><th>Count</th><th>Cells</th></tr>
+    <tr><td class="ok">✅ Done @ 400 (2 seeds)</td><td class="num">6</td><td>searxng × Llama × {20,50} × {biased,neutral}_rag (mostly)</td></tr>
+    <tr><td class="pending">⚠️ Partial (23 / 400)</td><td class="num">1</td><td>searxng/Llama/serp50/neutral_rag/seed42 — <code>.pre402_bak</code> preserved</td></tr>
+    <tr><td class="blocked">⏸️ Pending</td><td class="num">25</td><td>ddg × {Llama,Qwen} + searxng × Qwen</td></tr>
+  </table>
+  <p class="muted" style="font-size:0.9em">Stopped when HF Inference returned <strong>402 Payment Required</strong>.
+  Resume plan in <code>docs/RESUME-RAG.md</code>. ETA after top-up ≈ 9 hr, ≈ $15.</p>
+
+  <h3>Stage C/D — DML on full snippet × RAG cross</h3>
+  <table class="compact">
+    <tr><th>Variant</th><th class="num">Stage C rows</th><th class="num">Stage D fits</th><th class="num">Errors</th></tr>
+    <tr><td>biased (snippet)</td><td class="num">(last week)</td><td class="num">280</td><td class="num good">0</td></tr>
+    <tr><td>neutral (snippet)</td><td class="num">(last week)</td><td class="num">280</td><td class="num good">0</td></tr>
+    <tr><td>biased_rag</td><td class="num">33,384</td><td class="num">280</td><td class="num good">0</td></tr>
+    <tr><td>neutral_rag</td><td class="num">31,525</td><td class="num">280</td><td class="num good">0</td></tr>
+  </table>
+  <p>→ Full <span class="accent">2 × 2 grid</span> ready for analysis (prompt × method).</p>
+</section>
+
+<!-- 11 — DML approach -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Results approach — DML on <code>rank_delta</code></h1>
+    <div class="kicker">slide 11 · estimation</div>
+  </div>
+  <p>For every (treatment, cell, learner, …) we fit a Double Machine Learning
+  estimator (<code>econml.LinearDML</code> or partial-linear) with:</p>
+  <ul>
+    <li><strong>Outcome Y</strong> = <code>rank_delta</code> = <code>pre_rank − post_rank</code>.
+        Positive = LLM <span class="good">promoted</span>, negative = LLM <span class="bad">demoted</span>.</li>
+    <li><strong>Treatment T</strong> = one of 10 on-page features (e.g. <code>T7_source_earned = 1</code>
+        if URL is on a known earned-media domain).</li>
+    <li><strong>Confounders X</strong> = ~20 covariates (domain, keyword cluster,
+        position prior, query-intent class, length, …).</li>
+    <li><strong>Nuisance learner</strong> = LightGBM (chosen by cross-fit comparison last week).</li>
+  </ul>
+  <p>Headline slice: <code>POOLED · plr · lgbm · rank_delta</code> — pools across
+  the four (engine, pool) cells for power, partial-linear with LightGBM, on rank-delta.</p>
+</section>
+
+<!-- 12 — 2x2 grid figure -->
+<section class="slide">
+  <div class="header-row">
+    <h1>The 2 × 2 grid (prompt × method)</h1>
+    <div class="kicker">slide 12 · framing</div>
+  </div>
+
+  <div class="twoxtwo">
+    <div></div>
+    <div class="col-head">SNIPPET</div>
+    <div class="col-head">RAG</div>
+
+    <div class="row-head">BIASED</div>
+    <div class="cell">
+      <div class="nm">coef_bs</div>
+      <div class="v">b<sub>s</sub></div>
+    </div>
+    <div class="cell">
+      <div class="nm">coef_br</div>
+      <div class="v">b<sub>r</sub></div>
+    </div>
+
+    <div class="row-head">NEUTRAL</div>
+    <div class="cell">
+      <div class="nm">coef_ns</div>
+      <div class="v">n<sub>s</sub></div>
+    </div>
+    <div class="cell">
+      <div class="nm">coef_nr</div>
+      <div class="v">n<sub>r</sub></div>
+    </div>
+  </div>
+
+  <h3>Quantities of interest</h3>
+  <table class="compact">
+    <tr><th>Quantity</th><th>Formula</th><th>Reading</th></tr>
+    <tr><td>Prompt gap, snippet</td><td><code>b<sub>s</sub> − n<sub>s</sub></code></td><td>persona effect under thin evidence</td></tr>
+    <tr><td>Prompt gap, RAG</td><td><code>b<sub>r</sub> − n<sub>r</sub></code></td><td>persona effect under retrieved evidence</td></tr>
+    <tr><td>Aug effect, biased</td><td><code>b<sub>r</sub> − b<sub>s</sub></code></td><td>what evidence does to the biased prompt</td></tr>
+    <tr><td>Aug effect, neutral</td><td><code>n<sub>r</sub> − n<sub>s</sub></code></td><td>what evidence does to the neutral prompt</td></tr>
+    <tr><td><strong>Interaction</strong></td><td><code>(b<sub>r</sub> − b<sub>s</sub>) − (n<sub>r</sub> − n<sub>s</sub>)</code></td><td><strong>does augmentation hit biased differently?</strong></td></tr>
+  </table>
+</section>
+
+<!-- 13 — Headline coefficient table -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Headline coefficients — 10 treatments × 4 cells</h1>
+    <div class="kicker">slide 13 · <code>POOLED · plr · lgbm · rank_delta</code></div>
+  </div>
+  <table class="compact">
+    <tr><th>Treatment</th><th class="num">(B, snip)</th><th class="num">(N, snip)</th><th class="num">(B, RAG)</th><th class="num">(N, RAG)</th></tr>
+    <tr><td>T1a stats present</td><td class="num">−0.094</td><td class="num">−0.133</td><td class="num">−0.188</td><td class="num">−0.112</td></tr>
+    <tr><td>T1b stats density</td><td class="num">+0.001</td><td class="num">+0.001</td><td class="num">+0.000</td><td class="num">−0.003</td></tr>
+    <tr><td>T2a question headings</td><td class="num">+0.123</td><td class="num sig-2">+0.147**</td><td class="num">+0.137</td><td class="num">+0.056</td></tr>
+    <tr><td>T2b structural modularity</td><td class="num sig-2">+0.005**</td><td class="num">+0.002</td><td class="num sig-1">+0.005*</td><td class="num">+0.001</td></tr>
+    <tr><td>T3 structured data new</td><td class="num">−0.013</td><td class="num neg-2">−0.123*</td><td class="num">−0.092</td><td class="num">−0.040</td></tr>
+    <tr><td>T4a ext citations</td><td class="num">−0.066</td><td class="num">−0.141</td><td class="num">+0.083</td><td class="num">+0.108</td></tr>
+    <tr><td>T4b auth citations</td><td class="num neg-3">−0.052***</td><td class="num">−0.011</td><td class="num neg-2">−0.049*</td><td class="num">−0.016</td></tr>
+    <tr><td>T5 topical competitor</td><td class="num">+0.234</td><td class="num">+0.137</td><td class="num sig-2"><strong>+0.807*</strong></td><td class="num">−0.111</td></tr>
+    <tr><td>T6 freshness</td><td class="num">−0.013</td><td class="num neg-3">−0.049***</td><td class="num">−0.034</td><td class="num neg-2">−0.034*</td></tr>
+    <tr><td><strong>T7 source earned</strong></td><td class="num neg-strong">−1.607***</td><td class="num neg-strong">−0.417***</td><td class="num neg-strong">−1.268***</td><td class="num neg-strong">−0.496***</td></tr>
+  </table>
+  <p class="footnote"><code>***</code> p&lt;0.001 · <code>**</code> p&lt;0.01 · <code>*</code> p&lt;0.05 ·
+  source: <code>data/dml_results/rag_vs_snippet_4way.csv</code></p>
+</section>
+
+<!-- 14 — Pattern 1: RAG-ANCHORED -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Pattern 1 — RAG-<span class="accent">ANCHORED</span></h1>
+    <div class="kicker">slide 14 · retrieval <em>narrows</em> the prompt gap</div>
+  </div>
+  <p>For domain-quality signals, real evidence forces the biased prompt to engage
+  with content; it can't blanket-demote on persona alone.</p>
+  <table>
+    <tr><th>Treatment</th><th class="num">Snippet gap (B−N)</th><th class="num">RAG gap (B−N)</th><th class="num">Shrinkage</th></tr>
+    <tr><td><strong>T7 source earned</strong></td><td class="num neg-strong">−1.19</td><td class="num neg-2">−0.77</td><td class="num good"><strong>−35 %</strong></td></tr>
+    <tr><td>T3 structured data</td><td class="num">+0.11</td><td class="num">−0.05</td><td class="num good">−53 %</td></tr>
+    <tr><td>T4a ext citations</td><td class="num">+0.075</td><td class="num">−0.025</td><td class="num good">−66 %</td></tr>
+  </table>
+  <div class="panel" style="margin-top:1em">
+    <p>The headline <strong>T7 demotion survives</strong> retrieval (still p&lt;0.001 in
+    both arms) but the prompt-driven gap shrinks by a third.</p>
+    <p class="muted">Interpretation — production GEO acts as a partial de-biaser on
+    domain-quality signals.</p>
+  </div>
+</section>
+
+<!-- 15 — Pattern 2: RAG-AMPLIFIED -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Pattern 2 — RAG-<span class="accent-2">AMPLIFIED</span> (T5 only)</h1>
+    <div class="kicker">slide 15 · retrieval <em>widens</em> the prompt gap</div>
+  </div>
+  <table>
+    <tr><th>Treatment</th><th class="num">Snippet gap</th><th class="num">RAG gap</th><th class="num">Change</th></tr>
+    <tr><td><strong>T5 topical competitor</strong></td><td class="num">+0.10 <span class="muted">(n.s.)</span></td><td class="num sig-2"><strong>+0.92 (biased side sig.)</strong></td><td class="num warn">+853 %</td></tr>
+  </table>
+  <p>Under snippets, neither prompt notices topical-competitor signals.<br>
+  Under RAG, biased <span class="good">strongly promotes</span> topical competitors
+  (+0.807*) while neutral stays at zero (−0.111, n.s.).</p>
+
+  <h3>Pattern 3 — PROMPT-INSENSITIVE</h3>
+  <p>T1b · T2b · T4b · T6 — coefficients within the noise band; isolated <code>*</code>
+  cells are likely false positives. These features simply do not move the LLM
+  under any (prompt, method) combination.</p>
+</section>
+
+<!-- 16 — Interaction term -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Asymmetric interaction</h1>
+    <div class="kicker">slide 16 · biased ≠ neutral under augmentation</div>
+  </div>
+  <p>The augmentation effect <code>(rag − snippet)</code> is <strong>different</strong>
+  between biased and neutral arms on the two interesting treatments:</p>
+  <table>
+    <tr><th>Treatment</th><th class="num">Within biased<br>(b<sub>r</sub> − b<sub>s</sub>)</th><th class="num">Within neutral<br>(n<sub>r</sub> − n<sub>s</sub>)</th><th class="num">Interaction</th></tr>
+    <tr><td>T7 source earned</td><td class="num good"><strong>+0.340</strong> <span class="muted">(less negative)</span></td><td class="num">−0.079</td><td class="num"><strong>+0.419</strong></td></tr>
+    <tr><td>T5 topical competitor</td><td class="num good"><strong>+0.573</strong> <span class="muted">(more positive)</span></td><td class="num">−0.248</td><td class="num"><strong>+0.822</strong></td></tr>
+  </table>
+  <div class="grid-2" style="margin-top:1em">
+    <div class="panel">
+      <h3>T7 — anchoring</h3>
+      <p>biased becomes <strong>less harsh</strong> → RAG <span class="good">anchors</span>
+      away from prompt bias.</p>
+    </div>
+    <div class="panel">
+      <h3>T5 — amplification</h3>
+      <p>biased becomes <strong>more positive</strong> → RAG <span class="warn">amplifies</span>
+      prompt bias when retrieval can supply confirming evidence.</p>
+    </div>
+  </div>
+  <p class="footnote">Same sign of interaction, opposite normative meaning — driven by the sign of the snippet baseline.</p>
+</section>
+
+<!-- 17 — Paper claims -->
+<section class="slide">
+  <div class="header-row">
+    <h1>What the paper can claim</h1>
+    <div class="kicker">slide 17 · contributions</div>
+  </div>
+  <ol>
+    <li><strong class="accent">Robustness.</strong> T7 earned-media demotion survives
+    the move from snippet-only to query-conditional retrieval.<br>
+    <code>−1.61*** → −1.27***</code> for biased; <code>−0.42*** → −0.50***</code> for neutral.</li>
+    <li><strong class="accent">Anchoring on domain-quality signals.</strong> For T7 / T3 /
+    T4a, RAG narrows the prompt-bias gap by <strong>35–66 %</strong>. Real GEO systems
+    partially neutralise prompt-instruction bias on this class of signals.</li>
+    <li><strong class="accent">Selective amplification on content-relevance signals.</strong>
+    For T5, retrieval multiplies the biased prompt's competitor-preference by ≈ 9×.
+    Production systems may strengthen prompt-driven preferences when retrieval
+    supplies confirming evidence.</li>
+    <li><strong class="accent">Asymmetric interaction.</strong> RAG impacts the biased
+    arm more strongly than the neutral arm in <em>both</em> directions —
+    "retrieval changes behaviour more when the prompt is looking for something
+    the retrieval can confirm or contradict."</li>
+  </ol>
+</section>
+
+<!-- 18 — Remaining work + caveats -->
+<section class="slide">
+  <div class="header-row">
+    <h1>Remaining work · honest caveats</h1>
+    <div class="kicker">slide 18 · before publication</div>
+  </div>
+  <div class="grid-2">
+    <div class="panel">
+      <h3>Remaining work</h3>
+      <table class="compact">
+        <tr><th>Step</th><th class="num">ETA</th><th class="num">Cost</th></tr>
+        <tr><td>Top up HF Inference credits</td><td class="num">1 min</td><td class="num">—</td></tr>
+        <tr><td>Resume Phase 3 (26 cells)</td><td class="num">~9 hr</td><td class="num">~$15</td></tr>
+        <tr><td>order_probe analyze + report</td><td class="num">~5 min</td><td class="num">—</td></tr>
+        <tr><td>Figures (4-panel + delta)</td><td class="num">~30 min</td><td class="num">—</td></tr>
+        <tr><td>Write-up §Pattern 1/2/3</td><td class="num">~2 d</td><td class="num">—</td></tr>
+      </table>
+      <p class="muted" style="font-size:0.9em">Resume runbook in <code>docs/RESUME-RAG.md</code>.</p>
+    </div>
+    <div class="panel">
+      <h3>Caveats</h3>
+      <ol style="margin-left:1.1em">
+        <li><strong>N smaller in RAG.</strong> snippet POOLED ≈ 20 k obs/variant;
+        RAG POOLED ≈ 12 k (pages without retrievable chunks drop). CIs widen.</li>
+        <li><strong>T5 has only one significant arm.</strong> Frame: "biased becomes
+        sig. and 3.4× larger under RAG", not "RAG flips T5".</li>
+        <li><strong>order_probe is 6/32.</strong> Jaccard / OAK numbers land after resume.</li>
+        <li><strong>Qwen RAG untested in Phase 3</strong> — could behave differently
+        at the rank-level granularity.</li>
+        <li><strong>Naïve char chunker</strong>, not semantic. Sensitivity check is
+        on the future-work list, not the critical path.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- 19 — One picture to remember -->
+<section class="slide">
+  <div class="header-row">
+    <h1>One picture to remember</h1>
+    <div class="kicker">slide 19 · the contribution</div>
+  </div>
+
+  <h3>T7 — earned-media demotion (loud signal)</h3>
+  <div class="bars">
+    <div class="bar-line">
+      <div class="bar-label">snippet · biased</div>
+      <div class="bar-track"><div class="bar neg" style="width:82%; left:0">−1.61 ***</div></div>
+    </div>
+    <div class="bar-line">
+      <div class="bar-label">snippet · neutral</div>
+      <div class="bar-track"><div class="bar neg" style="width:22%; left:0">−0.42 ***</div></div>
+    </div>
+    <div class="bar-line">
+      <div class="bar-label">rag · biased</div>
+      <div class="bar-track"><div class="bar neg" style="width:64%; left:0">−1.27 ***</div></div>
+    </div>
+    <div class="bar-line">
+      <div class="bar-label">rag · neutral</div>
+      <div class="bar-track"><div class="bar neg" style="width:26%; left:0">−0.50 ***</div></div>
+    </div>
+  </div>
+  <p class="muted">↑ both prompts still demote; gap (biased − neutral) shrinks <strong>−1.19 → −0.77 (−35 %)</strong> — <span class="accent">anchoring</span>.</p>
+
+  <h3 style="margin-top:1.2em">T5 — topical-competitor promotion (silent signal)</h3>
+  <div class="bars">
+    <div class="bar-line">
+      <div class="bar-label">snippet · biased</div>
+      <div class="bar-track"><div class="bar pos faint" style="width:12%; left:50%">+0.23 n.s.</div></div>
+    </div>
+    <div class="bar-line">
+      <div class="bar-label">snippet · neutral</div>
+      <div class="bar-track"><div class="bar pos faint" style="width:7%; left:50%">+0.14 n.s.</div></div>
+    </div>
+    <div class="bar-line">
+      <div class="bar-label">rag · biased</div>
+      <div class="bar-track"><div class="bar pos" style="width:40%; left:50%">+0.81 *</div></div>
+    </div>
+    <div class="bar-line">
+      <div class="bar-label">rag · neutral</div>
+      <div class="bar-track"><div class="bar neg faint" style="width:6%; left:44%">−0.11 n.s.</div></div>
+    </div>
+  </div>
+  <p class="muted">↑ flat in snippet; biased lights up under RAG — <span class="accent-2">amplification</span>.</p>
+
+  <p style="margin-top:1.2em" class="accent"><strong>Anchoring on the loud signal · amplification on the silent signal — this is the paper's contribution.</strong></p>
+</section>
+
+<!-- 20 — End -->
+<section class="slide title-slide">
+  <div class="kicker">Thank you · 2026-05-11</div>
+  <h1>Questions</h1>
+  <h2>Source: <code>docs/work-log-2026-05-08.md</code> · <code>docs/RESUME-RAG.md</code></h2>
+  <div class="title-meta">
+    <p>Data: <code>data/dml_results/rag_vs_snippet_4way.csv</code> · <code>rag_vs_snippet_comparison.csv</code></p>
+    <p>Pipeline: <code>scripts/finish_via_api.sh</code> · <code>interpretability/pipeline/{build_rag_index,rerank,order_probe}.py</code></p>
+  </div>
+</section>
+
+</div>
+
+<div class="chrome">
+  <div><span id="slideTitle">…</span></div>
+  <div class="nav">
+    <button id="prevBtn">◀ prev</button>
+    <button id="nextBtn">next ▶</button>
+    <span id="counter" style="margin-left:14px">1 / 20</span>
+  </div>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const counter = document.getElementById('counter');
+  const slideTitle = document.getElementById('slideTitle');
+  let idx = 0;
+
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, k) => s.classList.toggle('active', k === idx));
+    counter.textContent = (idx + 1) + ' / ' + slides.length;
+    const h1 = slides[idx].querySelector('h1');
+    slideTitle.textContent = h1 ? h1.innerText : '';
+    history.replaceState(null, '', '#' + (idx + 1));
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown' || e.key === 'j') { e.preventDefault(); show(idx + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key === 'k') { e.preventDefault(); show(idx - 1); }
+    else if (e.key === 'Home') { show(0); }
+    else if (e.key === 'End') { show(slides.length - 1); }
+  });
+
+  document.getElementById('nextBtn').onclick = () => show(idx + 1);
+  document.getElementById('prevBtn').onclick = () => show(idx - 1);
+
+  // Hash navigation
+  const hash = parseInt((location.hash || '#1').slice(1), 10);
+  show(isNaN(hash) ? 0 : hash - 1);
+</script>
+</body>
+</html>
