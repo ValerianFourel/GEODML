@@ -1,0 +1,10 @@
+outcome,conf_spec,r2,n,n_x_cols
+selected,headline,0.5300343872893085,200000,34
+selected,minus_rank_pre,0.5231813830400127,200000,33
+selected,minus_serp_block,0.5217316376096669,200000,30
+rank_delta,headline,0.34998493163762034,200000,34
+rank_delta,minus_rank_pre,0.32617823080362685,200000,33
+rank_delta,minus_serp_block,0.3090766875682823,200000,30
+post_rank,headline,0.2445141248542847,200000,34
+post_rank,minus_rank_pre,0.21280781099880597,200000,33
+post_rank,minus_serp_block,0.20601648660274774,200000,30
