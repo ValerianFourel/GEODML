@@ -1,5 +1,10 @@
 # GEODML — What Drives LLM Re-Ranking?
 
+[![HF: geodml-papersize](https://img.shields.io/badge/🤗%20Dataset-geodml--papersize%20(raw%2C%2037.6%20GB)-yellow)](https://huggingface.co/datasets/ValerianFourel/geodml-papersize)
+[![HF: geodml-emnlp-2026](https://img.shields.io/badge/🤗%20Dataset-geodml--emnlp--2026%20(paper%20bundle)-yellow)](https://huggingface.co/datasets/ValerianFourel/geodml-emnlp-2026)
+[![HF: reviewer pack](https://img.shields.io/badge/🤗%20Dataset-geodml--emnlp--2026--reviewer-yellow)](https://huggingface.co/datasets/ValerianFourel/geodml-emnlp-2026-reviewer)
+[![Paper](https://img.shields.io/badge/OpenReview-ARR%20%239568-8c1b13)](https://openreview.net/pdf?id=DjnTjAzZ8o)
+
 Causal analysis of LLM search re-rankers with Double Machine Learning (DML).
 Companion monorepo for the EMNLP 2026 submission
 **"What Drives LLM Re-Ranking"** (ACL Rolling Review #9568,
