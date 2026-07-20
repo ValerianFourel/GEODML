@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GEODML — Slide Deck</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --navy:   #1f3a5f;
+    --ink:    #1b1b1b;
+    --muted:  #6b7280;
+    --paper:  #fbfbfa;
+    --line:   #e5e7eb;
+    --tint:   #f0f4f8;
+    --blue:   #2c7fb8;
+    --red:    #d6604d;
+    --green:  #2a9d8f;
+    --amber:  #b8860b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #2a2a2a;
+    color: var(--ink);
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+  }
+  .slide {
+    width: min(96vw, 1500px);
+    height: min(94vh, 900px);
+    background: var(--paper);
+    border-radius: 12px;
+    box-shadow: 0 18px 60px rgba(0,0,0,.45);
+    padding: 32px 40px 28px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 12px;
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+  .slide.active {
+    opacity: 1;
+    pointer-events: auto;
+    position: relative;
+  }
+  .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .title {
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--navy);
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .section {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .body {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 28px;
+    min-height: 0;
+  }
+  .figure {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    padding: 12px;
+  }
+  .figure img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+  }
+  .keys {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .keys h3 {
+    margin: 0;
+    font-size: 18px;
+    color: var(--navy);
+    font-weight: 600;
+  }
+  .keys .lede {
+    font-size: 14px;
+    color: var(--muted);
+    margin: -4px 0 6px;
+    line-height: 1.5;
+  }
+  .keys ul {
+    margin: 0;
+    padding-left: 1.1em;
+    line-height: 1.55;
+    font-size: 14.5px;
+  }
+  .keys ul li { margin-bottom: 6px; }
+  .keys ul li b { color: var(--navy); }
+  .keys ul li .num { font-variant-numeric: tabular-nums; color: var(--ink); }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .chip {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--tint);
+    color: var(--navy);
+    font-weight: 500;
+  }
+  .chip.b { background: #dbeaf3; color: var(--blue); }
+  .chip.r { background: #f6dad3; color: var(--red); }
+  .chip.g { background: #d6efea; color: var(--green); }
+  .chip.k { background: #e8e8e8; color: #4b5563; }
+  .takeaway {
+    margin-top: auto;
+    padding: 10px 12px;
+    background: var(--tint);
+    border-left: 3px solid var(--navy);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  .takeaway b { color: var(--navy); }
+  .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+  .foot .crumbs { letter-spacing: 0.04em; }
+  .progress {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: 3px;
+    background: rgba(255,255,255,.08);
+    z-index: 30;
+  }
+  .progress .bar {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--blue), var(--navy));
+    transition: width 180ms ease;
+  }
+  .nav-hint {
+    position: fixed;
+    bottom: 12px;
+    right: 16px;
+    color: rgba(255,255,255,.55);
+    font-size: 11px;
+    letter-spacing: .04em;
+    z-index: 30;
+    user-select: none;
+  }
+  .nav-hint kbd {
+    background: rgba(255,255,255,.12);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: inherit;
+    margin: 0 1px;
+  }
+  /* TITLE / SECTION slides */
+  .slide.cover .body { grid-template-columns: 1fr; place-items: center; }
+  .slide.cover .figure { display: none; }
+  .slide.cover .keys { text-align: center; max-width: 720px; gap: 18px; align-items: center; }
+  .slide.cover .keys h3 { font-size: 36px; color: var(--navy); }
+  .slide.cover .keys .lede { font-size: 18px; max-width: 600px; }
+  .slide.cover .keys .meta { color: var(--muted); font-size: 14px; }
+
+  .slide.section-break .body { grid-template-columns: 1fr; place-items: center; }
+  .slide.section-break .figure { display: none; }
+  .slide.section-break .keys { text-align: center; gap: 12px; align-items: center; }
+  .slide.section-break .keys .kicker {
+    font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
+  }
+  .slide.section-break .keys h3 { font-size: 32px; color: var(--navy); }
+  .slide.section-break .keys .lede { font-size: 16px; max-width: 640px; }
+
+  /* Nugget slide: large numeric callout in place of a figure */
+  .nugget {
+    background: linear-gradient(180deg, #ffffff 0%, var(--tint) 100%);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    height: 100%;
+  }
+  .nugget .kicker {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .nugget .big {
+    font-size: 96px;
+    font-weight: 700;
+    color: var(--navy);
+    letter-spacing: -0.04em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .nugget .cap {
+    font-size: 16px;
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  .nugget .cap b { color: var(--navy); }
+  .nugget .formula {
+    font-size: 14px;
+    color: var(--muted);
+    font-style: italic;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    line-height: 1.55;
+  }
+  .nugget .compare {
+    margin-top: 4px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 14px;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .nugget .compare b { color: var(--navy); text-align: right; }
+  .nugget .compare span { color: var(--ink); }
+
+  /* R² rule-of-thumb reference card */
+  .slide.r2-card .body { grid-template-columns: 1fr; }
+  .r2-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr 1fr;
+    gap: 18px;
+    min-height: 0;
+  }
+  .r2-col {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .r2-col h4 {
+    margin: 0 0 2px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--navy);
+  }
+  .r2-col .sub {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin: 0 0 6px;
+    line-height: 1.4;
+  }
+  .r2-table {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 3px 12px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    align-items: baseline;
+  }
+  .r2-table .lbl { color: var(--ink); }
+  .r2-table .val {
+    color: var(--navy);
+    font-weight: 600;
+    text-align: right;
+  }
+  .r2-table .lbl .anno {
+    font-size: 11px;
+    color: var(--muted);
+    font-style: italic;
+    margin-left: 4px;
+  }
+  .r2-table .hdr {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 4px;
+    margin-bottom: 2px;
+  }
+  .r2-table .row-promo  { color: var(--blue); }
+  .r2-table .row-demote { color: var(--red); }
+  .r2-table .row-null   { color: var(--muted); }
+  .r2-table .row-drop   { color: #444; }
+  .r2-table .val.row-promo  { color: var(--blue); }
+  .r2-table .val.row-demote { color: var(--red); }
+  .r2-table .val.row-null   { color: var(--muted); }
+  .r2-table .val.row-drop   { color: #444; }
+  .r2-key {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px dashed var(--line);
+  }
+  .r2-key b { color: var(--navy); font-variant-numeric: tabular-nums; }
+  /* Triple-column variant of the r2-table for the Treatments panel */
+  .r2-table.triple {
+    grid-template-columns: 1fr auto auto;
+    gap: 3px 14px;
+  }
+  .r2-table.triple .hdr.num { text-align: right; }
+  .r2-table .val.dim {
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .r2-table .val.dim.row-promo  { color: var(--blue); }
+  .r2-table .val.dim.row-demote { color: var(--red); }
+  .r2-table .val.dim.row-drop   { color: #444; }
+
+  @media (max-width: 900px) {
+    .slide { padding: 18px 18px 14px; }
+    .title { font-size: 20px; }
+    .body { grid-template-columns: 1fr; }
+    .figure { min-height: 280px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <!-- 1. TITLE -->
+  <section class="slide cover active">
+    <div class="head"><div class="title">GEODML</div><div class="section">EMNLP 2026 · Slide deck · 2026-05-27</div></div>
+    <div class="body">
+      <div class="figure"></div>
+      <div class="keys">
+        <h3>Causal DML for LLM-driven Search Re-ranking</h3>
+        <p class="lede">Which on-page content features <i>causally</i> change whether an LLM keeps a URL — and how far it moves it — in a SERP rerank?</p>
+        <div class="chips">
+          <span class="chip">Double / Debiased ML</span>
+          <span class="chip">Llama-3.3-70B · Qwen-2.5-72B</span>
+          <span class="chip">DuckDuckGo · SearXNG</span>
+          <span class="chip">1,011 keywords · 4 variants</span>
+        </div>
+        <p class="meta">Valerian Fourel · Hamburg</p>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Title</span><span></span></div>
+  </section>
+
+  <!-- 2. DAG / ESTIMAND -->
+  <section class="slide">
+    <div class="head"><div class="title">The causal estimand</div><div class="section">Setup · DAG</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/dml_dag_estimand.png" alt="DAG estimand"></div>
+      <div class="keys">
+        <p class="lede">What we estimate, and against what.</p>
+        <ul>
+          <li><b>T</b> — six content treatments (stats, Q-headings, schema, citations, topical comp., freshness)</li>
+          <li><b>X</b> — 28 confounders (BM25, DA, backlinks, intent, …) — block the back-door</li>
+          <li><b>Y₂ = rank<sub>post</sub></b> — LLM-assigned position</li>
+          <li><b>Δrank = rank<sub>pre</sub> − rank<sub>post</sub></b> — directional displacement</li>
+          <li><b>Solid black</b>: causal arrows · <b>Teal</b>: LLM mechanism · <b>Dashed</b>: arithmetic</li>
+        </ul>
+        <div class="chips">
+          <span class="chip">θ = DML(T, Y; X)</span>
+          <span class="chip">no T → rank<sub>pre</sub> edge</span>
+        </div>
+        <div class="takeaway"><b>Estimand:</b> the average effect of each content treatment on the LLM's rerank decision, holding the SERP baseline and confounders fixed.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Setup → DAG</span><span></span></div>
+  </section>
+
+  <!-- 3. ESTIMATION FRAMEWORK -->
+  <section class="slide">
+    <div class="head"><div class="title">Estimation pipeline</div><div class="section">Setup · framework</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/dml_estimation_framework.png" alt="DML framework"></div>
+      <div class="keys">
+        <p class="lede">From SERP query to causal coefficients — one diagram.</p>
+        <ul>
+          <li><b>Inputs:</b> SERP from DDG / SearXNG → rank<sub>pre</sub></li>
+          <li><b>6 content treatments T</b> · <b>28 confounders X</b></li>
+          <li><b>LLM reranker</b>: Llama-3.3-70B + Qwen-2.5-72B, prompt ∈ {biased, neutral}, evidence ∈ {snippet, RAG}</li>
+          <li>Three outcomes: <b>Y₁ admission</b>, <b>Y₂ Δrank</b>, <b>Y₃ rank<sub>post</sub></b></li>
+          <li><b>θ̂<sub>T</sub> = DML(T, Y; X)</b> · cross-fitted LightGBM, K=5, robust SEs via influence function</li>
+          <li><b>marginal</b> = single T · <b>mutually-controlled</b> = joint with the other 5 T</li>
+        </ul>
+        <div class="takeaway"><b>Why DML:</b> orthogonalises both the treatment-on-X and outcome-on-X nuisance fits — coefficients are valid under flexible non-linear confounding.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Setup → framework</span><span></span></div>
+  </section>
+
+  <!-- 4. SECTION BREAK -->
+  <section class="slide section-break">
+    <div class="head"><div class="title">Headline results</div><div class="section">Part I</div></div>
+    <div class="body">
+      <div class="figure"></div>
+      <div class="keys">
+        <div class="kicker">Part I</div>
+        <h3>Mutually-controlled DML across three outcomes</h3>
+        <p class="lede">Admission (was the URL kept?) · Δrank (how far moved?) · rank<sub>post</sub> (final position).</p>
+        <div class="chips">
+          <span class="chip b">+ promoter</span>
+          <span class="chip r">− demoter</span>
+          <span class="chip k">null after Bonferroni</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Headline · §3</span><span></span></div>
+  </section>
+
+  <!-- 5. fig01 admission forest -->
+  <section class="slide">
+    <div class="head"><div class="title">Y₁ Admission — was the URL kept?</div><div class="section">Headline · Y₁</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig01_admission_forest.png" alt="Admission forest plot"></div>
+      <div class="keys">
+        <p class="lede">Mutually-controlled DML on Pr(admit). Each row: single T + 5 other T + 28 X.</p>
+        <ul>
+          <li><b class="num">T₅ topical comp.</b> &nbsp;<span class="num">+0.0366***</span> &nbsp;<i>promoter</i></li>
+          <li><b class="num">T₂ Q-headings</b> &nbsp;<span class="num">+0.0156***</span> &nbsp;<i>promoter</i></li>
+          <li><b>T₄ citation auth.</b> &nbsp;<span class="num">+0.0009 ns</span></li>
+          <li><b>T₁ stats density</b> &nbsp;<span class="num">−0.0005 ns</span></li>
+          <li><b class="num">T₆ freshness</b> &nbsp;<span class="num">−0.0047***</span> &nbsp;<i>demoter</i></li>
+          <li><b class="num">T₃ schema (JSON-LD)</b> &nbsp;<span class="num">−0.0141***</span> &nbsp;<i>demoter</i></li>
+        </ul>
+        <div class="takeaway"><b>Takeaway:</b> topical comprehensiveness and Q-headings get URLs kept; schema and freshness markers get them dropped.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Headline → Y₁ admission</span><span></span></div>
+  </section>
+
+  <!-- 6. fig02 Δrank forest -->
+  <section class="slide">
+    <div class="head"><div class="title">Y₂ Δrank — how far moved?</div><div class="section">Headline · Y₂</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig02_rank_delta_forest.png" alt="Rank delta forest plot"></div>
+      <div class="keys">
+        <p class="lede">Δrank = rank<sub>pre</sub> − rank<sub>post</sub>. Positive ⇒ LLM <i>promoted</i> the URL.</p>
+        <ul>
+          <li><b class="num">T₂ Q-headings</b> &nbsp;<span class="num">+0.136***</span></li>
+          <li><b class="num">T₅ topical comp.</b> &nbsp;<span class="num">−0.530***</span> &nbsp;<i>(opposite sign vs Y₁ — see next)</i></li>
+          <li><b class="num">T₆ freshness</b> &nbsp;<span class="num">−0.061***</span></li>
+          <li><b class="num">T₃ schema</b> &nbsp;<span class="num">−0.051*</span></li>
+          <li><b>T₄, T₁</b> &nbsp;small / noisy</li>
+        </ul>
+        <div class="takeaway"><b>Mixed direction for T₅:</b> gets kept in the pool, but pushed <i>down</i> when ranked — a signal worth flagging in §3.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Headline → Y₂ Δrank</span><span></span></div>
+  </section>
+
+  <!-- 7. fig03 rank_post forest -->
+  <section class="slide">
+    <div class="head"><div class="title">Y₃ rank<sub>post</sub> — final position</div><div class="section">Headline · Y₃</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig03_post_rank_forest.png" alt="Post rank forest plot"></div>
+      <div class="keys">
+        <p class="lede">Sign-flipped scale: <i>negative</i> coef ⇒ LLM ranks URL <i>higher</i>.</p>
+        <ul>
+          <li><b class="num">T₅ topical comp.</b> &nbsp;<span class="num">−0.300***</span> &nbsp;<i>promoter</i></li>
+          <li><b class="num">T₂ Q-headings</b> &nbsp;<span class="num">−0.041*</span></li>
+          <li><b class="num">T₄ citation auth.</b> &nbsp;<span class="num">−0.015*</span></li>
+          <li><b class="num">T₃ schema</b> &nbsp;<span class="num">+0.095***</span> &nbsp;<i>demoter</i></li>
+          <li><b>T₆ freshness, T₁ stats</b> &nbsp;small / null</li>
+        </ul>
+        <div class="takeaway"><b>T₅ is a genuine promoter of final position</b> even though Δrank moves negative — both can be true under non-monotone reranks.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Headline → Y₃ rank<sub>post</sub></span><span></span></div>
+  </section>
+
+  <!-- 8. fig04 three-outcome grid -->
+  <section class="slide">
+    <div class="head"><div class="title">Three outcomes, one grid</div><div class="section">Headline · summary heatmap</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig04_three_outcome_grid.png" alt="Three outcome grid heatmap"></div>
+      <div class="keys">
+        <p class="lede">Cells coloured by promoter-direction z = β̂ · sign / SE. Blue = promotes, Red = demotes.</p>
+        <ul>
+          <li><b>Consistent promoters</b>: T₂ Q-headings (all three Ys), T₅ topical (Y₁ + Y₃)</li>
+          <li><b>Consistent demoters</b>: T₃ schema (Y₁ + Y₂), T₆ freshness (Y₁ + Y₂)</li>
+          <li><b>T₁ stats density</b>: small magnitudes across the board</li>
+          <li><b>T₅ at Y₂</b>: dark-red anomaly — kept but downranked</li>
+        </ul>
+        <div class="chips">
+          <span class="chip b">+ promoter</span>
+          <span class="chip r">− demoter</span>
+          <span class="chip k">~null</span>
+        </div>
+        <div class="takeaway"><b>One screen</b> capturing the §3 narrative: which features matter, in which direction, on which outcome.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Headline → three-outcome grid</span><span></span></div>
+  </section>
+
+  <!-- 9. fig05 admission vs Δrank scatter -->
+  <section class="slide">
+    <div class="head"><div class="title">Admission vs Δrank — joint behaviour</div><div class="section">Headline · scatter</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig05_admission_vs_rank_scatter.png" alt="Admission vs rank scatter"></div>
+      <div class="keys">
+        <p class="lede">Each point = one treatment in one DML cell. x: effect on Pr(admit). y: effect on Δrank.</p>
+        <ul>
+          <li><b>Quadrant I</b> (kept + promoted): T₂ Q-headings</li>
+          <li><b>Quadrant II</b> (kept but downranked): T₅ topical comp.</li>
+          <li><b>Quadrant III</b> (dropped + demoted): T₆ freshness, T₃ schema</li>
+          <li><b>Quadrant IV</b> (dropped but promoted-if-kept): rare</li>
+        </ul>
+        <div class="takeaway"><b>Two decisions, two coordinates:</b> admission and ranking are not redundant — a feature can drive one without the other.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Headline → joint scatter</span><span></span></div>
+  </section>
+
+  <!-- 10. fig06 marginal vs partial -->
+  <section class="slide">
+    <div class="head"><div class="title">Why mutual control matters</div><div class="section">Methodology · marginal vs partial</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig06_marginal_vs_partial.png" alt="Marginal vs partial DML"></div>
+      <div class="keys">
+        <p class="lede">Single-treatment DML (◯) vs mutually-controlled DML (▢) for all three outcomes.</p>
+        <ul>
+          <li><b>T₅ topical</b>: marginal small → partial large positive on Y₁/Y₃ — masked by other T</li>
+          <li><b>T₂ Q-headings</b>: stable across both fits — robust signal</li>
+          <li><b>T₃ schema</b>: marginal more extreme — multicollinearity inflated it</li>
+          <li>Multiple sign-stable cells move <b>>50%</b> on magnitude</li>
+        </ul>
+        <div class="takeaway"><b>Mutual control is not cosmetic:</b> single-T DML systematically over- or under-states effects when treatments correlate. The paper's headline uses the partial fit.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Methodology → marginal vs partial</span><span></span></div>
+  </section>
+
+  <!-- 11. fig13 admission detail -->
+  <section class="slide">
+    <div class="head"><div class="title">Admission — pooled detail</div><div class="section">Headline · pooled DML</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig13_admission_detail.png" alt="Admission detail"></div>
+      <div class="keys">
+        <p class="lede">Pooled-sample DML on selected_by_llm, full 394,912-row SERP pool.</p>
+        <ul>
+          <li>Selection rate <span class="num">58.4%</span> across the 4 variants</li>
+          <li>Same sign pattern as the per-variant fit — only tighter SEs</li>
+          <li><b>T₅, T₂</b> survive at <span class="num">p &lt; 0.001</span></li>
+          <li><b>T₃, T₆</b> survive negatively at <span class="num">p &lt; 0.001</span></li>
+        </ul>
+        <div class="takeaway"><b>Pooled fit ≈ averaged variants</b> — no single prompt-or-engine cell carries the headline; the signal is broad.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Headline → pooled admission</span><span></span></div>
+  </section>
+
+  <!-- 12. fig14 robust survivors -->
+  <section class="slide">
+    <div class="head"><div class="title">Joint-inference robust survivors</div><div class="section">Robustness · Bonferroni</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig14_robust_survivors.png" alt="Robust survivors table"></div>
+      <div class="keys">
+        <p class="lede">Final defensible call after joint inference + multi-test correction.</p>
+        <ul>
+          <li><b class="num">T₅ topical</b> — significant on <b>all three Ys</b> · <i>mixed direction</i></li>
+          <li><b class="num">T₆ freshness</b> — admit + Δrank · <i>demoter</i></li>
+          <li><b class="num">T₂ Q-headings</b> — admit + Δrank · <i>promoter</i></li>
+          <li><b class="num">T₃ schema</b> — admit + rank<sub>post</sub> · <i>demoter</i></li>
+          <li><b>T₄, T₁</b> — drop after Bonferroni</li>
+        </ul>
+        <div class="takeaway"><b>The "tight" finding:</b> four treatments survive multi-test correction across outcomes. This is the paper's reviewer-proof claim.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Robustness → survivors</span><span></span></div>
+  </section>
+
+  <!-- 13. SECTION BREAK -->
+  <section class="slide section-break">
+    <div class="head"><div class="title">Sensitivity &amp; variants</div><div class="section">Part II</div></div>
+    <div class="body">
+      <div class="figure"></div>
+      <div class="keys">
+        <div class="kicker">Part II</div>
+        <h3>Does any single design choice carry the result?</h3>
+        <p class="lede">Slice by prompt-bias, RAG vs snippet, search engine, LLM, and SERP pool depth.</p>
+        <div class="chips">
+          <span class="chip">prompt: biased / neutral</span>
+          <span class="chip">evidence: snippet / RAG</span>
+          <span class="chip">engine: DDG / SearXNG</span>
+          <span class="chip">LLM: Llama / Qwen</span>
+          <span class="chip">pool: 20 / 50</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Sensitivity · §5</span><span></span></div>
+  </section>
+
+  <!-- 14. fig07 variant grid admission -->
+  <section class="slide">
+    <div class="head"><div class="title">Admission across the 4 variants</div><div class="section">Sensitivity · prompt × RAG</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig07_variant_grid_admission.png" alt="Variant grid admission"></div>
+      <div class="keys">
+        <p class="lede">Same DML, four prompt × evidence cells.</p>
+        <ul>
+          <li><b>T₂, T₃, T₆</b> — sign-stable across all 4 cells</li>
+          <li><b>T₅</b> — promoter in biased+RAG and neutral; quieter in biased snippet</li>
+          <li><b>RAG</b> mostly shifts magnitudes, not signs</li>
+          <li><b>Neutral_rag</b> — smallest absolute effects (selection less directional)</li>
+        </ul>
+        <div class="takeaway"><b>The headline is not a prompt-bias artefact:</b> the same 4 treatments survive in every cell.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Sensitivity → variants on Y₁</span><span></span></div>
+  </section>
+
+  <!-- 15. fig08 variant grid rank -->
+  <section class="slide">
+    <div class="head"><div class="title">Δrank across the 4 variants</div><div class="section">Sensitivity · prompt × RAG</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig08_variant_grid_rank.png" alt="Variant grid rank"></div>
+      <div class="keys">
+        <p class="lede">Per-variant DML on Δrank.</p>
+        <ul>
+          <li><b>T₂ Q-headings</b>: consistent <i>promoter</i> in all 4</li>
+          <li><b>T₅</b>: persistently negative across all 4 (kept-but-downranked story holds)</li>
+          <li><b>T₆ freshness</b>: demoter in <i>biased</i> cells, near-zero in <i>neutral</i></li>
+          <li><b>RAG</b>: small attenuation, no flips</li>
+        </ul>
+        <div class="takeaway"><b>Prompt bias toggles the freshness effect:</b> the recency demotion is a biased-prompt phenomenon, not a universal LLM property.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Sensitivity → variants on Y₂</span><span></span></div>
+  </section>
+
+  <!-- 16. fig09 RAG vs snippet -->
+  <section class="slide">
+    <div class="head"><div class="title">RAG vs snippet — does grounding mitigate?</div><div class="section">Sensitivity · RAG attenuation</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig09_compare_rag_vs_snippet.png" alt="RAG vs snippet"></div>
+      <div class="keys">
+        <p class="lede">Δβ̂ = β̂<sub>RAG</sub> − β̂<sub>snippet</sub> per treatment, by prompt.</p>
+        <ul>
+          <li>Most Δβ̂ centred on <b>~0</b> with overlapping CIs</li>
+          <li><b>T₄ citation</b>: small significant RAG bump in biased</li>
+          <li><b>T₂ Q-headings</b>: marginal RAG bump under biased prompt only</li>
+          <li>Largest CIs on <b>T₅</b> — high variance, no shift</li>
+        </ul>
+        <div class="takeaway"><b>RAG is not the lever:</b> grounding evidence does not erase or invert the content-treatment effects. ~10–17% attenuation at most.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Sensitivity → RAG vs snippet</span><span></span></div>
+  </section>
+
+  <!-- 17. fig10 DDG vs SearXNG -->
+  <section class="slide">
+    <div class="head"><div class="title">DuckDuckGo vs SearXNG</div><div class="section">Sensitivity · search engine</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig10_compare_ddg_vs_searxng.png" alt="DDG vs SearXNG"></div>
+      <div class="keys">
+        <p class="lede">Same DML rerun on each engine's candidate pool.</p>
+        <ul>
+          <li>Sign-pattern <b>preserved</b> on both engines</li>
+          <li><b>SearXNG</b>: tighter SEs (larger pool · 142k rows)</li>
+          <li><b>DDG</b>: T₅ topical noisier — fewer per-cell observations</li>
+          <li>No engine-specific treatment effect</li>
+        </ul>
+        <div class="takeaway"><b>Engine-agnostic:</b> the effects are driven by what the LLM sees on the page, not which engine retrieved it.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Sensitivity → engine</span><span></span></div>
+  </section>
+
+  <!-- 18. fig11 Llama vs Qwen -->
+  <section class="slide">
+    <div class="head"><div class="title">Llama-3.3-70B vs Qwen-2.5-72B</div><div class="section">Sensitivity · two-LLM corroboration</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig11_compare_llama_vs_qwen.png" alt="Llama vs Qwen"></div>
+      <div class="keys">
+        <p class="lede">Per-treatment coefficients, both models on identical SERP pool.</p>
+        <ul>
+          <li><b>Pearson r ≈ 0.72</b> over the (treatment × variant) cells</li>
+          <li>Both models <b>promote T₂, T₅</b>; both <b>demote T₃, T₆</b></li>
+          <li>Magnitude differences smaller than within-model SEs</li>
+          <li>Two distinct training labs, same direction → not a Llama idiosyncrasy</li>
+        </ul>
+        <div class="takeaway"><b>Cross-LLM agreement:</b> the content effects generalise to a second 70B+ reranker — a real LLM behaviour, not one model's preferences.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Sensitivity → two-LLM</span><span></span></div>
+  </section>
+
+  <!-- 19. fig12 pool 20 vs 50 -->
+  <section class="slide">
+    <div class="head"><div class="title">SERP pool depth — 20 vs 50</div><div class="section">Sensitivity · pool size</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig12_compare_pool20_vs_pool50.png" alt="Pool 20 vs 50"></div>
+      <div class="keys">
+        <p class="lede">DML on identical treatments, two pool-size cells.</p>
+        <ul>
+          <li><b>T₄ citation auth.</b> — <i>strengthens</i> at pool=50 (more low-ranked candidates surface)</li>
+          <li><b>T₆ freshness</b> — <i>weakens</i> at pool=50 (recency cue dilutes)</li>
+          <li><b>T₂, T₃, T₅</b> — pool-stable</li>
+          <li>Larger pool ⇒ LLM leans <i>more</i> on citation, <i>less</i> on surface recency</li>
+        </ul>
+        <div class="takeaway"><b>Pool depth shifts what the LLM weighs</b> — small systematic effect, worth a sensitivity paragraph in §5.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Sensitivity → pool depth</span><span></span></div>
+  </section>
+
+  <!-- 20. SECTION BREAK -->
+  <section class="slide section-break">
+    <div class="head"><div class="title">Mechanism: probing the decision</div><div class="section">Part III</div></div>
+    <div class="body">
+      <div class="figure"></div>
+      <div class="keys">
+        <div class="kicker">Part III</div>
+        <h3>Where in the network does the admission decision crystallize?</h3>
+        <p class="lede">Linear probes on frozen hidden states · 80 layers · 2 LLMs · 4 prompt variants.</p>
+        <div class="chips">
+          <span class="chip">availability</span>
+          <span class="chip">pre-commitment</span>
+          <span class="chip">lexical leakage</span>
+          <span class="chip">saliency</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Mechanism · §4</span><span></span></div>
+  </section>
+
+  <!-- 21. admission probe pooled -->
+  <section class="slide">
+    <div class="head"><div class="title">Admission pre-commitment probe</div><div class="section">Mechanism · layerwise AUC</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig_admission_pooled.png" alt="Admission probe layerwise"></div>
+      <div class="keys">
+        <p class="lede">Probe label = "did this (model, variant) admit this URL?" — model's own behaviour.</p>
+        <ul>
+          <li><b>Layer 0</b> AUC <span class="num">0.671</span> — non-trivial at the embedding</li>
+          <li><b>Peak L60</b> AUC <span class="num">0.862</span> (~75% depth)</li>
+          <li><b>Final L80</b> AUC <span class="num">0.830</span> — slight drop</li>
+          <li><b>+0.191 AUC</b> from L0 to peak — genuine compositional gain</li>
+          <li>Last-token pooling starts at chance, catches up by L20</li>
+        </ul>
+        <div class="takeaway"><b>The admission decision is built, not read off:</b> 60 layers of composition are needed to reach peak certainty.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Mechanism → admission probe</span><span></span></div>
+  </section>
+
+  <!-- 22. probing variants -->
+  <section class="slide">
+    <div class="head"><div class="title">Probe behaviour by prompt variant</div><div class="section">Mechanism · per-variant</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig_admission_variants.png" alt="Admission probe by variant"></div>
+      <div class="keys">
+        <p class="lede">Layerwise probe AUC, the 4 prompt × evidence cells.</p>
+        <ul>
+          <li><b>Biased prompts</b> sit ~5 points <i>above</i> neutral at every layer</li>
+          <li><b>RAG</b> barely moves the curve</li>
+          <li>Same L0 → L60 ramp shape in all 4</li>
+          <li>Biased ⇒ decisions are <i>more legible</i> to a probe</li>
+        </ul>
+        <div class="takeaway"><b>Biased pathway is more deterministic:</b> the LLM's decisions encode more probe-readable structure when the prompt steers it.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Mechanism → per-variant probe</span><span></span></div>
+  </section>
+
+  <!-- 23. probing layerwise treatments -->
+  <section class="slide">
+    <div class="head"><div class="title">Body-text probes — availability</div><div class="section">Mechanism · treatment probes</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig_probing_layerwise.png" alt="Probing layerwise treatments"></div>
+      <div class="keys">
+        <p class="lede">Linear probe on frozen hidden states recovering each treatment label from body text.</p>
+        <ul>
+          <li>All six T₁–T₆ reach <b>AUC ≥ 0.97</b> at some layer</li>
+          <li>Several saturate already at <b>L = 0</b></li>
+          <li><b>T₆ freshness</b> diagnostic: "2026" appears in <span class="num">46.4%</span> fresh vs <span class="num">12.4%</span> stale pages (<span class="num">3.7×</span>)</li>
+          <li>High AUC ⇒ <i>lexical leakage</i>, not compositional reasoning</li>
+        </ul>
+        <div class="takeaway"><b>Don't over-read body-text probes:</b> they document <i>availability</i> of treatment-correlated cues, not the model's use of them.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Mechanism → body-text probes</span><span></span></div>
+  </section>
+
+  <!-- 24. probing pooling -->
+  <section class="slide">
+    <div class="head"><div class="title">Mean vs last-token pooling</div><div class="section">Mechanism · pooling</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig_probing_pooling.png" alt="Probing pooling comparison"></div>
+      <div class="keys">
+        <p class="lede">Where in the URL span does the admission information live?</p>
+        <ul>
+          <li><b>Mean pooling</b> already non-trivial at L0 — info spread across span</li>
+          <li><b>Last-token pooling</b> at chance at L0</li>
+          <li>Gap closes by <b>L ≈ 20</b></li>
+          <li>Decision is <i>span-aggregated</i>, not concentrated on a single token</li>
+        </ul>
+        <div class="takeaway"><b>No single "decision token":</b> admission info is integrated across each URL line.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Mechanism → pooling</span><span></span></div>
+  </section>
+
+  <!-- 25. saliency -->
+  <section class="slide">
+    <div class="head"><div class="title">Saliency — does the LLM <i>attend</i> to what it acts on?</div><div class="section">Mechanism · attention</div></div>
+    <div class="body">
+      <div class="figure"><img src="../2026-05-24/figures_canonical/tmp/fig_saliency.png" alt="Saliency ratio"></div>
+      <div class="keys">
+        <p class="lede">Saliency ratio = attention on treatment tokens / attention on other tokens.</p>
+        <ul>
+          <li><b>T₁ stats density</b> (null) — Qwen <span class="num">1.93×</span> &nbsp;Llama <span class="num">0.89×</span></li>
+          <li><b>T₂ Q-headings</b> (promoter) — <span class="num">~1×</span> both models</li>
+          <li><b>T₃ schema</b> (demoter) — Llama <span class="num">0.19×</span> &nbsp;Qwen <span class="num">0.40×</span></li>
+          <li>Attention ≠ effect direction: <b>demoters get ignored</b>, but null tokens can be attended-to</li>
+        </ul>
+        <div class="takeaway"><b>Attention is not effect:</b> Q-headings change the decision without dominating attention; schema gets ignored — yet causally demotes. Two different channels.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Mechanism → saliency</span><span></span></div>
+  </section>
+
+  <!-- 26. R² DIAGNOSTICS — predictive-method R² -->
+  <section class="slide">
+    <div class="head"><div class="title">The predictive-method R² — one feature carries the outcome</div><div class="section">Diagnostics · LightGBM nuisance R²</div></div>
+    <div class="body">
+      <div class="figure" style="background:transparent;border:none;padding:0;">
+        <div class="nugget">
+          <div class="kicker">Leave-one-out ΔR² on Y₂ Δrank</div>
+          <div class="big">0.655</div>
+          <div class="cap"><b>conf_serp_position</b> alone explains <b>65.5%</b> of Δrank variance under the cross-fitted LightGBM nuisance fit.</div>
+          <div class="compare">
+            <b>0.781</b><span>full R² with all 28 confounders</span>
+            <b>0.126</b><span>R² when conf_serp_position is dropped</span>
+            <b>0.025</b><span>combined ΔR² of the other 27 confounders</span>
+          </div>
+          <div class="formula">i.e. <b>84%</b> of Y₂'s explainable variance is one feature; the remaining 27 confounders contribute the last <b>3 pp</b>.</div>
+        </div>
+      </div>
+      <div class="keys">
+        <p class="lede">The cross-fitted LightGBM that powers the nuisance fits is, on Δrank, almost a one-feature model.</p>
+        <ul>
+          <li><b>Δrank is anchored.</b> The LLM moves URLs much less than they were originally ranked, so a regressor that just knows rank<sub>pre</sub> (≈ conf_serp_position) already nails most of the variance.</li>
+          <li><b>Why this matters.</b> A naive OLS on Δrank would attribute that 0.655 of anchoring variance to whichever treatment is co-correlated. DML orthogonalises it away first.</li>
+          <li><b>Sanity check on the other outcomes.</b> Y₃ rank<sub>post</sub> R² = 0.36, Y₁ admission R² = 0.33 — far less anchored, more LLM agency, smaller risk of confounder hijack.</li>
+          <li><b>Predictive ≠ causal.</b> A 0.78-R² model on Δrank still says nothing about which content features <i>caused</i> the move; that's what the residual stage of DML is for.</li>
+        </ul>
+        <div class="takeaway"><b>The cleanest answer to "why DML, not OLS?"</b> — because on Δrank, one anchoring feature would dominate any naive regression. DML strips it out before the treatments are even allowed to compete.</div>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Diagnostics → predictive R²</span><span></span></div>
+  </section>
+
+  <!-- 27. R² RULE-OF-THUMB REFERENCE CARD -->
+  <section class="slide r2-card">
+    <div class="head"><div class="title">R² rule of thumb — every feature in the model</div><div class="section">Diagnostics · reference card</div></div>
+    <div class="body">
+      <div class="r2-grid">
+
+        <!-- OUTCOMES -->
+        <div class="r2-col">
+          <h4>Outcomes Y</h4>
+          <p class="sub">r²(Y | X) — predictability from the full X-set</p>
+          <div class="r2-table">
+            <div class="hdr">outcome</div><div class="hdr" style="text-align:right">r²</div>
+            <div class="lbl">Y₂ Δrank <span class="anno">anchored on rank<sub>pre</sub></span></div><div class="val">0.78</div>
+            <div class="lbl">Y₃ rank<sub>post</sub></div><div class="val">0.36</div>
+            <div class="lbl">Y₁ admission <span class="anno">Pr(selected)</span></div><div class="val">0.33</div>
+          </div>
+          <div class="r2-key">
+            <span><b>≥ 0.70</b> anchored</span>
+            <span><b>0.30–0.50</b> LLM agency</span>
+          </div>
+        </div>
+
+        <!-- TREATMENTS -->
+        <div class="r2-col">
+          <h4>Treatments T</h4>
+          <p class="sub">
+            <b>r²(T | X)</b> — confounding by X<br>
+            <b>r²(Ỹ | T̃)</b> — share of <i>residual</i> Y₂ Δrank explained by this T (after X partialled out)
+          </p>
+          <div class="r2-table triple">
+            <div class="hdr">treatment</div>
+            <div class="hdr num">r²(T|X)</div>
+            <div class="hdr num">r²(Ỹ|T̃)</div>
+
+            <div class="lbl row-drop">T₇ source earned <span class="anno">list flag</span></div>
+            <div class="val row-drop">0.98</div>
+            <div class="val dim row-drop">0.0138</div>
+
+            <div class="lbl">T₄ ext. citations</div>
+            <div class="val">0.58</div>
+            <div class="val dim">0.0000</div>
+
+            <div class="lbl row-promo">T₅ topical comp.</div>
+            <div class="val row-promo">0.53</div>
+            <div class="val dim row-promo">0.0005</div>
+
+            <div class="lbl">T₄b auth. citations</div>
+            <div class="val">0.51</div>
+            <div class="val dim">0.0003</div>
+
+            <div class="lbl">T₄ citation auth.</div>
+            <div class="val">0.49</div>
+            <div class="val dim">0.0002</div>
+
+            <div class="lbl">T₁a stats present</div>
+            <div class="val">0.46</div>
+            <div class="val dim">0.0000</div>
+
+            <div class="lbl">T₁b stats density</div>
+            <div class="val">0.40</div>
+            <div class="val dim">0.0012</div>
+
+            <div class="lbl row-demote">T₆ freshness</div>
+            <div class="val row-demote">0.37</div>
+            <div class="val dim row-demote">0.0016</div>
+
+            <div class="lbl row-promo">T₂ Q-headings</div>
+            <div class="val row-promo">0.36</div>
+            <div class="val dim row-promo">0.0003</div>
+
+            <div class="lbl">T₄ LLM-coded cit.</div>
+            <div class="val">0.35</div>
+            <div class="val dim">0.0006</div>
+
+            <div class="lbl row-demote">T₃ schema (JSON-LD)</div>
+            <div class="val row-demote">0.32</div>
+            <div class="val dim row-demote">0.0006</div>
+
+            <div class="lbl">T_llms_txt</div>
+            <div class="val">0.23</div>
+            <div class="val dim">0.0003</div>
+
+            <div class="lbl row-null">T₃ schema (LLM-coded)</div>
+            <div class="val row-null">0.21</div>
+            <div class="val dim row-null">0.0003</div>
+
+            <div class="lbl row-null">T₁ stats density (LLM)</div>
+            <div class="val row-null">0.20</div>
+            <div class="val dim row-null">0.0001</div>
+          </div>
+          <div class="r2-key">
+            <span><b>r²(T|X) ≥ 0.90</b> drop → confounder</span>
+            <span><b>r²(Ỹ|T̃) ≈ 10⁻³</b> small but reliably non-zero</span>
+          </div>
+        </div>
+
+        <!-- CONFOUNDERS -->
+        <div class="r2-col">
+          <h4>Confounders X</h4>
+          <p class="sub">ΔR² on Y₂ when this feature is left out</p>
+          <div class="r2-table">
+            <div class="hdr">confounder</div><div class="hdr" style="text-align:right">ΔR²</div>
+            <div class="lbl"><b style="color:var(--navy)">conf_serp_position</b></div><div class="val" style="font-size:15px">0.655</div>
+            <div class="lbl">conf_bm25</div><div class="val">0.0023</div>
+            <div class="lbl">conf_brand_recog</div><div class="val">0.0022</div>
+            <div class="lbl">conf_domain_authority</div><div class="val">0.0014</div>
+            <div class="lbl">dfs_competition</div><div class="val">0.0012</div>
+            <div class="lbl">conf_word_count</div><div class="val">0.0012</div>
+            <div class="lbl">conf_outbound_links</div><div class="val">0.0010</div>
+            <div class="lbl">dfs_cpc</div><div class="val">0.0009</div>
+            <div class="lbl row-null">all 20 others combined</div><div class="val row-null">≲ 0.005</div>
+          </div>
+          <div class="r2-key">
+            <span><b>≥ 0.10</b> dominant control</span>
+            <span><b>&lt; 0.01</b> marginal — useful for orthogonalisation only</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Diagnostics → R² reference card</span><span></span></div>
+  </section>
+
+  <!-- 28. TAKEAWAYS -->
+  <section class="slide cover">
+    <div class="head"><div class="title">Takeaways</div><div class="section">Close</div></div>
+    <div class="body">
+      <div class="figure"></div>
+      <div class="keys">
+        <h3>Four robust findings</h3>
+        <p class="lede">Mutually-controlled DML + joint inference + two LLMs + two engines.</p>
+        <ul style="text-align: left; font-size: 16px; line-height: 1.6;">
+          <li><b>T₂ Q-headings</b> &nbsp;causally <i>promote</i> admission and rank (+)</li>
+          <li><b>T₅ topical comp.</b> &nbsp;kept-but-downranked — mixed but always significant</li>
+          <li><b>T₃ schema (JSON-LD)</b> &nbsp;<i>demotes</i> admission, hurts final position</li>
+          <li><b>T₆ freshness</b> &nbsp;<i>demotes</i> admission, especially under biased prompts</li>
+        </ul>
+        <div class="chips">
+          <span class="chip">DML</span>
+          <span class="chip">Romano-Wolf / Bonferroni</span>
+          <span class="chip">linear probes</span>
+          <span class="chip">saliency</span>
+          <span class="chip">two LLMs · two engines · 1,011 keywords</span>
+        </div>
+        <p class="meta" style="margin-top: 18px;">Thanks. &nbsp; <kbd>←</kbd> <kbd>→</kbd> to navigate · <kbd>F</kbd> fullscreen</p>
+      </div>
+    </div>
+    <div class="foot"><span class="crumbs">Close</span><span></span></div>
+  </section>
+
+</div>
+
+<div class="progress"><div class="bar" id="bar"></div></div>
+<div class="nav-hint"><kbd>←</kbd> <kbd>→</kbd> navigate · <kbd>F</kbd> fullscreen · <kbd>Home</kbd>/<kbd>End</kbd></div>
+
+<script>
+(function () {
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar    = document.getElementById('bar');
+  const total  = slides.length;
+  let idx = 0;
+
+  function paint() {
+    slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+    const foot = slides[idx].querySelector('.foot');
+    if (foot && foot.children.length >= 2) {
+      foot.children[1].textContent = (idx + 1) + ' / ' + total;
+    }
+    bar.style.width = (((idx + 1) / total) * 100) + '%';
+  }
+  function go(n) {
+    idx = Math.max(0, Math.min(total - 1, n));
+    paint();
+  }
+
+  document.addEventListener('keydown', e => {
+    const k = e.key;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter') { e.preventDefault(); go(idx + 1); }
+    else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'Backspace')       { e.preventDefault(); go(idx - 1); }
+    else if (k === 'Home')                                                    { e.preventDefault(); go(0); }
+    else if (k === 'End')                                                     { e.preventDefault(); go(total - 1); }
+    else if (k === 'f' || k === 'F') {
+      e.preventDefault();
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target.closest('a, button, kbd')) return;
+    // left half = back, right half = forward
+    if (e.clientX < window.innerWidth / 3) go(idx - 1);
+    else go(idx + 1);
+  });
+
+  paint();
+})();
+</script>
+
+</body>
+</html>

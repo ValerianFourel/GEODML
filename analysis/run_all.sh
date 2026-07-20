@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# End-to-end driver for the GEODML interpretability pipeline.
+# Designed for a single-GPU box with HF_TOKEN set in .env.
+
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+if [ -f .env ]; then
+  set -o allexport
+  # shellcheck disable=SC1091
+  source .env
+  set +o allexport
+fi
+
+: "${HF_TOKEN:?HF_TOKEN not set. Copy .env.example to .env first.}"
+
+mkdir -p interpretability/output/plots
+
+SAMPLE_ABL="${SAMPLE_ABL:-500}"
+SAMPLE_SAL="${SAMPLE_SAL:-200}"
+SAMPLE_PROBE="${SAMPLE_PROBE:-2000}"
+# Default ablation backend: 'api' for laptops, 'local' for air-gapped HPC (Jülich).
+ABLATION_BACKEND="${ABLATION_BACKEND:-api}"
+
+echo "==> 0/5  Download dataset (skip if already present)"
+python scripts/download_data.py
+
+echo "==> 1/5  Sanity-check DML table"
+python scripts/sanity_check.py || echo "(mismatch logged; continuing)"
+
+echo "==> 2/5  Option 1 — Ablation (backend=$ABLATION_BACKEND)"
+python -m interpretability.ablation --sample-n "$SAMPLE_ABL" --resume --backend "$ABLATION_BACKEND"
+
+echo "==> 3/5  Extract HTML caches (needed for Options 2 & 3)"
+python scripts/download_data.py --no-download --extract-html
+
+echo "==> 4/5  Option 2 — Saliency (local GPU, ~1-2 h)"
+python -m interpretability.saliency --sample-n "$SAMPLE_SAL" --resume
+
+echo "==> 5/6  Option 3 — Probing (local GPU, ~30-60 min)"
+python -m interpretability.probing --sample-n "$SAMPLE_PROBE" --resume
+
+SAMPLE_WEIGHTS="${SAMPLE_WEIGHTS:-100}"
+echo "==> 6/6  Option 4 — Weight-space analysis (logit lens + head importance)"
+python -m interpretability.weight_analysis --sample-n "$SAMPLE_WEIGHTS" --resume
+
+echo "==> figures"
+python -m interpretability.make_figures
+
+echo "DONE. Outputs in interpretability/output/"

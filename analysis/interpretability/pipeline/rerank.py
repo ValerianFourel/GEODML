@@ -1,0 +1,699 @@
+"""Stage A — LLM rerank of cached SERPs.
+
+Inputs (no HTTP):
+    geodml_data/data/serp/phase0_top{20,50}_{searxng,ddg}.parquet
+
+Outputs (per run_id, where run_id = "{engine}_{ModelTag}_serp{N}_top{K}_{variant}"):
+    geodml_data/data/runs/{run_id}/phase2/keywords.jsonl
+    geodml_data/data/runs/{run_id}/phase2/rankings.csv
+    geodml_data/data/runs/{run_id}/phase2/.rerank_ckpt.json
+
+Each line of keywords.jsonl mirrors the upstream gather_data.py JSON envelope
+plus a few extra fields (``prompt_variant``, ``engine``, ``pool``, ``top_n``,
+``run_id``, ``rank_changes``) so ``pipeline.merge`` can consume it without
+joining back to the rerank logs.
+
+Ported from:
+    pipeline/gather_data.py:_build_domain_url_map
+    pipeline/gather_data.py:_attach_urls
+    pipeline/gather_data.py:_fallback_extract     (variant-aware, see note)
+    pipeline/gather_data.py:rank_domains_with_llm (uses LocalRanker now)
+    pipeline/gather_data.py:compute_rank_changes
+
+What changed in the port:
+
+- ``InferenceClient.chat_completion`` -> ``utils.make_ranker(backend="local")``.
+  No HTTP. Models load 4-bit on the booster GPUs; HF_HUB_OFFLINE=1 in sbatch.
+- Domain parsing: use ``utils.parse_ranked_domains`` (already strips DeepSeek
+  ``<think>`` blocks, deduplicates).
+- ``_fallback_extract`` is variant-aware: with ``variant="biased"`` it keeps
+  the upstream skip list (g2.com, capterra.com, ...) for byte-compatible
+  reproduction. With ``variant="neutral"`` it drops the list entirely - just
+  takes the first ``top_n`` unique domains in SERP order. Fallback fires only
+  when the LLM output cannot be parsed.
+- Per-keyword JSONL writes are atomic-append (line-buffered open in 'a' mode).
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as _dt
+import json
+import os
+import sys
+import traceback
+from pathlib import Path
+from typing import Iterable
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
+from interpretability.pipeline import config as C
+from interpretability.pipeline.prompts import (
+    build_rerank_prompt,
+    PromptVariant,
+)
+from interpretability.utils import (
+    Checkpoint,
+    HTMLLoader,
+    _extract_domain,
+    data_root,
+    extract_passage,
+    load_serp,
+    make_ranker,
+    parse_ranked_domains,
+)
+
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+def _utcnow_iso() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _build_domain_url_map(search_results: list[dict]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for r in search_results:
+        url = r.get("url", "")
+        d = _extract_domain(url)
+        if d and d not in out:
+            out[d] = url
+    return out
+
+
+def _attach_urls(domains: list[str], domain_url_map: dict[str, str]) -> list[dict]:
+    return [{"domain": d, "url": domain_url_map.get(d, "")} for d in domains]
+
+
+# Same skip list the upstream gather_data.py used. Editorial — only used on the
+# "biased" path so the byte-compat reproduction matches.
+_BIASED_FALLBACK_SKIP = {
+    "g2.com", "capterra.com", "wikipedia.org", "youtube.com",
+    "reddit.com", "quora.com", "forbes.com", "techcrunch.com",
+    "gartner.com", "trustradius.com", "softwareadvice.com",
+    "getapp.com", "pcmag.com", "techradar.com", "cnet.com",
+}
+
+
+def _fallback_extract(
+    search_results: list[dict], top_n: int, variant: PromptVariant,
+) -> list[str]:
+    skip = _BIASED_FALLBACK_SKIP if variant == "biased" else set()
+    out: list[str] = []
+    for r in search_results:
+        d = _extract_domain(r.get("url", ""))
+        if d and d not in out and d not in skip:
+            out.append(d)
+        if len(out) >= top_n:
+            break
+    return out
+
+
+def compute_rank_changes(
+    raw_results: list[dict], post_llm_domains: list[str],
+) -> list[dict]:
+    """Mirror of pipeline/gather_data.py:compute_rank_changes."""
+    pre_domains: list[str] = []
+    for r in raw_results:
+        d = _extract_domain(r.get("url", ""))
+        if d and d not in pre_domains:
+            pre_domains.append(d)
+    pre_rank_map = {d: i + 1 for i, d in enumerate(pre_domains)}
+
+    changes: list[dict] = []
+    for post_rank_0, domain in enumerate(post_llm_domains):
+        post_rank = post_rank_0 + 1
+        pre_rank = pre_rank_map.get(domain)
+        rank_delta = (pre_rank - post_rank) if pre_rank is not None else None
+        changes.append({
+            "domain": domain,
+            "pre_rank": pre_rank,
+            "post_rank": post_rank,
+            "rank_delta": rank_delta,
+        })
+    return changes
+
+
+# ─── core rerank ──────────────────────────────────────────────────────────────
+
+def precision_label(backend: str, precision: str | None) -> str:
+    """Canonical label for the LLM execution regime that produced a record.
+
+    Used as the ``llm_parameters.precision`` field in JSONL output and the
+    ``llm_precision`` column in the Stage C parquet. Five values:
+
+      * ``"bf16-full"``  — backend=local, full-precision bf16 weights.
+      * ``"4bit-nf4"``   — backend=local, nf4 4-bit quantization via bnb.
+      * ``"api-hf"``     — backend=api, HF Inference endpoint (router picks
+                            provider; full precision per HF docs).
+      * ``"api-openai"`` — backend=openai, OpenAI-compatible provider
+                            (DeepInfra / Together / Fireworks; full precision).
+      * ``"unknown"``    — fallback when backfill could not infer.
+    """
+    if backend == "local":
+        return "4bit-nf4" if precision == "4bit" else "bf16-full"
+    if backend == "api":
+        return "api-hf"
+    if backend == "openai":
+        return "api-openai"
+    return "unknown"
+
+
+def rank_one_keyword(
+    keyword: str,
+    search_results: list[dict],
+    *,
+    ranker,
+    model_id: str,
+    top_n: int,
+    variant: PromptVariant,
+    backend: str = "local",
+    precision: str | None = None,
+) -> dict:
+    """Re-rank one keyword's SERP candidates and return the full record.
+
+    Equivalent envelope to ``gather_data.rank_domains_with_llm`` plus
+    ``compute_rank_changes`` and prompt-variant metadata. The
+    ``llm_parameters`` dict now also carries the backend + precision label
+    so downstream consumers (and the HF dataset) can stratify on the LLM
+    execution regime.
+    """
+    prec_label = precision_label(backend, precision)
+    record = {
+        "keyword": keyword,
+        "llm_role": "re-ranker (LLM re-orders results by relevance)",
+        "llm_model": model_id,
+        "llm_parameters": {
+            "max_tokens": C.LLM_MAX_TOKENS,
+            "temperature": C.LLM_TEMPERATURE,
+            "backend": backend,
+            "precision": prec_label,
+        },
+        "prompt": None,
+        "raw_llm_response": None,
+        "llm_query_timestamp_utc": None,
+        "llm_response_timestamp_utc": None,
+        "ranked_domains": [],
+        "ranked_results": [],
+        "used_fallback": False,
+        "error": None,
+        "prompt_variant": variant,
+        "rank_changes": [],
+    }
+
+    if not search_results:
+        record["error"] = "no search results provided"
+        return record
+
+    domain_url_map = _build_domain_url_map(search_results)
+    prompt = build_rerank_prompt(keyword, search_results, top_n=top_n, variant=variant)
+    record["prompt"] = prompt
+    record["llm_query_timestamp_utc"] = _utcnow_iso()
+
+    try:
+        llm_output = ranker.rank(
+            prompt,
+            max_tokens=C.LLM_MAX_TOKENS,
+            temperature=C.LLM_TEMPERATURE,
+        )
+    except Exception as e:
+        record["llm_response_timestamp_utc"] = _utcnow_iso()
+        record["error"] = f"{type(e).__name__}: {e}"
+        record["used_fallback"] = True
+        domains = _fallback_extract(search_results, top_n, variant)
+        record["ranked_domains"] = domains
+        record["ranked_results"] = _attach_urls(domains, domain_url_map)
+        record["rank_changes"] = compute_rank_changes(search_results, domains)
+        return record
+
+    record["llm_response_timestamp_utc"] = _utcnow_iso()
+    record["raw_llm_response"] = llm_output
+    domains = parse_ranked_domains(llm_output)[:top_n]
+
+    # If the LLM returned nothing parseable, fall back rather than emit an
+    # empty rank list (mirrors upstream behavior).
+    if not domains:
+        record["used_fallback"] = True
+        domains = _fallback_extract(search_results, top_n, variant)
+
+    record["ranked_domains"] = domains
+    record["ranked_results"] = _attach_urls(domains, domain_url_map)
+    record["rank_changes"] = compute_rank_changes(search_results, domains)
+    return record
+
+
+# ─── per-keyword IO ───────────────────────────────────────────────────────────
+
+def _serp_to_results(
+    rows: pd.DataFrame,
+    passage_map: dict[str, str] | None = None,
+    *,
+    keyword: str | None = None,
+    retrieved_map: dict[tuple[str, str], str] | None = None,
+) -> list[dict]:
+    """phase0 parquet rows -> the dict shape gather_data used.
+
+    Sources of the per-result ``passage`` field:
+      * ``retrieved_map`` (RAG): keyed by (keyword, url) — content is the top-K
+        retrieved chunks joined with " --- ". Used by ``_rag`` variants.
+      * ``passage_map`` (leading-body): keyed by url. Used by ``_passage`` variants.
+      * Otherwise no ``passage`` field is set (snippet-only ``biased``/``neutral``).
+    """
+    out: list[dict] = []
+    for _, r in rows.iterrows():
+        url = str(r.get("url", "") or "")
+        pos = r.get("position")
+        if pos is None or (isinstance(pos, float) and pd.isna(pos)):
+            continue
+        item: dict = {
+            "position": int(pos),
+            "title":    str(r.get("title", "") or ""),
+            "url":      url,
+            "snippet":  str(r.get("snippet", "") or ""),
+        }
+        if retrieved_map is not None and keyword is not None:
+            item["passage"] = retrieved_map.get((keyword, url), "")
+        elif passage_map is not None:
+            item["passage"] = passage_map.get(url, "")
+        out.append(item)
+    return out
+
+
+def _build_passage_map(
+    serp: pd.DataFrame,
+    root: Path,
+    engine: str,
+    model_id: str,
+    pool: int,
+    top_n: int,
+    max_chars: int = 800,
+) -> dict[str, str]:
+    """trafilatura extraction for every URL, cached at (engine, pool) granularity.
+
+    URLs come from ``phase0_top<pool>_<engine>.parquet`` which is engine+pool
+    specific but model-agnostic, so all 4 cells × {biased_passage,
+    neutral_passage} for a given (engine, pool) share the same passage map.
+    We persist it to ``data/passages/passages_<engine>_top<pool>.parquet`` so
+    the first cell run pays the extraction cost (~10-15 min for 6-8k URLs)
+    and everything after loads instantly.
+
+    HTML is read from the cell-level (un-suffixed) ``run_label(...)`` cache,
+    where the per-(engine, model, pool) html_cache lives.
+    """
+    cache_dir = root / "data" / "passages"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"passages_{engine}_top{pool}_max{max_chars}.parquet"
+
+    cached: dict[str, str] = {}
+    if cache_path.exists():
+        try:
+            df = pd.read_parquet(cache_path)
+            cached = dict(zip(df["url"].astype(str), df["passage"].astype(str)))
+            print(
+                f"[rerank] loaded {len(cached):,} cached passages from {cache_path.name}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[rerank] cache read failed ({e}); recomputing", flush=True)
+            cached = {}
+
+    cell_run_id = C.run_label(engine, model_id, pool, top_n)
+    urls = [str(u) for u in serp["url"].dropna().unique().tolist() if u]
+    todo = [u for u in urls if u not in cached]
+
+    if not todo:
+        print(
+            f"[rerank] passages: all {len(urls):,} URLs already cached",
+            flush=True,
+        )
+        return {u: cached.get(u, "") for u in urls}
+
+    print(
+        f"[rerank] passage mode: extracting {len(todo):,} new URLs (of {len(urls):,}) "
+        f"from html_cache of {cell_run_id}",
+        flush=True,
+    )
+    out: dict[str, str] = dict(cached)
+    n_missing = 0
+    n_empty = 0
+    flush_every = 200
+    n_new_since_flush = 0
+
+    def _flush():
+        try:
+            df_out = pd.DataFrame({"url": list(out.keys()), "passage": list(out.values())})
+            tmp = cache_path.with_suffix(".tmp.parquet")
+            df_out.to_parquet(tmp, index=False)
+            tmp.replace(cache_path)
+        except Exception as e:
+            print(f"[rerank] cache write failed ({e}); continuing in-memory", flush=True)
+
+    with HTMLLoader(cell_run_id, root=root) as loader:
+        for url in tqdm(todo, desc="extract passages"):
+            html = loader.get_html(url)
+            if html is None:
+                out[url] = ""
+                n_missing += 1
+            else:
+                passage = extract_passage(html, max_chars=max_chars)
+                out[url] = passage
+                if not passage:
+                    n_empty += 1
+            n_new_since_flush += 1
+            if n_new_since_flush >= flush_every:
+                _flush()
+                n_new_since_flush = 0
+    if n_new_since_flush > 0:
+        _flush()
+
+    print(
+        f"[rerank] passages: total={len(urls):,} new={len(todo):,} "
+        f"missing_html={n_missing:,} empty_extract={n_empty:,}  "
+        f"cache → {cache_path.name}",
+        flush=True,
+    )
+    return {u: out.get(u, "") for u in urls}
+
+
+def _build_retrieved_map(
+    serp: pd.DataFrame,
+    root: Path,
+    engine: str,
+    pool: int,
+    *,
+    k: int = 3,
+    chunk_sep: str = " --- ",
+) -> dict[tuple[str, str], str]:
+    """RAG retrieval: top-K chunks per (keyword, url) via cosine similarity.
+
+    Reads the precomputed index at ``data/rag_index/<engine>_top<pool>/``
+    (built by ``interpretability.pipeline.build_rag_index``). Caches the
+    retrieval result to ``retrieved_top<K>.parquet`` for resumability.
+    """
+    idx_dir = root / "data" / "rag_index" / f"{engine}_top{pool}"
+    if not idx_dir.exists():
+        raise FileNotFoundError(
+            f"RAG index missing at {idx_dir}. "
+            f"Run: python -m interpretability.pipeline.build_rag_index "
+            f"--engine {engine} --pool {pool} --resume"
+        )
+    cache_path = idx_dir / f"retrieved_top{k}.parquet"
+
+    cached: dict[tuple[str, str], str] = {}
+    if cache_path.exists():
+        df_c = pd.read_parquet(cache_path)
+        cached = {
+            (str(row.keyword), str(row.url)): str(row.passage)
+            for row in df_c.itertuples(index=False)
+        }
+        print(
+            f"[rerank-rag] loaded {len(cached):,} cached (kw,url) retrievals "
+            f"from {cache_path.name}",
+            flush=True,
+        )
+
+    chunks_df = pd.read_parquet(idx_dir / "chunks.parquet")
+    keywords_df = pd.read_parquet(idx_dir / "keywords.parquet")
+    chunk_emb = np.load(idx_dir / "chunk_embeddings.npy")
+    kw_emb = np.load(idx_dir / "keyword_embeddings.npy")
+    if chunk_emb.shape[0] != len(chunks_df):
+        raise RuntimeError(
+            f"chunk_embeddings rows ({chunk_emb.shape[0]}) != chunks.parquet rows "
+            f"({len(chunks_df)}); rebuild index"
+        )
+    if kw_emb.shape[0] != len(keywords_df):
+        raise RuntimeError(
+            f"keyword_embeddings rows ({kw_emb.shape[0]}) != keywords.parquet rows "
+            f"({len(keywords_df)}); rebuild index"
+        )
+
+    kw_to_idx: dict[str, int] = {
+        str(k_): i for i, k_ in enumerate(keywords_df["keyword"].tolist())
+    }
+    url_to_chunk_idx: dict[str, np.ndarray] = (
+        chunks_df.reset_index()
+                 .groupby("url")["index"]
+                 .apply(lambda s: s.to_numpy(dtype=np.int64))
+                 .to_dict()
+    )
+    chunk_texts = chunks_df["text"].astype(str).to_numpy()
+
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for r in serp[["keyword", "url"]].itertuples(index=False):
+        key = (str(r.keyword), str(r.url))
+        if key in seen or not r.url or not r.keyword:
+            continue
+        seen.add(key)
+        if key in cached:
+            continue
+        pairs.append(key)
+
+    out: dict[tuple[str, str], str] = dict(cached)
+
+    if not pairs:
+        print(f"[rerank-rag] all {len(seen):,} (kw,url) pairs already cached", flush=True)
+        return out
+
+    print(
+        f"[rerank-rag] computing top-{k} for {len(pairs):,} new (kw,url) pairs "
+        f"(corpus: {len(chunks_df):,} chunks across {len(url_to_chunk_idx):,} urls)",
+        flush=True,
+    )
+    for kw, url in tqdm(pairs, desc="rag retrieve"):
+        if kw not in kw_to_idx or url not in url_to_chunk_idx:
+            out[(kw, url)] = ""
+            continue
+        q = kw_emb[kw_to_idx[kw]]
+        rows = url_to_chunk_idx[url]
+        sims = chunk_emb[rows] @ q
+        n_local = len(sims)
+        if n_local <= k:
+            top_local = np.argsort(-sims)
+        else:
+            top_local = np.argpartition(-sims, k - 1)[:k]
+            top_local = top_local[np.argsort(-sims[top_local])]
+        out[(kw, url)] = chunk_sep.join(chunk_texts[rows[i]] for i in top_local)
+
+    df_out = pd.DataFrame(
+        [{"keyword": k_, "url": u_, "passage": p_} for (k_, u_), p_ in out.items()],
+        columns=["keyword", "url", "passage"],
+    )
+    df_out.to_parquet(cache_path, index=False)
+    print(f"[rerank-rag] retrieval cache → {cache_path.name} ({len(df_out):,} rows)", flush=True)
+    return out
+
+
+def _iter_keyword_groups(serp: pd.DataFrame, pool: int) -> Iterable[tuple[str, pd.DataFrame]]:
+    """Yield (keyword, top-`pool` rows sorted by position)."""
+    for kw, g in serp.groupby("keyword", sort=False):
+        g = g.sort_values("position").head(pool)
+        yield kw, g
+
+
+def _flatten_rank_changes(record: dict) -> list[dict]:
+    """One row per (keyword, domain) for rankings.csv."""
+    out = []
+    for c in record.get("rank_changes", []):
+        out.append({
+            "keyword":     record["keyword"],
+            "domain":      c["domain"],
+            "url":         next(
+                (rr["url"] for rr in record["ranked_results"] if rr["domain"] == c["domain"]),
+                "",
+            ),
+            "pre_rank":    c["pre_rank"],
+            "post_rank":   c["post_rank"],
+            "rank_delta":  c["rank_delta"],
+            "prompt_variant": record["prompt_variant"],
+            "llm_model":   record["llm_model"],
+        })
+    return out
+
+
+# ─── main ─────────────────────────────────────────────────────────────────────
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Stage A: LLM rerank cached SERPs (no HTTP).",
+    )
+    ap.add_argument("--engine", default="searxng", choices=C.ENGINES,
+                    help="Cached SERP engine (searxng or ddg).")
+    ap.add_argument("--pool", type=int, default=50, choices=(20, 50),
+                    help="SERP pool size to rerank from (must match a cached parquet).")
+    ap.add_argument("--top-n", type=int, default=10,
+                    help="LLM-side top-N to ask for.")
+    ap.add_argument("--model",
+                    default=os.getenv("PRIMARY_MODEL", C.LLM_MODELS[0]),
+                    help="HuggingFace model ID for the local 4-bit ranker.")
+    ap.add_argument("--backend", choices=("local", "api", "openai"),
+                    default=os.getenv("RERANK_BACKEND", "local"),
+                    help="'local' = LocalRanker on cluster GPU. 'api' = HF Inference API "
+                         "(login-node only; needs HF_TOKEN).")
+    ap.add_argument("--precision", choices=("full", "4bit"),
+                    default=os.getenv("LOCAL_PRECISION", "full"),
+                    help="Local-backend precision. 'full' = bf16 (matches API endpoint). "
+                         "'4bit' = nf4 quantization (memory-frugal, ~2x faster, but "
+                         "drifts from API). Ignored for backend=api/openai.")
+    ap.add_argument("--variant",
+                    choices=(
+                        "biased", "neutral",
+                        "biased_passage", "neutral_passage",
+                        "biased_rag", "neutral_rag",
+                    ),
+                    default=os.getenv("PROMPT_VARIANT", "biased"),
+                    help="Prompt variant. Defaults to PROMPT_VARIANT env or 'biased'. "
+                         "The *_passage variants render the leading 800 chars of body "
+                         "text per result. The *_rag variants render the top-K=3 "
+                         "retrieved chunks per (keyword, url) — requires a built RAG "
+                         "index (see build_rag_index.py).")
+    ap.add_argument("--top-k-rag", type=int, default=3,
+                    help="Number of retrieved chunks per (keyword, url) for *_rag variants.")
+    ap.add_argument("--data-root", default=None,
+                    help="Override geodml_data root (defaults to GEODML_DATA_ROOT or ./geodml_data).")
+    ap.add_argument("--max-keywords", type=int, default=None,
+                    help="Cap (smoke testing). None = all keywords.")
+    ap.add_argument("--resume", action="store_true",
+                    help="Skip keywords already present in the JSONL output.")
+    ap.add_argument("--out-run-id", default=None,
+                    help="Override the auto-derived run_id (rare; mostly for smoke tests).")
+    args = ap.parse_args()
+
+    root = data_root(args.data_root)
+    run_id = args.out_run_id or C.run_label_with_variant(
+        args.engine, args.model, args.pool, args.top_n, args.variant,
+    )
+    out_dir = root / "data" / "runs" / run_id / "phase2"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    jsonl_path = out_dir / "keywords.jsonl"
+    csv_path   = out_dir / "rankings.csv"
+    ckpt_path  = out_dir / ".rerank_ckpt.json"
+
+    # Load checkpoint + figure out which keywords are already done.
+    ckpt = Checkpoint.load(ckpt_path)
+    done: set[str] = set(ckpt.data.get("seen", []))
+
+    # Also reconcile against the JSONL contents in case the checkpoint was
+    # truncated (e.g. node OOM mid-write).
+    if args.resume and jsonl_path.exists():
+        with jsonl_path.open() as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get("keyword"):
+                        done.add(rec["keyword"])
+                except json.JSONDecodeError:
+                    pass
+    if not args.resume:
+        # Truncate outputs on a fresh run.
+        jsonl_path.unlink(missing_ok=True)
+        csv_path.unlink(missing_ok=True)
+        done = set()
+
+    # Open output handles (line-buffered append).
+    jsonl_f = jsonl_path.open("a", buffering=1)
+    csv_new = not csv_path.exists()
+    csv_f = csv_path.open("a", buffering=1, newline="")
+    csv_w = csv.DictWriter(
+        csv_f,
+        fieldnames=[
+            "keyword", "domain", "url",
+            "pre_rank", "post_rank", "rank_delta",
+            "prompt_variant", "llm_model",
+        ],
+    )
+    if csv_new:
+        csv_w.writeheader()
+
+    # Load SERPs + initialize ranker.
+    print(f"[rerank] run_id={run_id}", flush=True)
+    print(
+        f"[rerank] backend={args.backend} model={args.model} "
+        f"variant={args.variant} precision={args.precision}",
+        flush=True,
+    )
+
+    serp = load_serp(backend=args.engine, pool=args.pool, root=root)
+    print(f"[rerank] cached SERP rows={len(serp):,} keywords={serp.keyword.nunique():,}", flush=True)
+
+    passage_map: dict[str, str] | None = None
+    retrieved_map: dict[tuple[str, str], str] | None = None
+    if args.variant.endswith("_passage"):
+        passage_map = _build_passage_map(
+            serp, root, args.engine, args.model, args.pool, args.top_n,
+        )
+    elif args.variant.endswith("_rag"):
+        retrieved_map = _build_retrieved_map(
+            serp, root, args.engine, args.pool, k=args.top_k_rag,
+        )
+
+    ranker = make_ranker(args.backend, args.model, precision=args.precision)
+
+    n_done = 0
+    n_err  = 0
+    iter_groups = _iter_keyword_groups(serp, args.pool)
+
+    pbar = tqdm(total=serp["keyword"].nunique(), desc=f"rerank {run_id}", initial=len(done))
+    for kw, g in iter_groups:
+        if kw in done:
+            continue
+        if args.max_keywords is not None and n_done >= args.max_keywords:
+            break
+
+        results = _serp_to_results(
+            g, passage_map=passage_map,
+            keyword=kw, retrieved_map=retrieved_map,
+        )
+
+        try:
+            rec = rank_one_keyword(
+                kw, results,
+                ranker=ranker,
+                model_id=args.model,
+                top_n=args.top_n,
+                variant=args.variant,
+                backend=args.backend,
+                precision=args.precision,
+            )
+        except Exception as e:
+            n_err += 1
+            print(f"[rerank] FATAL keyword={kw!r}: {type(e).__name__}: {e}", flush=True)
+            if n_err <= 3:
+                traceback.print_exc()
+            continue
+
+        # Decorate with run-level metadata (so merge.py is single-source).
+        rec.update({
+            "engine":   args.engine,
+            "pool":     args.pool,
+            "top_n":    args.top_n,
+            "run_id":   run_id,
+        })
+
+        jsonl_f.write(json.dumps(rec, default=str) + "\n")
+        for row in _flatten_rank_changes(rec):
+            csv_w.writerow(row)
+
+        ckpt.mark(kw)
+        n_done += 1
+        if n_done % 25 == 0:
+            ckpt.save()
+        pbar.update(1)
+
+    pbar.close()
+    ckpt.save()
+    jsonl_f.close()
+    csv_f.close()
+
+    print(f"[rerank] done: new={n_done} errors={n_err} total_seen={len(ckpt.data.get('seen', []))}",
+          flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

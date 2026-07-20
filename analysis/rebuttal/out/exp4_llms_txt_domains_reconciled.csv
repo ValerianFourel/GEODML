@@ -1,0 +1,4 @@
+frame,unique_domains,domains_with_llms_txt,pct
+"llms.txt check run (paperSizeExperiment/consolidated_results/domains_llms_txt.csv) — the paper's 16,049",16049,3346.0,20.85
+regression_dataset.parquet (estimation frame for T4_code/has_llms_txt joins),13436,3014.0,22.43
+union of 4 per-variant parquets / unified_2026-05-24 (admitted rows),18508,,

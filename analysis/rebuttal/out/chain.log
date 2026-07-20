@@ -1,0 +1,159 @@
+=== exp3 start 15:28:43 ===
+                                         n  median_abs_delta  mean_abs_delta  share_moved_ge1  share_moved_ge3
+cell                                                                                                          
+OVERALL                           345939.0               1.0        2.344676         0.691553         0.338672
+ddg x Llama-3.3-70B-Instruct       70721.0               1.0        2.716449         0.710567         0.348878
+ddg x Qwen2.5-72B-Instruct         70607.0               1.0        2.205518         0.616030         0.282762
+searxng x Llama-3.3-70B-Instruct  100732.0               2.0        2.429387         0.742505         0.385300
+searxng x Qwen2.5-72B-Instruct    103879.0               1.0        2.104015         0.680532         0.324512
+
+admission rate (full pool frame, n=394,912): 58.37%
+search_engine  llm_model             
+ddg            Llama-3.3-70B-Instruct    50.99
+               Qwen2.5-72B-Instruct      51.94
+searxng        Llama-3.3-70B-Instruct    65.60
+               Qwen2.5-72B-Instruct      66.08
+[exp3] total 2s
+=== exp4 start 15:28:50 ===
+unique domains in regression_dataset: 13,436
+domains with /llms.txt: 3,014 (22.43%)
+domains with inconsistent flag across rows: 0
+
+T5 (treat_topical_comp) distribution in the admission frame:
+count    204392.000000
+mean          0.502027
+std           0.227857
+min          -0.129496
+1%           -0.008248
+5%            0.054461
+25%           0.388800
+50%           0.575123
+75%           0.672800
+95%           0.766102
+99%           0.810500
+max           0.978606
+SD = 0.2279
+
+base admission rate = 58.37%
+theta(T5, admission) published = +0.0366 (0.0095)
+relative admission change per +1.0 unit of T5: +6.28%
+relative admission change per +1 SD (0.228): +1.43%
+[exp4] total 0s
+=== exp1 start 15:28:54 ===
+  [selected  |minus_rank_pre  ] treat_stats_density            coef=-0.0006 se=0.0003 p=4.96e-02 (69.8s)
+  [selected  |minus_rank_pre  ] treat_question_headings        coef=+0.0178 se=0.0030 p=2.15e-09 (68.8s)
+  [selected  |minus_rank_pre  ] treat_structured_data          coef=-0.0176 se=0.0031 p=1.29e-08 (57.6s)
+  [selected  |minus_rank_pre  ] T4_citation_authority_code     coef=+0.0009 se=0.0007 p=1.98e-01 (38.7s)
+  [selected  |minus_rank_pre  ] treat_topical_comp             coef=+0.0414 se=0.0096 p=1.73e-05 (49.5s)
+  [selected  |minus_rank_pre  ] treat_freshness                coef=-0.0038 se=0.0008 p=4.34e-06 (57.7s)
+  [selected  |minus_serp_block] treat_stats_density            coef=-0.0005 se=0.0003 p=1.17e-01 (61.0s)
+  [selected  |minus_serp_block] treat_question_headings        coef=+0.0186 se=0.0030 p=4.17e-10 (33.6s)
+  [selected  |minus_serp_block] treat_structured_data          coef=-0.0185 se=0.0031 p=2.26e-09 (32.7s)
+  [selected  |minus_serp_block] T4_citation_authority_code     coef=+0.0006 se=0.0007 p=4.23e-01 (46.6s)
+  [selected  |minus_serp_block] treat_topical_comp             coef=+0.0469 se=0.0096 p=1.03e-06 (49.6s)
+  [selected  |minus_serp_block] treat_freshness                coef=-0.0037 se=0.0008 p=1.05e-05 (44.2s)
+  [rank_delta|minus_rank_pre  ] treat_stats_density            coef=-0.0034 se=0.0027 p=2.21e-01 (31.4s)
+  [rank_delta|minus_rank_pre  ] treat_question_headings        coef=+0.1441 se=0.0251 p=9.01e-09 (28.9s)
+  [rank_delta|minus_rank_pre  ] treat_structured_data          coef=-0.0471 se=0.0251 p=6.04e-02 (26.8s)
+  [rank_delta|minus_rank_pre  ] T4_citation_authority_code     coef=-0.0171 se=0.0088 p=5.29e-02 (30.1s)
+  [rank_delta|minus_rank_pre  ] treat_topical_comp             coef=-0.5471 se=0.0760 p=6.16e-13 (52.3s)
+  [rank_delta|minus_rank_pre  ] treat_freshness                coef=-0.0660 se=0.0067 p=0.00e+00 (66.4s)
+  [rank_delta|minus_serp_block] treat_stats_density            coef=-0.0022 se=0.0026 p=3.96e-01 (102.9s)
+  [rank_delta|minus_serp_block] treat_question_headings        coef=+0.1153 se=0.0253 p=5.26e-06 (72.9s)
+  [rank_delta|minus_serp_block] treat_structured_data          coef=-0.0562 se=0.0253 p=2.63e-02 (60.8s)
+  [rank_delta|minus_serp_block] T4_citation_authority_code     coef=-0.0188 se=0.0088 p=3.28e-02 (58.2s)
+  [rank_delta|minus_serp_block] treat_topical_comp             coef=-0.5463 se=0.0763 p=8.18e-13 (51.1s)
+  [rank_delta|minus_serp_block] treat_freshness                coef=-0.0738 se=0.0068 p=0.00e+00 (60.0s)
+  [post_rank |minus_rank_pre  ] treat_stats_density            coef=-0.0007 se=0.0019 p=7.00e-01 (30.9s)
+  [post_rank |minus_rank_pre  ] treat_question_headings        coef=-0.0277 se=0.0192 p=1.49e-01 (31.9s)
+  [post_rank |minus_rank_pre  ] treat_structured_data          coef=+0.1197 se=0.0201 p=2.44e-09 (59.5s)
+  [post_rank |minus_rank_pre  ] T4_citation_authority_code     coef=-0.0127 se=0.0068 p=5.93e-02 (30.0s)
+  [post_rank |minus_rank_pre  ] treat_topical_comp             coef=-0.3136 se=0.0620 p=4.15e-07 (65.6s)
+  [post_rank |minus_rank_pre  ] treat_freshness                coef=+0.0031 se=0.0054 p=5.66e-01 (40.7s)
+  [post_rank |minus_serp_block] treat_stats_density            coef=-0.0008 se=0.0019 p=6.62e-01 (32.7s)
+  [post_rank |minus_serp_block] treat_question_headings        coef=-0.0228 se=0.0192 p=2.35e-01 (30.2s)
+  [post_rank |minus_serp_block] treat_structured_data          coef=+0.1267 se=0.0201 p=2.74e-10 (26.9s)
+  [post_rank |minus_serp_block] T4_citation_authority_code     coef=-0.0128 se=0.0067 p=5.51e-02 (27.1s)
+  [post_rank |minus_serp_block] treat_topical_comp             coef=-0.3055 se=0.0618 p=7.84e-07 (28.0s)
+  [post_rank |minus_serp_block] treat_freshness                coef=+0.0026 se=0.0054 p=6.32e-01 (77.9s)
+
+[exp1] outcome-nuisance R^2 (Y ~ confounders + cell dummies, 5-fold cross-fitted, seed 42)
+  R2[selected  |headline        ] = 0.5300
+  R2[selected  |minus_rank_pre  ] = 0.5232
+  R2[selected  |minus_serp_block] = 0.5217
+  R2[rank_delta|headline        ] = 0.3500
+  R2[rank_delta|minus_rank_pre  ] = 0.3262
+  R2[rank_delta|minus_serp_block] = 0.3091
+  R2[post_rank |headline        ] = 0.2445
+  R2[post_rank |minus_rank_pre  ] = 0.2128
+  R2[post_rank |minus_serp_block] = 0.2060
+[exp1] total 1920s
+=== auditB start 16:00:59 ===
+  [ddg    |selected  ] treat_stats_density            n= 87008 coef=-0.0001 se=0.0005 p=8.45e-01 (26.0s)
+  [ddg    |selected  ] treat_question_headings        n= 89160 coef=+0.0137 se=0.0052 p=8.33e-03 (24.8s)
+  [ddg    |selected  ] treat_structured_data          n= 89160 coef=-0.0154 se=0.0056 p=5.69e-03 (24.1s)
+  [ddg    |selected  ] T4_citation_authority_code     n= 87984 coef=+0.0013 se=0.0008 p=1.11e-01 (24.9s)
+  [ddg    |selected  ] treat_topical_comp             n= 52328 coef=+0.0572 se=0.0244 p=1.91e-02 (16.0s)
+  [ddg    |selected  ] treat_freshness                n= 89160 coef=-0.0010 se=0.0014 p=5.00e-01 (20.4s)
+  [ddg    |rank_delta] treat_stats_density            n= 86258 coef=+0.0018 se=0.0049 p=7.16e-01 (22.2s)
+  [ddg    |rank_delta] treat_question_headings        n= 88321 coef=+0.0302 se=0.0475 p=5.25e-01 (20.4s)
+  [ddg    |rank_delta] treat_structured_data          n= 88321 coef=-0.1116 se=0.0498 p=2.50e-02 (18.9s)
+  [ddg    |rank_delta] T4_citation_authority_code     n= 82765 coef=-0.0073 se=0.0111 p=5.11e-01 (16.5s)
+  [ddg    |rank_delta] treat_topical_comp             n= 47884 coef=-1.4867 se=0.2304 p=1.10e-10 (26.4s)
+  [ddg    |rank_delta] treat_freshness                n= 88321 coef=-0.0924 se=0.0126 p=2.13e-13 (20.8s)
+  [ddg    |post_rank ] treat_stats_density            n= 99103 coef=+0.0060 se=0.0029 p=3.73e-02 (38.2s)
+  [ddg    |post_rank ] treat_question_headings        n=101894 coef=+0.0163 se=0.0296 p=5.81e-01 (32.3s)
+  [ddg    |post_rank ] treat_structured_data          n=101894 coef=+0.0622 se=0.0315 p=4.85e-02 (18.7s)
+  [ddg    |post_rank ] T4_citation_authority_code     n= 82765 coef=-0.0048 se=0.0078 p=5.42e-01 (16.5s)
+  [ddg    |post_rank ] treat_topical_comp             n= 50082 coef=-0.5708 se=0.1446 p=7.95e-05 (13.1s)
+  [ddg    |post_rank ] treat_freshness                n=101894 coef=-0.0294 se=0.0082 p=3.50e-04 (19.1s)
+  [searxng|selected  ] treat_stats_density            n=134712 coef=-0.0006 se=0.0004 p=1.87e-01 (24.2s)
+  [searxng|selected  ] treat_question_headings        n=142696 coef=+0.0143 se=0.0035 p=5.01e-05 (37.5s)
+  [searxng|selected  ] treat_structured_data          n=142696 coef=-0.0113 se=0.0036 p=1.62e-03 (24.7s)
+  [searxng|selected  ] T4_citation_authority_code     n= 97192 coef=-0.0017 se=0.0012 p=1.80e-01 (49.9s)
+  [searxng|selected  ] treat_topical_comp             n=152064 coef=+0.0223 se=0.0110 p=4.17e-02 (32.1s)
+  [searxng|selected  ] treat_freshness                n=142696 coef=-0.0093 se=0.0010 p=0.00e+00 (24.7s)
+  [searxng|rank_delta] treat_stats_density            n=164619 coef=-0.0001 se=0.0029 p=9.76e-01 (22.2s)
+  [searxng|rank_delta] treat_question_headings        n=172494 coef=+0.2307 se=0.0246 p=0.00e+00 (25.0s)
+  [searxng|rank_delta] treat_structured_data          n=172494 coef=-0.0076 se=0.0243 p=7.54e-01 (25.8s)
+  [searxng|rank_delta] T4_citation_authority_code     n=126730 coef=-0.0408 se=0.0102 p=6.75e-05 (23.1s)
+  [searxng|rank_delta] treat_topical_comp             n=179207 coef=-0.1943 se=0.0750 p=9.61e-03 (29.6s)
+  [searxng|rank_delta] treat_freshness                n=172494 coef=-0.0421 se=0.0066 p=1.78e-10 (25.3s)
+  [searxng|post_rank ] treat_stats_density            n=179023 coef=-0.0085 se=0.0024 p=4.52e-04 (23.6s)
+  [searxng|post_rank ] treat_question_headings        n=187522 coef=-0.0460 se=0.0199 p=2.07e-02 (25.1s)
+  [searxng|post_rank ] treat_structured_data          n=187522 coef=+0.0896 se=0.0203 p=1.01e-05 (24.4s)
+  [searxng|post_rank ] T4_citation_authority_code     n=126730 coef=-0.0281 se=0.0116 p=1.52e-02 (19.9s)
+  [searxng|post_rank ] treat_topical_comp             n=193611 coef=-0.2376 se=0.0619 p=1.24e-04 (24.5s)
+  [searxng|post_rank ] treat_freshness                n=187522 coef=+0.0342 se=0.0055 p=7.11e-10 (25.4s)
+
+T2 (question headings) per engine per outcome:
+ engine    outcome      coef       se    p_val  sig_alpha6
+    ddg   selected  0.013683 0.005186 0.008331        True
+    ddg rank_delta  0.030214 0.047491 0.524647       False
+    ddg  post_rank  0.016313 0.029583 0.581347       False
+searxng   selected  0.014288 0.003523 0.000050        True
+searxng rank_delta  0.230659 0.024557 0.000000        True
+searxng  post_rank -0.045970 0.019877 0.020737       False
+[auditB] total 888s
+=== exp2 start 16:15:52 ===
+doubleml version: 0.11.2
+  [selected  ] treat_stats_density            theta=-0.0005 se=0.0003 RV=0.004 RVa=0.000  (27s)
+  [selected  ] treat_question_headings        theta=+0.0148 se=0.0029 RV=0.012 RVa=0.008  (27s)
+  [selected  ] treat_structured_data          theta=-0.0153 se=0.0031 RV=0.011 RVa=0.008 (benchmarked) (105s)
+  [selected  ] T4_citation_authority_code     theta=+0.0009 se=0.0007 RV=0.003 RVa=0.000  (25s)
+  [selected  ] treat_topical_comp             theta=+0.0391 se=0.0095 RV=0.010 RVa=0.006 (benchmarked) (83s)
+  [selected  ] treat_freshness                theta=-0.0046 se=0.0008 RV=0.013 RVa=0.009 (benchmarked) (81s)
+  [rank_delta] treat_stats_density            theta=-0.0027 se=0.0027 RV=0.002 RVa=0.000  (26s)
+  [rank_delta] treat_question_headings        theta=+0.1359 se=0.0245 RV=0.013 RVa=0.009  (28s)
+  [rank_delta] treat_structured_data          theta=-0.0506 se=0.0245 RV=0.005 RVa=0.001  (31s)
+  [rank_delta] T4_citation_authority_code     theta=-0.0234 se=0.0087 RV=0.008 RVa=0.003  (41s)
+  [rank_delta] treat_topical_comp             theta=-0.5303 se=0.0747 RV=0.016 RVa=0.013 (benchmarked) (78s)
+  [rank_delta] treat_freshness                theta=-0.0608 se=0.0066 RV=0.021 RVa=0.018  (26s)
+  [post_rank ] treat_stats_density            theta=-0.0015 se=0.0019 RV=0.002 RVa=0.000  (27s)
+  [post_rank ] treat_question_headings        theta=-0.0408 se=0.0187 RV=0.005 RVa=0.001 (benchmarked) (78s)
+  [post_rank ] treat_structured_data          theta=+0.0949 se=0.0196 RV=0.011 RVa=0.007 (benchmarked) (83s)
+  [post_rank ] T4_citation_authority_code     theta=-0.0154 se=0.0066 RV=0.006 RVa=0.002  (27s)
+  [post_rank ] treat_topical_comp             theta=-0.2995 se=0.0601 RV=0.011 RVa=0.007 (benchmarked) (79s)
+  [post_rank ] treat_freshness                theta=+0.0051 se=0.0053 RV=0.002 RVa=0.000 (benchmarked) (81s)
+[exp2] total 954s
+=== ALL DONE 16:31:52 ===
