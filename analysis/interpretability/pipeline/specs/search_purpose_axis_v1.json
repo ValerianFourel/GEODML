@@ -1,0 +1,31 @@
+{
+  "specification_version": "search-purpose-axis-v1",
+  "assigned_variable": {
+    "name": "assigned_action_intensity",
+    "symbol": "I",
+    "range": [0.0, 1.0],
+    "definition": "Assigned proximity of the user's search purpose to completing the concrete action implied by the query."
+  },
+  "neutral_endpoint": "Learn and understand the topic without selecting or carrying out a solution.",
+  "action_endpoint": "Complete the concrete action implied by the query now.",
+  "allowed_semantic_change": "Only the user's search purpose may move from informational understanding toward immediate action.",
+  "invariants": [
+    "The keyword or topic is unchanged.",
+    "The candidate pages and their presentation order are unchanged.",
+    "Ranking remains conditional on relevance to the query and assigned purpose.",
+    "The output contract requires exactly TOP_N candidate identifiers and no explanation."
+  ],
+  "off_axis_criteria": [
+    "first-party status",
+    "commercial ownership",
+    "brand fame",
+    "popularity",
+    "authority",
+    "freshness",
+    "citations",
+    "page length",
+    "statistics density",
+    "writing quality"
+  ],
+  "scope_note": "Navigational intent is outside this one-dimensional axis. DataForSEO intent-class probabilities are observational classifier outputs, not assigned action intensity."
+}
