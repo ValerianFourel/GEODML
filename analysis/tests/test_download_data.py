@@ -6,7 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from analysis.scripts.download_data import main, patterns_for_component
+from analysis.scripts.download_data import (
+    main,
+    patterns_for_component,
+    select_repo_files,
+)
 
 
 class DownloadDataTests(unittest.TestCase):
@@ -23,6 +27,28 @@ class DownloadDataTests(unittest.TestCase):
     def test_unknown_component_is_rejected_clearly(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown component"):
             patterns_for_component("unknown")
+
+    def test_select_repo_files_matches_nested_component_paths(self) -> None:
+        repo_files = (
+            "README.md",
+            "data/serp/phase0_top20_ddg.parquet",
+            "data/serp/phase0_top50_searxng.json",
+            "data/features/features_ddg_top20.parquet",
+        )
+
+        selected = select_repo_files(
+            repo_files,
+            patterns_for_component("serp") or (),
+        )
+
+        self.assertEqual(
+            selected,
+            (
+                "README.md",
+                "data/serp/phase0_top20_ddg.parquet",
+                "data/serp/phase0_top50_searxng.json",
+            ),
+        )
 
     def test_dry_run_does_not_create_destination_or_download(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -13,11 +13,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+from fnmatch import fnmatchcase
 import os
 import subprocess
 import sys
 import tarfile
 from pathlib import Path
+from typing import Iterable
 
 try:
     from dotenv import load_dotenv
@@ -61,6 +64,67 @@ def patterns_for_component(component: str) -> tuple[str, ...] | None:
     except KeyError as exc:
         choices = ", ".join(sorted(COMPONENT_PATTERNS))
         raise ValueError(f"Unknown component {component!r}; choose one of: {choices}") from exc
+
+
+def select_repo_files(
+    repo_files: Iterable[str], patterns: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Select stable, sorted repository paths using shell-style patterns."""
+
+    return tuple(
+        sorted(
+            {
+                path
+                for path in repo_files
+                if any(fnmatchcase(path, pattern) for pattern in patterns)
+            }
+        )
+    )
+
+
+def download_selected_files(
+    *,
+    repo: str,
+    local_dir: Path,
+    patterns: tuple[str, ...],
+    token: str | None,
+    max_workers: int = 8,
+) -> tuple[str, ...]:
+    """Download a selected component without snapshot_download's progress pool.
+
+    Some Hub/tqdm combinations fail inside ``snapshot_download`` when its
+    filtered-file iterator has no usable length hint. Enumerating the public
+    tree first and calling ``hf_hub_download`` per path avoids that dependency
+    interaction while retaining concurrent, resumable downloads.
+    """
+
+    from huggingface_hub import HfApi, hf_hub_download
+
+    repo_files = HfApi().list_repo_files(
+        repo_id=repo,
+        repo_type="dataset",
+        token=token,
+    )
+    selected_files = select_repo_files(repo_files, patterns)
+    if not selected_files:
+        raise RuntimeError(
+            f"No files in {repo!r} matched component patterns: {list(patterns)}"
+        )
+
+    print(f"[download] matched {len(selected_files)} files")
+
+    def download_one(filename: str) -> str:
+        return hf_hub_download(
+            repo_id=repo,
+            filename=filename,
+            repo_type="dataset",
+            local_dir=str(local_dir),
+            token=token,
+        )
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        tuple(executor.map(download_one, selected_files))
+    return selected_files
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -129,17 +193,23 @@ def main(argv: list[str] | None = None) -> int:
             f"[download] repo={args.repo} component={args.component} "
             f"auth={auth_mode} -> {local_dir}"
         )
-        from huggingface_hub import snapshot_download
+        if patterns is None:
+            from huggingface_hub import snapshot_download
 
-        snapshot_download(
-            repo_id=args.repo,
-            repo_type="dataset",
-            local_dir=str(local_dir),
-            local_dir_use_symlinks=False,
-            token=token,
-            max_workers=8,
-            allow_patterns=patterns,
-        )
+            snapshot_download(
+                repo_id=args.repo,
+                repo_type="dataset",
+                local_dir=str(local_dir),
+                token=token,
+                max_workers=8,
+            )
+        else:
+            download_selected_files(
+                repo=args.repo,
+                local_dir=local_dir,
+                patterns=patterns,
+                token=token,
+            )
         print("[download] done. Size:")
         subprocess.run(["du", "-sh", str(local_dir)], check=False)
 
