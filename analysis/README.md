@@ -5,7 +5,8 @@ causal estimates from the GEODML paper (EMNLP 2026, deadline 2026-05-25).
 
 All input data lives in the HF dataset
 [`ValerianFourel/geodml-papersize`](https://huggingface.co/datasets/ValerianFourel/geodml-papersize)
-(private). Everything here is **compute** — no raw data is committed.
+(37.6 GB full raw archive). Everything here is **compute** — no raw data is
+committed.
 
 ---
 
@@ -20,12 +21,14 @@ pip install -r requirements.txt
 # On the GPU box only:
 pip install "torch>=2.4" "transformers>=4.45" "accelerate>=0.34" "bitsandbytes>=0.43"
 
-# 2. Config
-cp .env.example .env          # then paste your HF read token into .env
+# 2. Config (HF_TOKEN is optional for public data, but needed for gated models/API use)
+cp .env.example .env
 
 # 3. Data
-python scripts/download_data.py                 # ~3.5 GB
-python scripts/download_data.py --extract-html  # +24 GB, only needed for Options 2 & 3
+python scripts/download_data.py --component serp  # original frozen search pools only
+python scripts/download_data.py --component core  # analysis inputs, excluding bulky caches
+python scripts/download_data.py                    # complete 37.6 GB raw snapshot
+python scripts/download_data.py --extract-html     # full snapshot + unpack HTML caches
 
 # 4. Sanity check — reproduces the POOLED DML table from the paper
 python scripts/sanity_check.py
@@ -55,8 +58,8 @@ python -m interpretability.ablation --sample-n 500 --backend local \
 ```
 
 `--backend local` reuses the same 4-bit quantization path as saliency and
-probing, so ablation now fits in ~10 GB VRAM. No `HF_TOKEN` needed beyond
-the initial dataset download.
+probing, so ablation now fits in ~10 GB VRAM. No `HF_TOKEN` is needed for local
+inference after the required files and model weights have been staged.
 
 ---
 

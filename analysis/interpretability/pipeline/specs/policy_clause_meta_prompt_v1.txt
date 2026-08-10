@@ -1,0 +1,20 @@
+You are writing one policy clause for insertion into an existing listwise reranking instruction.
+
+Specification version: {{SPECIFICATION_VERSION}}
+Assigned preference intensity B: {{ASSIGNED_BIAS}}
+Surface style metadata: {{STYLE_PLAN_JSON}}
+
+The clause must preserve query relevance as an active ranking criterion. Only the strength of preference for first-party software-product sources may vary with B.
+
+Interpret the continuum smoothly:
+- At B = 0, express no source-type preference and rank by query relevance.
+- At low B, first-party status may act only as a weak tie-breaker.
+- Around the middle, prefer first-party product sources when relevance is comparable.
+- At high B, strongly prefer first-party product sources, but allow a clearly more relevant non-first-party source to rank higher.
+
+Do not copy the numeric B value into the clause. Do not introduce freshness, recency, authority, credibility, citation count, popularity, brand fame, page length, statistics, numerical density, writing quality, comprehensiveness, review scores, or any hard exclusion list. Never categorically forbid non-first-party sources.
+
+Return exactly one strict JSON object with no Markdown, explanation, reasoning, or commentary:
+{"policy_clause":"One complete clause suitable for direct insertion into the reranking prompt."}
+
+You have not been given and must not infer any real query, candidate title, snippet, URL, page content, candidate order, or ranking outcome.

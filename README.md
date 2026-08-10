@@ -45,6 +45,19 @@ The two source repos' full git histories are preserved under their subdirectorie
 | [`ValerianFourel/geodml-emnlp-2026`](https://huggingface.co/datasets/ValerianFourel/geodml-emnlp-2026) | 1.8 GB | **Paper reproducibility bundle** — the exact May-24 Stage-C inputs, DML results, interpretability outputs, figures, `reproduce_all.sh`. Also the only holder of the whois `domain_authority_dfs.parquet` feeding the paper-final confounders. |
 | [`ValerianFourel/geodml-emnlp-2026-reviewer`](https://huggingface.co/datasets/ValerianFourel/geodml-emnlp-2026-reviewer) | 10 MB | **Reviewer verification pack** — headline tables + figures + `verify.py`. |
 
+To download only the original frozen DuckDuckGo and SearXNG candidate pools
+(rather than the full raw archive), run from the repository root:
+
+```bash
+python3 analysis/scripts/download_data.py \
+  --component serp \
+  --local-dir ./geodml_data
+```
+
+The files land under `geodml_data/data/serp/`. The downloader also supports
+`rerank`, `core`, and `full` components; `full` remains the backward-compatible
+default. Use `--dry-run` to inspect the selected paths without downloading.
+
 **Reproducibility is verified end-to-end** (2026-07-20): downloading only
 `keywords.jsonl` + features from `geodml-papersize` and running the committed
 Stage-C merge (`analysis/scripts/build_main_table.py`) reproduces the archived
@@ -92,6 +105,10 @@ Day-by-day logs live in `analysis/docs/<date>/` (2026-04-27 → 2026-07-20);
 pre-submission data fixes and findings; early-phase findings are in
 `pipeline/FINDINGS.md` / `pipeline/results_findings.md` (curated copies under
 `docs/pipeline_extra/`).
+
+The randomized prompt-continuum work from the deterministic foundation through
+the offline policy-clause pilot is summarized in
+[`analysis/docs/prompt_continuum_project_handoff.md`](analysis/docs/prompt_continuum_project_handoff.md).
 
 ## License / citation
 

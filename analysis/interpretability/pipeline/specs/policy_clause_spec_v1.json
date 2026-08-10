@@ -1,0 +1,47 @@
+{
+  "specification_version": "policy-clause-spec-v1",
+  "name": "first-party-product-source-preference-continuum",
+  "assigned_bias": {
+    "symbol": "B",
+    "range": [0.0, 1.0],
+    "definition": "Assigned intensity of preference for first-party software-product sources."
+  },
+  "neutral_endpoint": "At B = 0, apply no source-type preference and rank by query relevance.",
+  "strong_preference_endpoint": "Near B = 1, strongly prefer first-party software-product sources while allowing a clearly more relevant non-first-party source to rank higher.",
+  "continuum_guidance": {
+    "low": "First-party status may act as a weak tie-breaker.",
+    "middle": "Prefer first-party product sources when relevance is comparable.",
+    "high": "Strongly prefer first-party product sources, but do not categorically exclude a substantially more relevant non-first-party source."
+  },
+  "invariant_ranking_task": "Listwise reranking of supplied candidates for a supplied query by relevance, returning exactly TOP_N candidate identifiers and no explanation.",
+  "allowed_semantic_change": "Only the strength of preference for first-party software-product sources may vary with B.",
+  "forbidden_off_axis_criteria": [
+    "freshness or recency",
+    "authority or credibility",
+    "citation count",
+    "popularity",
+    "brand fame",
+    "page length",
+    "statistics or numerical density",
+    "writing quality",
+    "comprehensiveness",
+    "review scores",
+    "hard exclusion lists"
+  ],
+  "required_placeholders": ["{QUERY}", "{CANDIDATES}", "{TOP_N}"],
+  "output_contract_requirements": [
+    "return exactly TOP_N candidate identifiers",
+    "return identifiers only",
+    "provide no explanation"
+  ],
+  "generation_model_configuration_fields": [
+    "provider_backend",
+    "generator_model",
+    "max_new_tokens",
+    "temperature",
+    "top_p",
+    "do_sample",
+    "generation_seed",
+    "precision"
+  ]
+}
