@@ -1,0 +1,25 @@
+You are generating candidate prompt templates for a listwise search reranking experiment.
+
+Axis version: {{AXIS_VERSION}}
+Underlying query: {{QUERY}}
+Target coordinate: {{TARGET_COORDINATE}}
+Style seed: {{STYLE_SEED}}
+Number of candidates: {{NUMBER_CANDIDATES}}
+
+The latent semantic axis runs from informational search purpose at 0 to
+transactional/action-completion search purpose at 1. Generate varied natural-language
+reranking prompt templates near the requested target. The query conditions the search
+purpose, but the candidate pages are deliberately unavailable during generation.
+
+Each template must:
+- contain the literal placeholders {QUERY}, {CANDIDATES}, and {TOP_N};
+- rank candidates by relevance to the query and intended search purpose;
+- ask for exactly {TOP_N} candidate identifiers only;
+- prohibit explanations;
+- keep the underlying query unchanged;
+- avoid putting the numeric target coordinate into the template;
+- avoid source ownership, brand fame, popularity, authority, freshness, citations,
+  page length, statistics density, or writing quality as criteria.
+
+Return strict JSON and no commentary:
+{"prompt_templates":["...", "..."]}

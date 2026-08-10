@@ -1,5 +1,11 @@
 # Search-purpose continuum: deterministic foundation
 
+> **Scientific-path correction:** this document describes a deterministic smoke
+> scaffold only. The actual prompt trajectory is now learned and sampled in
+> prompt-embedding space through generate/embed/project/select. See
+> `prompt_latent_axis_milestone4b.md`. Do not use the five phrases below as the
+> scientific informational-to-transactional continuum.
+
 ## Scientific question
 
 This milestone prepares an experiment asking how LLM page rankings change as
@@ -85,9 +91,8 @@ This produces:
 The manifest contains complete rendered prompts and candidate mappings, but no
 rankings because no model is invoked.
 
-## Smallest next milestone
+## Superseded next step
 
-Generate a richer offline search-purpose clause bank, establish semantic axis
-purity and monotonicity, and freeze accepted clauses. Only then should a
-cluster reranking runner load the frozen bank, generate strict top-k rankings,
-and map ranking trajectories across assigned `I`.
+The latent-axis candidate generator and selector are implemented in
+`prompt_latent_axis.py`. Its selected prompts still require semantic validation
+before a cluster reranking runner may use them.

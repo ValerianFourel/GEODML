@@ -1,0 +1,35 @@
+{
+  "endpoint_bank_version": "search-purpose-endpoint-pairs-v1",
+  "pairs": [
+    {
+      "query": "password manager for a small business",
+      "informational_prompt": "Rank the candidates for a user who wants to learn and understand how password managers work for a small business. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation.",
+      "transactional_prompt": "Rank the candidates for a user who wants to select and start using a suitable password manager for a small business now. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation."
+    },
+    {
+      "query": "CRM software for a sales team",
+      "informational_prompt": "Rank the candidates for a user seeking an explanatory overview of how CRM software supports a sales team. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation.",
+      "transactional_prompt": "Rank the candidates for a user ready to select and deploy suitable CRM software for a sales team now. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation."
+    },
+    {
+      "query": "automatic cloud backup",
+      "informational_prompt": "Rank the candidates for a user who wants to understand automatic cloud backup concepts and available approaches. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation.",
+      "transactional_prompt": "Rank the candidates for a user who wants to choose, configure, and start an automatic cloud backup workflow now. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation."
+    },
+    {
+      "query": "project management software",
+      "informational_prompt": "Rank the candidates for a user learning what project management software does and how it is used. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation.",
+      "transactional_prompt": "Rank the candidates for a user ready to select and begin using project management software now. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation."
+    },
+    {
+      "query": "website analytics tool",
+      "informational_prompt": "Rank the candidates for a user seeking to learn how website analytics tools collect and explain usage information. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation.",
+      "transactional_prompt": "Rank the candidates for a user ready to select, configure, and start using a website analytics tool now. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation."
+    },
+    {
+      "query": "team video conferencing",
+      "informational_prompt": "Rank the candidates for a user trying to understand video-conferencing approaches for a team. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation.",
+      "transactional_prompt": "Rank the candidates for a user ready to select and set up team video conferencing now. Query: {QUERY}\n\nCandidates:\n{CANDIDATES}\n\nReturn exactly {TOP_N} candidate identifiers only, with no explanation."
+    }
+  ]
+}
