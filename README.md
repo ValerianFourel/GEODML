@@ -55,8 +55,11 @@ python3 analysis/scripts/download_data.py \
 ```
 
 The files land under `geodml_data/data/serp/`. The downloader also supports
-`rerank`, `core`, and `full` components; `full` remains the backward-compatible
-default. Use `--dry-run` to inspect the selected paths without downloading.
+`dataforseo` (consolidated tables), `dataforseo-full` (including raw API
+responses), `html` (compressed page-cache tarballs), `rerank`, `core`, and
+`full` components; `full` remains the backward-compatible default. The archive
+contains captured HTML responses but no standalone CSS files. Use `--dry-run`
+to inspect the selected paths without downloading.
 
 **Reproducibility is verified end-to-end** (2026-07-20): downloading only
 `keywords.jsonl` + features from `geodml-papersize` and running the committed

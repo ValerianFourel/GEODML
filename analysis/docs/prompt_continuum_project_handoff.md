@@ -112,10 +112,13 @@ This materializes the phase-0 DuckDuckGo and SearXNG top-20/top-50 snapshots
 under `geodml_data/data/serp/`. Public files can be downloaded anonymously;
 set `HF_TOKEN` when authentication is required by the Hub environment.
 
-Other supported scopes are `rerank` (ranking inputs/results), `core` (analysis
-tables without bulky HTML/RAG caches), and `full` (the complete raw snapshot,
-which remains the default for backward compatibility). Preview any selection
-without network or filesystem changes:
+Other supported scopes are `dataforseo` (consolidated DataForSEO tables and
+manifests), `dataforseo-full` (including raw and checkpoint API responses),
+`html` (compressed per-run HTML caches), `rerank` (ranking inputs/results),
+`core` (analysis tables without bulky HTML/RAG caches), and `full` (the complete
+raw snapshot, which remains the default for backward compatibility). The raw
+archive contains captured HTML responses but no standalone CSS assets. Preview
+any selection without network or filesystem changes:
 
 ```bash
 python3 analysis/scripts/download_data.py --component serp --dry-run

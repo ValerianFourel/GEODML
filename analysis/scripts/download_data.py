@@ -6,6 +6,8 @@ pools required to inspect the original candidate sets.
 
 Usage:
     python scripts/download_data.py --component serp
+    python scripts/download_data.py --component dataforseo
+    python scripts/download_data.py --component html
     python scripts/download_data.py --component core
     python scripts/download_data.py --component full --extract-html
 """
@@ -36,6 +38,23 @@ COMPONENT_PATTERNS: dict[str, tuple[str, ...] | None] = {
     "serp": (
         "README*",
         "data/serp/**",
+    ),
+    # Consolidated tables/manifests actually consumed by downstream analysis.
+    # Keep the 1,045 raw/checkpoint JSON responses opt-in to avoid Hub rate
+    # limits from thousands of tiny anonymous requests.
+    "dataforseo": (
+        "README*",
+        "data/dataforseo/*",
+    ),
+    "dataforseo-full": (
+        "README*",
+        "data/dataforseo/**",
+    ),
+    # Prefer the compressed per-run caches. The repository's HTMLLoader can
+    # read these directly, avoiding a second copy of roughly 13 GiB of HTML.
+    "html": (
+        "README*",
+        "data/runs/*/phase2/html_cache.tar.gz",
     ),
     "rerank": (
         "README*",
@@ -69,14 +88,35 @@ def patterns_for_component(component: str) -> tuple[str, ...] | None:
 def select_repo_files(
     repo_files: Iterable[str], patterns: tuple[str, ...]
 ) -> tuple[str, ...]:
-    """Select stable, sorted repository paths using shell-style patterns."""
+    """Select stable paths with ``*`` segment and recursive ``**`` semantics."""
+
+    def matches(path: str, pattern: str) -> bool:
+        path_parts = path.split("/")
+        pattern_parts = pattern.split("/")
+
+        def match_from(path_index: int, pattern_index: int) -> bool:
+            if pattern_index == len(pattern_parts):
+                return path_index == len(path_parts)
+            pattern_part = pattern_parts[pattern_index]
+            if pattern_part == "**":
+                return match_from(path_index, pattern_index + 1) or (
+                    path_index < len(path_parts)
+                    and match_from(path_index + 1, pattern_index)
+                )
+            return (
+                path_index < len(path_parts)
+                and fnmatchcase(path_parts[path_index], pattern_part)
+                and match_from(path_index + 1, pattern_index + 1)
+            )
+
+        return match_from(0, 0)
 
     return tuple(
         sorted(
             {
                 path
                 for path in repo_files
-                if any(fnmatchcase(path, pattern) for pattern in patterns)
+                if any(matches(path, pattern) for pattern in patterns)
             }
         )
     )
@@ -142,7 +182,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(COMPONENT_PATTERNS),
         default="full",
         help=(
-            "Download scope: serp=frozen search pools, rerank=ranking inputs/results, "
+            "Download scope: serp=frozen search pools, dataforseo=consolidated "
+            "DataForSEO tables, dataforseo-full=consolidated plus raw/checkpoint "
+            "responses, html=compressed page caches, rerank=ranking inputs/results, "
             "core=analysis tables without bulky caches, full=entire raw archive "
             "(default)."
         ),
@@ -150,7 +192,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--extract-html",
         action="store_true",
-        help="After a full download, expand data/runs/*/phase2/html_cache.tar.gz in place.",
+        help=(
+            "After an html or full download, expand "
+            "data/runs/*/phase2/html_cache.tar.gz in place."
+        ),
     )
     parser.add_argument(
         "--no-download",
@@ -170,8 +215,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.extract_html and args.component != "full":
-        parser.error("--extract-html requires --component full")
+    if args.extract_html and args.component not in {"html", "full"}:
+        parser.error("--extract-html requires --component html or full")
 
     local_dir = Path(args.local_dir).resolve()
     patterns = patterns_for_component(args.component)

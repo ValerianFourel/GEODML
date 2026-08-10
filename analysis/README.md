@@ -26,6 +26,9 @@ cp .env.example .env
 
 # 3. Data
 python scripts/download_data.py --component serp  # original frozen search pools only
+python scripts/download_data.py --component dataforseo  # consolidated DFS tables/manifests
+python scripts/download_data.py --component dataforseo-full  # + raw/checkpoint API responses
+python scripts/download_data.py --component html  # compressed page HTML caches
 python scripts/download_data.py --component core  # analysis inputs, excluding bulky caches
 python scripts/download_data.py                    # complete 37.6 GB raw snapshot
 python scripts/download_data.py --extract-html     # full snapshot + unpack HTML caches
