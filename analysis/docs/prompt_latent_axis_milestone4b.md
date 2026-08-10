@@ -106,3 +106,60 @@ python3 analysis/scripts/generate_latent_prompt_pilot.py \
 
 The command generates prompt candidates and rendered prompt manifests; it does
 not invoke the ranking model.
+
+## HoreKa Slurm execution
+
+HoreKa uses Slurm, but its account and resource choices are deliberately kept
+out of the repository. The dedicated wrapper is separate from the existing
+Jülich scripts and does not inherit their `booster`, `jutil`, module, or scratch
+settings.
+
+After pulling the exact Git commit on HoreKa, first submit a short validation
+job. It checks the virtual environment, cached SERP table, Python dependencies,
+CLI import, and allocated GPU without loading model weights:
+
+```bash
+export HOREKA_ACCOUNT=YOUR_HOREKA_PROJECT_ACCOUNT
+export GEODML_VENV="$PWD/.venv311"
+export GEODML_DATA_ROOT="$PWD/geodml_data"
+
+bash analysis/scripts/slurm/horeka/submit_latent_prompt_pilot.sh \
+  --validate-only
+```
+
+Inspect the resulting `logs/geodml-latent-prompts-<job-id>.out` and `.err`.
+Then submit the small generation pilot. The model must already be available in
+`HF_HOME` (or supplied as a local path), because offline mode defaults to on:
+
+```bash
+export HOREKA_ACCOUNT=YOUR_HOREKA_PROJECT_ACCOUNT
+export PROMPT_GENERATOR_MODEL=/path/to/cached/instruction-model
+export HF_HOME=/path/to/huggingface-cache
+export HOREKA_PARTITION=accelerated
+export HOREKA_GPUS=2
+export HOREKA_CPUS=16
+export HOREKA_TIME=02:00:00
+export GEODML_VENV="$PWD/.venv311"
+export GEODML_DATA_ROOT="$PWD/geodml_data"
+export LATENT_PROMPT_PILOT_OUTPUT="$PWD/runs/latent_prompt_pilot/pilot-v1"
+
+bash analysis/scripts/slurm/horeka/submit_latent_prompt_pilot.sh
+```
+
+`HOREKA_MODULES` may contain a space-separated module list when the local venv
+depends on cluster modules; it is empty by default. For a smaller model, one GPU
+may be sufficient. The default two-GPU generation request is intended for a
+large 4-bit model; full-precision 70B-class generation generally needs more
+memory and must be requested explicitly.
+
+The job records `run_manifest.json` in its output directory with the Git SHA,
+configuration, model identifiers, seeds, Slurm allocation, timestamps, log
+paths, and completion status. It also writes:
+
+- `prompt_latent_axis.json`;
+- `latent_prompt_candidates.jsonl`;
+- `rendered_latent_prompts.jsonl`;
+- `latent_prompt_pilot_report.md`.
+
+These remain unvalidated prompt candidates. This job does not invoke a ranking
+model and does not establish semantic validity or scientific results.

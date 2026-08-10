@@ -1,0 +1,49 @@
+"""Static portability checks for the HoreKa latent-prompt Slurm wrapper."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import subprocess
+import unittest
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+SBATCH = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/run_latent_prompt_pilot.sbatch"
+SUBMIT = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/submit_latent_prompt_pilot.sh"
+MANIFEST = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/record_latent_run_manifest.py"
+
+
+class HorekaLatentPromptJobTests(unittest.TestCase):
+    def test_shell_wrappers_are_valid_bash(self) -> None:
+        for path in (SBATCH, SUBMIT):
+            with self.subTest(path=path.name):
+                result = subprocess.run(
+                    ["bash", "-n", str(path)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_horeka_resources_are_submission_time_configuration(self) -> None:
+        submit = SUBMIT.read_text(encoding="utf-8")
+        self.assertIn('HOREKA_PARTITION:=accelerated', submit)
+        self.assertIn('HOREKA_PARTITION:=dev_accelerated', submit)
+        self.assertIn('--account="$HOREKA_ACCOUNT"', submit)
+        self.assertIn('--gres="gpu:$HOREKA_GPUS"', submit)
+        self.assertIn("--export=ALL", submit)
+
+    def test_job_has_validation_mode_and_scientific_provenance(self) -> None:
+        job = SBATCH.read_text(encoding="utf-8")
+        self.assertIn("LATENT_PROMPT_VALIDATE_ONLY", job)
+        self.assertIn("run_manifest.json", job)
+        self.assertIn("git rev-parse HEAD", job)
+        self.assertIn('srun --ntasks=1 python3 "${arguments[@]}"', job)
+        self.assertTrue(MANIFEST.is_file())
+
+    def test_job_does_not_copy_juelich_specific_infrastructure(self) -> None:
+        combined = SBATCH.read_text(encoding="utf-8") + SUBMIT.read_text(encoding="utf-8")
+        for forbidden in ("jutil", "/e/scratch", "--partition=booster"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, combined)
+
+
+if __name__ == "__main__":
+    unittest.main()
