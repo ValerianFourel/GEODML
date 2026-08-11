@@ -1,0 +1,9 @@
+# HoreKa GPU additions. Install after creating the analysis environment.
+# PyTorch is intentionally not pinned here: retain the CUDA-compatible build
+# already installed for the cluster driver/toolchain.
+-r requirements.txt
+
+transformers>=4.45
+accelerate>=0.34
+bitsandbytes>=0.43
+sentence-transformers>=3.0

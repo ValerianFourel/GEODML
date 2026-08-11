@@ -12,6 +12,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SBATCH = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/run_latent_prompt_pilot.sbatch"
 SUBMIT = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/submit_latent_prompt_pilot.sh"
 MANIFEST = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/record_latent_run_manifest.py"
+GPU_REQUIREMENTS = REPOSITORY_ROOT / "analysis/requirements-horeka-gpu.txt"
 
 
 class HorekaLatentPromptJobTests(unittest.TestCase):
@@ -57,10 +58,17 @@ class HorekaLatentPromptJobTests(unittest.TestCase):
         self.assertIn("GEODML_REQUIRED_GPU_COUNT=4", job)
         self.assertIn("GEODML_DEVICE_MAP=balanced", job)
         self.assertIn('VISIBLE_GPU_COUNT" != "4"', job)
+        self.assertIn("import accelerate, bitsandbytes", job)
         self.assertIn("run_manifest.json", job)
         self.assertIn("git rev-parse HEAD", job)
         self.assertIn('srun --ntasks=1 python3 "${arguments[@]}"', job)
         self.assertTrue(MANIFEST.is_file())
+
+    def test_gpu_requirements_declare_sharding_dependencies(self) -> None:
+        requirements = GPU_REQUIREMENTS.read_text(encoding="utf-8")
+        self.assertIn("accelerate>=", requirements)
+        self.assertIn("bitsandbytes>=", requirements)
+        self.assertIn("transformers>=", requirements)
 
     def test_job_does_not_copy_juelich_specific_infrastructure(self) -> None:
         combined = SBATCH.read_text(encoding="utf-8") + SUBMIT.read_text(encoding="utf-8")

@@ -95,6 +95,7 @@ echo "[horeka] data_root=$GEODML_DATA_ROOT"
 echo "[horeka] output=$LATENT_PROMPT_PILOT_OUTPUT"
 echo "[horeka] venv=$GEODML_VENV"
 
+python3 -c 'import accelerate, bitsandbytes, torch, transformers; print(f"[horeka] dependencies accelerate={accelerate.__version__} bitsandbytes={bitsandbytes.__version__} torch={torch.__version__} transformers={transformers.__version__}")'
 VISIBLE_GPU_COUNT="$(python3 -c 'import torch; print(torch.cuda.device_count())')"
 if [[ "$VISIBLE_GPU_COUNT" != "4" ]]; then
     echo "Four-GPU contract violated: PyTorch sees $VISIBLE_GPU_COUNT GPUs, expected 4" >&2
@@ -111,7 +112,7 @@ fi
 if [[ "${LATENT_PROMPT_VALIDATE_ONLY:-0}" == "1" ]]; then
     echo "[horeka] validation only: no model weights will be loaded"
     python3 --version
-    python3 -c 'import numpy, pandas, torch, transformers, sentence_transformers; print("Python dependencies: OK")'
+    python3 -c 'import accelerate, bitsandbytes, numpy, pandas, torch, transformers, sentence_transformers; print("Python dependencies: OK")'
     python3 analysis/scripts/generate_latent_prompt_pilot.py --help >/dev/null
     if command -v nvidia-smi >/dev/null 2>&1; then
         nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader

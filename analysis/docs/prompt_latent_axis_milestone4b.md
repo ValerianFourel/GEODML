@@ -119,6 +119,13 @@ job. It checks the virtual environment, cached SERP table, Python dependencies,
 CLI import, and the four allocated GPUs without loading model weights:
 
 ```bash
+python3 -m pip install -r analysis/requirements-horeka-gpu.txt
+```
+
+The GPU requirements add Accelerate and bitsandbytes while retaining the
+CUDA-compatible PyTorch build already installed in the cluster environment.
+
+```bash
 export HOREKA_ACCOUNT=YOUR_HOREKA_PROJECT_ACCOUNT
 export GEODML_VENV="$PWD/.venv311"
 export GEODML_DATA_ROOT="$PWD/geodml_data"
