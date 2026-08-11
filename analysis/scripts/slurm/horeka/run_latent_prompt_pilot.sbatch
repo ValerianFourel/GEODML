@@ -1,11 +1,11 @@
 #!/bin/bash -l
 # HoreKa GPU job for the query-conditioned informational-to-transactional
-# latent-prompt pilot. Account, partition and GPU count are supplied by the
-# submission helper rather than hard-coded here.
+# latent-prompt pilot. The scientific cluster path always uses four GPUs.
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
+#SBATCH --gres=gpu:4
 #SBATCH --time=02:00:00
 #SBATCH --job-name=geodml-latent-prompts
 #SBATCH --output=logs/%x-%j.out
@@ -42,6 +42,9 @@ export HF_HOME="${HF_HOME:-$REPOSITORY_ROOT/.cache/huggingface}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+export GEODML_REQUIRED_GPU_COUNT=4
+export GEODML_DEVICE_MAP=balanced
+export GEODML_ATTENTION_IMPLEMENTATION="${GEODML_ATTENTION_IMPLEMENTATION:-sdpa}"
 
 export EMBEDDING_MODEL="${EMBEDDING_MODEL:-all-MiniLM-L6-v2}"
 export EMBEDDING_DEVICE="${EMBEDDING_DEVICE:-cpu}"
@@ -91,6 +94,13 @@ echo "[horeka] commit=$(git rev-parse HEAD)"
 echo "[horeka] data_root=$GEODML_DATA_ROOT"
 echo "[horeka] output=$LATENT_PROMPT_PILOT_OUTPUT"
 echo "[horeka] venv=$GEODML_VENV"
+
+VISIBLE_GPU_COUNT="$(python3 -c 'import torch; print(torch.cuda.device_count())')"
+if [[ "$VISIBLE_GPU_COUNT" != "4" ]]; then
+    echo "Four-GPU contract violated: PyTorch sees $VISIBLE_GPU_COUNT GPUs, expected 4" >&2
+    exit 2
+fi
+echo "[horeka] four-GPU contract satisfied; device_map=$GEODML_DEVICE_MAP attention=$GEODML_ATTENTION_IMPLEMENTATION"
 
 SERP_TABLE="$GEODML_DATA_ROOT/data/serp/phase0_top${LATENT_PROMPT_POOL}_${LATENT_PROMPT_ENGINE}.parquet"
 if [[ ! -f "$SERP_TABLE" ]]; then

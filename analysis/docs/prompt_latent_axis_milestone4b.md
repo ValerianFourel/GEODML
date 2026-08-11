@@ -116,7 +116,7 @@ settings.
 
 After pulling the exact Git commit on HoreKa, first submit a short validation
 job. It checks the virtual environment, cached SERP table, Python dependencies,
-CLI import, and allocated GPU without loading model weights:
+CLI import, and the four allocated GPUs without loading model weights:
 
 ```bash
 export HOREKA_ACCOUNT=YOUR_HOREKA_PROJECT_ACCOUNT
@@ -136,7 +136,7 @@ export HOREKA_ACCOUNT=YOUR_HOREKA_PROJECT_ACCOUNT
 export PROMPT_GENERATOR_MODEL=/path/to/cached/instruction-model
 export HF_HOME=/path/to/huggingface-cache
 export HOREKA_PARTITION=accelerated
-export HOREKA_GPUS=2
+export HOREKA_GPUS=4
 export HOREKA_CPUS=16
 export HOREKA_TIME=02:00:00
 export GEODML_VENV="$PWD/.venv311"
@@ -147,10 +147,26 @@ bash analysis/scripts/slurm/horeka/submit_latent_prompt_pilot.sh
 ```
 
 `HOREKA_MODULES` may contain a space-separated module list when the local venv
-depends on cluster modules; it is empty by default. For a smaller model, one GPU
-may be sufficient. The default two-GPU generation request is intended for a
-large 4-bit model; full-precision 70B-class generation generally needs more
-memory and must be requested explicitly.
+depends on cluster modules; it is empty by default. This HoreKa workflow always
+requests and runtime-validates exactly four GPUs. The local Hugging Face loader
+uses a balanced Accelerate device map, equal per-GPU memory budgets, SDPA
+attention, inference mode, KV caching, and TF32 where applicable. A non-four-GPU
+override is rejected rather than silently changing the compute design.
+
+For interactive debugging, request the same four-GPU contract on the development
+partition and then invoke the job body from the allocated node:
+
+```bash
+salloc --account="$HOREKA_ACCOUNT" \
+  --partition=dev_accelerated \
+  --nodes=1 --ntasks=1 --cpus-per-task=16 \
+  --gres=gpu:4 --time=01:00:00
+
+bash analysis/scripts/slurm/horeka/run_latent_prompt_pilot.sbatch
+```
+
+The development partition is for smoke tests only. Production generation still
+uses the submission helper and the regular `accelerated` partition.
 
 The job records `run_manifest.json` in its output directory with the Git SHA,
 configuration, model identifiers, seeds, Slurm allocation, timestamps, log

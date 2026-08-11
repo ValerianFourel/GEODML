@@ -93,6 +93,11 @@ def main() -> int:
             "hf_hub_offline": os.environ.get("HF_HUB_OFFLINE"),
             "transformers_offline": os.environ.get("TRANSFORMERS_OFFLINE"),
             "modules": os.environ.get("HOREKA_MODULES"),
+            "required_gpu_count": os.environ.get("GEODML_REQUIRED_GPU_COUNT"),
+            "device_map": os.environ.get("GEODML_DEVICE_MAP"),
+            "attention_implementation": os.environ.get(
+                "GEODML_ATTENTION_IMPLEMENTATION"
+            ),
         },
         "slurm": {
             key: os.environ.get(environment_name)

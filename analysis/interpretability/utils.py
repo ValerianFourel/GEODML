@@ -313,16 +313,19 @@ def multi_gpu_load_kwargs(
     reserve_gib_per_gpu: float = 8.0,
     cpu_offload_gib: int = 64,
     output_hidden_states: bool = False,
+    device_map_strategy: str = "auto",
+    required_gpu_count: int | None = None,
 ) -> dict:
     """Build `from_pretrained` kwargs that shard a model across visible GPUs.
 
-    Sets `device_map="auto"` plus a `max_memory` budget that reserves
+    Sets a configurable Accelerate device map plus a `max_memory` budget that reserves
     `reserve_gib_per_gpu` on each device for activations / KV cache / grads.
     On 4-GPU SLURM jobs (`--gres=gpu:4`), this forces accelerate to spread a
     70B-bf16 (~140 GB) or a saliency forward+backward across multiple cards
     instead of OOMing on cuda:0.
 
-    Single-GPU and CPU paths are unchanged.
+    `required_gpu_count` provides an explicit cluster-job contract without
+    changing the single-GPU and CPU behavior of other callers.
     """
     import torch
 
@@ -331,11 +334,22 @@ def multi_gpu_load_kwargs(
         kw["output_hidden_states"] = True
 
     if not torch.cuda.is_available():
+        if required_gpu_count is not None:
+            raise RuntimeError(
+                f"required {required_gpu_count} CUDA GPUs, but CUDA is unavailable"
+            )
         kw["torch_dtype"] = torch.float32
         return kw
 
     n_gpus = torch.cuda.device_count()
-    kw["device_map"] = "auto"
+    if required_gpu_count is not None and n_gpus != required_gpu_count:
+        raise RuntimeError(
+            f"required exactly {required_gpu_count} CUDA GPUs, but PyTorch sees {n_gpus}"
+        )
+    if device_map_strategy not in ("auto", "balanced", "balanced_low_0", "sequential"):
+        raise ValueError(f"unsupported device-map strategy: {device_map_strategy!r}")
+    kw["device_map"] = device_map_strategy
+    kw["low_cpu_mem_usage"] = True
 
     if n_gpus > 1:
         budgets: dict = {}
@@ -456,16 +470,44 @@ class LocalRanker:
         if self.tok.pad_token_id is None:
             self.tok.pad_token = self.tok.eos_token
 
-        kw = multi_gpu_load_kwargs(quantize=quantize)
+        required_gpu_text = os.getenv("GEODML_REQUIRED_GPU_COUNT")
+        required_gpu_count = int(required_gpu_text) if required_gpu_text else None
+        device_map_strategy = os.getenv("GEODML_DEVICE_MAP", "auto")
+        attention_implementation = os.getenv("GEODML_ATTENTION_IMPLEMENTATION")
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            if hasattr(torch.backends, "cudnn"):
+                torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+        kw = multi_gpu_load_kwargs(
+            quantize=quantize,
+            device_map_strategy=device_map_strategy,
+            required_gpu_count=required_gpu_count,
+        )
+        if attention_implementation:
+            kw["attn_implementation"] = attention_implementation
         if not torch.cuda.is_available():
             kw["torch_dtype"] = getattr(torch, dtype, torch.float32)
         print(
-            f"[LocalRanker] model={model} precision={'4bit-nf4' if quantize else 'bf16-full'}",
+            f"[LocalRanker] model={model} precision={'4bit-nf4' if quantize else 'bf16-full'} "
+            f"device_map={device_map_strategy} attention={attention_implementation or 'model-default'}",
             flush=True,
         )
         self.model = AutoModelForCausalLM.from_pretrained(model, **kw)
         self.model.eval()
         log_device_map(self.model, prefix="[LocalRanker]")
+        if required_gpu_count is not None:
+            device_map = getattr(self.model, "hf_device_map", {})
+            used_gpu_indices = {
+                int(str(device).removeprefix("cuda:"))
+                for device in device_map.values()
+                if str(device).removeprefix("cuda:").isdigit()
+            }
+            if len(used_gpu_indices) != required_gpu_count:
+                raise RuntimeError(
+                    "model did not span the required GPUs: "
+                    f"required={required_gpu_count}, used={sorted(used_gpu_indices)}"
+                )
         self.device = next(self.model.parameters()).device
         self._has_chat_template = bool(getattr(self.tok, "chat_template", None))
 
@@ -495,7 +537,7 @@ class LocalRanker:
         if attention_mask is not None:
             attention_mask = attention_mask.to(self.device)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             out = self.model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -503,6 +545,7 @@ class LocalRanker:
                 do_sample=temperature > 0,
                 temperature=max(temperature, 1e-5),
                 top_p=1.0,
+                use_cache=True,
                 pad_token_id=self.tok.eos_token_id,
             )
         # Strip the prompt tokens — only return the generated continuation.

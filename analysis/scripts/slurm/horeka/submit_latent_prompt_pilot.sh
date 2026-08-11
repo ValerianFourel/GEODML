@@ -11,9 +11,12 @@ Required for generation:
   PROMPT_GENERATOR_MODEL  Cached Hugging Face model ID or local model path
 
 Common overrides:
-  HOREKA_PARTITION, HOREKA_GPUS, HOREKA_CPUS, HOREKA_TIME
+  HOREKA_PARTITION, HOREKA_CPUS, HOREKA_TIME
   GEODML_VENV, GEODML_DATA_ROOT, HF_HOME, HOREKA_MODULES
   LATENT_PROMPT_PILOT_OUTPUT and LATENT_PROMPT_* experiment variables
+
+This workflow always requests exactly four GPUs. HOREKA_GPUS values other than
+4 are rejected.
 EOF
 }
 
@@ -42,15 +45,18 @@ mkdir -p logs
 if [[ $validate_only -eq 1 ]]; then
     export LATENT_PROMPT_VALIDATE_ONLY=1
     : "${HOREKA_PARTITION:=dev_accelerated}"
-    : "${HOREKA_GPUS:=1}"
     : "${HOREKA_TIME:=00:15:00}"
 else
     export LATENT_PROMPT_VALIDATE_ONLY=0
     : "${HOREKA_PARTITION:=accelerated}"
-    : "${HOREKA_GPUS:=2}"
     : "${HOREKA_TIME:=02:00:00}"
 fi
 : "${HOREKA_CPUS:=16}"
+if [[ -n "${HOREKA_GPUS:-}" && "$HOREKA_GPUS" != "4" ]]; then
+    echo "HOREKA_GPUS must be 4 for the four-GPU latent-prompt workflow" >&2
+    exit 2
+fi
+HOREKA_GPUS=4
 
 export HOREKA_PARTITION HOREKA_GPUS HOREKA_TIME HOREKA_CPUS
 export GEODML_VENV="${GEODML_VENV:-$repository_root/.venv311}"
