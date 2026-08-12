@@ -1,0 +1,6 @@
+# Optional dependency set for the decodable latent-axis feasibility run.
+# Keep this separate from the existing reranking environment until the
+# experiment is accepted: llm2vec-gen brings its own Transformers/PEFT stack.
+-r requirements-horeka-gpu.txt
+
+llm2vec-gen==0.1.0
