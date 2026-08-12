@@ -17,7 +17,10 @@ ANALYSIS_ROOT = Path(__file__).resolve().parents[1]
 if str(ANALYSIS_ROOT) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_ROOT))
 
-from analysis.interpretability.utils import multi_gpu_load_kwargs
+from analysis.interpretability.utils import (
+    multi_gpu_load_kwargs,
+    validate_cuda_device_map,
+)
 
 
 def _fake_torch(gpu_count: int):
@@ -55,6 +58,27 @@ class MultiGpuLoadingTests(unittest.TestCase):
         with patch.dict(sys.modules, {"torch": _fake_torch(4)}):
             with self.assertRaisesRegex(ValueError, "unsupported device-map"):
                 multi_gpu_load_kwargs(device_map_strategy="not-a-strategy")
+
+    def test_partial_automatic_placement_is_valid(self) -> None:
+        used = validate_cuda_device_map(
+            {"model.layers.0": 1, "model.layers.1": "cuda:2", "lm_head": 3},
+            visible_gpu_count=4,
+        )
+        self.assertEqual(used, {1, 2, 3})
+
+    def test_cpu_only_automatic_placement_is_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "did not use any CUDA GPU"):
+            validate_cuda_device_map(
+                {"model": "cpu"},
+                visible_gpu_count=4,
+            )
+
+    def test_unavailable_device_in_automatic_placement_is_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "unavailable CUDA GPUs"):
+            validate_cuda_device_map(
+                {"model": "cuda:4"},
+                visible_gpu_count=4,
+            )
 
 
 if __name__ == "__main__":

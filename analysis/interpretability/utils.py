@@ -320,12 +320,13 @@ def multi_gpu_load_kwargs(
 
     Sets a configurable Accelerate device map plus a `max_memory` budget that reserves
     `reserve_gib_per_gpu` on each device for activations / KV cache / grads.
-    On 4-GPU SLURM jobs (`--gres=gpu:4`), this forces accelerate to spread a
+    On 4-GPU SLURM jobs (`--gres=gpu:4`), this lets Accelerate spread a
     70B-bf16 (~140 GB) or a saliency forward+backward across multiple cards
-    instead of OOMing on cuda:0.
+    instead of OOMing on cuda:0. Smaller models may validly use only a subset
+    of the visible devices.
 
-    `required_gpu_count` provides an explicit cluster-job contract without
-    changing the single-GPU and CPU behavior of other callers.
+    `required_gpu_count` validates the number of GPUs visible to the process;
+    it does not require Accelerate to place model weights on every GPU.
     """
     import torch
 
@@ -408,6 +409,31 @@ def log_device_map(model, prefix: str = "[load]") -> None:
             print(f"{prefix}   cuda:{i} allocated={mem:.2f} GiB")
     except Exception:
         pass
+
+
+def validate_cuda_device_map(device_map: dict, visible_gpu_count: int) -> set[int]:
+    """Validate that an automatic device map uses available CUDA devices.
+
+    Accelerate is free to leave allocated GPUs unused when the model is small
+    enough. The allocation contract therefore concerns CUDA visibility, while
+    this post-load check only rejects CPU-only maps and impossible GPU indices.
+    """
+    used_gpu_indices = {
+        int(str(device).removeprefix("cuda:"))
+        for device in device_map.values()
+        if str(device).removeprefix("cuda:").isdigit()
+    }
+    if not used_gpu_indices:
+        raise RuntimeError("model device map did not use any CUDA GPU")
+    invalid_gpu_indices = {
+        index for index in used_gpu_indices if not 0 <= index < visible_gpu_count
+    }
+    if invalid_gpu_indices:
+        raise RuntimeError(
+            "model device map referenced unavailable CUDA GPUs: "
+            f"visible={visible_gpu_count}, used={sorted(used_gpu_indices)}"
+        )
+    return used_gpu_indices
 
 
 # ---------------------------------------------------------------------------
@@ -498,15 +524,16 @@ class LocalRanker:
         log_device_map(self.model, prefix="[LocalRanker]")
         if required_gpu_count is not None:
             device_map = getattr(self.model, "hf_device_map", {})
-            used_gpu_indices = {
-                int(str(device).removeprefix("cuda:"))
-                for device in device_map.values()
-                if str(device).removeprefix("cuda:").isdigit()
-            }
-            if len(used_gpu_indices) != required_gpu_count:
-                raise RuntimeError(
-                    "model did not span the required GPUs: "
-                    f"required={required_gpu_count}, used={sorted(used_gpu_indices)}"
+            used_gpu_indices = validate_cuda_device_map(
+                device_map,
+                visible_gpu_count=required_gpu_count,
+            )
+            if len(used_gpu_indices) < required_gpu_count:
+                print(
+                    "[LocalRanker] automatic placement used a subset of visible GPUs: "
+                    f"visible={required_gpu_count}, used={sorted(used_gpu_indices)}; "
+                    "valid for models that do not require every allocated GPU",
+                    flush=True,
                 )
         self.device = next(self.model.parameters()).device
         self._has_chat_template = bool(getattr(self.tok, "chat_template", None))

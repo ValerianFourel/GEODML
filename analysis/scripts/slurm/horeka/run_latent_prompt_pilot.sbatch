@@ -101,7 +101,7 @@ if [[ "$VISIBLE_GPU_COUNT" != "4" ]]; then
     echo "Four-GPU contract violated: PyTorch sees $VISIBLE_GPU_COUNT GPUs, expected 4" >&2
     exit 2
 fi
-echo "[horeka] four-GPU contract satisfied; device_map=$GEODML_DEVICE_MAP attention=$GEODML_ATTENTION_IMPLEMENTATION"
+echo "[horeka] four-GPU visibility contract satisfied; device_map=$GEODML_DEVICE_MAP attention=$GEODML_ATTENTION_IMPLEMENTATION"
 
 SERP_TABLE="$GEODML_DATA_ROOT/data/serp/phase0_top${LATENT_PROMPT_POOL}_${LATENT_PROMPT_ENGINE}.parquet"
 if [[ ! -f "$SERP_TABLE" ]]; then

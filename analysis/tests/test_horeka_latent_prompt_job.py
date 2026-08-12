@@ -58,6 +58,7 @@ class HorekaLatentPromptJobTests(unittest.TestCase):
         self.assertIn("GEODML_REQUIRED_GPU_COUNT=4", job)
         self.assertIn("GEODML_DEVICE_MAP=balanced", job)
         self.assertIn('VISIBLE_GPU_COUNT" != "4"', job)
+        self.assertIn("four-GPU visibility contract satisfied", job)
         self.assertIn("import accelerate, bitsandbytes", job)
         self.assertIn("run_manifest.json", job)
         self.assertIn("git rev-parse HEAD", job)
