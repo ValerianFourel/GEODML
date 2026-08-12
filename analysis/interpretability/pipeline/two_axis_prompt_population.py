@@ -949,6 +949,7 @@ class LocalLLMTwoAxisCandidateGenerator:
         }
         cache_key = _hash(json.dumps(cache_identity, sort_keys=True, separators=(",", ":")))
         cache_path = self.cache_directory / f"{cache_key}.json"
+        failure_path = self.cache_directory / f"{cache_key}.failed.json"
         if cache_path.exists():
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
             return tuple(
@@ -996,10 +997,19 @@ class LocalLLMTwoAxisCandidateGenerator:
                 },
             )
             return rows
+        _atomic_json(
+            failure_path,
+            {
+                "cache_identity": cache_identity,
+                "failure": "structural-or-semantic-validation-exhausted",
+                "rejected_attempts": failures,
+            },
+        )
         raise ValueError(
             "local candidate generator failed structural JSON validation after "
             f"{self.maximum_attempts} attempts: "
             + "; ".join(str(item["error"]) for item in failures)
+            + f"; rejected outputs: {failure_path}"
         )
 
 
@@ -1070,6 +1080,7 @@ class LocalLLMPairwiseJudge:
         }
         cache_key = _hash(json.dumps(cache_identity, sort_keys=True, separators=(",", ":")))
         cache_path = self.cache_directory / f"{cache_key}.json"
+        failure_path = self.cache_directory / f"{cache_key}.failed.json"
         if cache_path.exists():
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
             label = payload["winner"]
@@ -1095,9 +1106,17 @@ class LocalLLMPairwiseJudge:
                         {"attempt": attempt + 1, "error": str(exc), "raw": raw}
                     )
             if label is None:
+                _atomic_json(
+                    failure_path,
+                    {
+                        "cache_identity": cache_identity,
+                        "failure": "pairwise-json-validation-exhausted",
+                        "rejected_attempts": rejected,
+                    },
+                )
                 raise ValueError(
                     f"judge {self.judge_id} failed JSON validation after "
-                    f"{self.maximum_attempts} attempts"
+                    f"{self.maximum_attempts} attempts; rejected outputs: {failure_path}"
                 )
             _atomic_json(
                 cache_path,
@@ -1609,10 +1628,16 @@ def _candidate_retry_instruction() -> str:
 def _parse_generated_candidate_clauses(
     raw_model_output: str, expected_count: int
 ) -> tuple[tuple[str, str], ...]:
-    try:
-        payload = json.loads(raw_model_output.strip())
-    except json.JSONDecodeError as exc:
-        raise ValueError("invalid JSON") from exc
+    payloads = [
+        value
+        for value in _embedded_json_values(raw_model_output)
+        if isinstance(value, dict) and set(value) == {"candidates"}
+    ]
+    if not payloads:
+        raise ValueError("no schema-shaped candidate JSON object")
+    if len(payloads) > 1:
+        raise ValueError("multiple candidate JSON objects are ambiguous")
+    payload = payloads[0]
     if not isinstance(payload, dict) or set(payload) != {"candidates"}:
         raise ValueError("JSON must contain only the candidates field")
     values = payload["candidates"]
@@ -1687,16 +1712,45 @@ Return JSON only: {{"winner":"left"}}, {{"winner":"right"}}, or {{"winner":"tie"
 
 
 def _parse_pairwise_winner(raw_model_output: str) -> str:
-    try:
-        payload = json.loads(raw_model_output.strip())
-    except json.JSONDecodeError as exc:
-        raise ValueError("pairwise judge returned invalid JSON") from exc
+    payloads = [
+        value
+        for value in _embedded_json_values(raw_model_output)
+        if isinstance(value, dict) and set(value) == {"winner"}
+    ]
+    if not payloads:
+        raise ValueError("pairwise judge returned no schema-shaped JSON object")
+    if len(payloads) > 1:
+        raise ValueError("pairwise judge returned multiple ambiguous JSON objects")
+    payload = payloads[0]
     if not isinstance(payload, dict) or set(payload) != {"winner"}:
         raise ValueError("pairwise judge returned an invalid JSON shape")
     winner = payload["winner"]
     if winner not in {"left", "right", "tie"}:
         raise ValueError("pairwise judge winner must be left, right, or tie")
     return str(winner)
+
+
+def _embedded_json_values(raw_model_output: str) -> tuple[object, ...]:
+    """Extract complete JSON values while ignoring transport-level wrappers.
+
+    Qwen3 may surround an otherwise valid answer with a thinking block or a
+    Markdown fence.  The scientific schema remains strict: callers accept
+    exactly one object with their expected top-level key.
+    """
+
+    decoder = json.JSONDecoder()
+    values: list[object] = []
+    consumed_until = -1
+    for index, character in enumerate(raw_model_output):
+        if character not in "[{" or index < consumed_until:
+            continue
+        try:
+            value, relative_end = decoder.raw_decode(raw_model_output[index:])
+        except json.JSONDecodeError:
+            continue
+        values.append(value)
+        consumed_until = index + relative_end
+    return tuple(values)
 
 
 def _seeded_local_generation(
@@ -1719,6 +1773,7 @@ def _seeded_local_generation(
                 prompt,
                 max_tokens=max_new_tokens,
                 temperature=temperature,
+                chat_template_kwargs={"enable_thinking": False},
             )
         ).strip()
 

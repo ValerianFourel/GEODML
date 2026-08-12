@@ -89,6 +89,11 @@ keeping their model lifetimes separate:
    never decodes a reconstruction state.
 
 All local-model outputs are cached by stable request/model/configuration hashes.
+For Qwen3 structured requests, thinking is disabled through the chat template.
+Transport wrappers such as a residual thinking block or Markdown JSON fence are
+ignored only when they contain exactly one unambiguous schema-valid object. If
+all retries fail, the raw responses and validation errors are retained in a
+`*.failed.json` cache artifact named in the exception.
 Assigned A1/A2 remain treatments; Bradley--Terry and LLM2Vec values remain
 manipulation checks. Start with a 3×3×1 development run. A 7×7×24 run is a
 later scale-up after examining every selected prompt and judge disagreement.

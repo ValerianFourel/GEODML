@@ -40,8 +40,16 @@ class _StaticRanker:
         self.outputs = list(outputs)
         self.call_count = 0
 
-    def rank(self, prompt, max_tokens=500, temperature=0.1):
+    def rank(
+        self,
+        prompt,
+        max_tokens=500,
+        temperature=0.1,
+        *,
+        chat_template_kwargs=None,
+    ):
         del prompt, max_tokens, temperature
+        self.chat_template_kwargs = chat_template_kwargs
         self.call_count += 1
         return self.outputs.pop(0)
 
@@ -51,9 +59,21 @@ class _RecordingRanker(_StaticRanker):
         super().__init__(outputs)
         self.prompts = []
 
-    def rank(self, prompt, max_tokens=500, temperature=0.1):
+    def rank(
+        self,
+        prompt,
+        max_tokens=500,
+        temperature=0.1,
+        *,
+        chat_template_kwargs=None,
+    ):
         self.prompts.append(prompt)
-        return super().rank(prompt, max_tokens=max_tokens, temperature=temperature)
+        return super().rank(
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            chat_template_kwargs=chat_template_kwargs,
+        )
 
 
 def _pipeline():
@@ -156,8 +176,70 @@ class CandidatePopulationTests(unittest.TestCase):
             )
             self.assertEqual(generator.generate(request), generator.generate(request))
             self.assertEqual(ranker.call_count, 1)
+            self.assertEqual(ranker.chat_template_kwargs, {"enable_thinking": False})
             cached = list(Path(directory).glob("*.json"))
             self.assertEqual(len(cached), 1)
+
+    def test_real_generator_extracts_fenced_json_after_thinking(self) -> None:
+        payload = {
+            "candidates": [
+                {
+                    "search_objective_clause": "Understand the category without selecting a product.",
+                    "source_preference_clause": "Conditional on equal topical relevance, prefer independent evidence.",
+                },
+                {
+                    "search_objective_clause": "Learn the category mechanisms before evaluating products.",
+                    "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
+                },
+            ]
+        }
+        wrapped = "<think>check the constraints</think>\n```json\n" + json.dumps(payload) + "\n```"
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _StaticRanker([wrapped])
+            generator = LocalLLMTwoAxisCandidateGenerator(
+                ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+                temperature=0.0,
+            )
+            request = TwoAxisCandidateRequest(
+                assigned_a1=0.5,
+                assigned_a2=0.5,
+                style_seed=2,
+                generation_seed=4,
+                number_candidates=2,
+                generator_model="test-generator",
+            )
+            self.assertEqual(len(generator.generate(request)), 2)
+            self.assertEqual(ranker.call_count, 1)
+
+    def test_real_generator_preserves_raw_outputs_after_exhausted_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _StaticRanker(["not json", "still not json"])
+            generator = LocalLLMTwoAxisCandidateGenerator(
+                ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+                temperature=0.0,
+                maximum_attempts=2,
+            )
+            request = TwoAxisCandidateRequest(
+                assigned_a1=0.5,
+                assigned_a2=0.5,
+                style_seed=2,
+                generation_seed=4,
+                number_candidates=2,
+                generator_model="test-generator",
+            )
+            with self.assertRaisesRegex(ValueError, "rejected outputs"):
+                generator.generate(request)
+            failed = list(Path(directory).glob("*.failed.json"))
+            self.assertEqual(len(failed), 1)
+            payload = json.loads(failed[0].read_text(encoding="utf-8"))
+            self.assertEqual(
+                [item["raw"] for item in payload["rejected_attempts"]],
+                ["not json", "still not json"],
+            )
 
     def test_real_generator_retries_an_off_axis_candidate(self) -> None:
         invalid = {
@@ -269,6 +351,34 @@ class PairwiseCalibrationTests(unittest.TestCase):
             self.assertEqual(ranker.call_count, 1)
             self.assertIn('Search term: "abandoned cart recovery"', ranker.prompts[0])
             self.assertNotIn('Search term: "{QUERY}"', ranker.prompts[0])
+
+    def test_real_judge_extracts_json_after_thinking(self) -> None:
+        candidates, *_ = _pipeline()
+        left, right = candidates[0], candidates[1]
+        request = PairwiseComparisonRequest(
+            comparison_id="comparison-wrapped",
+            axis="A1",
+            style_seed=left.style_seed,
+            fixed_coordinate=left.assigned_a2,
+            left_candidate_id=left.candidate_id,
+            right_candidate_id=right.candidate_id,
+            presentation_order="forward",
+            comparison_kind="within-cell",
+            question="Which is more decision-ready?",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _RecordingRanker(
+                ['<think>compare only A1</think>\n```json\n{"winner":"right"}\n```']
+            )
+            judge = LocalLLMPairwiseJudge(
+                ranker,
+                judge_id="judge-one",
+                model_name="test-judge",
+                cache_directory=directory,
+            )
+            mapping = {left.candidate_id: left, right.candidate_id: right}
+            self.assertEqual(judge.compare(request, mapping), right.candidate_id)
+            self.assertEqual(ranker.chat_template_kwargs, {"enable_thinking": False})
 
 
 class GlobalSelectionTests(unittest.TestCase):

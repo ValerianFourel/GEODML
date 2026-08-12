@@ -10,7 +10,7 @@ import tarfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -538,14 +538,29 @@ class LocalRanker:
         self.device = next(self.model.parameters()).device
         self._has_chat_template = bool(getattr(self.tok, "chat_template", None))
 
-    def rank(self, prompt: str, max_tokens: int = 500, temperature: float = 0.1) -> str:
+    def rank(
+        self,
+        prompt: str,
+        max_tokens: int = 500,
+        temperature: float = 0.1,
+        *,
+        chat_template_kwargs: Mapping[str, object] | None = None,
+    ) -> str:
         import torch
 
         attention_mask = None
         if self._has_chat_template:
             messages = [{"role": "user", "content": prompt}]
+            template_kwargs = dict(chat_template_kwargs or {})
+            if chat_template_kwargs is not None:
+                # Structured-generation callers need an attention mask when a
+                # model (including Qwen3) uses the EOS token for padding.
+                template_kwargs["return_dict"] = True
             tok_out = self.tok.apply_chat_template(
-                messages, add_generation_prompt=True, return_tensors="pt"
+                messages,
+                add_generation_prompt=True,
+                return_tensors="pt",
+                **template_kwargs,
             )
             # Some transformers versions (>= 4.45) return a BatchEncoding here
             # instead of a raw Tensor; passing the dict to model.generate then
