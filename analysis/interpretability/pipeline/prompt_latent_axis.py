@@ -503,13 +503,20 @@ def _parse_prompt_candidates(
             if placeholder not in template:
                 raise ValueError(f"prompt candidate {index} lacks {placeholder}")
         lowered = template.lower()
-        if not _has_identifier_only_contract(lowered):
+        has_identifier_only_contract = _has_identifier_only_contract(lowered)
+        if not has_identifier_only_contract:
             raise ValueError(
                 f"prompt candidate {index} lacks identifier-only contract; "
                 f"candidate preview={template[:240]!r}"
             )
-        if not re.search(r"no explanation|do not (?:provide|include) an explanation", lowered):
-            raise ValueError(f"prompt candidate {index} permits explanations")
+        if not _prohibits_explanations(
+            lowered,
+            has_identifier_only_contract=has_identifier_only_contract,
+        ):
+            raise ValueError(
+                f"prompt candidate {index} permits explanations; "
+                f"candidate preview={template[:240]!r}"
+            )
         for pattern in _OFF_AXIS_PATTERNS:
             if re.search(pattern, lowered):
                 raise ValueError(f"prompt candidate {index} introduces off-axis criterion")
@@ -533,16 +540,45 @@ def _parse_prompt_candidates(
 
 def _has_identifier_only_contract(lowered_template: str) -> bool:
     """Recognize equivalent identifier-only output-contract wording."""
-    identifier = r"(?:candidate\s+)?(?:identifiers?|ids?)"
+    identifier = (
+        r"(?:(?:candidate|option|result|document|item)\s+)?(?:identifiers?|ids?)"
+    )
+    output_verb = r"(?:provide|return|output|list|give|emit)"
     return bool(
         re.search(rf"\b{identifier}\s+only\b", lowered_template)
         or re.search(rf"\bonly\s+(?:the\s+)?{identifier}\b", lowered_template)
+        or re.search(
+            rf"\bonly\s+{output_verb}\b.{{0,100}}\b{identifier}\b",
+            lowered_template,
+        )
+        or re.search(
+            rf"\b{output_verb}\s+only\b.{{0,100}}\b{identifier}\b",
+            lowered_template,
+        )
         or re.search(
             rf"\b{identifier}\b.{{0,80}}\b(?:nothing else|no (?:other|additional|extra) "
             r"(?:text|content))\b",
             lowered_template,
         )
     )
+
+
+def _prohibits_explanations(
+    lowered_template: str, *, has_identifier_only_contract: bool
+) -> bool:
+    """Require an explicit or logically equivalent no-explanation contract."""
+    explicit_prohibition = re.search(
+        r"\b(?:no explanations?|without (?:an?\s+)?explanations?|"
+        r"do not (?:provide|include|add) (?:an?\s+)?explanations?)\b",
+        lowered_template,
+    )
+    if explicit_prohibition:
+        return True
+    affirmative_explanation = re.search(
+        r"\b(?:explain|explanation|reasoning|rationale|reasons?)\b",
+        lowered_template,
+    )
+    return has_identifier_only_contract and not affirmative_explanation
 
 
 def _load_provider_json(raw_output: str) -> object:

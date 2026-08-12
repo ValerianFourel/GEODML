@@ -193,6 +193,46 @@ class LatentPromptSelectionTests(unittest.TestCase):
         )
         self.assertEqual(len(record.candidate_projections), 3)
 
+    def test_only_provide_option_ids_is_valid_output_contract_wording(self) -> None:
+        class OptionIdsProvider:
+            backend_name = "option-ids"
+
+            def generate(self, request_text, generation_config):
+                templates = [
+                    "For {QUERY}, rerank {CANDIDATES}. Only provide the top "
+                    f"{{TOP_N}} option IDs. Variation {index}."
+                    for index in range(3)
+                ]
+                return json.dumps({"prompt_templates": templates})
+
+        record = generate_prompt_at_coordinate(
+            _request(),
+            axis=_axis(),
+            provider=OptionIdsProvider(),
+            embedder=FakePromptEmbedder(),
+        )
+        self.assertEqual(len(record.candidate_projections), 3)
+
+    def test_identifier_only_contract_cannot_request_explanations(self) -> None:
+        class ContradictoryProvider:
+            backend_name = "contradictory"
+
+            def generate(self, request_text, generation_config):
+                templates = [
+                    "For {QUERY}, rerank {CANDIDATES}. Return exactly {TOP_N} "
+                    f"candidate IDs only and explain the ranking. Variation {index}."
+                    for index in range(3)
+                ]
+                return json.dumps({"prompt_templates": templates})
+
+        with self.assertRaisesRegex(ValueError, "permits explanations"):
+            generate_prompt_at_coordinate(
+                _request(),
+                axis=_axis(),
+                provider=ContradictoryProvider(),
+                embedder=FakePromptEmbedder(),
+            )
+
     def test_off_axis_prompt_is_rejected(self) -> None:
         class OffAxisProvider:
             backend_name = "off-axis"
