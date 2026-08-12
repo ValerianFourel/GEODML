@@ -24,6 +24,7 @@ LLM2VEC_GEN_AXIS_VERSION = "llm2vec-gen-search-purpose-axis-v1"
 ENCODING_INSTRUCTION_VERSION = "reranking-template-reconstruction-v1"
 QUERY_CONDITIONED_ENDPOINT_VERSION = "query-conditioned-search-purpose-v1"
 QUERY_CENTROID_AXIS_VERSION = "query-conditioned-info-buy-centroid-v1"
+SOURCE_OWNERSHIP_AXIS_VERSION = "query-conditioned-source-ownership-axis-v1"
 ENCODING_INSTRUCTION = (
     "Generate the reusable listwise search-reranking instruction given below. "
     "Preserve its meaning and the literal placeholders {QUERY}, {CANDIDATES}, "
@@ -36,6 +37,7 @@ __all__ = [
     "LLM2VEC_GEN_AXIS_VERSION",
     "QUERY_CONDITIONED_ENDPOINT_VERSION",
     "QUERY_CENTROID_AXIS_VERSION",
+    "SOURCE_OWNERSHIP_AXIS_VERSION",
     "DecodableAxis",
     "anchor_query_to_decoded_text",
     "axis_geometry_diagnostics",
@@ -43,6 +45,7 @@ __all__ = [
     "build_encoding_text",
     "build_query_conditioned_requests",
     "build_query_centroid_requests",
+    "build_source_ownership_requests",
     "build_realization_reconstruction_text",
     "clean_decoded_realization",
     "decode_record_checks",
@@ -206,6 +209,60 @@ def build_query_centroid_requests(
     return informational, buy
 
 
+def build_source_ownership_requests(
+    query: str, specification: dict[str, object]
+) -> dict[str, list[dict[str, str]]]:
+    """Fill matched seller-independent, neutral, and seller-controlled frames."""
+
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must be a non-empty string")
+    normalized = " ".join(query.split())
+    if '"' in normalized:
+        raise ValueError("query must not contain double quotes")
+    version = specification.get("template_bank_version")
+    if version != SOURCE_OWNERSHIP_AXIS_VERSION:
+        raise ValueError(f"unsupported source ownership template version: {version!r}")
+    frames = specification.get("surface_frames")
+    if not isinstance(frames, list) or len(frames) < 2:
+        raise ValueError("source ownership axis requires at least two surface frames")
+    invariants = specification.get("shared_invariants")
+    policies = {
+        "seller-independent": specification.get("seller_independent_policy"),
+        "neutral": specification.get("neutral_policy"),
+        "seller-controlled": specification.get("seller_controlled_policy"),
+    }
+    if not isinstance(invariants, str) or not invariants.strip():
+        raise ValueError("shared_invariants must be non-empty")
+    if any(not isinstance(value, str) or not value.strip() for value in policies.values()):
+        raise ValueError("all three ownership policies must be non-empty")
+
+    result: dict[str, list[dict[str, str]]] = {key: [] for key in policies}
+    seen_ids: set[str] = set()
+    for frame in frames:
+        if not isinstance(frame, dict):
+            raise ValueError("surface frame must be an object")
+        frame_id = frame.get("id")
+        template = frame.get("template")
+        if not isinstance(frame_id, str) or not frame_id or frame_id in seen_ids:
+            raise ValueError("surface frame ids must be unique non-empty strings")
+        if not isinstance(template, str):
+            raise ValueError(f"surface frame {frame_id!r} needs a template")
+        required = ("/QUERY/", "/OWNERSHIP_POLICY/", "/SHARED_INVARIANTS/")
+        if any(placeholder not in template for placeholder in required):
+            raise ValueError(f"surface frame {frame_id!r} must contain {required}")
+        seen_ids.add(frame_id)
+        for endpoint, policy in policies.items():
+            request = (
+                template.replace("/QUERY/", normalized)
+                .replace("/OWNERSHIP_POLICY/", str(policy).strip())
+                .replace("/SHARED_INVARIANTS/", invariants.strip())
+            )
+            if normalized not in request:
+                raise ValueError("filled ownership request lost the exact query")
+            result[endpoint].append({"frame_id": frame_id, "request": request})
+    return result
+
+
 def _validated_paired_states(
     informational_states: np.ndarray,
     transactional_states: np.ndarray,
@@ -237,6 +294,7 @@ def build_decodable_axis(
     if axis_version not in (
         LLM2VEC_GEN_AXIS_VERSION,
         QUERY_CENTROID_AXIS_VERSION,
+        SOURCE_OWNERSHIP_AXIS_VERSION,
     ):
         raise ValueError(f"unsupported axis version: {axis_version!r}")
     informational, transactional = _validated_paired_states(

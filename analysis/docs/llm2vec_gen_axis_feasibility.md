@@ -181,6 +181,44 @@ requests, both centroids, the direction, assigned states, and re-encoded states
 are recorded. A deterministic reranking wrapper is deliberately deferred until
 the decoded purpose sequence passes semantic review.
 
+## Publisher-ownership field
+
+The scientifically preferred B2B SaaS feasibility experiment replaces the
+mixed search-purpose path with one symmetric intervention:
+
+```text
+lambda = -1: prefer seller-independent evidence
+lambda =  0: no preference based on publisher ownership
+lambda = +1: prefer seller-controlled evidence
+```
+
+For every exact query, six matched surface frames are encoded in all three
+regions. The independent-to-controlled difference defines the direction, while
+the separately encoded neutral centroid defines the origin. Its position on and
+distance from the endpoint line are measured before decoding. Only the decoded
+ownership policy varies inside a deterministic B2B software-evaluator reranking
+wrapper; query, candidates, relevance, evidence quality, task, output contract,
+time horizon, and company context remain fixed.
+
+```bash
+export SOURCE_OWNERSHIP_OUTPUT="$PWD/runs/source_ownership_axis/${SLURM_JOB_ID}-$(git rev-parse --short HEAD)"
+
+srun --ntasks=1 --gres=gpu:1 python3 \
+  analysis/scripts/validate_source_ownership_axis.py \
+  --backend local \
+  --model "$MODEL_SNAPSHOT" \
+  --query "abandoned cart recovery" \
+  --number-points 13 \
+  --encode-batch-size 1 \
+  --max-new-tokens 96 \
+  --output-dir "$SOURCE_OWNERSHIP_OUTPUT"
+```
+
+This writes `source_ownership_diagnostics.json`,
+`decoded_source_ownership_grid.jsonl`, `source_ownership_state.npz`, and
+`source_ownership_report.md`. A real run is still feasibility-only until the
+neutral point, geometry, decoded monotonicity, and semantic invariants pass.
+
 ## CPU plumbing smoke test
 
 The fake backend checks artifacts and numerical contracts without loading a

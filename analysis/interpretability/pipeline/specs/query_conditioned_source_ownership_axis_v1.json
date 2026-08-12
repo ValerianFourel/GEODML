@@ -1,0 +1,35 @@
+{
+  "template_bank_version": "query-conditioned-source-ownership-axis-v1",
+  "query_placeholder": "/QUERY/",
+  "policy_placeholder": "/OWNERSHIP_POLICY/",
+  "seller_independent_policy": "when candidates are comparably relevant and provide comparable evidence quality, strongly prefer evidence published by sources independent of vendors selling products in the SaaS category over evidence controlled by those vendors",
+  "neutral_policy": "do not use whether a publisher is independent of or controlled by a vendor selling products in the SaaS category as a ranking preference",
+  "seller_controlled_policy": "when candidates are comparably relevant and provide comparable evidence quality, strongly prefer evidence published by vendors selling products in the SaaS category over evidence from publishers independent of those vendors",
+  "shared_invariants": "Keep the exact keyword unchanged. Keep the user identity fixed as a B2B software evaluator. Keep candidate documents, query relevance, evidence quality, ranking task, output size, output format, time horizon, and company context invariant. Do not introduce freshness, authority, popularity, brand fame, citations, page length, statistics density, writing quality, comprehensiveness, review scores, or exclusions. Output exactly one concise ownership-policy sentence and nothing else.",
+  "surface_frames": [
+    {
+      "id": "write-policy",
+      "template": "Write the publisher-ownership policy for a B2B software evaluator ranking evidence for the exact keyword \"/QUERY/\": /OWNERSHIP_POLICY/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "state-policy",
+      "template": "State one publisher-ownership ranking policy for the exact B2B SaaS keyword \"/QUERY/\" such that /OWNERSHIP_POLICY/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "formulate-policy",
+      "template": "Formulate a concise evidence-source ownership rule for a B2B software evaluator using the exact keyword \"/QUERY/\": /OWNERSHIP_POLICY/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "express-policy",
+      "template": "Express the publisher-control preference for ranking candidates for the exact B2B SaaS keyword \"/QUERY/\", where /OWNERSHIP_POLICY/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "produce-policy",
+      "template": "Produce one evidence-ownership policy sentence for a B2B software evaluator and the exact keyword \"/QUERY/\" under this rule: /OWNERSHIP_POLICY/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "compose-policy",
+      "template": "Compose a brief publisher-ownership preference clause for reranking the exact B2B SaaS keyword \"/QUERY/\": /OWNERSHIP_POLICY/. /SHARED_INVARIANTS/"
+    }
+  ]
+}
