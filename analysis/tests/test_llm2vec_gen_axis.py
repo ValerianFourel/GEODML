@@ -16,6 +16,7 @@ from analysis.interpretability.pipeline.llm2vec_gen_axis import (
     axis_geometry_diagnostics,
     build_decodable_axis,
     build_encoding_text,
+    build_query_conditioned_requests,
     decode_record_checks,
     inject_query_after_decode,
     interpolate_axis_centroids,
@@ -136,6 +137,22 @@ class ReconstructionTextContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not preserve"):
             inject_query_after_decode("Rank the candidates", "query")
 
+    def test_query_conditioned_endpoints_include_exact_query_before_encoding(self) -> None:
+        query = "abandoned cart recovery"
+        informational, transactional = build_query_conditioned_requests(query)
+        self.assertIn(f'"{query}"', informational)
+        self.assertIn(f'"{query}"', transactional)
+        self.assertIn("learn and understand", informational)
+        self.assertIn("begin implementing", transactional)
+        self.assertNotIn("{QUERY}", informational)
+        self.assertNotIn("{QUERY}", transactional)
+
+    def test_query_conditioned_endpoints_reject_ambiguous_query_delimiters(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-empty"):
+            build_query_conditioned_requests("   ")
+        with self.assertRaisesRegex(ValueError, "double quotes"):
+            build_query_conditioned_requests('abandoned "cart" recovery')
+
 
 class FakeAxisCliTests(unittest.TestCase):
     def test_horeka_installer_preserves_existing_torch_stack(self) -> None:
@@ -239,6 +256,66 @@ class FakeAxisCliTests(unittest.TestCase):
                 self.assertEqual(state["informational_endpoint_states"].shape[0], 6)
             report = (output / "axis_feasibility_report.md").read_text(encoding="utf-8")
             self.assertIn("Mock output only", report)
+
+    def test_fake_query_conditioned_axis_uses_query_in_both_endpoints(self) -> None:
+        endpoint_bank = (
+            Path(__file__).resolve().parents[1]
+            / "interpretability"
+            / "pipeline"
+            / "specs"
+            / "search_purpose_endpoint_pairs_v1.json"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "run"
+            argv = [
+                "validate_llm2vec_gen_axis.py",
+                "--backend",
+                "fake",
+                "--endpoint-bank",
+                str(endpoint_bank),
+                "--target-grid",
+                "0,0.5,1",
+                "--decode-pairs",
+                "0",
+                "--probe-query",
+                "abandoned cart recovery",
+                "--query-conditioned-axis",
+                "--output-dir",
+                str(output),
+            ]
+            with mock.patch.object(sys, "argv", argv):
+                self.assertEqual(validate_llm2vec_gen_axis.main(), 0)
+
+            diagnostics = json.loads(
+                (output / "axis_diagnostics.json").read_text(encoding="utf-8")
+            )
+            rows = [
+                json.loads(line)
+                for line in (output / "decoded_latent_grid.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            query_axis = diagnostics["query_conditioned_axis"]
+            self.assertTrue(
+                diagnostics["query_strategy"][
+                    "probe_query_used_during_query_conditioned_axis_estimation"
+                ]
+            )
+            self.assertTrue(query_axis["query_is_informational_endpoint_substring"])
+            self.assertTrue(query_axis["query_is_transactional_endpoint_substring"])
+            self.assertEqual(
+                sum(
+                    row["path_kind"] == "query-conditioned-direct-request"
+                    for row in rows
+                ),
+                3,
+            )
+            self.assertTrue(
+                query_axis["decode_cycle"]["reconstruction_strictly_increasing"]
+            )
+            with np.load(output / "axis_state.npz") as state:
+                self.assertIn("query_conditioned_informational_state", state.files)
+                self.assertIn("query_conditioned_transactional_state", state.files)
 
 
 if __name__ == "__main__":

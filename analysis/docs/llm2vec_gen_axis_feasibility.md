@@ -91,6 +91,26 @@ checks are used to reduce and diagnose topic offsets. Query-vector addition is
 deferred because it would add another unvalidated latent-arithmetic assumption
 before basic interpolation has passed.
 
+An opt-in query-conditioned path tests a different, smaller claim. With
+`--query-conditioned-axis`, the exact `--probe-query` text is placed inside both
+direct endpoint requests before encoding:
+
+```text
+For the fixed search topic "abandoned cart recovery", explain how it works and
+what approaches are available so the user can learn and understand it.
+
+For the fixed search topic "abandoned cart recovery", help the user choose a
+suitable approach and begin implementing it now.
+```
+
+Only the surrounding search purpose changes. The full coordinate grid is
+interpolated between this single topic-matched pair and reported under
+`query-conditioned-direct-request`. These decoded rows are not expected to
+preserve ranking placeholders; ranking structure would be added by a
+deterministic wrapper only if the smaller semantic path first proves monotonic.
+Because this is a one-query path, it supplies no evidence of topic
+generalization and does not test query-vector addition.
+
 ## CPU plumbing smoke test
 
 The fake backend checks artifacts and numerical contracts without loading a
@@ -167,6 +187,7 @@ srun --ntasks=1 python3 \
   --target-grid 0,0.25,0.5,0.75,1 \
   --decode-pairs 2 \
   --probe-query "abandoned cart recovery" \
+  --query-conditioned-axis \
   --encode-batch-size 1 \
   --max-new-tokens 180 \
   --output-dir "$AXIS_OUTPUT"

@@ -30,10 +30,12 @@ if str(ANALYSIS_ROOT) not in sys.path:
 from interpretability.pipeline.llm2vec_gen_axis import (  # noqa: E402
     ENCODING_INSTRUCTION_VERSION,
     LLM2VEC_GEN_AXIS_VERSION,
+    QUERY_CONDITIONED_ENDPOINT_VERSION,
     DecodableAxis,
     axis_geometry_diagnostics,
     build_decodable_axis,
     build_encoding_text,
+    build_query_conditioned_requests,
     decode_record_checks,
     inject_query_after_decode,
     interpolate_axis_centroids,
@@ -172,6 +174,8 @@ class FakeReconstructionBackend:
                     "select and deploy",
                     "select, configure",
                     "choose, configure",
+                    "choose a suitable",
+                    "begin implementing",
                     "begin using",
                     "complete the relevant action now",
                 )
@@ -323,6 +327,7 @@ def _decode_row(
     source_endpoint: str | None = None,
     source_prompt_template: str | None = None,
     probe_query: str | None = None,
+    projection_axis_kind: str = "global-endpoint-bank",
 ) -> dict[str, object]:
     text = backend.decode(state, max_new_tokens=max_new_tokens)
     checks = decode_record_checks(text)
@@ -333,12 +338,19 @@ def _decode_row(
             injected = inject_query_after_decode(text, probe_query)
         except ValueError as exc:
             injection_error = str(exc)
+    observed_coordinate = float(project_onto_axis(global_axis, state))
     return {
         "path_kind": path_kind,
         "pair_index": pair_index,
         "source_query": source_query,
         "assigned_coordinate": coordinate,
-        "observed_global_axis_coordinate": float(project_onto_axis(global_axis, state)),
+        "observed_axis_coordinate": observed_coordinate,
+        "observed_global_axis_coordinate": (
+            observed_coordinate
+            if projection_axis_kind == "global-endpoint-bank"
+            else None
+        ),
+        "projection_axis_kind": projection_axis_kind,
         "latent_state_hash": stable_array_hash(state),
         "decoded_template": text,
         "structural_checks": checks,
@@ -450,10 +462,31 @@ def _report_markdown(
         for path in cycle["path_monotonicity"]
     )
     path_count = len(cycle["path_monotonicity"])
+    template_rows = [
+        row
+        for row in decoded_rows
+        if row["path_kind"] != "query-conditioned-direct-request"
+    ]
     preserved = sum(
         bool(row["structural_checks"]["all_placeholders_preserved"])
-        for row in decoded_rows
+        for row in template_rows
     )
+    query_conditioned = diagnostics.get("query_conditioned_axis")
+    query_section = ""
+    if isinstance(query_conditioned, dict):
+        query_cycle = query_conditioned["decode_cycle"]
+        query_section = f"""
+## Query-conditioned path
+
+- Exact query: `{query_conditioned['query']}`
+- Query present in informational endpoint: `{query_conditioned['query_is_informational_endpoint_substring']}`
+- Query present in transactional endpoint: `{query_conditioned['query_is_transactional_endpoint_substring']}`
+- Re-encoded reconstruction Spearman: `{query_cycle['reconstruction_spearman']}`
+- Re-encoded reconstruction coordinates strictly increasing: `{query_cycle['reconstruction_strictly_increasing']}`
+
+This is a single-query interpolation test. It can test decoded endpoint fidelity
+and within-query monotonicity, but it cannot establish topic generalization.
+"""
     banner = (
         "> **Mock output only.** This run validates plumbing and supports no scientific "
         "claim.\n\n"
@@ -481,10 +514,12 @@ but not sufficient for a valid semantic intervention.
 ## Decoding
 
 - Decoded points: `{len(decoded_rows)}`
-- Points preserving all three literal placeholders: `{preserved}/{len(decoded_rows)}`
-- Query strategy: post-decode substitution only
+- Reusable-template points preserving all three literal placeholders: `{preserved}/{len(template_rows)}`
+- Global-axis query strategy: post-decode substitution only
 - Decode-cycle paths increasing in reconstruction space: `{monotonic_paths}/{path_count}`
 - Mean endpoint decode-cycle cosine: `{cycle['endpoint_reconstruction_cosine_mean']}`
+
+{query_section}
 
 Inspect `decoded_latent_grid.jsonl` for semantic monotonicity, fluency, unintended
 criteria, and endpoint fidelity. Interpolation of reconstruction states is not a
@@ -507,6 +542,14 @@ def main() -> int:
         help="Number of topic-matched paths to decode in addition to the centroid path",
     )
     parser.add_argument("--probe-query", default=None)
+    parser.add_argument(
+        "--query-conditioned-axis",
+        action="store_true",
+        help=(
+            "Also encode and decode one topic-matched axis whose two endpoint "
+            "requests contain the exact --probe-query text before encoding"
+        ),
+    )
     parser.add_argument("--encode-batch-size", type=int, default=1)
     parser.add_argument("--encode-max-length", type=int, default=512)
     parser.add_argument("--max-new-tokens", type=int, default=180)
@@ -516,6 +559,8 @@ def main() -> int:
 
     if args.decode_pairs < 0:
         parser.error("decode-pairs must be nonnegative")
+    if args.query_conditioned_axis and not args.probe_query:
+        parser.error("--query-conditioned-axis requires --probe-query")
     if args.encode_batch_size <= 0 or args.encode_max_length <= 0 or args.max_new_tokens <= 0:
         parser.error("batch size and token limits must be positive")
 
@@ -545,12 +590,23 @@ def main() -> int:
         transactional_texts = [
             build_encoding_text(pair["transactional_prompt"]) for pair in pairs
         ]
+        query_conditioned_requests = None
+        query_conditioned_texts: list[str] = []
+        if args.query_conditioned_axis:
+            query_conditioned_requests = build_query_conditioned_requests(
+                args.probe_query
+            )
+            query_conditioned_texts = list(query_conditioned_requests)
         pooled, reconstruction = backend.encode(
-            [*informational_texts, *transactional_texts],
+            [
+                *informational_texts,
+                *transactional_texts,
+                *query_conditioned_texts,
+            ],
             batch_size=args.encode_batch_size,
             max_length=args.encode_max_length,
         )
-        expected = len(pairs) * 2
+        expected = len(pairs) * 2 + len(query_conditioned_texts)
         if pooled.ndim != 2 or pooled.shape[0] != expected:
             raise ValueError(f"unexpected pooled embedding shape: {pooled.shape}")
         if reconstruction.ndim != 3 or reconstruction.shape[0] != expected:
@@ -563,10 +619,27 @@ def main() -> int:
         parser.error(str(exc))
 
     count = len(pairs)
-    pooled_info, pooled_trans = pooled[:count], pooled[count:]
-    recon_info, recon_trans = reconstruction[:count], reconstruction[count:]
+    pooled_info = pooled[:count]
+    pooled_trans = pooled[count : count * 2]
+    recon_info = reconstruction[:count]
+    recon_trans = reconstruction[count : count * 2]
     recon_axis = build_decodable_axis(recon_info, recon_trans)
     pooled_axis = build_decodable_axis(pooled_info, pooled_trans)
+
+    query_recon_info = query_recon_trans = None
+    query_pooled_info = query_pooled_trans = None
+    query_recon_axis = query_pooled_axis = None
+    if args.query_conditioned_axis:
+        query_pooled_info = pooled[count * 2]
+        query_pooled_trans = pooled[count * 2 + 1]
+        query_recon_info = reconstruction[count * 2]
+        query_recon_trans = reconstruction[count * 2 + 1]
+        query_recon_axis = build_decodable_axis(
+            query_recon_info[None, ...], query_recon_trans[None, ...]
+        )
+        query_pooled_axis = build_decodable_axis(
+            query_pooled_info[None, ...], query_pooled_trans[None, ...]
+        )
 
     decoded_rows: list[dict[str, object]] = []
     for pair_index, pair in enumerate(pairs):
@@ -631,8 +704,45 @@ def main() -> int:
                 )
             )
 
+    if args.query_conditioned_axis:
+        assert query_conditioned_requests is not None
+        assert query_recon_info is not None and query_recon_trans is not None
+        assert query_recon_axis is not None
+        for coordinate in args.target_grid:
+            source_endpoint = None
+            source_request = None
+            if coordinate == 0.0:
+                source_endpoint = "informational"
+                source_request = query_conditioned_requests[0]
+            elif coordinate == 1.0:
+                source_endpoint = "transactional"
+                source_request = query_conditioned_requests[1]
+            row = _decode_row(
+                backend,
+                path_kind="query-conditioned-direct-request",
+                coordinate=coordinate,
+                state=interpolate_endpoint_pair(
+                    query_recon_info, query_recon_trans, coordinate
+                ),
+                global_axis=query_recon_axis,
+                max_new_tokens=args.max_new_tokens,
+                source_query=args.probe_query,
+                source_endpoint=source_endpoint,
+                source_prompt_template=source_request,
+                projection_axis_kind="query-conditioned-direct-request",
+            )
+            row["query_was_in_both_encoded_endpoints"] = True
+            decoded_rows.append(row)
+
     reencoded_pooled, reencoded_reconstruction = backend.encode(
-        [build_encoding_text(str(row["decoded_template"])) for row in decoded_rows],
+        [
+            (
+                str(row["decoded_template"])
+                if row["path_kind"] == "query-conditioned-direct-request"
+                else build_encoding_text(str(row["decoded_template"]))
+            )
+            for row in decoded_rows
+        ],
         batch_size=args.encode_batch_size,
         max_length=args.encode_max_length,
     )
@@ -649,18 +759,38 @@ def main() -> int:
     )
     reencoded_pooled_coordinates = project_onto_axis(pooled_axis, reencoded_pooled)
     for index, row in enumerate(decoded_rows):
-        row["reencoded_reconstruction_axis_coordinate"] = float(
-            reencoded_recon_coordinates[index]
-        )
-        row["reencoded_pooled_axis_coordinate"] = float(
-            reencoded_pooled_coordinates[index]
-        )
+        if row["path_kind"] == "query-conditioned-direct-request":
+            assert query_recon_axis is not None and query_pooled_axis is not None
+            recon_coordinate = project_onto_axis(
+                query_recon_axis, reencoded_reconstruction[index]
+            )
+            pooled_coordinate = project_onto_axis(
+                query_pooled_axis, reencoded_pooled[index]
+            )
+        else:
+            recon_coordinate = reencoded_recon_coordinates[index]
+            pooled_coordinate = reencoded_pooled_coordinates[index]
+        row["reencoded_reconstruction_axis_coordinate"] = float(recon_coordinate)
+        row["reencoded_pooled_axis_coordinate"] = float(pooled_coordinate)
         if row["path_kind"] == "endpoint-reconstruction-control":
             pair_index = int(row["pair_index"])
             source = (
                 recon_info[pair_index]
                 if row["source_endpoint"] == "informational"
                 else recon_trans[pair_index]
+            )
+            row["decode_cycle_cosine_to_source_state"] = _cosine(
+                source, reencoded_reconstruction[index]
+            )
+        elif (
+            row["path_kind"] == "query-conditioned-direct-request"
+            and row["source_endpoint"] is not None
+        ):
+            assert query_recon_info is not None and query_recon_trans is not None
+            source = (
+                query_recon_info
+                if row["source_endpoint"] == "informational"
+                else query_recon_trans
             )
             row["decode_cycle_cosine_to_source_state"] = _cosine(
                 source, reencoded_reconstruction[index]
@@ -691,12 +821,57 @@ def main() -> int:
         path_cycles.append(
             _path_cycle_diagnostic(path_rows, path_id=f"topic-matched-pair-{pair_index}")
         )
+    if args.query_conditioned_axis:
+        path_cycles.append(
+            _path_cycle_diagnostic(
+                [
+                    row
+                    for row in decoded_rows
+                    if row["path_kind"] == "query-conditioned-direct-request"
+                ],
+                path_id="query-conditioned-direct-request",
+            )
+        )
 
     endpoint_cycle_cosines = [
         float(row["decode_cycle_cosine_to_source_state"])
         for row in decoded_rows
         if row["decode_cycle_cosine_to_source_state"] is not None
     ]
+
+    query_conditioned_diagnostics = None
+    if args.query_conditioned_axis:
+        assert query_conditioned_requests is not None
+        assert query_recon_info is not None and query_recon_trans is not None
+        assert query_pooled_info is not None and query_pooled_trans is not None
+        query_cycle = next(
+            path
+            for path in path_cycles
+            if path["path_id"] == "query-conditioned-direct-request"
+        )
+        query_conditioned_diagnostics = {
+            "endpoint_version": QUERY_CONDITIONED_ENDPOINT_VERSION,
+            "query": args.probe_query,
+            "endpoint_encoding_method": "direct requests containing the exact query",
+            "query_is_informational_endpoint_substring": (
+                args.probe_query in query_conditioned_requests[0]
+            ),
+            "query_is_transactional_endpoint_substring": (
+                args.probe_query in query_conditioned_requests[1]
+            ),
+            "informational_endpoint_request": query_conditioned_requests[0],
+            "transactional_endpoint_request": query_conditioned_requests[1],
+            "reconstruction_geometry": axis_geometry_diagnostics(
+                query_recon_info[None, ...], query_recon_trans[None, ...]
+            ),
+            "pooled_geometry": axis_geometry_diagnostics(
+                query_pooled_info[None, ...], query_pooled_trans[None, ...]
+            ),
+            "decode_cycle": query_cycle,
+            "decode_cycle_reencoding_method": "re-encode decoded text directly",
+            "single_query_path_has_no_topic_generalization_test": True,
+            "manual_semantic_review_required": True,
+        }
 
     diagnostics: dict[str, object] = {
         "diagnostic_version": "llm2vec-gen-axis-feasibility-v1",
@@ -732,13 +907,19 @@ def main() -> int:
             "decoded_topic_pair_count": min(count, args.decode_pairs),
         },
         "query_strategy": {
-            "method": "post-decode literal placeholder substitution",
+            "global_axis_method": "post-decode literal placeholder substitution",
             "probe_query": args.probe_query,
             "probe_query_used_during_axis_estimation": False,
+            "probe_query_used_during_global_axis_estimation": False,
+            "probe_query_used_during_query_conditioned_axis_estimation": bool(
+                args.query_conditioned_axis
+            ),
+            "query_conditioned_axis_enabled": bool(args.query_conditioned_axis),
             "paired_endpoint_topics_used_during_axis_estimation": True,
             "paired_differences_are_used_to_reduce_topic_offsets": True,
             "vector_addition_tested": False,
         },
+        "query_conditioned_axis": query_conditioned_diagnostics,
         "representation_hashes": {
             "pooled_informational": stable_array_hash(pooled_info),
             "pooled_transactional": stable_array_hash(pooled_trans),
@@ -749,8 +930,9 @@ def main() -> int:
         "pooled_geometry": axis_geometry_diagnostics(pooled_info, pooled_trans),
         "decode_cycle": {
             "method": (
-                "decode, wrap generated template with the same encoding "
-                "instruction, re-encode"
+                "decode and re-encode with path-specific input construction; "
+                "global/template paths reuse the template-generation wrapper, "
+                "query-conditioned paths re-encode decoded text directly"
             ),
             "same_model_diagnostic_only": True,
             "path_monotonicity": path_cycles,
@@ -769,18 +951,35 @@ def main() -> int:
         },
     }
 
-    _atomic_npz(
-        targets["state"],
-        {
-            "informational_centroid": recon_axis.informational_centroid.astype(np.float32),
-            "transactional_centroid": recon_axis.transactional_centroid.astype(np.float32),
-            "direction_unit": recon_axis.direction_unit.astype(np.float32),
-            "informational_endpoint_states": recon_info.astype(np.float32),
-            "transactional_endpoint_states": recon_trans.astype(np.float32),
-            "pooled_informational_endpoints": pooled_info.astype(np.float32),
-            "pooled_transactional_endpoints": pooled_trans.astype(np.float32),
-        },
-    )
+    state_arrays = {
+        "informational_centroid": recon_axis.informational_centroid.astype(np.float32),
+        "transactional_centroid": recon_axis.transactional_centroid.astype(np.float32),
+        "direction_unit": recon_axis.direction_unit.astype(np.float32),
+        "informational_endpoint_states": recon_info.astype(np.float32),
+        "transactional_endpoint_states": recon_trans.astype(np.float32),
+        "pooled_informational_endpoints": pooled_info.astype(np.float32),
+        "pooled_transactional_endpoints": pooled_trans.astype(np.float32),
+    }
+    if args.query_conditioned_axis:
+        assert query_recon_info is not None and query_recon_trans is not None
+        assert query_pooled_info is not None and query_pooled_trans is not None
+        state_arrays.update(
+            {
+                "query_conditioned_informational_state": query_recon_info.astype(
+                    np.float32
+                ),
+                "query_conditioned_transactional_state": query_recon_trans.astype(
+                    np.float32
+                ),
+                "query_conditioned_pooled_informational": query_pooled_info.astype(
+                    np.float32
+                ),
+                "query_conditioned_pooled_transactional": query_pooled_trans.astype(
+                    np.float32
+                ),
+            }
+        )
+    _atomic_npz(targets["state"], state_arrays)
     _atomic_json(targets["diagnostics"], diagnostics)
     _atomic_jsonl(targets["grid"], decoded_rows)
     _atomic_text(

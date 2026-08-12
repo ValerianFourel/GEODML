@@ -22,6 +22,7 @@ import numpy as np
 
 LLM2VEC_GEN_AXIS_VERSION = "llm2vec-gen-search-purpose-axis-v1"
 ENCODING_INSTRUCTION_VERSION = "reranking-template-reconstruction-v1"
+QUERY_CONDITIONED_ENDPOINT_VERSION = "query-conditioned-search-purpose-v1"
 ENCODING_INSTRUCTION = (
     "Generate the reusable listwise search-reranking instruction given below. "
     "Preserve its meaning and the literal placeholders {QUERY}, {CANDIDATES}, "
@@ -32,10 +33,12 @@ __all__ = [
     "ENCODING_INSTRUCTION",
     "ENCODING_INSTRUCTION_VERSION",
     "LLM2VEC_GEN_AXIS_VERSION",
+    "QUERY_CONDITIONED_ENDPOINT_VERSION",
     "DecodableAxis",
     "axis_geometry_diagnostics",
     "build_decodable_axis",
     "build_encoding_text",
+    "build_query_conditioned_requests",
     "decode_record_checks",
     "inject_query_after_decode",
     "interpolate_axis_centroids",
@@ -69,6 +72,33 @@ def build_encoding_text(prompt_template: str) -> str:
     if not isinstance(prompt_template, str) or not prompt_template.strip():
         raise ValueError("prompt_template must be a non-empty string")
     return ENCODING_INSTRUCTION + prompt_template.strip()
+
+
+def build_query_conditioned_requests(query: str) -> tuple[str, str]:
+    """Build a topic-matched pair with the exact query in both endpoints.
+
+    These are direct generation requests rather than reusable reranking
+    templates. Only search purpose changes: the informational endpoint asks
+    to learn and understand, while the transactional endpoint asks to choose
+    and begin acting now. Ranking structure is deliberately left for a later
+    deterministic wrapper if this smaller latent-decoding test succeeds.
+    """
+
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must be a non-empty string")
+    normalized = " ".join(query.split())
+    if '"' in normalized:
+        raise ValueError("query must not contain double quotes")
+    quoted = f'"{normalized}"'
+    informational = (
+        f"For the fixed search topic {quoted}, explain how it works and what "
+        "approaches are available so the user can learn and understand it."
+    )
+    transactional = (
+        f"For the fixed search topic {quoted}, help the user choose a suitable "
+        "approach and begin implementing it now."
+    )
+    return informational, transactional
 
 
 def _validated_paired_states(
