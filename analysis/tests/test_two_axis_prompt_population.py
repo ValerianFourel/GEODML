@@ -241,6 +241,40 @@ class CandidatePopulationTests(unittest.TestCase):
                 ["not json", "still not json"],
             )
 
+    def test_real_generator_rejects_multiple_schema_shaped_objects(self) -> None:
+        payload = {
+            "candidates": [
+                {
+                    "search_objective_clause": "Understand the category without selecting a product.",
+                    "source_preference_clause": "Conditional on equal topical relevance, prefer independent evidence.",
+                },
+                {
+                    "search_objective_clause": "Learn the category mechanisms before evaluating products.",
+                    "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
+                },
+            ]
+        }
+        ambiguous = json.dumps(payload) + "\n" + json.dumps(payload)
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _StaticRanker([ambiguous])
+            generator = LocalLLMTwoAxisCandidateGenerator(
+                ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+                temperature=0.0,
+                maximum_attempts=1,
+            )
+            request = TwoAxisCandidateRequest(
+                assigned_a1=0.5,
+                assigned_a2=0.5,
+                style_seed=2,
+                generation_seed=4,
+                number_candidates=2,
+                generator_model="test-generator",
+            )
+            with self.assertRaisesRegex(ValueError, "multiple candidate JSON objects"):
+                generator.generate(request)
+
     def test_real_generator_retries_an_off_axis_candidate(self) -> None:
         invalid = {
             "candidates": [
