@@ -109,13 +109,20 @@ Mock output is labelled non-scientific in both JSON and Markdown.
 
 ## HoreKa one-GPU feasibility run
 
-Install the optional dependency set into the project environment and ensure the
-exact model is already present in the Hugging Face cache available to compute
-nodes:
+Install the inference-only runtime into the active project environment and
+ensure the exact model is already present in the Hugging Face cache available
+to compute nodes:
 
 ```bash
-python3 -m pip install -r analysis/requirements-horeka-llm2vec-gen.txt
+bash analysis/scripts/install_llm2vec_gen_runtime.sh
 ```
+
+Do not replace this command with `pip install llm2vec-gen`. The upstream wheel
+declares an older full training/evaluation stack, including `torch==2.6.0`,
+`transformers==4.56.2`, and a source build of `flash-attn`. The helper installs
+the small 0.1.3 package without dependencies and preserves the CUDA-compatible
+Torch/Transformers versions already validated for this repository. The code
+path used here does not import FlashAttention.
 
 The package's current high-level loader moves the full model to one CUDA device
 and its generation path names `cuda` directly. Expose exactly one allocated GPU;

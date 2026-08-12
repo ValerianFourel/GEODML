@@ -138,6 +138,29 @@ class ReconstructionTextContractTests(unittest.TestCase):
 
 
 class FakeAxisCliTests(unittest.TestCase):
+    def test_horeka_installer_preserves_existing_torch_stack(self) -> None:
+        analysis_root = Path(__file__).resolve().parents[1]
+        requirements = (
+            analysis_root / "requirements-horeka-llm2vec-gen.txt"
+        ).read_text(encoding="utf-8")
+        installer = (
+            analysis_root / "scripts" / "install_llm2vec_gen_runtime.sh"
+        ).read_text(encoding="utf-8")
+        active_requirements = [
+            line.strip()
+            for line in requirements.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertFalse(
+            any(line.startswith("llm2vec-gen") for line in active_requirements)
+        )
+        self.assertFalse(
+            any(line.startswith("flash-attn") for line in active_requirements)
+        )
+        self.assertIn('LLM2VEC_GEN_VERSION="0.1.3"', installer)
+        self.assertIn("pip install --no-deps", installer)
+        self.assertNotIn("pip install flash-attn", installer)
+
     def test_fake_end_to_end_writes_explicitly_non_scientific_artifacts(self) -> None:
         endpoint_bank = (
             Path(__file__).resolve().parents[1]

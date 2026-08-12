@@ -1,6 +1,12 @@
-# Optional dependency set for the decodable latent-axis feasibility run.
-# Keep this separate from the existing reranking environment until the
-# experiment is accepted: llm2vec-gen brings its own Transformers/PEFT stack.
+# Runtime dependencies for the decodable latent-axis feasibility run.
+#
+# Do not add llm2vec-gen itself here.  Its PyPI metadata pins an older complete
+# training/evaluation stack, including torch and flash-attn, even though the
+# inference modules used by this project do not import flash-attn.  Install the
+# package without dependencies through install_llm2vec_gen_runtime.sh so the
+# CUDA-compatible Torch/Transformers stack already validated on HoreKa remains
+# unchanged.
 -r requirements-horeka-gpu.txt
 
-llm2vec-gen==0.1.0
+peft==0.18.0
+PyYAML>=6.0
