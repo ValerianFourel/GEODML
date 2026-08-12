@@ -486,10 +486,7 @@ def _parse_prompt_candidates(
 ) -> tuple[str, ...]:
     if not isinstance(raw_output, str) or not raw_output.strip():
         raise ValueError("prompt provider returned empty output")
-    try:
-        payload = json.loads(raw_output)
-    except json.JSONDecodeError as exc:
-        raise ValueError("prompt provider returned invalid JSON") from exc
+    payload = _load_provider_json(raw_output)
     if not isinstance(payload, dict) or set(payload) != {"prompt_templates"}:
         raise ValueError("prompt provider JSON must contain only prompt_templates")
     templates = payload["prompt_templates"]
@@ -529,6 +526,31 @@ def _parse_prompt_candidates(
     if len(unique) < request.number_candidates:
         raise ValueError("provider returned too few unique prompt templates")
     return unique
+
+
+def _load_provider_json(raw_output: str) -> object:
+    """Load one valid JSON object, allowing harmless model wrappers.
+
+    Local instruction models sometimes wrap an otherwise valid JSON response
+    in a Markdown fence or a short sentence despite an explicit no-commentary
+    instruction. This accepts the embedded JSON object without relaxing any of
+    the prompt-candidate semantic and structural validation that follows.
+    """
+    stripped = raw_output.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError as direct_error:
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", stripped):
+            try:
+                payload, _ = decoder.raw_decode(stripped[match.start() :])
+            except json.JSONDecodeError:
+                continue
+            return payload
+        preview = re.sub(r"\s+", " ", stripped)[:240]
+        raise ValueError(
+            f"prompt provider returned invalid JSON; output preview={preview!r}"
+        ) from direct_error
 
 
 def _validated_embeddings(

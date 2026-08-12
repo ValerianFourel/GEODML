@@ -136,6 +136,43 @@ class LatentPromptSelectionTests(unittest.TestCase):
                 embedder=FakePromptEmbedder(),
             )
 
+    def test_valid_json_in_markdown_fence_is_accepted(self) -> None:
+        class FencedProvider:
+            backend_name = "fenced"
+
+            def generate(self, request_text, generation_config):
+                raw = FakeLatentPromptProvider().generate(
+                    request_text, generation_config
+                )
+                return f"```json\n{raw}\n```"
+
+        record = generate_prompt_at_coordinate(
+            _request(),
+            axis=_axis(),
+            provider=FencedProvider(),
+            embedder=FakePromptEmbedder(),
+        )
+        self.assertTrue(record.raw_model_output.startswith("```json"))
+        self.assertEqual(len(record.candidate_projections), 3)
+
+    def test_valid_json_after_commentary_is_accepted(self) -> None:
+        class CommentaryProvider:
+            backend_name = "commentary"
+
+            def generate(self, request_text, generation_config):
+                raw = FakeLatentPromptProvider().generate(
+                    request_text, generation_config
+                )
+                return f"Here is the requested JSON:\n{raw}\nDone."
+
+        record = generate_prompt_at_coordinate(
+            _request(),
+            axis=_axis(),
+            provider=CommentaryProvider(),
+            embedder=FakePromptEmbedder(),
+        )
+        self.assertEqual(len(record.candidate_projections), 3)
+
     def test_off_axis_prompt_is_rejected(self) -> None:
         class OffAxisProvider:
             backend_name = "off-axis"
