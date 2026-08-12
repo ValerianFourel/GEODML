@@ -1,0 +1,42 @@
+{
+  "specification_version": "two-axis-prompt-population-v1",
+  "assigned_coordinates": {
+    "A1": {
+      "range": [0.0, 1.0],
+      "name": "decision-readiness",
+      "low": "understand the B2B SaaS category without selecting a product",
+      "high": "evaluate, select, acquire, or implement a B2B SaaS solution"
+    },
+    "A2": {
+      "range": [0.0, 1.0],
+      "name": "source-ownership preference conditional on relevance",
+      "low": "prefer seller-independent evidence",
+      "middle": "apply no publisher-ownership preference",
+      "high": "prefer seller-controlled evidence"
+    }
+  },
+  "fixed_fields": {
+    "business_actor": "a business software evaluator assessing a B2B SaaS category for an organization",
+    "search_term": "inserted verbatim after semantic-clause generation",
+    "task": "listwise reranking of one frozen candidate set",
+    "output_contract": "return exactly TOP_N candidate identifiers only, with no explanation"
+  },
+  "allowed_semantic_changes": [
+    "decision-readiness changes only with A1",
+    "publisher-ownership preference conditional on relevance changes only with A2"
+  ],
+  "forbidden_criteria": [
+    "freshness or recency",
+    "authority or credibility",
+    "popularity or brand prestige",
+    "price or cost",
+    "company size",
+    "geography",
+    "page length",
+    "statistics density",
+    "writing quality",
+    "review score",
+    "hard source exclusions"
+  ],
+  "required_template_placeholders": ["{QUERY}", "{CANDIDATES}", "{TOP_N}"]
+}
