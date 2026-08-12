@@ -219,6 +219,46 @@ This writes `source_ownership_diagnostics.json`,
 `source_ownership_report.md`. A real run is still feasibility-only until the
 neutral point, geometry, decoded monotonicity, and semantic invariants pass.
 
+## Two-factor ownership-by-intent plane
+
+The two-factor feasibility design estimates matched factorial corners for each
+exact query and surface frame, then constructs:
+
+```text
+Z(q,O,I,S) = C(q) + O D_O_orth(q) + I D_I_orth(q) + R_S_orth(q)
+```
+
+`O` varies seller-independent to seller-controlled evidence preference, `I`
+varies informational to transactional search intent, and `S` selects a surface
+residual with its projection on both semantic axes removed. The raw main-effect
+cosine, factorial interaction curvature, and corner reconstruction error are
+recorded before decoding. Monotonicity is evaluated within fixed-coordinate
+slices, not by collapsing the two dimensions into one score.
+
+The default feasibility grid uses `O,I in {-2,-1,0,1,2}` and style seeds `0,1`,
+producing 50 prompts. Coordinates beyond `[-1,1]` continue the fitted direction
+but are not experimental treatments.
+
+```bash
+export OWNERSHIP_INTENT_OUTPUT="$PWD/runs/ownership_intent_plane/${SLURM_JOB_ID}-$(git rev-parse --short HEAD)"
+
+srun --ntasks=1 --gres=gpu:1 python3 \
+  analysis/scripts/validate_ownership_intent_plane.py \
+  --backend local \
+  --model "$MODEL_SNAPSHOT" \
+  --query "abandoned cart recovery" \
+  --ownership-grid=-2,-1,0,1,2 \
+  --intent-grid=-2,-1,0,1,2 \
+  --style-seeds 0,1 \
+  --encode-batch-size 1 \
+  --max-new-tokens 128 \
+  --output-dir "$OWNERSHIP_INTENT_OUTPUT"
+```
+
+Artifacts are `ownership_intent_plane_diagnostics.json`,
+`decoded_ownership_intent_grid.jsonl`, `ownership_intent_plane_state.npz`, and
+`ownership_intent_plane_report.md`.
+
 ## CPU plumbing smoke test
 
 The fake backend checks artifacts and numerical contracts without loading a

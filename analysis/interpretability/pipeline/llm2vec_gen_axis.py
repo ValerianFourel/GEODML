@@ -25,6 +25,7 @@ ENCODING_INSTRUCTION_VERSION = "reranking-template-reconstruction-v1"
 QUERY_CONDITIONED_ENDPOINT_VERSION = "query-conditioned-search-purpose-v1"
 QUERY_CENTROID_AXIS_VERSION = "query-conditioned-info-buy-centroid-v1"
 SOURCE_OWNERSHIP_AXIS_VERSION = "query-conditioned-source-ownership-axis-v1"
+OWNERSHIP_INTENT_PLANE_VERSION = "query-conditioned-ownership-intent-plane-v1"
 ENCODING_INSTRUCTION = (
     "Generate the reusable listwise search-reranking instruction given below. "
     "Preserve its meaning and the literal placeholders {QUERY}, {CANDIDATES}, "
@@ -38,6 +39,7 @@ __all__ = [
     "QUERY_CONDITIONED_ENDPOINT_VERSION",
     "QUERY_CENTROID_AXIS_VERSION",
     "SOURCE_OWNERSHIP_AXIS_VERSION",
+    "OWNERSHIP_INTENT_PLANE_VERSION",
     "DecodableAxis",
     "anchor_query_to_decoded_text",
     "axis_geometry_diagnostics",
@@ -46,6 +48,7 @@ __all__ = [
     "build_query_conditioned_requests",
     "build_query_centroid_requests",
     "build_source_ownership_requests",
+    "build_ownership_intent_requests",
     "build_realization_reconstruction_text",
     "clean_decoded_realization",
     "decode_record_checks",
@@ -260,6 +263,66 @@ def build_source_ownership_requests(
             if normalized not in request:
                 raise ValueError("filled ownership request lost the exact query")
             result[endpoint].append({"frame_id": frame_id, "request": request})
+    return result
+
+
+def build_ownership_intent_requests(
+    query: str, specification: dict[str, object]
+) -> dict[str, list[dict[str, str]]]:
+    """Fill six matched frames at the four ownership-by-intent corners."""
+
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must be a non-empty string")
+    normalized = " ".join(query.split())
+    if '"' in normalized:
+        raise ValueError("query must not contain double quotes")
+    if specification.get("template_bank_version") != OWNERSHIP_INTENT_PLANE_VERSION:
+        raise ValueError("unsupported ownership-intent plane template version")
+    frames = specification.get("surface_frames")
+    invariants = specification.get("shared_invariants")
+    if not isinstance(frames, list) or len(frames) < 2:
+        raise ValueError("ownership-intent plane requires at least two frames")
+    if not isinstance(invariants, str) or not invariants.strip():
+        raise ValueError("shared_invariants must be non-empty")
+    ownership = {
+        -1: specification.get("independent_ownership"),
+        1: specification.get("controlled_ownership"),
+    }
+    intent = {
+        -1: specification.get("informational_intent"),
+        1: specification.get("transactional_intent"),
+    }
+    if any(not isinstance(value, str) or not value.strip() for value in ownership.values()):
+        raise ValueError("ownership endpoints must be non-empty")
+    if any(not isinstance(value, str) or not value.strip() for value in intent.values()):
+        raise ValueError("intent endpoints must be non-empty")
+
+    result = {f"o{o:+d}_i{i:+d}": [] for o in (-1, 1) for i in (-1, 1)}
+    seen_ids: set[str] = set()
+    required = ("/QUERY/", "/OWNERSHIP/", "/INTENT/", "/SHARED_INVARIANTS/")
+    for frame in frames:
+        if not isinstance(frame, dict):
+            raise ValueError("surface frame must be an object")
+        frame_id = frame.get("id")
+        template = frame.get("template")
+        if not isinstance(frame_id, str) or not frame_id or frame_id in seen_ids:
+            raise ValueError("surface frame ids must be unique non-empty strings")
+        if not isinstance(template, str) or any(token not in template for token in required):
+            raise ValueError(f"surface frame {frame_id!r} must contain {required}")
+        seen_ids.add(frame_id)
+        for o in (-1, 1):
+            for i in (-1, 1):
+                request = (
+                    template.replace("/QUERY/", normalized)
+                    .replace("/OWNERSHIP/", str(ownership[o]).strip())
+                    .replace("/INTENT/", str(intent[i]).strip())
+                    .replace("/SHARED_INVARIANTS/", invariants.strip())
+                )
+                if normalized not in request:
+                    raise ValueError("filled factorial request lost the exact query")
+                result[f"o{o:+d}_i{i:+d}"].append(
+                    {"frame_id": frame_id, "request": request}
+                )
     return result
 
 

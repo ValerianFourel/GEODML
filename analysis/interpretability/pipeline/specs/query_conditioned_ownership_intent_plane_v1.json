@@ -1,0 +1,37 @@
+{
+  "template_bank_version": "query-conditioned-ownership-intent-plane-v1",
+  "query_placeholder": "/QUERY/",
+  "ownership_placeholder": "/OWNERSHIP/",
+  "intent_placeholder": "/INTENT/",
+  "independent_ownership": "when relevance and evidence quality are comparable, strongly prefer evidence published independently of vendors selling products in this SaaS category over evidence controlled by those vendors",
+  "controlled_ownership": "when relevance and evidence quality are comparable, strongly prefer evidence controlled by vendors selling products in this SaaS category over evidence published independently of those vendors",
+  "informational_intent": "the B2B software evaluator is researching to learn and understand the category and is not yet selecting or adopting a product",
+  "transactional_intent": "the same B2B software evaluator is ready to select and adopt a suitable product for the same company context now",
+  "shared_invariants": "Keep the exact keyword, B2B software-evaluator identity, company context, time horizon, candidates, query relevance, evidence quality, ranking task, output size, and output format invariant. Do not introduce freshness, authority, popularity, brand fame, citations, page length, statistics density, writing quality, review scores, or exclusions. Output exactly two concise sentences: one search-intent sentence and one publisher-ownership preference sentence. Output nothing else.",
+  "surface_frames": [
+    {
+      "id": "write-policies",
+      "template": "Write the two ranking-policy sentences for the exact B2B SaaS keyword \"/QUERY/\". Search intent: /INTENT/. Publisher ownership: /OWNERSHIP/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "state-policies",
+      "template": "State a search-intent sentence and an ownership-preference sentence for a B2B evaluator using the exact keyword \"/QUERY/\": /INTENT/; /OWNERSHIP/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "formulate-policies",
+      "template": "Formulate exactly two semantic policy sentences for reranking the exact B2B SaaS keyword \"/QUERY/\", where /INTENT/ and /OWNERSHIP/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "express-policies",
+      "template": "Express the fixed evaluator's search purpose and publisher-ownership preference for the exact keyword \"/QUERY/\": /INTENT/. Also, /OWNERSHIP/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "produce-policies",
+      "template": "Produce one intent sentence and one evidence-ownership sentence for the exact B2B SaaS keyword \"/QUERY/\" under these conditions: /INTENT/; /OWNERSHIP/. /SHARED_INVARIANTS/"
+    },
+    {
+      "id": "compose-policies",
+      "template": "Compose the two invariant-preserving semantic clauses for a B2B software evaluator ranking the exact keyword \"/QUERY/\": /INTENT/. Ownership rule: /OWNERSHIP/. /SHARED_INVARIANTS/"
+    }
+  ]
+}
