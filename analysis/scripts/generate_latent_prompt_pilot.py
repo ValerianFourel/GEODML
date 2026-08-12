@@ -23,9 +23,11 @@ from interpretability.pipeline.prompt_latent_axis import (  # noqa: E402
     FakeLatentPromptProvider,
     FakePromptEmbedder,
     LatentPromptGenerationRequest,
+    PromptProviderValidationError,
     RepositoryLocalLatentPromptProvider,
     SentenceTransformerPromptEmbedder,
     build_prompt_latent_axis,
+    build_latent_prompt_request,
     generate_prompt_at_coordinate,
     render_selected_latent_prompt,
 )
@@ -149,13 +151,14 @@ def main() -> int:
     if args.max_keywords < 0:
         parser.error("max-keywords must be nonnegative")
     output_dir = Path(args.output_dir)
+    failure_target = output_dir / "latent_prompt_failure.json"
     targets = (
         output_dir / "prompt_latent_axis.json",
         output_dir / "latent_prompt_candidates.jsonl",
         output_dir / "rendered_latent_prompts.jsonl",
         output_dir / "latent_prompt_pilot_report.md",
     )
-    existing = [path for path in targets if path.exists()]
+    existing = [path for path in (*targets, failure_target) if path.exists()]
     if existing and not args.overwrite:
         parser.error("refusing to overwrite: " + ", ".join(str(path) for path in existing))
 
@@ -216,6 +219,52 @@ def main() -> int:
                     )
                     rendered = render_selected_latent_prompt(
                         record, candidates=candidates, top_n=args.top_n
+                    )
+                except PromptProviderValidationError as exc:
+                    generated_at = datetime.now(timezone.utc).isoformat().replace(
+                        "+00:00", "Z"
+                    )
+                    serp_path = (
+                        Path(args.data_root).resolve()
+                        / "data"
+                        / "serp"
+                        / f"phase0_top{args.pool}_{args.engine}.parquet"
+                    )
+                    _atomic_json(
+                        failure_target,
+                        {
+                            "diagnostic_version": "latent-prompt-failure-v1",
+                            "generated_at": generated_at,
+                            "query": query,
+                            "target_coordinate": target,
+                            "style_seed": style_seed,
+                            "base_generation_seed": request.generation_seed,
+                            "number_candidates_requested": args.number_candidates,
+                            "candidate_page_count": len(candidates),
+                            "serp_input": str(serp_path),
+                            "data_root": str(Path(args.data_root).resolve()),
+                            "endpoint_bank": str(Path(args.endpoint_bank).resolve()),
+                            "axis_id": axis.axis_id,
+                            "provider_backend": provider.backend_name,
+                            "generator_model": args.generator_model,
+                            "generator_precision": args.precision,
+                            "embedding_model": args.embedding_model,
+                            "embedding_device": args.embedding_device,
+                            "meta_prompt_request": build_latent_prompt_request(request),
+                            "generation_configuration": {
+                                "max_new_tokens": 900,
+                                "temperature": 0.9,
+                                "top_p": 1.0,
+                                "maximum_validation_attempts": len(exc.attempts),
+                            },
+                            "attempts": [
+                                asdict(attempt) for attempt in exc.attempts
+                            ],
+                        },
+                    )
+                    parser.error(
+                        f"query={query!r} target={target}: {exc}; "
+                        f"failure diagnostic: {failure_target}"
                     )
                 except (TypeError, ValueError) as exc:
                     parser.error(f"query={query!r} target={target}: {exc}")

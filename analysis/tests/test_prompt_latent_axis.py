@@ -11,6 +11,7 @@ from analysis.interpretability.pipeline.prompt_latent_axis import (
     FakeLatentPromptProvider,
     FakePromptEmbedder,
     LatentPromptGenerationRequest,
+    PromptProviderValidationError,
     build_latent_prompt_request,
     build_prompt_latent_axis,
     generate_prompt_at_coordinate,
@@ -128,13 +129,30 @@ class LatentPromptSelectionTests(unittest.TestCase):
             def generate(self, request_text, generation_config):
                 return "not json"
 
-        with self.assertRaisesRegex(ValueError, "after 3 deterministic attempts"):
+        with self.assertRaisesRegex(
+            PromptProviderValidationError, "after 3 deterministic attempts"
+        ) as raised:
             generate_prompt_at_coordinate(
                 _request(),
                 axis=_axis(),
                 provider=InvalidProvider(),
                 embedder=FakePromptEmbedder(),
             )
+        self.assertEqual(len(raised.exception.attempts), 3)
+        self.assertEqual(
+            [attempt.generation_seed for attempt in raised.exception.attempts],
+            [11, 12, 13],
+        )
+        self.assertEqual(
+            [attempt.raw_model_output for attempt in raised.exception.attempts],
+            ["not json", "not json", "not json"],
+        )
+        self.assertTrue(
+            all(
+                "invalid JSON" in attempt.validation_error
+                for attempt in raised.exception.attempts
+            )
+        )
 
     def test_invalid_first_attempt_is_retried_deterministically(self) -> None:
         class RetryProvider:

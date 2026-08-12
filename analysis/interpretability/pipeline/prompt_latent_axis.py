@@ -63,6 +63,8 @@ __all__ = [
     "LatentPromptRecord",
     "PromptEmbeddingProvider",
     "PromptLatentAxis",
+    "PromptProviderValidationAttempt",
+    "PromptProviderValidationError",
     "PromptTextProvider",
     "RepositoryLocalLatentPromptProvider",
     "SentenceTransformerPromptEmbedder",
@@ -165,6 +167,30 @@ class LatentPromptRecord:
     candidate_projections: tuple[PromptCandidateProjection, ...]
     raw_model_output: str
     validation_status: str
+
+
+@dataclass(frozen=True, slots=True)
+class PromptProviderValidationAttempt:
+    attempt_number: int
+    generation_seed: int
+    raw_model_output: str
+    validation_error: str
+
+
+class PromptProviderValidationError(ValueError):
+    """All deterministic provider attempts failed structural validation."""
+
+    def __init__(
+        self, attempts: Sequence[PromptProviderValidationAttempt]
+    ) -> None:
+        self.attempts = tuple(attempts)
+        final_error = (
+            self.attempts[-1].validation_error if self.attempts else "unknown error"
+        )
+        super().__init__(
+            "prompt provider failed validation after "
+            f"{len(self.attempts)} deterministic attempts: {final_error}"
+        )
 
 
 def build_prompt_latent_axis(
@@ -282,7 +308,7 @@ def generate_prompt_at_coordinate(
     parameters["generation_seed"] = request.generation_seed
     request_text = build_latent_prompt_request(request)
     attempted_generation_seeds: list[int] = []
-    validation_errors: list[str] = []
+    rejected_attempts: list[PromptProviderValidationAttempt] = []
     raw_output = ""
     candidates: tuple[str, ...] | None = None
     for attempt_index in range(_MAX_PROVIDER_VALIDATION_ATTEMPTS):
@@ -297,17 +323,22 @@ def generate_prompt_at_coordinate(
             candidates = _parse_prompt_candidates(raw_output, request)
             break
         except ValueError as exc:
-            validation_errors.append(str(exc))
+            rejected_attempts.append(
+                PromptProviderValidationAttempt(
+                    attempt_number=attempt_index + 1,
+                    generation_seed=attempt_seed,
+                    raw_model_output=raw_output,
+                    validation_error=str(exc),
+                )
+            )
     if candidates is None:
-        final_error = validation_errors[-1] if validation_errors else "unknown error"
-        raise ValueError(
-            "prompt provider failed validation after "
-            f"{_MAX_PROVIDER_VALIDATION_ATTEMPTS} deterministic attempts: {final_error}"
-        )
+        raise PromptProviderValidationError(rejected_attempts)
     if len(attempted_generation_seeds) > 1:
         parameters["validation_attempt_count"] = len(attempted_generation_seeds)
         parameters["attempted_generation_seeds"] = attempted_generation_seeds
-        parameters["rejected_attempt_errors"] = validation_errors
+        parameters["rejected_attempt_errors"] = [
+            attempt.validation_error for attempt in rejected_attempts
+        ]
     embeddings = _validated_embeddings(embedder, candidates, label="prompt candidates")
     coordinates = project_prompt_embeddings(axis, embeddings)
     diagnostics = tuple(

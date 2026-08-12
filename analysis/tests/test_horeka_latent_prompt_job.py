@@ -13,6 +13,7 @@ SBATCH = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/run_latent_prompt_pilo
 SUBMIT = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/submit_latent_prompt_pilot.sh"
 MANIFEST = REPOSITORY_ROOT / "analysis/scripts/slurm/horeka/record_latent_run_manifest.py"
 GPU_REQUIREMENTS = REPOSITORY_ROOT / "analysis/requirements-horeka-gpu.txt"
+GENERATOR = REPOSITORY_ROOT / "analysis/scripts/generate_latent_prompt_pilot.py"
 
 
 class HorekaLatentPromptJobTests(unittest.TestCase):
@@ -70,6 +71,16 @@ class HorekaLatentPromptJobTests(unittest.TestCase):
         self.assertIn("accelerate>=", requirements)
         self.assertIn("bitsandbytes>=", requirements)
         self.assertIn("transformers>=", requirements)
+
+    def test_generator_persists_complete_provider_failure_diagnostics(self) -> None:
+        generator = GENERATOR.read_text(encoding="utf-8")
+        self.assertIn("PromptProviderValidationError", generator)
+        self.assertIn("latent_prompt_failure.json", generator)
+        self.assertIn('"serp_input"', generator)
+        self.assertIn('"meta_prompt_request"', generator)
+        self.assertIn('"generation_configuration"', generator)
+        self.assertIn('"attempts"', generator)
+        self.assertIn("asdict(attempt)", generator)
 
     def test_job_does_not_copy_juelich_specific_infrastructure(self) -> None:
         combined = SBATCH.read_text(encoding="utf-8") + SUBMIT.read_text(encoding="utf-8")
