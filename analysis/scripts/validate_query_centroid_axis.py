@@ -17,6 +17,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,7 @@ from interpretability.pipeline.llm2vec_gen_axis import (  # noqa: E402
     axis_geometry_diagnostics,
     build_decodable_axis,
     build_query_centroid_requests,
+    build_realization_reconstruction_text,
     clean_decoded_realization,
     decode_record_checks,
     extend_axis_centroids,
@@ -139,6 +141,57 @@ def _axis_region(coordinate: float) -> str:
     if coordinate > 1.0:
         return "post-buy-extrapolation"
     return "centroid-interpolation"
+
+
+def _monotonicity_diagnostics(
+    assigned: Sequence[float], recovered: Sequence[float], *, tolerance: float = 1e-12
+) -> dict[str, object]:
+    decreases: list[dict[str, float]] = []
+    ties: list[dict[str, float]] = []
+    for index, (left, right) in enumerate(zip(recovered, recovered[1:])):
+        record = {
+            "from_assigned": float(assigned[index]),
+            "to_assigned": float(assigned[index + 1]),
+            "from_recovered": float(left),
+            "to_recovered": float(right),
+            "change": float(right - left),
+        }
+        if right < left - tolerance:
+            decreases.append(record)
+        elif abs(right - left) <= tolerance:
+            ties.append(record)
+    return {
+        "weakly_increasing": not decreases,
+        "strictly_increasing": not decreases and not ties,
+        "decrease_count": len(decreases),
+        "tie_count": len(ties),
+        "decreases": decreases,
+        "ties": ties,
+    }
+
+
+def _duplicate_groups(rows: Sequence[dict[str, object]]) -> list[dict[str, object]]:
+    groups: dict[str, list[float]] = {}
+    examples: dict[str, str] = {}
+    for row in rows:
+        realization = " ".join(str(row["decoded_realization"]).casefold().split())
+        groups.setdefault(realization, []).append(float(row["assigned_coordinate"]))
+        examples[realization] = str(row["decoded_realization"])
+    return [
+        {"assigned_coordinates": coordinates, "decoded_realization": examples[key]}
+        for key, coordinates in groups.items()
+        if len(coordinates) > 1
+    ]
+
+
+def _subject_drift_flags(realization: str) -> list[str]:
+    lowered = realization.casefold()
+    flags: list[str] = []
+    if re.search(r"\b(?:my|our) (?:abandoned )?(?:shopping )?cart\b", lowered):
+        flags.append("first-person-cart-owner")
+    if re.search(r"\bi (?:want|need|am looking)\b", lowered):
+        flags.append("first-person-seeker")
+    return flags
 
 
 def _atomic_text(path: Path, value: str) -> None:
@@ -273,6 +326,10 @@ construction; decoded language and decode/re-encode diagnostics are the test.
 - Raw decode/re-encode Spearman: `{cycle['raw_reconstruction_spearman']}`
 - Anchored decode/re-encode Spearman: `{cycle['anchored_reconstruction_spearman']}`
 - Anchored coordinates strictly increasing: `{cycle['anchored_reconstruction_strictly_increasing']}`
+- Instruction-matched anchored Spearman: `{cycle['matched_anchored_reconstruction_spearman']}`
+- Instruction-matched decreases/ties: `{cycle['matched_anchored_monotonicity']['decrease_count']}/{cycle['matched_anchored_monotonicity']['tie_count']}`
+- Duplicate decoded groups: `{diagnostics['decoded_realization_duplicates']['group_count']}`
+- Subject-drift points: `{diagnostics['subject_drift']['point_count']}`
 - Maximum anchored normalized off-axis residual: `{cycle['maximum_anchored_off_axis_distance_over_centroid_distance']}`
 
 The leave-one-out geometry here tests stability across surface frames for one
@@ -373,6 +430,7 @@ def main() -> int:
         text = backend.decode(state, max_new_tokens=args.max_new_tokens).strip()
         realization = clean_decoded_realization(text)
         checks = decode_record_checks(realization)
+        drift_flags = _subject_drift_flags(realization)
         decoded_rows.append(
             {
                 "path_kind": "query-specific-extended-centroid-line",
@@ -394,6 +452,8 @@ def main() -> int:
                     query, realization
                 ),
                 "decoded_line_count": len(realization.splitlines()),
+                "subject_drift_flags": drift_flags,
+                "subject_drift_detected": bool(drift_flags),
                 "structural_checks": checks,
             }
         )
@@ -408,6 +468,22 @@ def main() -> int:
         batch_size=args.encode_batch_size,
         max_length=args.encode_max_length,
     )
+    matched_raw_re_pooled, matched_raw_re_reconstruction = backend.encode(
+        [
+            build_realization_reconstruction_text(str(row["decoded_realization"]))
+            for row in decoded_rows
+        ],
+        batch_size=args.encode_batch_size,
+        max_length=args.encode_max_length,
+    )
+    matched_anchored_re_pooled, matched_anchored_re_reconstruction = backend.encode(
+        [
+            build_realization_reconstruction_text(str(row["query_anchored_text"]))
+            for row in decoded_rows
+        ],
+        batch_size=args.encode_batch_size,
+        max_length=args.encode_max_length,
+    )
     expected_shape = (len(decoded_rows), *recon_axis.state_shape)
     if raw_re_reconstruction.shape != expected_shape:
         parser.error(f"unexpected raw decode-cycle shape: {raw_re_reconstruction.shape}")
@@ -415,6 +491,16 @@ def main() -> int:
         parser.error(
             "unexpected anchored decode-cycle shape: "
             f"{anchored_re_reconstruction.shape}"
+        )
+    if matched_raw_re_reconstruction.shape != expected_shape:
+        parser.error(
+            "unexpected instruction-matched raw shape: "
+            f"{matched_raw_re_reconstruction.shape}"
+        )
+    if matched_anchored_re_reconstruction.shape != expected_shape:
+        parser.error(
+            "unexpected instruction-matched anchored shape: "
+            f"{matched_anchored_re_reconstruction.shape}"
         )
     for index, row in enumerate(decoded_rows):
         row["reencoded_reconstruction_projection"] = projection_residual_diagnostics(
@@ -431,6 +517,24 @@ def main() -> int:
         row["anchored_reencoded_pooled_projection"] = projection_residual_diagnostics(
             pooled_axis, anchored_re_pooled[index]
         )
+        row["matched_reencoded_reconstruction_projection"] = (
+            projection_residual_diagnostics(
+                recon_axis, matched_raw_re_reconstruction[index]
+            )
+        )
+        row["matched_reencoded_pooled_projection"] = projection_residual_diagnostics(
+            pooled_axis, matched_raw_re_pooled[index]
+        )
+        row["matched_anchored_reencoded_reconstruction_projection"] = (
+            projection_residual_diagnostics(
+                recon_axis, matched_anchored_re_reconstruction[index]
+            )
+        )
+        row["matched_anchored_reencoded_pooled_projection"] = (
+            projection_residual_diagnostics(
+                pooled_axis, matched_anchored_re_pooled[index]
+            )
+        )
         row["decode_cycle_cosine_to_assigned_state"] = _cosine(
             latent_states[index], raw_re_reconstruction[index]
         )
@@ -442,6 +546,12 @@ def main() -> int:
         ]["off_axis_distance_over_centroid_distance"]
         row["anchored_reencoded_reconstruction_residual_ratio"] = row[
             "anchored_reencoded_reconstruction_projection"
+        ]["off_axis_distance_over_centroid_distance"]
+        row["matched_reencoded_reconstruction_residual_ratio"] = row[
+            "matched_reencoded_reconstruction_projection"
+        ]["off_axis_distance_over_centroid_distance"]
+        row["matched_anchored_reencoded_reconstruction_residual_ratio"] = row[
+            "matched_anchored_reencoded_reconstruction_projection"
         ]["off_axis_distance_over_centroid_distance"]
 
     assigned = [float(row["assigned_coordinate"]) for row in decoded_rows]
@@ -476,6 +586,36 @@ def main() -> int:
             ]
         )
         for row in decoded_rows
+    ]
+    matched_raw_coordinates = [
+        float(row["matched_reencoded_reconstruction_projection"]["axis_coordinate"])
+        for row in decoded_rows
+    ]
+    matched_raw_off_axis = [
+        float(row["matched_reencoded_reconstruction_residual_ratio"])
+        for row in decoded_rows
+    ]
+    matched_anchored_coordinates = [
+        float(
+            row["matched_anchored_reencoded_reconstruction_projection"][
+                "axis_coordinate"
+            ]
+        )
+        for row in decoded_rows
+    ]
+    matched_anchored_off_axis = [
+        float(row["matched_anchored_reencoded_reconstruction_residual_ratio"])
+        for row in decoded_rows
+    ]
+    duplicate_groups = _duplicate_groups(decoded_rows)
+    drift_rows = [
+        {
+            "assigned_coordinate": row["assigned_coordinate"],
+            "flags": row["subject_drift_flags"],
+            "decoded_realization": row["decoded_realization"],
+        }
+        for row in decoded_rows
+        if row["subject_drift_detected"]
     ]
     retained = sum(bool(row["query_present_case_insensitive"]) for row in decoded_rows)
     anchored_retained = sum(
@@ -524,6 +664,15 @@ def main() -> int:
             "rate": anchored_retained / len(decoded_rows),
             "method": "fixed structural query prefix after latent decode",
         },
+        "decoded_realization_duplicates": {
+            "group_count": len(duplicate_groups),
+            "groups": duplicate_groups,
+        },
+        "subject_drift": {
+            "diagnostic_scope": "first-person cart-owner shift only",
+            "point_count": len(drift_rows),
+            "points": drift_rows,
+        },
         "decode_cycle": {
             "raw_reencoded_reconstruction_coordinates": raw_re_coordinates,
             "raw_reencoded_pooled_coordinates": raw_pooled_coordinates,
@@ -566,6 +715,37 @@ def main() -> int:
             "anchored_normalized_off_axis_residuals": anchored_off_axis,
             "maximum_anchored_off_axis_distance_over_centroid_distance": max(
                 anchored_off_axis
+            ),
+            "matched_reencoding_method": (
+                "encode a request to reproduce exactly the decoded realization"
+            ),
+            "matched_raw_reencoded_reconstruction_coordinates": (
+                matched_raw_coordinates
+            ),
+            "matched_raw_reconstruction_spearman": _spearman(
+                assigned, matched_raw_coordinates
+            ),
+            "matched_raw_monotonicity": _monotonicity_diagnostics(
+                assigned, matched_raw_coordinates
+            ),
+            "matched_raw_normalized_off_axis_residuals": matched_raw_off_axis,
+            "maximum_matched_raw_off_axis_distance_over_centroid_distance": max(
+                matched_raw_off_axis
+            ),
+            "matched_anchored_reencoded_reconstruction_coordinates": (
+                matched_anchored_coordinates
+            ),
+            "matched_anchored_reconstruction_spearman": _spearman(
+                assigned, matched_anchored_coordinates
+            ),
+            "matched_anchored_monotonicity": _monotonicity_diagnostics(
+                assigned, matched_anchored_coordinates
+            ),
+            "matched_anchored_normalized_off_axis_residuals": (
+                matched_anchored_off_axis
+            ),
+            "maximum_matched_anchored_off_axis_distance_over_centroid_distance": max(
+                matched_anchored_off_axis
             ),
             # Backward-compatible raw-decode aliases from feasibility v1.
             "reencoded_reconstruction_coordinates": raw_re_coordinates,
@@ -611,6 +791,12 @@ def main() -> int:
             "reencoded_grid_states": raw_re_reconstruction.astype(np.float32),
             "query_anchored_reencoded_grid_states": anchored_re_reconstruction.astype(
                 np.float32
+            ),
+            "matched_raw_reencoded_grid_states": matched_raw_re_reconstruction.astype(
+                np.float32
+            ),
+            "matched_query_anchored_reencoded_grid_states": (
+                matched_anchored_re_reconstruction.astype(np.float32)
             ),
         },
     )

@@ -16,6 +16,7 @@ from analysis.interpretability.pipeline.llm2vec_gen_axis import (
     anchor_query_to_decoded_text,
     build_decodable_axis,
     build_query_centroid_requests,
+    build_realization_reconstruction_text,
     clean_decoded_realization,
     extend_axis_centroids,
     projection_residual_diagnostics,
@@ -44,6 +45,12 @@ class QueryCentroidConstructionTests(unittest.TestCase):
     def test_decoded_realization_removes_control_token_repetition(self) -> None:
         decoded = "First prompt.<|end_of_text|>;<|start_of_text|>First prompt."
         self.assertEqual(clean_decoded_realization(decoded), "First prompt.")
+
+    def test_matched_reencoding_requests_exact_realization(self) -> None:
+        realization = "The user wants explanatory information."
+        request = build_realization_reconstruction_text(realization)
+        self.assertIn("Reproduce exactly", request)
+        self.assertTrue(request.endswith(realization))
 
     def test_every_matched_endpoint_contains_the_exact_query(self) -> None:
         specification = json.loads(TEMPLATE_BANK.read_text(encoding="utf-8"))
@@ -160,6 +167,15 @@ class QueryCentroidCliTests(unittest.TestCase):
             self.assertIn(
                 "anchored_reconstruction_spearman", diagnostics["decode_cycle"]
             )
+            self.assertIn(
+                "matched_anchored_reconstruction_spearman",
+                diagnostics["decode_cycle"],
+            )
+            self.assertIn(
+                "matched_anchored_monotonicity", diagnostics["decode_cycle"]
+            )
+            self.assertIn("group_count", diagnostics["decoded_realization_duplicates"])
+            self.assertIn("point_count", diagnostics["subject_drift"])
             self.assertTrue(
                 all("reencoded_reconstruction_residual_ratio" in row for row in rows)
             )
@@ -182,6 +198,13 @@ class QueryCentroidCliTests(unittest.TestCase):
                 self.assertEqual(state["reencoded_grid_states"].shape[0], 13)
                 self.assertEqual(
                     state["query_anchored_reencoded_grid_states"].shape[0], 13
+                )
+                self.assertEqual(
+                    state["matched_raw_reencoded_grid_states"].shape[0], 13
+                )
+                self.assertEqual(
+                    state["matched_query_anchored_reencoded_grid_states"].shape[0],
+                    13,
                 )
             report = (output / "query_centroid_report.md").read_text(encoding="utf-8")
             self.assertIn("Mock output only", report)

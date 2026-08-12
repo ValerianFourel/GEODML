@@ -142,6 +142,14 @@ centroid; `L=2` is one complete displacement beyond the buy centroid. Only
 coordinates in `[0, 1]` are experimental `B`; extrapolated values are explicitly
 marked as diagnostic probes. The first decoded realization is also separated
 from leaked model control tokens before anchoring and re-encoding.
+
+The extended run records two decode-cycle definitions. The original direct
+cycle encodes the decoded sentence as a new model input. The instruction-matched
+cycle instead asks the model to reproduce that exact realization, preserving
+the output-reconstruction task implied by the endpoint requests. Reports include
+the exact adjacent decreases and ties for the matched cycle, exact duplicate
+realization groups, and a narrow diagnostic for drift into a first-person
+shopper recovering their own cart.
 The scientific diagnostic is what happens after decoding and re-encoding:
 whether the query is retained, the recovered coordinate is monotonic, and the
 recovered state remains near the line rather than acquiring a large orthogonal

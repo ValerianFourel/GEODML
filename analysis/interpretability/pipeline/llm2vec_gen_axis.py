@@ -43,6 +43,7 @@ __all__ = [
     "build_encoding_text",
     "build_query_conditioned_requests",
     "build_query_centroid_requests",
+    "build_realization_reconstruction_text",
     "clean_decoded_realization",
     "decode_record_checks",
     "inject_query_after_decode",
@@ -79,6 +80,24 @@ def build_encoding_text(prompt_template: str) -> str:
     if not isinstance(prompt_template, str) or not prompt_template.strip():
         raise ValueError("prompt_template must be a non-empty string")
     return ENCODING_INSTRUCTION + prompt_template.strip()
+
+
+def build_realization_reconstruction_text(realization: str) -> str:
+    """Request the decoded realization itself as the model's intended output.
+
+    LLM2Vec-Gen embeds the answer implied by an input. Directly encoding a
+    decoded sentence instead asks the model to answer that sentence. This
+    wrapper instead makes exact reconstruction the generation task, providing a
+    task-matched decode/re-encode diagnostic.
+    """
+
+    if not isinstance(realization, str) or not realization.strip():
+        raise ValueError("realization must be a non-empty string")
+    return (
+        "Reproduce exactly the search-purpose realization below. Do not answer, "
+        "explain, paraphrase, or add text. Output only the realization.\n\n"
+        f"Realization:\n{realization.strip()}"
+    )
 
 
 def build_query_conditioned_requests(query: str) -> tuple[str, str]:
