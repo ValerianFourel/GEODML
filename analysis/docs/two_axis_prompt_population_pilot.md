@@ -67,6 +67,46 @@ artifacts.
 
 `--mode mock-bank-only` writes a deterministic **mock** candidate bank and its
 blind comparison queue without pretending that either is a scientific request
-or observation. A later cluster milestone will add pinned instruction-LLM and
-pairwise-judge adapters; no expensive generation or judging is launched by
-this milestone.
+or observation. Use the real staged pilot below for pinned instruction-LLM,
+pairwise-judge, and embedding runs.
+
+## Real staged semantic pilot
+
+`run_real_two_axis_prompt_pilot.py` replaces all three fake components while
+keeping their model lifetimes separate:
+
+1. `generate` loads a pinned local instruction LLM and generates constrained
+   objective/source clause pairs. The query is absent from this generation
+   request and remains a structural `{QUERY}` field.
+2. `judge` loads a pinned local instruction LLM as a blind pairwise semantic
+   judge. The same exact query is inserted into both compared prompts. Each
+   presentation order remains a separate judgment.
+3. `embed-select` loads primary LLM2Vec on exactly one visible GPU, embeds the
+   query-bound input prompt text, performs constrained selection, and writes
+   latent field diagnostics.
+4. `response-diagnostics` optionally loads LLM2Vec-Gen on exactly one visible
+   GPU and measures anticipated-response geometry for the frozen selection. It
+   never decodes a reconstruction state.
+
+All local-model outputs are cached by stable request/model/configuration hashes.
+Assigned A1/A2 remain treatments; Bradley--Terry and LLM2Vec values remain
+manipulation checks. Start with a 3×3×1 development run. A 7×7×24 run is a
+later scale-up after examining every selected prompt and judge disagreement.
+
+The real run produces:
+
+- `two_axis_candidates.jsonl`;
+- `pairwise_comparison_requests.jsonl`;
+- `pairwise_judgments.jsonl`;
+- `candidate_calibrations.jsonl`;
+- `selected_prompt_population.jsonl`;
+- `selection_diagnostics.json`;
+- `llm2vec_latent_diagnostics.json`;
+- `llm2vec_gen_response_diagnostics.json`;
+- `real_two_axis_prompt_report.md`;
+- stable raw generation and judgment caches.
+
+`run_manifest.json` records the Git SHA, Slurm environment, models, seeds, grids,
+precision, generation configuration, and completion status. A real pilot is
+still labelled `scientific_result: false` until human semantic review and the
+pre-specified gates have been applied.

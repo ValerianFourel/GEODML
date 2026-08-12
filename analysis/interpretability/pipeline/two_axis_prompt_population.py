@@ -12,7 +12,7 @@ for CPU contract tests.  Fake outputs support no scientific claim.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 import math
@@ -58,6 +58,10 @@ __all__ = [
     "FakePairwiseJudge",
     "FakeTwoAxisCandidateGenerator",
     "FakeTwoAxisPromptEmbedder",
+    "LLM2VecGenPromptEmbedder",
+    "LLM2VecPromptEmbedder",
+    "LocalLLMPairwiseJudge",
+    "LocalLLMTwoAxisCandidateGenerator",
     "PairwiseComparisonRequest",
     "PairwiseJudgment",
     "PairwiseJudge",
@@ -67,6 +71,7 @@ __all__ = [
     "TwoAxisCandidateRequest",
     "TwoAxisCalibration",
     "TwoAxisPermutationOutcome",
+    "TwoAxisLatentDiagnostics",
     "TwoAxisPromptEmbedder",
     "TwoAxisSelectionDiagnostics",
     "build_pairwise_comparison_requests",
@@ -75,6 +80,7 @@ __all__ = [
     "judge_comparison_requests",
     "load_population_specification",
     "map_two_axis_prompt_to_permutation",
+    "measure_selected_latent_population",
     "render_selected_two_axis_prompt",
     "select_prompt_population",
     "semantic_contract_checks",
@@ -242,6 +248,24 @@ class TwoAxisPermutationOutcome:
     raw_model_output: str
     reranker_run_id: str
     reranker_model: str
+
+
+@dataclass(frozen=True, slots=True)
+class TwoAxisLatentDiagnostics:
+    embedding_model: str
+    selected_count: int
+    embedding_dimension: int
+    exact_query_structural_retention_rate: float
+    a1_endpoint_distance: float
+    a2_endpoint_distance: float
+    a1_a2_direction_cosine: float
+    a1_slice_spearman_mean: float
+    a2_slice_spearman_mean: float
+    a1_cross_axis_slope_ratio: float
+    a2_cross_axis_slope_ratio: float
+    mean_adjacent_embedding_distance: float
+    mean_distant_embedding_distance: float
+    adjacent_over_distant_distance_ratio: float
 
 
 def load_population_specification() -> dict[str, object]:
@@ -573,7 +597,11 @@ def select_prompt_population(
     ]
     if not usable:
         raise ValueError("no structurally valid calibrated candidates")
-    embeddings = _validated_embeddings(embedder, [candidate.prompt_template for candidate in usable])
+    embedding_texts = [
+        _query_bound_template(candidate.prompt_template, candidate.search_term)
+        for candidate in usable
+    ]
+    embeddings = _validated_embeddings(embedder, embedding_texts)
     embedding_by_id = {
         candidate.candidate_id: embedding for candidate, embedding in zip(usable, embeddings)
     }
@@ -702,6 +730,65 @@ def map_two_axis_prompt_to_permutation(
     )
 
 
+def measure_selected_latent_population(
+    selected: Sequence[SelectedTwoAxisPrompt],
+) -> TwoAxisLatentDiagnostics:
+    """Measure whether query-bound selected prompts form coherent latent fields."""
+
+    if not selected:
+        raise ValueError("selected prompt population must be non-empty")
+    embeddings = np.asarray([item.prompt_embedding for item in selected], dtype=np.float64)
+    if embeddings.ndim != 2 or not np.isfinite(embeddings).all():
+        raise ValueError("selected prompt embeddings must be one finite matrix")
+    models = {item.embedding_model for item in selected}
+    if len(models) != 1:
+        raise ValueError("selected prompts use multiple embedding models")
+    a1 = np.asarray([item.assigned_a1 for item in selected], dtype=np.float64)
+    a2 = np.asarray([item.assigned_a2 for item in selected], dtype=np.float64)
+    a1_low = embeddings[np.isclose(a1, 0.0)].mean(axis=0)
+    a1_high = embeddings[np.isclose(a1, 1.0)].mean(axis=0)
+    a2_low = embeddings[np.isclose(a2, 0.0)].mean(axis=0)
+    a2_high = embeddings[np.isclose(a2, 1.0)].mean(axis=0)
+    direction1 = a1_high - a1_low
+    direction2 = a2_high - a2_low
+    norm1 = float(np.linalg.norm(direction1))
+    norm2 = float(np.linalg.norm(direction2))
+    if norm1 <= 1e-12 or norm2 <= 1e-12:
+        raise ValueError("latent endpoint centroids do not define two nonzero directions")
+    unit1 = direction1 / norm1
+    unit2 = direction2 / norm2
+    projection1 = embeddings @ unit1
+    projection2 = embeddings @ unit2
+    a1_spearman = _latent_slice_spearman(selected, projection1, moving="A1")
+    a2_spearman = _latent_slice_spearman(selected, projection2, moving="A2")
+    a1_intended = abs(_least_squares_slope(a1, projection1))
+    a1_cross = abs(_least_squares_slope(a2, projection1))
+    a2_intended = abs(_least_squares_slope(a2, projection2))
+    a2_cross = abs(_least_squares_slope(a1, projection2))
+    adjacent, distant = _latent_neighbor_distances(selected)
+    retained = sum(
+        item.search_term
+        in _query_bound_template(item.prompt_template, item.search_term)
+        for item in selected
+    )
+    return TwoAxisLatentDiagnostics(
+        embedding_model=next(iter(models)),
+        selected_count=len(selected),
+        embedding_dimension=int(embeddings.shape[1]),
+        exact_query_structural_retention_rate=retained / len(selected),
+        a1_endpoint_distance=norm1,
+        a2_endpoint_distance=norm2,
+        a1_a2_direction_cosine=float(unit1 @ unit2),
+        a1_slice_spearman_mean=float(np.mean(a1_spearman)),
+        a2_slice_spearman_mean=float(np.mean(a2_spearman)),
+        a1_cross_axis_slope_ratio=a1_cross / max(a1_intended, 1e-12),
+        a2_cross_axis_slope_ratio=a2_cross / max(a2_intended, 1e-12),
+        mean_adjacent_embedding_distance=float(np.mean(adjacent)),
+        mean_distant_embedding_distance=float(np.mean(distant)),
+        adjacent_over_distant_distance_ratio=float(np.mean(adjacent) / np.mean(distant)),
+    )
+
+
 class FakeTwoAxisCandidateGenerator:
     """Deterministic clause generator for tests only; not scientific output."""
 
@@ -797,6 +884,316 @@ class FakeTwoAxisPromptEmbedder:
                 ]
             )
         return np.asarray(rows, dtype=np.float64)
+
+
+class LocalLLMTwoAxisCandidateGenerator:
+    """Constrained JSON clause generator backed by a repository local ranker.
+
+    The exact search term is intentionally absent from the generation request.
+    It is inserted structurally only after candidate selection.
+    """
+
+    backend_name = "repository-local-constrained-json"
+
+    def __init__(
+        self,
+        ranker,
+        *,
+        model_name: str,
+        cache_directory: str | Path,
+        max_new_tokens: int = 1200,
+        temperature: float = 0.8,
+        maximum_attempts: int = 3,
+    ) -> None:
+        if max_new_tokens <= 0 or temperature < 0 or maximum_attempts <= 0:
+            raise ValueError("invalid local candidate-generator configuration")
+        self._ranker = ranker
+        self.model_name = model_name
+        self.cache_directory = Path(cache_directory)
+        self.max_new_tokens = max_new_tokens
+        self.temperature = temperature
+        self.maximum_attempts = maximum_attempts
+
+    @classmethod
+    def from_model(
+        cls,
+        model_name: str,
+        *,
+        cache_directory: str | Path,
+        precision: str = "full",
+        max_new_tokens: int = 1200,
+        temperature: float = 0.8,
+        maximum_attempts: int = 3,
+    ) -> "LocalLLMTwoAxisCandidateGenerator":
+        from ..utils import make_ranker
+
+        return cls(
+            make_ranker("local", model_name, precision=precision),
+            model_name=model_name,
+            cache_directory=cache_directory,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            maximum_attempts=maximum_attempts,
+        )
+
+    def generate(self, request: TwoAxisCandidateRequest) -> tuple[tuple[str, str], ...]:
+        request_text = _candidate_generation_request(request)
+        cache_identity = {
+            "kind": "two-axis-candidate-generation",
+            "version": POPULATION_VERSION,
+            "model": self.model_name,
+            "request": request_text,
+            "seed": request.generation_seed,
+            "temperature": self.temperature,
+            "max_new_tokens": self.max_new_tokens,
+        }
+        cache_key = _hash(json.dumps(cache_identity, sort_keys=True, separators=(",", ":")))
+        cache_path = self.cache_directory / f"{cache_key}.json"
+        if cache_path.exists():
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            return tuple(
+                (item["search_objective_clause"], item["source_preference_clause"])
+                for item in payload["candidates"]
+            )
+        failures: list[dict[str, object]] = []
+        for attempt in range(self.maximum_attempts):
+            seed = request.generation_seed + attempt
+            raw = _seeded_local_generation(
+                self._ranker,
+                request_text + ("" if not attempt else _candidate_retry_instruction()),
+                seed=seed,
+                max_new_tokens=self.max_new_tokens,
+                temperature=self.temperature,
+            )
+            try:
+                rows = _parse_generated_candidate_clauses(raw, request.number_candidates)
+                semantic_failures = _generated_clause_semantic_failures(
+                    rows, style_seed=request.style_seed
+                )
+                if semantic_failures:
+                    raise ValueError(
+                        "generated clauses failed hard semantic screens: "
+                        + json.dumps(semantic_failures, sort_keys=True)
+                    )
+            except ValueError as exc:
+                failures.append({"attempt": attempt + 1, "seed": seed, "error": str(exc), "raw": raw})
+                continue
+            _atomic_json(
+                cache_path,
+                {
+                    "cache_identity": cache_identity,
+                    "accepted_attempt": attempt + 1,
+                    "accepted_seed": seed,
+                    "raw_model_output": raw,
+                    "rejected_attempts": failures,
+                    "candidates": [
+                        {
+                            "search_objective_clause": objective,
+                            "source_preference_clause": source,
+                        }
+                        for objective, source in rows
+                    ],
+                },
+            )
+            return rows
+        raise ValueError(
+            "local candidate generator failed structural JSON validation after "
+            f"{self.maximum_attempts} attempts: "
+            + "; ".join(str(item["error"]) for item in failures)
+        )
+
+
+class LocalLLMPairwiseJudge:
+    """Blind cached pairwise judge backed by a repository local ranker."""
+
+    def __init__(
+        self,
+        ranker,
+        *,
+        judge_id: str,
+        model_name: str,
+        cache_directory: str | Path,
+        max_new_tokens: int = 80,
+        maximum_attempts: int = 3,
+    ) -> None:
+        if (
+            not judge_id.strip()
+            or not model_name.strip()
+            or max_new_tokens <= 0
+            or maximum_attempts <= 0
+        ):
+            raise ValueError("invalid local pairwise-judge configuration")
+        self._ranker = ranker
+        self.judge_id = judge_id
+        self.model_name = model_name
+        self.cache_directory = Path(cache_directory)
+        self.max_new_tokens = max_new_tokens
+        self.maximum_attempts = maximum_attempts
+
+    @classmethod
+    def from_model(
+        cls,
+        model_name: str,
+        *,
+        judge_id: str,
+        cache_directory: str | Path,
+        precision: str = "full",
+        max_new_tokens: int = 80,
+        maximum_attempts: int = 3,
+    ) -> "LocalLLMPairwiseJudge":
+        from ..utils import make_ranker
+
+        return cls(
+            make_ranker("local", model_name, precision=precision),
+            judge_id=judge_id,
+            model_name=model_name,
+            cache_directory=cache_directory,
+            max_new_tokens=max_new_tokens,
+            maximum_attempts=maximum_attempts,
+        )
+
+    def compare(
+        self,
+        request: PairwiseComparisonRequest,
+        candidates: Mapping[str, TwoAxisCandidate],
+    ) -> str:
+        left = candidates[request.left_candidate_id]
+        right = candidates[request.right_candidate_id]
+        request_text = _pairwise_judge_request(request, left, right)
+        cache_identity = {
+            "kind": "two-axis-pairwise-judgment",
+            "version": POPULATION_VERSION,
+            "judge_id": self.judge_id,
+            "model": self.model_name,
+            "comparison_id": request.comparison_id,
+            "request": request_text,
+        }
+        cache_key = _hash(json.dumps(cache_identity, sort_keys=True, separators=(",", ":")))
+        cache_path = self.cache_directory / f"{cache_key}.json"
+        if cache_path.exists():
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            label = payload["winner"]
+        else:
+            rejected: list[dict[str, object]] = []
+            label = None
+            raw = ""
+            base_seed = int(cache_key[:8], 16)
+            for attempt in range(self.maximum_attempts):
+                raw = _seeded_local_generation(
+                    self._ranker,
+                    request_text
+                    + ("" if not attempt else "\nReturn the required JSON object only."),
+                    seed=base_seed + attempt,
+                    max_new_tokens=self.max_new_tokens,
+                    temperature=0.0,
+                )
+                try:
+                    label = _parse_pairwise_winner(raw)
+                    break
+                except ValueError as exc:
+                    rejected.append(
+                        {"attempt": attempt + 1, "error": str(exc), "raw": raw}
+                    )
+            if label is None:
+                raise ValueError(
+                    f"judge {self.judge_id} failed JSON validation after "
+                    f"{self.maximum_attempts} attempts"
+                )
+            _atomic_json(
+                cache_path,
+                {
+                    "cache_identity": cache_identity,
+                    "raw_model_output": raw,
+                    "rejected_attempts": rejected,
+                    "winner": label,
+                },
+            )
+        if label == "tie":
+            return "tie"
+        return left.candidate_id if label == "left" else right.candidate_id
+
+
+class LLM2VecGenPromptEmbedder:
+    """Pooled LLM2Vec-Gen expected-response representation of prompt text.
+
+    This is a diagnostic embedding only. No reconstruction state is decoded.
+    The upstream high-level loader currently requires exactly one visible GPU.
+    """
+
+    def __init__(self, model_name: str, *, batch_size: int = 1, max_length: int = 512) -> None:
+        try:
+            import torch
+            from llm2vec_gen import LLM2VecGenModel
+        except ImportError as exc:
+            raise ImportError("LLM2Vec-Gen prompt embedding requires llm2vec-gen") from exc
+        if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
+            raise RuntimeError("LLM2Vec-Gen prompt embedding requires exactly one visible GPU")
+        if batch_size <= 0 or max_length <= 0:
+            raise ValueError("batch_size and max_length must be positive")
+        self.model_name = model_name
+        self.batch_size = batch_size
+        self.max_length = max_length
+        self._model = LLM2VecGenModel.from_pretrained(model_name)
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray:
+        batches: list[np.ndarray] = []
+        for start in range(0, len(texts), self.batch_size):
+            pooled, _ = self._model.encode(
+                list(texts[start : start + self.batch_size]),
+                max_length=self.max_length,
+                get_recon_hidden_states=True,
+            )
+            batches.append(pooled.detach().float().cpu().numpy())
+        if not batches:
+            raise ValueError("cannot embed an empty prompt collection")
+        return np.concatenate(batches, axis=0)
+
+
+class LLM2VecPromptEmbedder:
+    """Primary frozen input-text representation using official LLM2Vec."""
+
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        peft_model_name_or_path: str | None = None,
+        batch_size: int = 1,
+        max_length: int = 512,
+    ) -> None:
+        try:
+            import torch
+            from llm2vec import LLM2Vec
+        except ImportError as exc:
+            raise ImportError("LLM2Vec prompt embedding requires the llm2vec package") from exc
+        if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
+            raise RuntimeError("LLM2Vec prompt embedding requires exactly one visible GPU")
+        if batch_size <= 0 or max_length <= 0:
+            raise ValueError("batch_size and max_length must be positive")
+        self.model_name = (
+            model_name
+            if peft_model_name_or_path is None
+            else f"{model_name}+peft:{peft_model_name_or_path}"
+        )
+        self.batch_size = batch_size
+        self._model = LLM2Vec.from_pretrained(
+            model_name,
+            peft_model_name_or_path=peft_model_name_or_path,
+            device_map="cuda",
+            torch_dtype=torch.bfloat16,
+            max_length=max_length,
+            attn_implementation="eager",
+        )
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray:
+        batches: list[np.ndarray] = []
+        for start in range(0, len(texts), self.batch_size):
+            encoded = self._model.encode(list(texts[start : start + self.batch_size]))
+            if hasattr(encoded, "detach"):
+                encoded = encoded.detach().float().cpu().numpy()
+            batches.append(np.asarray(encoded, dtype=np.float64))
+        if not batches:
+            raise ValueError("cannot embed an empty prompt collection")
+        return np.concatenate(batches, axis=0)
 
 
 def _compile_prompt(
@@ -1163,3 +1560,259 @@ def _single_line(value: str) -> str:
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _candidate_generation_request(request: TwoAxisCandidateRequest) -> str:
+    style = TemplatePromptGenerator._build_style_plan(request.style_seed)
+    return f"""Generate alternative semantic clause pairs for a B2B SaaS search-agent reranking instruction.
+
+The exact search term is intentionally not provided. Do not invent or mention a query, product category, company, geography, or candidate document.
+
+Assigned A1 decision-readiness coordinate: {request.assigned_a1:.6f}
+A1=0 means understand the category without selecting a product.
+A1=0.5 means understand it and develop practical evaluation criteria and solution approaches.
+A1=1 means actively evaluate, compare, shortlist, trial, acquire, or implement a B2B SaaS solution.
+
+Assigned A2 source-ownership coordinate: {request.assigned_a2:.6f}
+A2=0 means prefer seller-independent evidence, conditional on equal topical relevance.
+A2=0.5 means no publisher-ownership preference.
+A2=1 means prefer seller-controlled evidence, conditional on equal topical relevance.
+At low A1, seller-controlled evidence means vendor educational content or technical documentation, not automatically pricing or demo pages.
+
+Fixed actor: a business software evaluator assessing a B2B SaaS category for an organization.
+Fixed task: rerank one supplied candidate set for one exact search term by relevance.
+Fixed output contract: candidate identifiers only, with no explanation.
+Surface style plan: {json.dumps(asdict(style), sort_keys=True, separators=(",", ":"))}
+
+Hard constraints:
+- Change only decision-readiness in the objective clause and publisher ownership in the source clause.
+- State that ownership is conditional on relevance or is not a substitute for relevance.
+- Do not introduce freshness, popularity, brand prestige, authority, credibility, price, cost, company size, geography, review score, writing quality, or hard exclusions.
+- Do not answer the unknown search term.
+- Do not include numeric A1/A2 coordinates in either clause.
+- Each clause must be one line and must not contain placeholders.
+- Produce {request.number_candidates} genuinely distinct pairs.
+
+Return JSON only in this exact shape:
+{{"candidates":[{{"search_objective_clause":"...","source_preference_clause":"..."}}]}}
+"""
+
+
+def _candidate_retry_instruction() -> str:
+    return (
+        "\nYour previous response failed structural validation. Regenerate the complete "
+        "JSON object with the exact requested number of distinct clause pairs. Return "
+        "JSON only, without Markdown fences or commentary."
+    )
+
+
+def _parse_generated_candidate_clauses(
+    raw_model_output: str, expected_count: int
+) -> tuple[tuple[str, str], ...]:
+    try:
+        payload = json.loads(raw_model_output.strip())
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid JSON") from exc
+    if not isinstance(payload, dict) or set(payload) != {"candidates"}:
+        raise ValueError("JSON must contain only the candidates field")
+    values = payload["candidates"]
+    if not isinstance(values, list) or len(values) != expected_count:
+        raise ValueError(f"expected exactly {expected_count} candidates")
+    rows: list[tuple[str, str]] = []
+    for value in values:
+        if not isinstance(value, dict) or set(value) != {
+            "search_objective_clause",
+            "source_preference_clause",
+        }:
+            raise ValueError("candidate has an invalid JSON shape")
+        objective = _single_line(value["search_objective_clause"])
+        source = _single_line(value["source_preference_clause"])
+        if not objective or not source:
+            raise ValueError("candidate clauses must be non-empty strings")
+        if any(token in objective + source for token in ("{QUERY}", "{CANDIDATES}", "{TOP_N}")):
+            raise ValueError("generated clauses must not contain structural placeholders")
+        rows.append((objective, source))
+    if len(set(rows)) != len(rows):
+        raise ValueError("generated candidate clause pairs must be distinct")
+    return tuple(rows)
+
+
+def _generated_clause_semantic_failures(
+    rows: Sequence[tuple[str, str]], *, style_seed: int
+) -> dict[str, int]:
+    actor = "a business software evaluator assessing a B2B SaaS category for an organization"
+    style = TemplatePromptGenerator._build_style_plan(style_seed)
+    failures: dict[str, int] = {}
+    for objective, source in rows:
+        template = _compile_prompt(
+            style=style,
+            business_actor=actor,
+            objective_clause=objective,
+            source_clause=source,
+            output_contract="Return exactly {TOP_N} candidate identifiers only, with no explanation.",
+        )
+        reasons = semantic_contract_checks(
+            template,
+            search_term="__structural_query_sentinel__",
+            business_actor=actor,
+            objective_clause=objective,
+            source_preference_clause=source,
+        )
+        for reason in reasons:
+            failures[reason] = failures.get(reason, 0) + 1
+    return failures
+
+
+def _pairwise_judge_request(
+    request: PairwiseComparisonRequest,
+    left: TwoAxisCandidate,
+    right: TwoAxisCandidate,
+) -> str:
+    left_text = _query_bound_template(left.prompt_template, left.search_term)
+    right_text = _query_bound_template(right.prompt_template, right.search_term)
+    return f"""You are a blind semantic calibration judge. Compare two B2B SaaS search-agent instructions along exactly one axis.
+
+Axis question: {request.question}
+
+Ignore wording quality, length, syntax, clause order, and every ranking criterion outside the stated axis. Both prompts contain the same exact search term. Do not infer numeric target coordinates.
+
+LEFT PROMPT:
+{left_text}
+
+RIGHT PROMPT:
+{right_text}
+
+Return JSON only: {{"winner":"left"}}, {{"winner":"right"}}, or {{"winner":"tie"}}.
+"""
+
+
+def _parse_pairwise_winner(raw_model_output: str) -> str:
+    try:
+        payload = json.loads(raw_model_output.strip())
+    except json.JSONDecodeError as exc:
+        raise ValueError("pairwise judge returned invalid JSON") from exc
+    if not isinstance(payload, dict) or set(payload) != {"winner"}:
+        raise ValueError("pairwise judge returned an invalid JSON shape")
+    winner = payload["winner"]
+    if winner not in {"left", "right", "tie"}:
+        raise ValueError("pairwise judge winner must be left, right, or tie")
+    return str(winner)
+
+
+def _seeded_local_generation(
+    ranker,
+    prompt: str,
+    *,
+    seed: int,
+    max_new_tokens: int,
+    temperature: float,
+) -> str:
+    import torch
+
+    devices = list(range(torch.cuda.device_count()))
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        return str(
+            ranker.rank(
+                prompt,
+                max_tokens=max_new_tokens,
+                temperature=temperature,
+            )
+        ).strip()
+
+
+def _query_bound_template(prompt_template: str, search_term: str) -> str:
+    if prompt_template.count("{QUERY}") != 1:
+        raise ValueError("prompt template must contain exactly one {QUERY} placeholder")
+    query = _single_line(search_term)
+    if not query:
+        raise ValueError("search term must be non-empty")
+    bound = prompt_template.replace("{QUERY}", query)
+    if query not in bound:
+        raise RuntimeError("query-bound embedding text lost the exact search term")
+    return bound
+
+
+def _latent_slice_spearman(
+    selected: Sequence[SelectedTwoAxisPrompt],
+    projections: np.ndarray,
+    *,
+    moving: str,
+) -> tuple[float, ...]:
+    from scipy.stats import spearmanr
+
+    groups: dict[tuple[int, float], list[tuple[float, float]]] = {}
+    for item, projection in zip(selected, projections):
+        if moving == "A1":
+            key = (item.style_seed, item.assigned_a2)
+            assigned = item.assigned_a1
+        else:
+            key = (item.style_seed, item.assigned_a1)
+            assigned = item.assigned_a2
+        groups.setdefault(key, []).append((assigned, float(projection)))
+    values: list[float] = []
+    for rows in groups.values():
+        rows.sort()
+        result = spearmanr([row[0] for row in rows], [row[1] for row in rows])
+        statistic = float(getattr(result, "statistic", result[0]))
+        if math.isfinite(statistic):
+            values.append(statistic)
+    if not values:
+        raise ValueError(f"no finite latent {moving} slice correlations")
+    return tuple(values)
+
+
+def _least_squares_slope(x: np.ndarray, y: np.ndarray) -> float:
+    centered = x - float(np.mean(x))
+    denominator = float(centered @ centered)
+    if denominator <= 1e-12:
+        raise ValueError("cannot estimate slope from a constant coordinate")
+    return float(centered @ (y - float(np.mean(y))) / denominator)
+
+
+def _latent_neighbor_distances(
+    selected: Sequence[SelectedTwoAxisPrompt],
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    grouped: dict[int, dict[tuple[float, float], np.ndarray]] = {}
+    for item in selected:
+        grouped.setdefault(item.style_seed, {})[(item.assigned_a1, item.assigned_a2)] = np.asarray(
+            item.prompt_embedding, dtype=np.float64
+        )
+    adjacent: list[float] = []
+    distant: list[float] = []
+    for cells in grouped.values():
+        grid1 = sorted({cell[0] for cell in cells})
+        grid2 = sorted({cell[1] for cell in cells})
+        for fixed in grid2:
+            adjacent.extend(
+                float(np.linalg.norm(cells[(right, fixed)] - cells[(left, fixed)]))
+                for left, right in zip(grid1, grid1[1:])
+            )
+            distant.append(float(np.linalg.norm(cells[(grid1[-1], fixed)] - cells[(grid1[0], fixed)])))
+        for fixed in grid1:
+            adjacent.extend(
+                float(np.linalg.norm(cells[(fixed, right)] - cells[(fixed, left)]))
+                for left, right in zip(grid2, grid2[1:])
+            )
+            distant.append(float(np.linalg.norm(cells[(fixed, grid2[-1])] - cells[(fixed, grid2[0])])))
+    if not adjacent or not distant or float(np.mean(distant)) <= 1e-12:
+        raise ValueError("latent population lacks adjacent or distant grid pairs")
+    return tuple(adjacent), tuple(distant)
+
+
+def _atomic_json(path: Path, payload: object) -> None:
+    import os
+    import tempfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, delete=False
+    ) as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary = Path(handle.name)
+    os.replace(temporary, path)
