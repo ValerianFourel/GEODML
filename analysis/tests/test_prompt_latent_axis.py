@@ -128,13 +128,50 @@ class LatentPromptSelectionTests(unittest.TestCase):
             def generate(self, request_text, generation_config):
                 return "not json"
 
-        with self.assertRaisesRegex(ValueError, "invalid JSON"):
+        with self.assertRaisesRegex(ValueError, "after 3 deterministic attempts"):
             generate_prompt_at_coordinate(
                 _request(),
                 axis=_axis(),
                 provider=InvalidProvider(),
                 embedder=FakePromptEmbedder(),
             )
+
+    def test_invalid_first_attempt_is_retried_deterministically(self) -> None:
+        class RetryProvider:
+            backend_name = "retry"
+
+            def __init__(self):
+                self.seeds = []
+
+            def generate(self, request_text, generation_config):
+                self.seeds.append(generation_config["generation_seed"])
+                if len(self.seeds) == 1:
+                    templates = [
+                        "Rerank {QUERY} using {CANDIDATES}. Return option IDs only."
+                        for _ in range(3)
+                    ]
+                    return json.dumps({"prompt_templates": templates})
+                return FakeLatentPromptProvider().generate(
+                    request_text, generation_config
+                )
+
+        provider = RetryProvider()
+        record = generate_prompt_at_coordinate(
+            _request(generation_seed=41),
+            axis=_axis(),
+            provider=provider,
+            embedder=FakePromptEmbedder(),
+        )
+        self.assertEqual(provider.seeds, [41, 42])
+        self.assertEqual(record.generation_parameters["generation_seed"], 41)
+        self.assertEqual(record.generation_parameters["validation_attempt_count"], 2)
+        self.assertEqual(
+            record.generation_parameters["attempted_generation_seeds"], [41, 42]
+        )
+        self.assertIn(
+            "lacks {TOP_N}",
+            record.generation_parameters["rejected_attempt_errors"][0],
+        )
 
     def test_valid_json_in_markdown_fence_is_accepted(self) -> None:
         class FencedProvider:

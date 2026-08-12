@@ -39,6 +39,7 @@ from .search_purpose_continuum import (
 
 LATENT_AXIS_VERSION = "informational-transactional-latent-axis-v1"
 LATENT_META_PROMPT_VERSION = "search-purpose-latent-meta-prompt-v1"
+_MAX_PROVIDER_VALIDATION_ATTEMPTS = 3
 _META_PROMPT_PATH = (
     Path(__file__).with_name("specs") / "search_purpose_latent_meta_prompt_v1.txt"
 )
@@ -280,8 +281,33 @@ def generate_prompt_at_coordinate(
     )
     parameters["generation_seed"] = request.generation_seed
     request_text = build_latent_prompt_request(request)
-    raw_output = provider.generate(request_text, parameters)
-    candidates = _parse_prompt_candidates(raw_output, request)
+    attempted_generation_seeds: list[int] = []
+    validation_errors: list[str] = []
+    raw_output = ""
+    candidates: tuple[str, ...] | None = None
+    for attempt_index in range(_MAX_PROVIDER_VALIDATION_ATTEMPTS):
+        attempt_seed = request.generation_seed + attempt_index
+        attempted_generation_seeds.append(attempt_seed)
+        attempt_parameters = {**parameters, "generation_seed": attempt_seed}
+        attempt_request = request_text
+        if attempt_index:
+            attempt_request += _provider_retry_instruction()
+        raw_output = provider.generate(attempt_request, attempt_parameters)
+        try:
+            candidates = _parse_prompt_candidates(raw_output, request)
+            break
+        except ValueError as exc:
+            validation_errors.append(str(exc))
+    if candidates is None:
+        final_error = validation_errors[-1] if validation_errors else "unknown error"
+        raise ValueError(
+            "prompt provider failed validation after "
+            f"{_MAX_PROVIDER_VALIDATION_ATTEMPTS} deterministic attempts: {final_error}"
+        )
+    if len(attempted_generation_seeds) > 1:
+        parameters["validation_attempt_count"] = len(attempted_generation_seeds)
+        parameters["attempted_generation_seeds"] = attempted_generation_seeds
+        parameters["rejected_attempt_errors"] = validation_errors
     embeddings = _validated_embeddings(embedder, candidates, label="prompt candidates")
     coordinates = project_prompt_embeddings(axis, embeddings)
     diagnostics = tuple(
@@ -327,6 +353,17 @@ def generate_prompt_at_coordinate(
         candidate_projections=diagnostics,
         raw_model_output=raw_output,
         validation_status="latent-selected-unvalidated",
+    )
+
+
+def _provider_retry_instruction() -> str:
+    """Return the invariant-preserving correction used after invalid output."""
+    return (
+        "\n\nYour previous response failed structural validation. Regenerate the complete "
+        "JSON object from scratch. Every prompt template must contain the literal "
+        "placeholders {QUERY}, {CANDIDATES}, and {TOP_N}; request identifiers or "
+        "IDs only; prohibit explanations; and obey every axis restriction above. "
+        "Return valid JSON only, without Markdown fences or commentary."
     )
 
 
@@ -501,7 +538,10 @@ def _parse_prompt_candidates(
         template = _normalize_template(value)
         for placeholder in ("{QUERY}", "{CANDIDATES}", "{TOP_N}"):
             if placeholder not in template:
-                raise ValueError(f"prompt candidate {index} lacks {placeholder}")
+                raise ValueError(
+                    f"prompt candidate {index} lacks {placeholder}; "
+                    f"candidate preview={template[:240]!r}"
+                )
         lowered = template.lower()
         has_identifier_only_contract = _has_identifier_only_contract(lowered)
         if not has_identifier_only_contract:
