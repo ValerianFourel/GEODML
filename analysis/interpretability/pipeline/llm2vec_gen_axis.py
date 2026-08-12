@@ -23,6 +23,7 @@ import numpy as np
 LLM2VEC_GEN_AXIS_VERSION = "llm2vec-gen-search-purpose-axis-v1"
 ENCODING_INSTRUCTION_VERSION = "reranking-template-reconstruction-v1"
 QUERY_CONDITIONED_ENDPOINT_VERSION = "query-conditioned-search-purpose-v1"
+QUERY_CENTROID_AXIS_VERSION = "query-conditioned-info-buy-centroid-v1"
 ENCODING_INSTRUCTION = (
     "Generate the reusable listwise search-reranking instruction given below. "
     "Preserve its meaning and the literal placeholders {QUERY}, {CANDIDATES}, "
@@ -34,16 +35,19 @@ __all__ = [
     "ENCODING_INSTRUCTION_VERSION",
     "LLM2VEC_GEN_AXIS_VERSION",
     "QUERY_CONDITIONED_ENDPOINT_VERSION",
+    "QUERY_CENTROID_AXIS_VERSION",
     "DecodableAxis",
     "axis_geometry_diagnostics",
     "build_decodable_axis",
     "build_encoding_text",
     "build_query_conditioned_requests",
+    "build_query_centroid_requests",
     "decode_record_checks",
     "inject_query_after_decode",
     "interpolate_axis_centroids",
     "interpolate_endpoint_pair",
     "project_onto_axis",
+    "projection_residual_diagnostics",
     "stable_array_hash",
 ]
 
@@ -101,6 +105,85 @@ def build_query_conditioned_requests(query: str) -> tuple[str, str]:
     return informational, transactional
 
 
+def build_query_centroid_requests(
+    query: str, specification: dict[str, object]
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Fill matched surface frames for query-specific endpoint centroids.
+
+    Each informational/buy pair has identical surface text except for the
+    versioned intent clause. The exact normalized query is included before
+    encoding in every request. The function performs no model inference.
+    """
+
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must be a non-empty string")
+    normalized = " ".join(query.split())
+    if '"' in normalized:
+        raise ValueError("query must not contain double quotes")
+
+    version = specification.get("template_bank_version")
+    if version != QUERY_CENTROID_AXIS_VERSION:
+        raise ValueError(f"unsupported query centroid template version: {version!r}")
+    query_placeholder = specification.get("query_placeholder")
+    intent_placeholder = specification.get("intent_placeholder")
+    constraints_placeholder = specification.get("constraints_placeholder")
+    informational_intent = specification.get("informational_intent")
+    buy_intent = specification.get("buy_intent")
+    shared_constraints = specification.get("shared_constraints")
+    frames = specification.get("surface_frames")
+    scalar_fields = {
+        "query_placeholder": query_placeholder,
+        "intent_placeholder": intent_placeholder,
+        "constraints_placeholder": constraints_placeholder,
+        "informational_intent": informational_intent,
+        "buy_intent": buy_intent,
+        "shared_constraints": shared_constraints,
+    }
+    for name, value in scalar_fields.items():
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"query centroid specification has invalid {name}")
+    if not isinstance(frames, list) or len(frames) < 2:
+        raise ValueError("query centroid specification requires at least two frames")
+
+    informational: list[dict[str, str]] = []
+    buy: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for index, frame in enumerate(frames):
+        if not isinstance(frame, dict):
+            raise ValueError(f"surface frame {index} is not an object")
+        frame_id = frame.get("id")
+        template = frame.get("template")
+        if not isinstance(frame_id, str) or not frame_id or frame_id in seen_ids:
+            raise ValueError(f"surface frame {index} has an invalid or duplicate id")
+        if not isinstance(template, str) or not template.strip():
+            raise ValueError(f"surface frame {index} has no template")
+        for placeholder in (
+            query_placeholder,
+            intent_placeholder,
+            constraints_placeholder,
+        ):
+            if template.count(placeholder) != 1:
+                raise ValueError(
+                    f"surface frame {frame_id!r} must contain {placeholder!r} once"
+                )
+        seen_ids.add(frame_id)
+
+        def render(intent: str) -> str:
+            value = template
+            value = value.replace(query_placeholder, normalized)
+            value = value.replace(intent_placeholder, intent.strip())
+            value = value.replace(constraints_placeholder, shared_constraints.strip())
+            if normalized not in value:
+                raise ValueError(f"surface frame {frame_id!r} lost the exact query")
+            return value.strip()
+
+        informational.append(
+            {"frame_id": frame_id, "request": render(informational_intent)}
+        )
+        buy.append({"frame_id": frame_id, "request": render(buy_intent)})
+    return informational, buy
+
+
 def _validated_paired_states(
     informational_states: np.ndarray,
     transactional_states: np.ndarray,
@@ -129,7 +212,10 @@ def build_decodable_axis(
 ) -> DecodableAxis:
     """Estimate the paired mean direction in reconstruction-state space."""
 
-    if axis_version != LLM2VEC_GEN_AXIS_VERSION:
+    if axis_version not in (
+        LLM2VEC_GEN_AXIS_VERSION,
+        QUERY_CENTROID_AXIS_VERSION,
+    ):
         raise ValueError(f"unsupported axis version: {axis_version!r}")
     informational, transactional = _validated_paired_states(
         informational_states, transactional_states
@@ -209,6 +295,30 @@ def project_onto_axis(axis: DecodableAxis, states: np.ndarray) -> np.ndarray:
     )
     coordinates = projections / axis.centroid_distance
     return coordinates[0] if single else coordinates
+
+
+def projection_residual_diagnostics(
+    axis: DecodableAxis, state: np.ndarray
+) -> dict[str, float]:
+    """Decompose one state into its on-axis coordinate and residual distance."""
+
+    array = np.asarray(state, dtype=np.float64)
+    if array.shape != axis.state_shape or not np.isfinite(array).all():
+        raise ValueError(f"expected one finite state with shape {axis.state_shape}")
+    coordinate = float(project_onto_axis(axis, array))
+    projected = (
+        axis.informational_centroid
+        + coordinate
+        * (axis.transactional_centroid - axis.informational_centroid)
+    )
+    residual = float(np.linalg.norm((array - projected).reshape(-1)))
+    return {
+        "axis_coordinate": coordinate,
+        "off_axis_distance": residual,
+        "off_axis_distance_over_centroid_distance": (
+            residual / axis.centroid_distance
+        ),
+    }
 
 
 def axis_geometry_diagnostics(

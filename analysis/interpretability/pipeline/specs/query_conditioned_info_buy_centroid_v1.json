@@ -1,0 +1,35 @@
+{
+  "template_bank_version": "query-conditioned-info-buy-centroid-v1",
+  "query_placeholder": "/QUERY/",
+  "intent_placeholder": "/INTENT/",
+  "constraints_placeholder": "/CONSTRAINTS/",
+  "informational_intent": "the user wants neutral explanatory information to learn and understand the topic before choosing or buying anything",
+  "buy_intent": "the user intends to choose and buy or adopt a suitable product, service, or solution now",
+  "shared_constraints": "Include the exact query phrase in the sentence. Do not answer the query, recommend or name any option, invent details, or add ranking criteria. Output exactly one sentence and nothing else.",
+  "surface_frames": [
+    {
+      "id": "write-direct",
+      "template": "Write one concise search-purpose sentence for the fixed query \"/QUERY/\" expressing that /INTENT/. /CONSTRAINTS/"
+    },
+    {
+      "id": "state-intent",
+      "template": "State the searcher's purpose for the fixed query \"/QUERY/\" in one concise sentence: /INTENT/. /CONSTRAINTS/"
+    },
+    {
+      "id": "formulate-request",
+      "template": "Formulate a single concise search-intent statement for \"/QUERY/\" where /INTENT/. /CONSTRAINTS/"
+    },
+    {
+      "id": "express-goal",
+      "template": "Express the user's goal for the fixed query \"/QUERY/\" as one short sentence, making clear that /INTENT/. /CONSTRAINTS/"
+    },
+    {
+      "id": "produce-purpose",
+      "template": "Produce exactly one concise purpose clause for the search query \"/QUERY/\" such that /INTENT/. /CONSTRAINTS/"
+    },
+    {
+      "id": "compose-intent",
+      "template": "Compose one brief sentence describing the intended search purpose of \"/QUERY/\": /INTENT/. /CONSTRAINTS/"
+    }
+  ]
+}

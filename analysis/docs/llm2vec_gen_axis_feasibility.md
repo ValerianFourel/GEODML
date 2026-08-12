@@ -111,6 +111,51 @@ deterministic wrapper only if the smaller semantic path first proves monotonic.
 Because this is a one-query path, it supplies no evidence of topic
 generalization and does not test query-vector addition.
 
+## Query-specific multi-prompt centroids
+
+The next feasibility path uses multiple matched requests at both endpoints for
+every query. The versioned bank contains six surface frames. Each frame is
+filled twice with the same exact query: once with informational intent and once
+with buy/adopt intent. Within a matched pair, only the intent clause changes.
+
+For query `q`, the model encodes all endpoint requests and recomputes:
+
+```text
+C_info(q) = mean of informational reconstruction states containing q
+C_buy(q)  = mean of buy-intent reconstruction states containing q
+H(q, B)   = C_info(q) + B * (C_buy(q) - C_info(q))
+```
+
+Thus every assigned `H(q, B)` lies exactly on the query-specific centroid line.
+The scientific diagnostic is what happens after decoding and re-encoding:
+whether the query is retained, the recovered coordinate is monotonic, and the
+recovered state remains near the line rather than acquiring a large orthogonal
+residual. Leave-one-frame-out geometry measures robustness to surface wording
+for that query only; it is not an unseen-query test.
+
+The dedicated CLI does not run the older placeholder or global-centroid paths:
+
+```bash
+export QUERY_CENTROID_OUTPUT="$PWD/runs/query_centroid_axis/${SLURM_JOB_ID}-$(git rev-parse --short HEAD)"
+
+srun --ntasks=1 --gres=gpu:1 python3 \
+  analysis/scripts/validate_query_centroid_axis.py \
+  --backend local \
+  --model "$MODEL_SNAPSHOT" \
+  --query "abandoned cart recovery" \
+  --target-grid 0,0.25,0.5,0.75,1 \
+  --encode-batch-size 1 \
+  --max-new-tokens 64 \
+  --output-dir "$QUERY_CENTROID_OUTPUT"
+```
+
+The script writes `query_centroid_diagnostics.json`,
+`decoded_query_centroid_grid.jsonl`, `query_centroid_state.npz`, and
+`query_centroid_report.md`. The template bank and its hash, all filled endpoint
+requests, both centroids, the direction, assigned states, and re-encoded states
+are recorded. A deterministic reranking wrapper is deliberately deferred until
+the decoded purpose sequence passes semantic review.
+
 ## CPU plumbing smoke test
 
 The fake backend checks artifacts and numerical contracts without loading a
