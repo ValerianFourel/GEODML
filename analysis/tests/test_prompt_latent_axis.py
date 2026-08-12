@@ -173,6 +173,26 @@ class LatentPromptSelectionTests(unittest.TestCase):
         )
         self.assertEqual(len(record.candidate_projections), 3)
 
+    def test_candidate_ids_only_is_valid_output_contract_wording(self) -> None:
+        class CandidateIdsProvider:
+            backend_name = "candidate-ids"
+
+            def generate(self, request_text, generation_config):
+                templates = [
+                    "Rerank {CANDIDATES} for {QUERY}. Return exactly {TOP_N} "
+                    f"candidate IDs only, with no explanation. Variation {index}."
+                    for index in range(3)
+                ]
+                return json.dumps({"prompt_templates": templates})
+
+        record = generate_prompt_at_coordinate(
+            _request(),
+            axis=_axis(),
+            provider=CandidateIdsProvider(),
+            embedder=FakePromptEmbedder(),
+        )
+        self.assertEqual(len(record.candidate_projections), 3)
+
     def test_off_axis_prompt_is_rejected(self) -> None:
         class OffAxisProvider:
             backend_name = "off-axis"

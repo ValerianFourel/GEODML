@@ -503,8 +503,11 @@ def _parse_prompt_candidates(
             if placeholder not in template:
                 raise ValueError(f"prompt candidate {index} lacks {placeholder}")
         lowered = template.lower()
-        if "candidate identifiers" not in lowered:
-            raise ValueError(f"prompt candidate {index} lacks identifier-only contract")
+        if not _has_identifier_only_contract(lowered):
+            raise ValueError(
+                f"prompt candidate {index} lacks identifier-only contract; "
+                f"candidate preview={template[:240]!r}"
+            )
         if not re.search(r"no explanation|do not (?:provide|include) an explanation", lowered):
             raise ValueError(f"prompt candidate {index} permits explanations")
         for pattern in _OFF_AXIS_PATTERNS:
@@ -526,6 +529,20 @@ def _parse_prompt_candidates(
     if len(unique) < request.number_candidates:
         raise ValueError("provider returned too few unique prompt templates")
     return unique
+
+
+def _has_identifier_only_contract(lowered_template: str) -> bool:
+    """Recognize equivalent identifier-only output-contract wording."""
+    identifier = r"(?:candidate\s+)?(?:identifiers?|ids?)"
+    return bool(
+        re.search(rf"\b{identifier}\s+only\b", lowered_template)
+        or re.search(rf"\bonly\s+(?:the\s+)?{identifier}\b", lowered_template)
+        or re.search(
+            rf"\b{identifier}\b.{{0,80}}\b(?:nothing else|no (?:other|additional|extra) "
+            r"(?:text|content))\b",
+            lowered_template,
+        )
+    )
 
 
 def _load_provider_json(raw_output: str) -> object:
