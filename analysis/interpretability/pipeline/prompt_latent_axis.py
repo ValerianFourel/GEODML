@@ -38,10 +38,10 @@ from .search_purpose_continuum import (
 )
 
 LATENT_AXIS_VERSION = "informational-transactional-latent-axis-v1"
-LATENT_META_PROMPT_VERSION = "search-purpose-latent-meta-prompt-v1"
+LATENT_META_PROMPT_VERSION = "search-purpose-latent-meta-prompt-v2"
 _MAX_PROVIDER_VALIDATION_ATTEMPTS = 3
 _META_PROMPT_PATH = (
-    Path(__file__).with_name("specs") / "search_purpose_latent_meta_prompt_v1.txt"
+    Path(__file__).with_name("specs") / "search_purpose_latent_meta_prompt_v2.txt"
 )
 
 _OFF_AXIS_PATTERNS = (
@@ -306,6 +306,7 @@ def generate_prompt_at_coordinate(
         or {"max_new_tokens": 900, "temperature": 0.9, "top_p": 1.0}
     )
     parameters["generation_seed"] = request.generation_seed
+    parameters["meta_prompt_version"] = LATENT_META_PROMPT_VERSION
     request_text = build_latent_prompt_request(request)
     attempted_generation_seeds: list[int] = []
     rejected_attempts: list[PromptProviderValidationAttempt] = []
@@ -526,7 +527,10 @@ class FakeLatentPromptProvider:
         self, request_text: str, generation_config: Mapping[str, object]
     ) -> str:
         match = re.search(r"Target coordinate:\s*([0-9.]+)", request_text)
-        count_match = re.search(r"Number of candidates:\s*(\d+)", request_text)
+        count_match = re.search(
+            r"Number of (?:candidates|templates to generate):\s*(\d+)",
+            request_text,
+        )
         if match is None or count_match is None:
             raise ValueError("fake provider could not parse request")
         target = float(match.group(1))
@@ -671,10 +675,62 @@ def _load_provider_json(raw_output: str) -> object:
             except json.JSONDecodeError:
                 continue
             return payload
+        recovered_templates = _recover_malformed_prompt_template_array(stripped)
+        if recovered_templates is not None:
+            return {"prompt_templates": recovered_templates}
         preview = re.sub(r"\s+", " ", stripped)[:240]
         raise ValueError(
             f"prompt provider returned invalid JSON; output preview={preview!r}"
         ) from direct_error
+
+
+def _recover_malformed_prompt_template_array(raw_output: str) -> list[str] | None:
+    """Recover string elements from one malformed prompt_templates array.
+
+    Some local models emit ``[{"template"}, {"template"}]`` instead of a JSON
+    string array. This function repairs only that container syntax. Candidate
+    strings still pass every normal structural and semantic validation.
+    """
+    marker = re.search(r'"prompt_templates"\s*:\s*\[', raw_output)
+    if marker is None:
+        return None
+    array_start = raw_output.find("[", marker.start())
+    array_end = _find_json_array_end(raw_output, array_start)
+    if array_end is None:
+        return None
+    array_body = raw_output[array_start + 1 : array_end]
+    encoded_strings = re.findall(r'"(?:\\.|[^"\\])*"', array_body)
+    if not encoded_strings:
+        return None
+    try:
+        return [json.loads(encoded) for encoded in encoded_strings]
+    except json.JSONDecodeError:
+        return None
+
+
+def _find_json_array_end(text: str, array_start: int) -> int | None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(array_start, len(text)):
+        character = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
 
 
 def _validated_embeddings(

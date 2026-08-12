@@ -1,0 +1,30 @@
+You are generating candidate prompt templates for a listwise search reranking experiment.
+
+Axis version: {{AXIS_VERSION}}
+Underlying query: {{QUERY}}
+Target coordinate: {{TARGET_COORDINATE}}
+Style seed: {{STYLE_SEED}}
+Number of templates to generate: {{NUMBER_CANDIDATES}}
+
+The latent semantic axis runs from informational search purpose at 0 to
+transactional/action-completion search purpose at 1. Generate varied natural-language
+reranking prompt templates near the requested target. The query conditions the search
+purpose, but the candidate pages are deliberately unavailable during generation.
+
+Each template must:
+- contain the three opaque tokens {QUERY}, {CANDIDATES}, and {TOP_N} exactly as written;
+- rank candidates by relevance to the query and intended search purpose;
+- ask for exactly {TOP_N} candidate identifiers only;
+- prohibit explanations;
+- keep the underlying query unchanged;
+- avoid putting the numeric target coordinate into the template;
+- avoid source ownership, brand fame, popularity, authority, freshness, citations,
+  page length, statistics density, or writing quality as criteria.
+
+The requested number of templates controls only the number of JSON array elements.
+It is not the ranking output count. Never replace {TOP_N} with that number or any
+other number. Every prompt_templates array element must be a JSON string, not an
+object, mapping, or nested array.
+
+Return strict JSON and no commentary, using this exact schema:
+{"prompt_templates":["Template 1 containing {QUERY}, {CANDIDATES}, and {TOP_N}.","Template 2 containing {QUERY}, {CANDIDATES}, and {TOP_N}."]}

@@ -88,7 +88,9 @@ class PromptLatentAxisTests(unittest.TestCase):
         text = build_latent_prompt_request(_request(0.375))
         self.assertIn("password manager for a small business", text)
         self.assertIn("Target coordinate: 0.375000", text)
-        self.assertIn("Number of candidates: 3", text)
+        self.assertIn("Number of templates to generate: 3", text)
+        self.assertIn("Never replace {TOP_N}", text)
+        self.assertIn("must be a JSON string", text)
 
 
 class LatentPromptSelectionTests(unittest.TestCase):
@@ -227,6 +229,33 @@ class LatentPromptSelectionTests(unittest.TestCase):
             embedder=FakePromptEmbedder(),
         )
         self.assertEqual(len(record.candidate_projections), 3)
+
+    def test_malformed_singleton_object_array_is_recovered(self) -> None:
+        class MalformedArrayProvider:
+            backend_name = "malformed-array"
+
+            def generate(self, request_text, generation_config):
+                return """```json
+{
+  "prompt_templates": [
+    {"{QUERY} {CANDIDATES} Return exactly {TOP_N} candidate IDs only, with no explanation. A"},
+    {"{QUERY} {CANDIDATES} Return exactly {TOP_N} candidate IDs only, with no explanation. B"},
+    {"{QUERY} {CANDIDATES} Return exactly {TOP_N} candidate IDs only, with no explanation. C"}
+  ]
+}
+```"""
+
+        record = generate_prompt_at_coordinate(
+            _request(),
+            axis=_axis(),
+            provider=MalformedArrayProvider(),
+            embedder=FakePromptEmbedder(),
+        )
+        self.assertEqual(len(record.candidate_projections), 3)
+        self.assertEqual(
+            record.generation_parameters["meta_prompt_version"],
+            "search-purpose-latent-meta-prompt-v2",
+        )
 
     def test_candidate_ids_only_is_valid_output_contract_wording(self) -> None:
         class CandidateIdsProvider:
