@@ -37,6 +37,7 @@ __all__ = [
     "QUERY_CONDITIONED_ENDPOINT_VERSION",
     "QUERY_CENTROID_AXIS_VERSION",
     "DecodableAxis",
+    "anchor_query_to_decoded_text",
     "axis_geometry_diagnostics",
     "build_decodable_axis",
     "build_encoding_text",
@@ -319,6 +320,27 @@ def projection_residual_diagnostics(
             residual / axis.centroid_distance
         ),
     }
+
+
+def anchor_query_to_decoded_text(query: str, decoded_text: str) -> str:
+    """Attach the exact query to a freely decoded latent realization.
+
+    Literal task inputs are structural invariants rather than stochastic latent
+    content. Keeping the raw decode separate reveals whether the decoder retained
+    the query, while the anchored text guarantees it for downstream treatment.
+    """
+
+    normalized_query = " ".join(str(query).split())
+    normalized_decode = str(decoded_text).strip()
+    if not normalized_query:
+        raise ValueError("query must be non-empty")
+    if not normalized_decode:
+        raise ValueError("decoded text must be non-empty")
+    return (
+        f'Fixed query: "{normalized_query}"\n'
+        "Latent search-purpose realization:\n"
+        f"{normalized_decode}"
+    )
 
 
 def axis_geometry_diagnostics(

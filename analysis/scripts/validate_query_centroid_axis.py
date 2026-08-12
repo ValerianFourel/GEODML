@@ -31,6 +31,7 @@ if str(ANALYSIS_ROOT) not in sys.path:
 from interpretability.pipeline.llm2vec_gen_axis import (  # noqa: E402
     QUERY_CENTROID_AXIS_VERSION,
     DecodableAxis,
+    anchor_query_to_decoded_text,
     axis_geometry_diagnostics,
     build_decodable_axis,
     build_query_centroid_requests,
@@ -236,6 +237,7 @@ def _runtime() -> dict[str, object]:
 def _report(diagnostics: dict[str, object], *, fake: bool) -> str:
     cycle = diagnostics["decode_cycle"]
     retention = diagnostics["query_retention"]
+    anchored_retention = diagnostics["query_anchored_retention"]
     geometry = diagnostics["reconstruction_geometry"]
     banner = (
         "> **Mock output only.** This validates plumbing and supports no scientific "
@@ -254,10 +256,12 @@ construction; decoded language and decode/re-encode diagnostics are the test.
 - Matched endpoint pairs: `{diagnostics['surface_frame_count']}`
 - Pair-direction cosine mean: `{geometry['pair_direction_cosine_mean']}`
 - Surface-frame leave-one-out positive rate: `{geometry['leave_one_pair_out_positive_rate']}`
-- Exact-query retention: `{retention['retained_count']}/{retention['decoded_count']}`
-- Decode/re-encode Spearman: `{cycle['reconstruction_spearman']}`
-- Decode/re-encode coordinates strictly increasing: `{cycle['reconstruction_strictly_increasing']}`
-- Maximum normalized off-axis residual: `{cycle['maximum_off_axis_distance_over_centroid_distance']}`
+- Exact-query retention in raw decodes: `{retention['retained_count']}/{retention['decoded_count']}`
+- Exact-query retention after fixed anchoring: `{anchored_retention['retained_count']}/{anchored_retention['decoded_count']}`
+- Raw decode/re-encode Spearman: `{cycle['raw_reconstruction_spearman']}`
+- Anchored decode/re-encode Spearman: `{cycle['anchored_reconstruction_spearman']}`
+- Anchored coordinates strictly increasing: `{cycle['anchored_reconstruction_strictly_increasing']}`
+- Maximum anchored normalized off-axis residual: `{cycle['maximum_anchored_off_axis_distance_over_centroid_distance']}`
 
 The leave-one-out geometry here tests stability across surface frames for one
 query, not generalization to unseen queries. Inspect every JSONL row for semantic
@@ -352,39 +356,68 @@ def main() -> int:
                 "latent_state_hash": stable_array_hash(state),
                 "decoded_text": text,
                 "query_present_case_insensitive": query.casefold() in text.casefold(),
+                "query_anchored_text": anchor_query_to_decoded_text(query, text),
                 "decoded_line_count": len(text.splitlines()),
                 "structural_checks": checks,
             }
         )
 
-    re_pooled, re_reconstruction = backend.encode(
+    raw_re_pooled, raw_re_reconstruction = backend.encode(
         [str(row["decoded_text"]) for row in decoded_rows],
         batch_size=args.encode_batch_size,
         max_length=args.encode_max_length,
     )
-    if re_reconstruction.shape != (len(decoded_rows), *recon_axis.state_shape):
-        parser.error(f"unexpected decode-cycle shape: {re_reconstruction.shape}")
+    anchored_re_pooled, anchored_re_reconstruction = backend.encode(
+        [str(row["query_anchored_text"]) for row in decoded_rows],
+        batch_size=args.encode_batch_size,
+        max_length=args.encode_max_length,
+    )
+    expected_shape = (len(decoded_rows), *recon_axis.state_shape)
+    if raw_re_reconstruction.shape != expected_shape:
+        parser.error(f"unexpected raw decode-cycle shape: {raw_re_reconstruction.shape}")
+    if anchored_re_reconstruction.shape != expected_shape:
+        parser.error(
+            "unexpected anchored decode-cycle shape: "
+            f"{anchored_re_reconstruction.shape}"
+        )
     for index, row in enumerate(decoded_rows):
         row["reencoded_reconstruction_projection"] = projection_residual_diagnostics(
-            recon_axis, re_reconstruction[index]
+            recon_axis, raw_re_reconstruction[index]
         )
         row["reencoded_pooled_projection"] = projection_residual_diagnostics(
-            pooled_axis, re_pooled[index]
+            pooled_axis, raw_re_pooled[index]
+        )
+        row["anchored_reencoded_reconstruction_projection"] = (
+            projection_residual_diagnostics(
+                recon_axis, anchored_re_reconstruction[index]
+            )
+        )
+        row["anchored_reencoded_pooled_projection"] = projection_residual_diagnostics(
+            pooled_axis, anchored_re_pooled[index]
         )
         row["decode_cycle_cosine_to_assigned_state"] = _cosine(
-            latent_states[index], re_reconstruction[index]
+            latent_states[index], raw_re_reconstruction[index]
         )
+        row["anchored_decode_cycle_cosine_to_assigned_state"] = _cosine(
+            latent_states[index], anchored_re_reconstruction[index]
+        )
+        row["reencoded_reconstruction_residual_ratio"] = row[
+            "reencoded_reconstruction_projection"
+        ]["off_axis_distance_over_centroid_distance"]
+        row["anchored_reencoded_reconstruction_residual_ratio"] = row[
+            "anchored_reencoded_reconstruction_projection"
+        ]["off_axis_distance_over_centroid_distance"]
 
     assigned = [float(row["assigned_coordinate"]) for row in decoded_rows]
-    re_coordinates = [
+    raw_re_coordinates = [
         float(row["reencoded_reconstruction_projection"]["axis_coordinate"])
         for row in decoded_rows
     ]
-    pooled_coordinates = [
+    raw_pooled_coordinates = [
         float(row["reencoded_pooled_projection"]["axis_coordinate"])
         for row in decoded_rows
     ]
-    off_axis = [
+    raw_off_axis = [
         float(
             row["reencoded_reconstruction_projection"][
                 "off_axis_distance_over_centroid_distance"
@@ -392,7 +425,27 @@ def main() -> int:
         )
         for row in decoded_rows
     ]
+    anchored_re_coordinates = [
+        float(row["anchored_reencoded_reconstruction_projection"]["axis_coordinate"])
+        for row in decoded_rows
+    ]
+    anchored_pooled_coordinates = [
+        float(row["anchored_reencoded_pooled_projection"]["axis_coordinate"])
+        for row in decoded_rows
+    ]
+    anchored_off_axis = [
+        float(
+            row["anchored_reencoded_reconstruction_projection"][
+                "off_axis_distance_over_centroid_distance"
+            ]
+        )
+        for row in decoded_rows
+    ]
     retained = sum(bool(row["query_present_case_insensitive"]) for row in decoded_rows)
+    anchored_retained = sum(
+        query.casefold() in str(row["query_anchored_text"]).casefold()
+        for row in decoded_rows
+    )
     diagnostics: dict[str, object] = {
         "diagnostic_version": "query-centroid-axis-feasibility-v1",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -422,26 +475,79 @@ def main() -> int:
             "decoded_count": len(decoded_rows),
             "rate": retained / len(decoded_rows),
         },
+        "query_anchored_retention": {
+            "retained_count": anchored_retained,
+            "decoded_count": len(decoded_rows),
+            "rate": anchored_retained / len(decoded_rows),
+            "method": "fixed structural query prefix after latent decode",
+        },
         "decode_cycle": {
-            "reencoded_reconstruction_coordinates": re_coordinates,
-            "reencoded_pooled_coordinates": pooled_coordinates,
-            "reconstruction_spearman": _spearman(assigned, re_coordinates),
-            "pooled_spearman": _spearman(assigned, pooled_coordinates),
+            "raw_reencoded_reconstruction_coordinates": raw_re_coordinates,
+            "raw_reencoded_pooled_coordinates": raw_pooled_coordinates,
+            "raw_reconstruction_spearman": _spearman(assigned, raw_re_coordinates),
+            "raw_pooled_spearman": _spearman(assigned, raw_pooled_coordinates),
+            "raw_reconstruction_strictly_increasing": all(
+                right > left
+                for left, right in zip(raw_re_coordinates, raw_re_coordinates[1:])
+            ),
+            "raw_pooled_strictly_increasing": all(
+                right > left
+                for left, right in zip(
+                    raw_pooled_coordinates, raw_pooled_coordinates[1:]
+                )
+            ),
+            "raw_normalized_off_axis_residuals": raw_off_axis,
+            "maximum_raw_off_axis_distance_over_centroid_distance": max(
+                raw_off_axis
+            ),
+            "anchored_reencoded_reconstruction_coordinates": anchored_re_coordinates,
+            "anchored_reencoded_pooled_coordinates": anchored_pooled_coordinates,
+            "anchored_reconstruction_spearman": _spearman(
+                assigned, anchored_re_coordinates
+            ),
+            "anchored_pooled_spearman": _spearman(
+                assigned, anchored_pooled_coordinates
+            ),
+            "anchored_reconstruction_strictly_increasing": all(
+                right > left
+                for left, right in zip(
+                    anchored_re_coordinates, anchored_re_coordinates[1:]
+                )
+            ),
+            "anchored_pooled_strictly_increasing": all(
+                right > left
+                for left, right in zip(
+                    anchored_pooled_coordinates, anchored_pooled_coordinates[1:]
+                )
+            ),
+            "anchored_normalized_off_axis_residuals": anchored_off_axis,
+            "maximum_anchored_off_axis_distance_over_centroid_distance": max(
+                anchored_off_axis
+            ),
+            # Backward-compatible raw-decode aliases from feasibility v1.
+            "reencoded_reconstruction_coordinates": raw_re_coordinates,
+            "reencoded_pooled_coordinates": raw_pooled_coordinates,
+            "reconstruction_spearman": _spearman(assigned, raw_re_coordinates),
+            "pooled_spearman": _spearman(assigned, raw_pooled_coordinates),
             "reconstruction_strictly_increasing": all(
-                right > left for left, right in zip(re_coordinates, re_coordinates[1:])
+                right > left
+                for left, right in zip(raw_re_coordinates, raw_re_coordinates[1:])
             ),
             "pooled_strictly_increasing": all(
                 right > left
-                for left, right in zip(pooled_coordinates, pooled_coordinates[1:])
+                for left, right in zip(
+                    raw_pooled_coordinates, raw_pooled_coordinates[1:]
+                )
             ),
-            "normalized_off_axis_residuals": off_axis,
-            "maximum_off_axis_distance_over_centroid_distance": max(off_axis),
+            "normalized_off_axis_residuals": raw_off_axis,
+            "maximum_off_axis_distance_over_centroid_distance": max(raw_off_axis),
             "same_model_diagnostic_only": True,
         },
         "interpretation": {
             "assigned_states_lie_on_axis_by_construction": True,
             "surface_frame_leave_one_out_is_not_topic_generalization": True,
             "decoded_semantic_monotonicity_requires_manual_review": True,
+            "literal_query_is_a_fixed_invariant_not_latent_randomness": True,
             "mocked_runs_support_scientific_claims": False,
         },
         "runtime": _runtime(),
@@ -458,7 +564,11 @@ def main() -> int:
             "buy_intent_centroid": recon_axis.transactional_centroid.astype(np.float32),
             "direction_unit": recon_axis.direction_unit.astype(np.float32),
             "assigned_grid_states": np.stack(latent_states).astype(np.float32),
-            "reencoded_grid_states": re_reconstruction.astype(np.float32),
+            "raw_reencoded_grid_states": raw_re_reconstruction.astype(np.float32),
+            "reencoded_grid_states": raw_re_reconstruction.astype(np.float32),
+            "query_anchored_reencoded_grid_states": anchored_re_reconstruction.astype(
+                np.float32
+            ),
         },
     )
     _atomic_json(targets["diagnostics"], diagnostics)

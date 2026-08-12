@@ -127,6 +127,13 @@ H(q, B)   = C_info(q) + B * (C_buy(q) - C_info(q))
 ```
 
 Thus every assigned `H(q, B)` lies exactly on the query-specific centroid line.
+The raw decoder is not responsible for preserving literal task inputs. The
+validator therefore also places every raw latent realization below a fixed
+`Fixed query: "..."` anchor and separately re-encodes that anchored treatment.
+This keeps the query identical at every coordinate while leaving the decoded
+search-purpose realization as the stochastic semantic component. Raw and
+anchored diagnostics are both retained; anchoring is not counted as evidence
+that the latent decoder itself preserved the query.
 The scientific diagnostic is what happens after decoding and re-encoding:
 whether the query is retained, the recovered coordinate is monotonic, and the
 recovered state remains near the line rather than acquiring a large orthogonal

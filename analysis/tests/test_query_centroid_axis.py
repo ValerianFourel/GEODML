@@ -13,6 +13,7 @@ import numpy as np
 
 from analysis.interpretability.pipeline.llm2vec_gen_axis import (
     QUERY_CENTROID_AXIS_VERSION,
+    anchor_query_to_decoded_text,
     build_decodable_axis,
     build_query_centroid_requests,
     projection_residual_diagnostics,
@@ -31,6 +32,13 @@ TEMPLATE_BANK = (
 
 
 class QueryCentroidConstructionTests(unittest.TestCase):
+    def test_query_anchor_preserves_exact_query_and_raw_decode(self) -> None:
+        anchored = anchor_query_to_decoded_text(
+            "  abandoned   cart recovery ", "Choose a practical solution."
+        )
+        self.assertIn('Fixed query: "abandoned cart recovery"', anchored)
+        self.assertTrue(anchored.endswith("Choose a practical solution."))
+
     def test_every_matched_endpoint_contains_the_exact_query(self) -> None:
         specification = json.loads(TEMPLATE_BANK.read_text(encoding="utf-8"))
         query = "abandoned cart recovery"
@@ -114,6 +122,21 @@ class QueryCentroidCliTests(unittest.TestCase):
             self.assertTrue(all(row["query_present_case_insensitive"] for row in rows))
             self.assertTrue(
                 all(
+                    "abandoned cart recovery" in row["query_anchored_text"]
+                    for row in rows
+                )
+            )
+            self.assertEqual(
+                diagnostics["query_anchored_retention"]["retained_count"], 5
+            )
+            self.assertIn(
+                "anchored_reconstruction_spearman", diagnostics["decode_cycle"]
+            )
+            self.assertTrue(
+                all("reencoded_reconstruction_residual_ratio" in row for row in rows)
+            )
+            self.assertTrue(
+                all(
                     abs(
                         row["assigned_state_projection"][
                             "off_axis_distance_over_centroid_distance"
@@ -127,6 +150,11 @@ class QueryCentroidCliTests(unittest.TestCase):
                 self.assertEqual(state["informational_endpoint_states"].shape[0], 6)
                 self.assertEqual(state["buy_intent_endpoint_states"].shape[0], 6)
                 self.assertEqual(state["assigned_grid_states"].shape[0], 5)
+                self.assertEqual(state["raw_reencoded_grid_states"].shape[0], 5)
+                self.assertEqual(state["reencoded_grid_states"].shape[0], 5)
+                self.assertEqual(
+                    state["query_anchored_reencoded_grid_states"].shape[0], 5
+                )
             report = (output / "query_centroid_report.md").read_text(encoding="utf-8")
             self.assertIn("Mock output only", report)
             self.assertIn("multiple matched surface frames", report)
