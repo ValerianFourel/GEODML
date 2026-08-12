@@ -134,6 +134,14 @@ This keeps the query identical at every coordinate while leaving the decoded
 search-purpose realization as the stochastic semantic component. Raw and
 anchored diagnostics are both retained; anchoring is not counted as evidence
 that the latent decoder itself preserved the query.
+
+For a wider feasibility stress test, the validator calls the extended latent
+coordinate `L` and defaults to 13 evenly spaced points from `L=-1` through
+`L=2`. `L=-1` is one complete centroid displacement before the informational
+centroid; `L=2` is one complete displacement beyond the buy centroid. Only
+coordinates in `[0, 1]` are experimental `B`; extrapolated values are explicitly
+marked as diagnostic probes. The first decoded realization is also separated
+from leaked model control tokens before anchoring and re-encoding.
 The scientific diagnostic is what happens after decoding and re-encoding:
 whether the query is retained, the recovered coordinate is monotonic, and the
 recovered state remains near the line rather than acquiring a large orthogonal
@@ -150,7 +158,9 @@ srun --ntasks=1 --gres=gpu:1 python3 \
   --backend local \
   --model "$MODEL_SNAPSHOT" \
   --query "abandoned cart recovery" \
-  --target-grid 0,0.25,0.5,0.75,1 \
+  --axis-min -1 \
+  --axis-max 2 \
+  --number-points 13 \
   --encode-batch-size 1 \
   --max-new-tokens 64 \
   --output-dir "$QUERY_CENTROID_OUTPUT"

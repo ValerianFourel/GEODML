@@ -35,8 +35,9 @@ from interpretability.pipeline.llm2vec_gen_axis import (  # noqa: E402
     axis_geometry_diagnostics,
     build_decodable_axis,
     build_query_centroid_requests,
+    clean_decoded_realization,
     decode_record_checks,
-    interpolate_axis_centroids,
+    extend_axis_centroids,
     projection_residual_diagnostics,
     stable_array_hash,
 )
@@ -125,11 +126,19 @@ def _parse_grid(value: str) -> tuple[float, ...]:
         grid = tuple(float(item.strip()) for item in value.split(",") if item.strip())
     except ValueError as exc:
         raise argparse.ArgumentTypeError("grid must contain numbers") from exc
-    if len(grid) < 2 or any(not 0.0 <= item <= 1.0 for item in grid):
-        raise argparse.ArgumentTypeError("grid needs at least two values in [0, 1]")
+    if len(grid) < 2 or any(not np.isfinite(item) for item in grid):
+        raise argparse.ArgumentTypeError("grid needs at least two finite values")
     if any(right <= left for left, right in zip(grid, grid[1:])):
         raise argparse.ArgumentTypeError("grid values must be strictly increasing")
     return grid
+
+
+def _axis_region(coordinate: float) -> str:
+    if coordinate < 0.0:
+        return "pre-informational-extrapolation"
+    if coordinate > 1.0:
+        return "post-buy-extrapolation"
+    return "centroid-interpolation"
 
 
 def _atomic_text(path: Path, value: str) -> None:
@@ -253,6 +262,9 @@ centroids. Every assigned latent point is on the line between those centroids by
 construction; decoded language and decode/re-encode diagnostics are the test.
 
 - Query: `{diagnostics['query']}`
+- Latent coordinate range: `{diagnostics['latent_coordinate_range']}`
+- Decoded latent points: `{diagnostics['latent_point_count']}`
+- Extrapolated feasibility points: `{diagnostics['extrapolated_point_count']}`
 - Matched endpoint pairs: `{diagnostics['surface_frame_count']}`
 - Pair-direction cosine mean: `{geometry['pair_direction_cosine_mean']}`
 - Surface-frame leave-one-out positive rate: `{geometry['leave_one_pair_out_positive_rate']}`
@@ -266,7 +278,8 @@ construction; decoded language and decode/re-encode diagnostics are the test.
 The leave-one-out geometry here tests stability across surface frames for one
 query, not generalization to unseen queries. Inspect every JSONL row for semantic
 ordering, unintended criteria, fluency, and query fidelity before using this
-construction in any reranking experiment.
+construction in any reranking experiment. Coordinates outside `[0, 1]` extend
+the fitted direction for feasibility analysis and are not experimental `B`.
 """
 
 
@@ -276,9 +289,10 @@ def main() -> int:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--query", required=True)
     parser.add_argument("--template-bank", default=str(DEFAULT_TEMPLATE_BANK))
-    parser.add_argument(
-        "--target-grid", type=_parse_grid, default=(0.0, 0.25, 0.5, 0.75, 1.0)
-    )
+    parser.add_argument("--target-grid", type=_parse_grid)
+    parser.add_argument("--axis-min", type=float, default=-1.0)
+    parser.add_argument("--axis-max", type=float, default=2.0)
+    parser.add_argument("--number-points", type=int, default=13)
     parser.add_argument("--encode-batch-size", type=int, default=1)
     parser.add_argument("--encode-max-length", type=int, default=512)
     parser.add_argument("--max-new-tokens", type=int, default=64)
@@ -289,6 +303,19 @@ def main() -> int:
         parser.error("encoding limits must be positive")
     if args.max_new_tokens <= 0:
         parser.error("max-new-tokens must be positive")
+    if args.target_grid is None:
+        if not np.isfinite(args.axis_min) or not np.isfinite(args.axis_max):
+            parser.error("axis bounds must be finite")
+        if args.axis_max <= args.axis_min:
+            parser.error("axis-max must be greater than axis-min")
+        if args.number_points < 12:
+            parser.error("number-points must be at least 12")
+        target_grid = tuple(
+            float(value)
+            for value in np.linspace(args.axis_min, args.axis_max, args.number_points)
+        )
+    else:
+        target_grid = args.target_grid
 
     output = Path(args.output_dir)
     targets = {
@@ -340,30 +367,39 @@ def main() -> int:
 
     decoded_rows: list[dict[str, object]] = []
     latent_states: list[np.ndarray] = []
-    for coordinate in args.target_grid:
-        state = interpolate_axis_centroids(recon_axis, coordinate)
+    for coordinate in target_grid:
+        state = extend_axis_centroids(recon_axis, coordinate)
         latent_states.append(state)
         text = backend.decode(state, max_new_tokens=args.max_new_tokens).strip()
-        checks = decode_record_checks(text)
+        realization = clean_decoded_realization(text)
+        checks = decode_record_checks(realization)
         decoded_rows.append(
             {
-                "path_kind": "query-specific-centroid-line",
+                "path_kind": "query-specific-extended-centroid-line",
                 "query": query,
                 "assigned_coordinate": coordinate,
+                "latent_axis_coordinate": coordinate,
+                "experimental_B": coordinate if 0.0 <= coordinate <= 1.0 else None,
+                "axis_region": _axis_region(coordinate),
                 "assigned_state_projection": projection_residual_diagnostics(
                     recon_axis, state
                 ),
                 "latent_state_hash": stable_array_hash(state),
                 "decoded_text": text,
-                "query_present_case_insensitive": query.casefold() in text.casefold(),
-                "query_anchored_text": anchor_query_to_decoded_text(query, text),
-                "decoded_line_count": len(text.splitlines()),
+                "decoded_realization": realization,
+                "query_present_case_insensitive": (
+                    query.casefold() in realization.casefold()
+                ),
+                "query_anchored_text": anchor_query_to_decoded_text(
+                    query, realization
+                ),
+                "decoded_line_count": len(realization.splitlines()),
                 "structural_checks": checks,
             }
         )
 
     raw_re_pooled, raw_re_reconstruction = backend.encode(
-        [str(row["decoded_text"]) for row in decoded_rows],
+        [str(row["decoded_realization"]) for row in decoded_rows],
         batch_size=args.encode_batch_size,
         max_length=args.encode_max_length,
     )
@@ -467,7 +503,14 @@ def main() -> int:
         "model": backend.model_name,
         "backend": backend.backend_name,
         "reconstruction_dtype": backend.reconstruction_dtype,
-        "target_grid": list(args.target_grid),
+        "target_grid": list(target_grid),
+        "latent_coordinate_range": [min(target_grid), max(target_grid)],
+        "latent_point_count": len(target_grid),
+        "extrapolated_point_count": sum(
+            coordinate < 0.0 or coordinate > 1.0 for coordinate in target_grid
+        ),
+        "experimental_B_domain": [0.0, 1.0],
+        "coordinates_outside_B_are_feasibility_only": True,
         "reconstruction_geometry": axis_geometry_diagnostics(recon_info, recon_buy),
         "pooled_geometry": axis_geometry_diagnostics(pooled_info, pooled_buy),
         "query_retention": {

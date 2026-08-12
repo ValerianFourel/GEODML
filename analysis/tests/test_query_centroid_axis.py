@@ -16,6 +16,8 @@ from analysis.interpretability.pipeline.llm2vec_gen_axis import (
     anchor_query_to_decoded_text,
     build_decodable_axis,
     build_query_centroid_requests,
+    clean_decoded_realization,
+    extend_axis_centroids,
     projection_residual_diagnostics,
 )
 from analysis.scripts import validate_query_centroid_axis
@@ -38,6 +40,10 @@ class QueryCentroidConstructionTests(unittest.TestCase):
         )
         self.assertIn('Fixed query: "abandoned cart recovery"', anchored)
         self.assertTrue(anchored.endswith("Choose a practical solution."))
+
+    def test_decoded_realization_removes_control_token_repetition(self) -> None:
+        decoded = "First prompt.<|end_of_text|>;<|start_of_text|>First prompt."
+        self.assertEqual(clean_decoded_realization(decoded), "First prompt.")
 
     def test_every_matched_endpoint_contains_the_exact_query(self) -> None:
         specification = json.loads(TEMPLATE_BANK.read_text(encoding="utf-8"))
@@ -81,6 +87,23 @@ class QueryCentroidConstructionTests(unittest.TestCase):
         self.assertAlmostEqual(on_axis["off_axis_distance"], 0.0)
         self.assertGreater(off_axis["off_axis_distance"], 0.0)
 
+    def test_extended_coordinates_continue_one_centroid_length_each_side(self) -> None:
+        informational = np.array([[[0.0, 0.0]], [[0.0, 1.0]]])
+        buy = np.array([[[1.0, 0.0]], [[1.0, 1.0]]])
+        axis = build_decodable_axis(
+            informational, buy, axis_version=QUERY_CENTROID_AXIS_VERSION
+        )
+        before = projection_residual_diagnostics(
+            axis, extend_axis_centroids(axis, -1.0)
+        )
+        after = projection_residual_diagnostics(
+            axis, extend_axis_centroids(axis, 2.0)
+        )
+        self.assertAlmostEqual(before["axis_coordinate"], -1.0)
+        self.assertAlmostEqual(after["axis_coordinate"], 2.0)
+        self.assertAlmostEqual(before["off_axis_distance"], 0.0)
+        self.assertAlmostEqual(after["off_axis_distance"], 0.0)
+
 
 class QueryCentroidCliTests(unittest.TestCase):
     def test_fake_run_writes_query_specific_centroids_and_grid(self) -> None:
@@ -92,8 +115,6 @@ class QueryCentroidCliTests(unittest.TestCase):
                 "fake",
                 "--query",
                 "abandoned cart recovery",
-                "--target-grid",
-                "0,0.25,0.5,0.75,1",
                 "--output-dir",
                 str(output),
             ]
@@ -118,7 +139,14 @@ class QueryCentroidCliTests(unittest.TestCase):
                 diagnostics["query_included_before_encoding_in_every_endpoint"]
             )
             self.assertFalse(diagnostics["scientific_result"])
-            self.assertEqual(len(rows), 5)
+            self.assertEqual(len(rows), 13)
+            self.assertEqual(diagnostics["latent_coordinate_range"], [-1.0, 2.0])
+            self.assertEqual(diagnostics["extrapolated_point_count"], 8)
+            self.assertTrue(diagnostics["coordinates_outside_B_are_feasibility_only"])
+            self.assertEqual(rows[0]["axis_region"], "pre-informational-extrapolation")
+            self.assertIsNone(rows[0]["experimental_B"])
+            self.assertEqual(rows[4]["experimental_B"], 0.0)
+            self.assertEqual(rows[-1]["axis_region"], "post-buy-extrapolation")
             self.assertTrue(all(row["query_present_case_insensitive"] for row in rows))
             self.assertTrue(
                 all(
@@ -127,7 +155,7 @@ class QueryCentroidCliTests(unittest.TestCase):
                 )
             )
             self.assertEqual(
-                diagnostics["query_anchored_retention"]["retained_count"], 5
+                diagnostics["query_anchored_retention"]["retained_count"], 13
             )
             self.assertIn(
                 "anchored_reconstruction_spearman", diagnostics["decode_cycle"]
@@ -149,11 +177,11 @@ class QueryCentroidCliTests(unittest.TestCase):
             with np.load(output / "query_centroid_state.npz") as state:
                 self.assertEqual(state["informational_endpoint_states"].shape[0], 6)
                 self.assertEqual(state["buy_intent_endpoint_states"].shape[0], 6)
-                self.assertEqual(state["assigned_grid_states"].shape[0], 5)
-                self.assertEqual(state["raw_reencoded_grid_states"].shape[0], 5)
-                self.assertEqual(state["reencoded_grid_states"].shape[0], 5)
+                self.assertEqual(state["assigned_grid_states"].shape[0], 13)
+                self.assertEqual(state["raw_reencoded_grid_states"].shape[0], 13)
+                self.assertEqual(state["reencoded_grid_states"].shape[0], 13)
                 self.assertEqual(
-                    state["query_anchored_reencoded_grid_states"].shape[0], 5
+                    state["query_anchored_reencoded_grid_states"].shape[0], 13
                 )
             report = (output / "query_centroid_report.md").read_text(encoding="utf-8")
             self.assertIn("Mock output only", report)

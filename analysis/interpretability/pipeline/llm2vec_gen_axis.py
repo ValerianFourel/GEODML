@@ -43,8 +43,10 @@ __all__ = [
     "build_encoding_text",
     "build_query_conditioned_requests",
     "build_query_centroid_requests",
+    "clean_decoded_realization",
     "decode_record_checks",
     "inject_query_after_decode",
+    "extend_axis_centroids",
     "interpolate_axis_centroids",
     "interpolate_endpoint_pair",
     "project_onto_axis",
@@ -260,6 +262,24 @@ def interpolate_axis_centroids(axis: DecodableAxis, coordinate: float) -> np.nda
     )
 
 
+def extend_axis_centroids(axis: DecodableAxis, coordinate: float) -> np.ndarray:
+    """Return any finite point on the centroid line, including extrapolation.
+
+    Coordinates 0 and 1 are the fitted centroids. Values outside that interval
+    are diagnostic latent coordinates and must not be reported as experimental B.
+    """
+
+    if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+        raise TypeError("coordinate must be numeric")
+    value = float(coordinate)
+    if not math.isfinite(value):
+        raise ValueError("coordinate must be finite")
+    return (
+        axis.informational_centroid
+        + value * (axis.transactional_centroid - axis.informational_centroid)
+    )
+
+
 def interpolate_endpoint_pair(
     informational_state: np.ndarray,
     transactional_state: np.ndarray,
@@ -341,6 +361,19 @@ def anchor_query_to_decoded_text(query: str, decoded_text: str) -> str:
         "Latent search-purpose realization:\n"
         f"{normalized_decode}"
     )
+
+
+def clean_decoded_realization(decoded_text: str) -> str:
+    """Keep the first generated realization and remove leaked control tokens."""
+
+    value = str(decoded_text).strip()
+    if not value:
+        raise ValueError("decoded text must be non-empty")
+    first = re.split(r"<\|(?:end|start)_of_text\|>", value, maxsplit=1)[0]
+    cleaned = first.strip(" \t\r\n;")
+    if not cleaned:
+        raise ValueError("decoded text contains no content before control token")
+    return cleaned
 
 
 def axis_geometry_diagnostics(
