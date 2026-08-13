@@ -57,9 +57,11 @@ search term. This is a randomized complete-block design:
 - seeded randomization determines search-term order and prompt order within a
   search term, but never changes treatment membership.
 
-With 1,011 distinct search terms, the schedule contains 28 prompts per term and
-28,308 assignments. Using the complete calibrated 7 x 4 manifold is preferable
-to rounding up to 30 with duplicated or uncalibrated prompts.
+The canonical top-20 pools are engine-specific: SearXNG contains 1,009 search
+terms and DuckDuckGo contains 1,011. A SearXNG schedule therefore contains 28
+prompts per term and 28,252 assignments. Using the complete calibrated 7 x 4
+manifold is preferable to rounding up to 30 with duplicated or uncalibrated
+prompts.
 
 Build the prompt-only schedule from the canonical SearXNG pool and the frozen
 pilot artifacts:
@@ -69,7 +71,7 @@ python3 analysis/scripts/build_a1_query_panel.py \
   --selected-manifold "$A1_OUTPUT/selected_a1_prompt_manifold.jsonl" \
   --source-run-manifest "$A1_OUTPUT/run_manifest.json" \
   --serp-parquet "$GEODML_DATA_ROOT/data/serp/phase0_top20_searxng.parquet" \
-  --expected-keywords 1011 \
+  --expected-keywords 1009 \
   --master-seed 20260817 \
   --output-dir "$A1_QUERY_PANEL_OUTPUT"
 ```
