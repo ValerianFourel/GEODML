@@ -49,11 +49,11 @@ _INFORMATIONAL = re.compile(
     re.IGNORECASE,
 )
 _TRANSACTIONAL = re.compile(
-    r"\b(?:evaluat|compar|shortlist|trial|acquir|purchas|implement|select)\w*\b",
+    r"\b(?:assess|evaluat|compar|shortlist|trial|acquir|purchas|implement|select)\w*\b",
     re.IGNORECASE,
 )
 _NON_SELECTION = re.compile(
-    r"\b(?:without|before|not)\s+(?:actively\s+)?(?:evaluat|select|choos|shortlist|"
+    r"\b(?:without|before|not)\s+(?:actively\s+)?(?:assess|evaluat|select|choos|shortlist|"
     r"trial|acquir|purchas|implement)\w*",
     re.IGNORECASE,
 )
@@ -644,7 +644,27 @@ class LocalLLMA1CandidateGenerator:
             key = _hash(json.dumps(identity, sort_keys=True, separators=(",", ":")))
             path = self.cache_directory / f"{key}.json"
             if path.exists():
-                rows.append(json.loads(path.read_text())["objective"])
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if payload.get("identity") != identity:
+                    raise ValueError(f"cached A1 candidate identity mismatch: {path}")
+                objective = _one_line(payload.get("objective", ""))
+                failures = a1_contract_checks(
+                    _compile_prompt(
+                        TemplatePromptGenerator._build_style_plan(request.style_seed),
+                        objective,
+                    ),
+                    objective,
+                    assigned_a1=request.assigned_a1,
+                    search_term="__query_sentinel__",
+                )
+                if failures:
+                    raise ValueError(
+                        f"cached A1 candidate failed current contract: {path}: "
+                        + ", ".join(failures)
+                    )
+                if objective in rows:
+                    raise ValueError(f"cached A1 candidate duplicates its cell: {path}")
+                rows.append(objective)
                 continue
             errors = []
             prompt = _generation_prompt(request, slot)

@@ -5,15 +5,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
 from analysis.interpretability.pipeline.a1_prompt_manifold import (
     BUSINESS_ACTOR,
     NEUTRAL_SOURCE_CLAUSE,
+    A1CandidateRequest,
     FakeA1CandidateGenerator,
     FakeA1Embedder,
     FakeA1PairwiseJudge,
+    LocalLLMA1CandidateGenerator,
     a1_contract_checks,
     build_a1_comparison_requests,
     calibrate_a1_candidates,
@@ -22,6 +25,12 @@ from analysis.interpretability.pipeline.a1_prompt_manifold import (
     judge_a1_comparisons,
     select_a1_manifold,
 )
+
+SCRIPTS_ROOT = Path(__file__).parents[1] / "scripts"
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from run_a1_prompt_manifold_pilot import _paths, _prepare_generation_root  # noqa: E402
 
 
 def _pipeline():
@@ -108,6 +117,125 @@ class A1PromptManifoldTests(unittest.TestCase):
             search_term="abandoned cart recovery",
         )
         self.assertIn("candidate-cardinality-leak", failures)
+
+    def test_contract_accepts_assess_as_endpoint_evaluation_language(self) -> None:
+        objective = (
+            "Identify and assess B2B SaaS solutions that align with organizational "
+            "needs and operational goals."
+        )
+        template = (
+            "Search objective: "
+            + objective
+            + "\nSource policy: "
+            + NEUTRAL_SOURCE_CLAUSE
+            + '\nSearch term: "{QUERY}"\nCandidates:\n{CANDIDATES}\n{TOP_N}'
+        )
+        self.assertEqual(
+            a1_contract_checks(
+                template,
+                objective,
+                assigned_a1=1.0,
+                search_term="abandoned cart recovery",
+            ),
+            (),
+        )
+
+    def test_contract_treats_pre_assessment_language_as_non_selection(self) -> None:
+        objective = "Understand the category mechanisms before assessing any product."
+        template = (
+            "Search objective: "
+            + objective
+            + "\nSource policy: "
+            + NEUTRAL_SOURCE_CLAUSE
+            + '\nSearch term: "{QUERY}"\nCandidates:\n{CANDIDATES}\n{TOP_N}'
+        )
+        self.assertEqual(
+            a1_contract_checks(
+                template,
+                objective,
+                assigned_a1=0.0,
+                search_term="abandoned cart recovery",
+            ),
+            (),
+        )
+
+    def test_cached_candidate_is_revalidated_before_resume(self) -> None:
+        class Ranker:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def rank(self, *_args, **_kwargs):
+                self.calls += 1
+                return json.dumps(
+                    {
+                        "search_objective_clause": (
+                            "Identify and assess B2B SaaS solutions that align with "
+                            "organizational needs."
+                        )
+                    }
+                )
+
+        request = A1CandidateRequest(
+            assigned_a1=1.0,
+            style_seed=0,
+            generation_seed=3146858096,
+            number_candidates=1,
+            generator_model="test-generator",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            first_ranker = Ranker()
+            generator = LocalLLMA1CandidateGenerator(
+                first_ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+            )
+            expected = generator.generate(request)
+            self.assertEqual(first_ranker.calls, 1)
+
+            cached_ranker = Ranker()
+            cached_generator = LocalLLMA1CandidateGenerator(
+                cached_ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+            )
+            cached_result = cached_generator.generate(request)
+            self.assertEqual(cached_result, expected)
+            self.assertEqual(cached_ranker.calls, 0)
+
+            cache_path = next(Path(directory).glob("*.json"))
+            payload = json.loads(cache_path.read_text())
+            payload["identity"]["slot"] = 99
+            cache_path.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(ValueError, "identity mismatch"):
+                cached_generator.generate(request)
+
+    def test_generation_resume_accepts_only_a_partial_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "partial"
+            cache = root / "cache" / "generation"
+            cache.mkdir(parents=True)
+            (cache / "one.json").write_text("{}")
+            (cache / "two.json").write_text("{}")
+            (cache / "three.failed.json").write_text("{}")
+            paths = _paths(root)
+
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                _prepare_generation_root(paths, resume=False)
+            self.assertEqual(_prepare_generation_root(paths, resume=True), 2)
+
+            paths["manifest"].write_text(
+                json.dumps({"status": "generated-unjudged"})
+            )
+            with self.assertRaisesRegex(ValueError, "already complete"):
+                _prepare_generation_root(paths, resume=True)
+
+    def test_generation_resume_rejects_an_unrelated_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "unrelated"
+            root.mkdir()
+            (root / "unrelated.txt").write_text("do not overwrite")
+            with self.assertRaisesRegex(ValueError, "unexpected files"):
+                _prepare_generation_root(_paths(root), resume=True)
 
     def test_pairwise_requests_are_blind_and_reversed(self) -> None:
         candidates, comparisons, *_ = _pipeline()

@@ -78,6 +78,11 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--temperature", type=float, default=0.9)
     generate.add_argument("--max-new-tokens", type=int, default=500)
     generate.add_argument("--maximum-attempts", type=int, default=8)
+    generate.add_argument(
+        "--resume",
+        action="store_true",
+        help="reuse a validated partial generation cache in an existing output directory",
+    )
 
     judge = stages.add_parser("judge")
     judge.add_argument("--output-dir", required=True)
@@ -134,10 +139,51 @@ def _paths(root: Path) -> dict[str, Path]:
     }
 
 
+def _prepare_generation_root(paths: dict[str, Path], *, resume: bool) -> int:
+    root = paths["root"]
+    if root.resolve() == Path.cwd().resolve():
+        raise ValueError("refusing to use the current working directory as output-dir")
+    if not root.exists():
+        root.mkdir(parents=True)
+        return 0
+    if not resume:
+        raise ValueError(f"output directory already exists: {root}")
+    if not root.is_dir():
+        raise ValueError(f"output path is not a directory: {root}")
+    if paths["manifest"].exists():
+        manifest = _read_json(paths["manifest"])
+        if manifest.get("status") == "generated-unjudged":
+            raise ValueError("generation is already complete; continue with the judge stage")
+        raise ValueError("existing run manifest makes generation resume unsafe")
+    later_stage_paths = (
+        paths["judgments"],
+        paths["calibrations"],
+        paths["input"],
+        paths["response"],
+        paths["selected"],
+        paths["diagnostics"],
+        paths["report"],
+    )
+    if any(path.exists() for path in later_stage_paths):
+        raise ValueError("later-stage artifacts make generation resume unsafe")
+    allowed_names = {"cache", "logs", paths["candidates"].name, paths["comparisons"].name}
+    unexpected = sorted(path.name for path in root.iterdir() if path.name not in allowed_names)
+    if unexpected:
+        raise ValueError(
+            "unexpected files make generation resume unsafe: " + ", ".join(unexpected)
+        )
+    cache_directory = root / "cache" / "generation"
+    if cache_directory.exists() and not cache_directory.is_dir():
+        raise ValueError(f"generation cache path is not a directory: {cache_directory}")
+    return sum(
+        1
+        for path in cache_directory.glob("*.json")
+        if not path.name.endswith(".failed.json")
+    ) if cache_directory.exists() else 0
+
+
 def _generate(args, paths) -> None:
-    if paths["root"].exists():
-        raise ValueError(f"output directory already exists: {paths['root']}")
-    paths["root"].mkdir(parents=True)
+    reused_cache_entries = _prepare_generation_root(paths, resume=args.resume)
     generator = LocalLLMA1CandidateGenerator.from_model(
         args.generator_model,
         precision=args.precision,
@@ -172,6 +218,11 @@ def _generate(args, paths) -> None:
             "master_seed": args.master_seed,
             "generator_model": args.generator_model,
             "generator_precision": args.precision,
+            "generation_temperature": args.temperature,
+            "generation_max_new_tokens": args.max_new_tokens,
+            "generation_maximum_attempts": args.maximum_attempts,
+            "resumed_existing_output": bool(args.resume and reused_cache_entries),
+            "preexisting_success_cache_file_count": reused_cache_entries,
             "environment": _environment(),
             "judge_runs": [],
         },

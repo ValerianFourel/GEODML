@@ -36,3 +36,11 @@ Start with 7 A1 levels, four styles, and 12 candidates per level. This produces
 336 raw prompts and 28 selected prompts. Scale the number of styles only after
 strict monotonicity, human semantic review, and acceptable tortuosity and local
 step variation on the development run.
+
+Generation caches each accepted candidate independently. If a generation job
+ends before the final candidate and comparison manifests are written, rerun the
+same pinned configuration with `generate --resume`. Resume refuses completed or
+unrelated directories and revalidates every cached identity and objective
+against the current structural contract before reuse. Endpoint validation
+treats assessment as evaluation language while preserving negated forms such
+as “before assessing” at the informational endpoint.
