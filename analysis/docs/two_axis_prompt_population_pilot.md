@@ -109,6 +109,8 @@ Comparative ownership clauses are parsed by the first ownership object governed
 by the preference verb. Thus, "prefer vendor-controlled evidence over
 seller-independent evidence" is correctly directional rather than treated as
 simultaneous preference for both poles.
+Generated clauses may not state a numeric or spelled-out candidate-set size;
+candidate cardinality remains a structural property of `{CANDIDATES}`.
 For Qwen3 structured requests, thinking is disabled through the chat template.
 Transport wrappers such as a residual thinking block or Markdown JSON fence are
 ignored only when they contain exactly one unambiguous schema-valid object. If

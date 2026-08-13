@@ -487,6 +487,49 @@ class CandidatePopulationTests(unittest.TestCase):
             self.assertEqual(len(generated), 2)
             self.assertEqual(ranker.call_count, 2)
 
+    def test_real_generator_retries_candidate_cardinality_leak(self) -> None:
+        invalid = {
+            "search_objective_clause": "Arrange the three candidates based on category understanding and practical evaluation criteria and solution approaches.",
+            "source_preference_clause": "Prioritize seller-independent evidence, provided it is topically relevant.",
+        }
+        valid = {
+            "search_objective_clause": "Arrange the candidates based on category understanding and practical evaluation criteria and solution approaches.",
+            "source_preference_clause": "Prioritize seller-independent evidence, provided it is topically relevant.",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _StaticRanker(
+                [
+                    json.dumps({"candidates": [invalid]}),
+                    json.dumps({"candidates": [valid]}),
+                ]
+            )
+            generator = LocalLLMTwoAxisCandidateGenerator(
+                ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+                temperature=0.0,
+            )
+            request = TwoAxisCandidateRequest(
+                assigned_a1=0.5,
+                assigned_a2=0.0,
+                style_seed=0,
+                generation_seed=10,
+                number_candidates=1,
+                generator_model="test-generator",
+            )
+            self.assertEqual(generator.generate(request)[0][0], valid["search_objective_clause"])
+            self.assertEqual(ranker.call_count, 2)
+            cache = next(
+                path
+                for path in Path(directory).glob("*.json")
+                if not path.name.endswith(".failed.json")
+            )
+            payload = json.loads(cache.read_text(encoding="utf-8"))
+            self.assertIn(
+                "candidate-cardinality-exposed",
+                payload["rejected_attempts"][0]["error"],
+            )
+
     def test_comparative_a2_direction_uses_first_preference_object(self) -> None:
         controlled = semantic_contract_checks(
             "{QUERY} {CANDIDATES} {TOP_N} business software evaluator candidate identifiers only no explanation",

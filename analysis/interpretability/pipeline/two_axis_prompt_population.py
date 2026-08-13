@@ -35,7 +35,7 @@ from .search_purpose_continuum import (
 )
 
 POPULATION_VERSION = "two-axis-prompt-population-v1"
-SEMANTIC_CONTRACT_VERSION = "coordinate-direction-v4-first-preference-object"
+SEMANTIC_CONTRACT_VERSION = "coordinate-direction-v5-no-candidate-cardinality"
 DEFAULT_AXIS_GRID = tuple(step / 6.0 for step in range(7))
 _SPECIFICATION_PATH = (
     Path(__file__).with_name("specs") / "two_axis_prompt_population_v1.json"
@@ -97,6 +97,11 @@ _A2_CONTROLLED_OBJECT = re.compile(
 _A2_NEUTRAL = re.compile(
     r"\b(?:no (?:publisher-)?ownership preference|ownership(?:-| | as )neutral|regardless "
     r"of (?:publisher|ownership)|strongest evidence regardless of publisher)\b",
+    re.IGNORECASE,
+)
+_CANDIDATE_CARDINALITY = re.compile(
+    r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+"
+    r"(?:supplied\s+)?candidates?\b",
     re.IGNORECASE,
 )
 
@@ -454,6 +459,8 @@ def semantic_contract_checks(
         failures.append("coordinate-symbol-exposed")
     if re.search(r"\b(?:0(?:\.\d+)?|1\.0+)\b", objective_clause + " " + source_preference_clause):
         failures.append("numeric-coordinate-exposed")
+    if _CANDIDATE_CARDINALITY.search(objective_clause + " " + source_preference_clause):
+        failures.append("candidate-cardinality-exposed")
     for label, pattern in _FORBIDDEN_PATTERNS.items():
         if re.search(pattern, lowered):
             failures.append(f"off-axis:{label}")
@@ -2083,6 +2090,7 @@ Hard constraints:
 - Do not introduce freshness, popularity, brand prestige, authority, credibility, price, cost, company size, geography, review score, writing quality, or hard exclusions.
 - Do not answer the unknown search term.
 - Do not include numeric A1/A2 coordinates in either clause.
+- Do not state or imply a fixed number of candidates.
 - Each clause must be one line and must not contain placeholders.
 - Produce exactly one clause pair. Vary only surface wording, not the required meanings.
 
