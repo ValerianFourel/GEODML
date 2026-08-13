@@ -172,7 +172,9 @@ class CandidatePopulationTests(unittest.TestCase):
             ]
         }
         with tempfile.TemporaryDirectory() as directory:
-            ranker = _StaticRanker([json.dumps(payload)])
+            ranker = _StaticRanker(
+                [json.dumps({"candidates": [candidate]}) for candidate in payload["candidates"]]
+            )
             generator = LocalLLMTwoAxisCandidateGenerator(
                 ranker,
                 model_name="test-generator",
@@ -188,7 +190,7 @@ class CandidatePopulationTests(unittest.TestCase):
                 generator_model="test-generator",
             )
             self.assertEqual(generator.generate(request), generator.generate(request))
-            self.assertEqual(ranker.call_count, 1)
+            self.assertEqual(ranker.call_count, 2)
             self.assertEqual(ranker.chat_template_kwargs, {"enable_thinking": False})
             cached = list(Path(directory).glob("*.json"))
             self.assertEqual(len(cached), 1)
@@ -206,9 +208,14 @@ class CandidatePopulationTests(unittest.TestCase):
                 },
             ]
         }
-        wrapped = "<think>check the constraints</think>\n```json\n" + json.dumps(payload) + "\n```"
+        wrapped = [
+            "<think>check the constraints</think>\n```json\n"
+            + json.dumps({"candidates": [candidate]})
+            + "\n```"
+            for candidate in payload["candidates"]
+        ]
         with tempfile.TemporaryDirectory() as directory:
-            ranker = _StaticRanker([wrapped])
+            ranker = _StaticRanker(wrapped)
             generator = LocalLLMTwoAxisCandidateGenerator(
                 ranker,
                 model_name="test-generator",
@@ -224,7 +231,7 @@ class CandidatePopulationTests(unittest.TestCase):
                 generator_model="test-generator",
             )
             self.assertEqual(len(generator.generate(request)), 2)
-            self.assertEqual(ranker.call_count, 1)
+            self.assertEqual(ranker.call_count, 2)
 
     def test_real_generator_preserves_raw_outputs_after_exhausted_retries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -314,7 +321,13 @@ class CandidatePopulationTests(unittest.TestCase):
             ]
         }
         with tempfile.TemporaryDirectory() as directory:
-            ranker = _StaticRanker([json.dumps(invalid), json.dumps(valid)])
+            ranker = _StaticRanker(
+                [
+                    json.dumps({"candidates": [invalid["candidates"][0]]}),
+                    json.dumps({"candidates": [valid["candidates"][0]]}),
+                    json.dumps({"candidates": [valid["candidates"][1]]}),
+                ]
+            )
             generator = LocalLLMTwoAxisCandidateGenerator(
                 ranker,
                 model_name="test-generator",
@@ -330,7 +343,7 @@ class CandidatePopulationTests(unittest.TestCase):
                 generator_model="test-generator",
             )
             self.assertEqual(len(generator.generate(request)), 2)
-            self.assertEqual(ranker.call_count, 2)
+            self.assertEqual(ranker.call_count, 3)
 
     def test_real_generator_retries_wrong_coordinate_directions(self) -> None:
         reversed_a2 = {
@@ -358,7 +371,13 @@ class CandidatePopulationTests(unittest.TestCase):
             ]
         }
         with tempfile.TemporaryDirectory() as directory:
-            ranker = _StaticRanker([json.dumps(reversed_a2), json.dumps(valid)])
+            ranker = _StaticRanker(
+                [
+                    json.dumps({"candidates": [reversed_a2["candidates"][0]]}),
+                    json.dumps({"candidates": [valid["candidates"][0]]}),
+                    json.dumps({"candidates": [valid["candidates"][1]]}),
+                ]
+            )
             generator = LocalLLMTwoAxisCandidateGenerator(
                 ranker,
                 model_name="test-generator",
@@ -375,7 +394,7 @@ class CandidatePopulationTests(unittest.TestCase):
             )
             generated = generator.generate(request)
             self.assertEqual(generated[0][1], valid["candidates"][0]["source_preference_clause"])
-            self.assertEqual(ranker.call_count, 2)
+            self.assertEqual(ranker.call_count, 3)
             cache = next(
                 path
                 for path in Path(directory).glob("*.json")
@@ -410,7 +429,13 @@ class CandidatePopulationTests(unittest.TestCase):
             ]
         }
         with tempfile.TemporaryDirectory() as directory:
-            ranker = _StaticRanker([json.dumps(contaminated), json.dumps(valid)])
+            ranker = _StaticRanker(
+                [
+                    json.dumps({"candidates": [contaminated["candidates"][0]]}),
+                    json.dumps({"candidates": [valid["candidates"][0]]}),
+                    json.dumps({"candidates": [valid["candidates"][1]]}),
+                ]
+            )
             generator = LocalLLMTwoAxisCandidateGenerator(
                 ranker,
                 model_name="test-generator",
@@ -426,7 +451,7 @@ class CandidatePopulationTests(unittest.TestCase):
                 generator_model="test-generator",
             )
             self.assertEqual(generator.generate(request)[0][0], valid["candidates"][0]["search_objective_clause"])
-            self.assertEqual(ranker.call_count, 2)
+            self.assertEqual(ranker.call_count, 3)
 
 
 class PairwiseCalibrationTests(unittest.TestCase):

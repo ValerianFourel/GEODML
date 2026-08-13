@@ -35,7 +35,7 @@ from .search_purpose_continuum import (
 )
 
 POPULATION_VERSION = "two-axis-prompt-population-v1"
-SEMANTIC_CONTRACT_VERSION = "coordinate-direction-v2"
+SEMANTIC_CONTRACT_VERSION = "coordinate-direction-v3-independent-slots"
 DEFAULT_AXIS_GRID = tuple(step / 6.0 for step in range(7))
 _SPECIFICATION_PATH = (
     Path(__file__).with_name("specs") / "two_axis_prompt_population_v1.json"
@@ -1232,16 +1232,16 @@ class LocalLLMTwoAxisCandidateGenerator:
         )
 
     def generate(self, request: TwoAxisCandidateRequest) -> tuple[tuple[str, str], ...]:
-        request_text = _candidate_generation_request(request)
         cache_identity = {
             "kind": "two-axis-candidate-generation",
             "version": POPULATION_VERSION,
             "semantic_contract_version": SEMANTIC_CONTRACT_VERSION,
             "model": self.model_name,
-            "request": request_text,
+            "request": asdict(request),
             "seed": request.generation_seed,
             "temperature": self.temperature,
             "max_new_tokens": self.max_new_tokens,
+            "generation_unit": "one-candidate-per-slot",
         }
         cache_key = _hash(json.dumps(cache_identity, sort_keys=True, separators=(",", ":")))
         cache_path = self.cache_directory / f"{cache_key}.json"
@@ -1253,63 +1253,92 @@ class LocalLLMTwoAxisCandidateGenerator:
                 for item in payload["candidates"]
             )
         failures: list[dict[str, object]] = []
-        for attempt in range(self.maximum_attempts):
-            seed = request.generation_seed + attempt
-            raw = _seeded_local_generation(
-                self._ranker,
-                request_text + ("" if not attempt else _candidate_retry_instruction()),
-                seed=seed,
-                max_new_tokens=self.max_new_tokens,
-                temperature=self.temperature,
-            )
-            try:
-                rows = _parse_generated_candidate_clauses(raw, request.number_candidates)
-                semantic_failures = _generated_clause_semantic_failures(
-                    rows,
-                    style_seed=request.style_seed,
-                    assigned_a1=request.assigned_a1,
-                    assigned_a2=request.assigned_a2,
+        accepted: list[dict[str, object]] = []
+        accepted_rows: list[tuple[str, str]] = []
+        for candidate_slot in range(request.number_candidates):
+            request_text = _candidate_generation_request(request, candidate_slot=candidate_slot)
+            for attempt in range(self.maximum_attempts):
+                seed = request.generation_seed + candidate_slot * 1009 + attempt
+                raw = _seeded_local_generation(
+                    self._ranker,
+                    request_text + ("" if not attempt else _candidate_retry_instruction()),
+                    seed=seed,
+                    max_new_tokens=self.max_new_tokens,
+                    temperature=self.temperature,
                 )
-                if semantic_failures:
-                    raise ValueError(
-                        "generated clauses failed hard semantic screens: "
-                        + json.dumps(semantic_failures, sort_keys=True)
+                try:
+                    rows = _parse_generated_candidate_clauses(raw, 1)
+                    semantic_failures = _generated_clause_semantic_failures(
+                        rows,
+                        style_seed=request.style_seed,
+                        assigned_a1=request.assigned_a1,
+                        assigned_a2=request.assigned_a2,
                     )
-            except ValueError as exc:
-                failures.append({"attempt": attempt + 1, "seed": seed, "error": str(exc), "raw": raw})
-                continue
-            _atomic_json(
-                cache_path,
-                {
-                    "cache_identity": cache_identity,
-                    "accepted_attempt": attempt + 1,
-                    "accepted_seed": seed,
-                    "raw_model_output": raw,
-                    "rejected_attempts": failures,
-                    "candidates": [
+                    if semantic_failures:
+                        raise ValueError(
+                            "generated clauses failed hard semantic screens: "
+                            + json.dumps(semantic_failures, sort_keys=True)
+                        )
+                    if rows[0] in accepted_rows:
+                        raise ValueError("generated candidate duplicates an accepted slot")
+                except ValueError as exc:
+                    failures.append(
                         {
-                            "search_objective_clause": objective,
-                            "source_preference_clause": source,
+                            "candidate_slot": candidate_slot,
+                            "attempt": attempt + 1,
+                            "seed": seed,
+                            "error": str(exc),
+                            "raw": raw,
                         }
-                        for objective, source in rows
-                    ],
-                },
-            )
-            return rows
+                    )
+                    continue
+                accepted_rows.append(rows[0])
+                accepted.append(
+                    {
+                        "candidate_slot": candidate_slot,
+                        "accepted_attempt": attempt + 1,
+                        "accepted_seed": seed,
+                        "raw_model_output": raw,
+                    }
+                )
+                break
+            else:
+                _atomic_json(
+                    failure_path,
+                    {
+                        "cache_identity": cache_identity,
+                        "failure": "structural-or-semantic-validation-exhausted",
+                        "failed_candidate_slot": candidate_slot,
+                        "accepted_slots": accepted,
+                        "rejected_attempts": failures,
+                    },
+                )
+                slot_failures = [
+                    item for item in failures if item["candidate_slot"] == candidate_slot
+                ]
+                raise ValueError(
+                    f"local candidate generator exhausted {self.maximum_attempts} attempts "
+                    f"for candidate slot {candidate_slot}: "
+                    + "; ".join(str(item["error"]) for item in slot_failures)
+                    + f"; rejected outputs: {failure_path}"
+                )
+        rows = tuple(accepted_rows)
         _atomic_json(
-            failure_path,
+            cache_path,
             {
                 "cache_identity": cache_identity,
-                "failure": "structural-or-semantic-validation-exhausted",
+                "accepted_slots": accepted,
                 "rejected_attempts": failures,
+                "candidates": [
+                    {
+                        "search_objective_clause": objective,
+                        "source_preference_clause": source,
+                    }
+                    for objective, source in rows
+                ],
             },
         )
-        raise ValueError(
-            "local candidate generator failed structural JSON validation after "
-            f"{self.maximum_attempts} attempts: "
-            + "; ".join(str(item["error"]) for item in failures)
-            + f"; rejected outputs: {failure_path}"
-        )
+        return rows
 
 
 class LocalLLMPairwiseJudge:
@@ -1958,8 +1987,42 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _candidate_generation_request(request: TwoAxisCandidateRequest) -> str:
+def _candidate_generation_request(
+    request: TwoAxisCandidateRequest, *, candidate_slot: int
+) -> str:
     style = TemplatePromptGenerator._build_style_plan(request.style_seed)
+    if candidate_slot < 0 or candidate_slot >= request.number_candidates:
+        raise ValueError("candidate_slot is outside the requested population")
+    a1_anchor = (
+        "The objective must ask only to understand or explain the category, its mechanisms, "
+        "use cases, limitations, or concepts, explicitly without product evaluation or selection."
+        if request.assigned_a1 < 0.25
+        else (
+            "The objective must combine category understanding with practical evaluation criteria "
+            "and possible solution approaches."
+            if math.isclose(request.assigned_a1, 0.5, abs_tol=1e-9)
+            else (
+                "The objective must explicitly ask to evaluate, compare, shortlist, trial, acquire, "
+                "or implement a B2B SaaS solution."
+                if request.assigned_a1 > 0.75
+                else "The objective must preserve the assigned decision-readiness level exactly."
+            )
+        )
+    )
+    a2_anchor = (
+        "The source clause must explicitly prefer seller-independent or vendor-independent "
+        "evidence, conditional on equal topical relevance. It must not prefer seller-controlled "
+        "or vendor-controlled evidence."
+        if request.assigned_a2 < 0.5
+        else (
+            "The source clause must explicitly state no publisher-ownership preference and use "
+            "the strongest evidence regardless of publisher."
+            if math.isclose(request.assigned_a2, 0.5, abs_tol=1e-9)
+            else "The source clause must explicitly prefer seller-controlled, vendor-controlled, "
+            "or first-party evidence, conditional on equal topical relevance. It must not prefer "
+            "seller-independent evidence."
+        )
+    )
     return f"""Generate alternative semantic clause pairs for a B2B SaaS search-agent reranking instruction.
 
 The exact search term is intentionally not provided. Do not invent or mention a query, product category, company, geography, or candidate document.
@@ -1979,6 +2042,11 @@ Fixed actor: a business software evaluator assessing a B2B SaaS category for an 
 Fixed task: rerank one supplied candidate set for one exact search term by relevance.
 Fixed output contract: candidate identifiers only, with no explanation.
 Surface style plan: {json.dumps(asdict(style), sort_keys=True, separators=(",", ":"))}
+Candidate slot: {candidate_slot + 1} of {request.number_candidates}. Generate only this slot.
+
+Required meaning for this slot:
+- {a1_anchor}
+- {a2_anchor}
 
 Hard constraints:
 - Change only decision-readiness in the objective clause and publisher ownership in the source clause.
@@ -1987,7 +2055,7 @@ Hard constraints:
 - Do not answer the unknown search term.
 - Do not include numeric A1/A2 coordinates in either clause.
 - Each clause must be one line and must not contain placeholders.
-- Produce {request.number_candidates} genuinely distinct pairs.
+- Produce exactly one clause pair. Vary only surface wording, not the required meanings.
 
 Return JSON only in this exact shape:
 {{"candidates":[{{"search_objective_clause":"...","source_preference_clause":"..."}}]}}
