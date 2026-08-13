@@ -44,3 +44,38 @@ unrelated directories and revalidates every cached identity and objective
 against the current structural contract before reuse. Endpoint validation
 treats assessment as evaluation language while preserving negated forms such
 as “before assessing” at the informational endpoint.
+
+## Query-conditioned randomized study
+
+The selected 28-prompt manifold is frozen once, then crossed with every real
+search term. This is a randomized complete-block design:
+
+- `assigned_a1` is the semantic treatment;
+- `style_seed` is the surface-realization factor;
+- `search_term` is the block;
+- every search term receives all 7 A1 levels and all 4 styles;
+- seeded randomization determines search-term order and prompt order within a
+  search term, but never changes treatment membership.
+
+With 1,011 distinct search terms, the schedule contains 28 prompts per term and
+28,308 assignments. Using the complete calibrated 7 x 4 manifold is preferable
+to rounding up to 30 with duplicated or uncalibrated prompts.
+
+Build the prompt-only schedule from the canonical SearXNG pool and the frozen
+pilot artifacts:
+
+```bash
+python3 analysis/scripts/build_a1_query_panel.py \
+  --selected-manifold "$A1_OUTPUT/selected_a1_prompt_manifold.jsonl" \
+  --source-run-manifest "$A1_OUTPUT/run_manifest.json" \
+  --serp-parquet "$GEODML_DATA_ROOT/data/serp/phase0_top20_searxng.parquet" \
+  --expected-keywords 1011 \
+  --master-seed 20260817 \
+  --output-dir "$A1_QUERY_PANEL_OUTPUT"
+```
+
+The builder binds the literal query into each prompt while leaving
+`{CANDIDATES}` and `{TOP_N}` for the downstream reranking stage. It writes the
+randomized JSONL schedule, diagnostics, a source-hashed run manifest, and a
+short report atomically. It refuses an existing output directory. This stage
+does not invoke a model, alter candidate sets, or observe outcomes.
