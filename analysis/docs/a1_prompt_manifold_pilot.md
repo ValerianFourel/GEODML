@@ -142,3 +142,55 @@ python3 analysis/scripts/build_a1_query_panel.py \
   --style-assignment balanced-one-per-a1 \
   --output-dir "$A1_DENSE_QUERY_OUTPUT"
 ```
+
+## Primary embedding-coordinate correction
+
+For the semantic-vector study, `assigned_a1` in the generation bank is a
+proposal coordinate only. It helps generate broad candidate coverage but does
+not define the final A1 value. Qwen pairwise judgments are auxiliary validation
+only.
+
+The primary A1 coordinate is identified in LLM2Vec input-prompt space. For each
+of the 1,009 SearXNG queries and each of four surface frames, construct a matched
+pair of complete listwise reranking prompts. Query, actor, ranking task, source
+policy, candidate placeholder, output contract, and surface frame are identical
+within the pair. Only search purpose differs:
+
+```text
+informational: understand mechanisms, uses, applications, and limitations
+transactional: evaluate, compare, shortlist, select, acquire, or implement
+```
+
+All embedding rows are unit-normalized. The primary vector is the normalized
+mean of the 4,036 paired transactional-minus-informational differences. Global
+endpoint centroids orient and scale projection so their means are zero and one.
+This makes the query corpus the topic prior while paired differences remove
+query and surface offsets.
+
+Fit this axis before positioning any generated candidates:
+
+```bash
+srun -n1 --gres=gpu:1 python3 analysis/scripts/fit_a1_embedding_axis.py \
+  --output-dir "$A1_EMBEDDING_AXIS_OUTPUT" \
+  --serp-parquet "$GEODML_DATA_ROOT/data/serp/phase0_top20_searxng.parquet" \
+  --expected-keywords 1009 \
+  --embedding-model "$QWEN25_SNAPSHOT" \
+  --mntp-model "$LLM2VEC_MNTP_SNAPSHOT" \
+  --peft-model "$LLM2VEC_SIMCSE_SNAPSHOT" \
+  --style-seeds 0,1,2,3 \
+  --encode-batch-size 1 \
+  --encode-max-length 512 \
+  --query-chunk-size 32
+```
+
+Endpoint embeddings are cached atomically by query chunk. Use `--resume` after
+an interruption. Before candidate scoring, inspect the positive pair-gap rate,
+positive query-mean-gap rate, minimum query-mean gap, and gap variation. The
+next stage may proceed only if the corpus-level vector consistently orients
+informational prompts below transactional prompts.
+
+The final 30,270 prompts will be complete query-bound reranking instructions.
+Each final prompt's A1 value will be its LLM2Vec projection onto the frozen
+query-prior vector, computed before candidate rankings or outcomes. Generator
+proposal coordinates and judge scores will remain in the artifacts for error
+and agreement analysis, but will not replace the embedding coordinate.
