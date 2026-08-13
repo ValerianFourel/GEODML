@@ -96,6 +96,12 @@ On HoreKa, install primary LLM2Vec through
 Qwen2/Qwen3 support revision and installs it without dependencies. The PyPI
 0.2.3 package imports a Transformers class removed from the cluster runtime;
 downgrading Transformers would also disturb the validated LLM2Vec-Gen stack.
+For adapter-only Qwen checkpoints, pass all three layers explicitly to
+`embed-select`: the complete Qwen2.5 checkpoint as `--embedding-model`, the
+MNTP adapter as `--mntp-model`, and the SimCSE adapter as `--peft-model`. The
+loader merges MNTP into the bidirectional base before attaching SimCSE. Passing
+the adapter-only MNTP directory as `--embedding-model` is invalid because it
+does not contain the base model configuration or weights.
 
 All local-model outputs are cached by stable request/model/configuration hashes.
 The cache identity also includes the semantic-contract version, so a stricter

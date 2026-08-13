@@ -1539,6 +1539,7 @@ class LLM2VecPromptEmbedder:
         self,
         model_name: str,
         *,
+        mntp_model_name_or_path: str | None = None,
         peft_model_name_or_path: str | None = None,
         batch_size: int = 1,
         max_length: int = 512,
@@ -1552,20 +1553,45 @@ class LLM2VecPromptEmbedder:
             raise RuntimeError("LLM2Vec prompt embedding requires exactly one visible GPU")
         if batch_size <= 0 or max_length <= 0:
             raise ValueError("batch_size and max_length must be positive")
-        self.model_name = (
-            model_name
-            if peft_model_name_or_path is None
-            else f"{model_name}+peft:{peft_model_name_or_path}"
-        )
+        model_parts = [model_name]
+        if mntp_model_name_or_path is not None:
+            model_parts.append(f"mntp:{mntp_model_name_or_path}")
+        if peft_model_name_or_path is not None:
+            model_parts.append(f"peft:{peft_model_name_or_path}")
+        self.model_name = "+".join(model_parts)
         self.batch_size = batch_size
-        self._model = LLM2Vec.from_pretrained(
-            model_name,
-            peft_model_name_or_path=peft_model_name_or_path,
-            device_map="cuda",
-            torch_dtype=torch.bfloat16,
-            max_length=max_length,
-            attn_implementation="eager",
-        )
+        if mntp_model_name_or_path is None:
+            self._model = LLM2Vec.from_pretrained(
+                model_name,
+                peft_model_name_or_path=peft_model_name_or_path,
+                device_map="cuda",
+                torch_dtype=torch.bfloat16,
+                max_length=max_length,
+                attn_implementation="eager",
+            )
+        else:
+            try:
+                from peft import PeftModel
+            except ImportError as exc:
+                raise ImportError(
+                    "layered LLM2Vec prompt embedding requires the peft package"
+                ) from exc
+            self._model = LLM2Vec.from_pretrained(
+                model_name,
+                peft_model_name_or_path=mntp_model_name_or_path,
+                merge_peft=True,
+                device_map="cuda",
+                torch_dtype=torch.bfloat16,
+                max_length=max_length,
+                attn_implementation="eager",
+            )
+            if peft_model_name_or_path is not None:
+                self._model.model = PeftModel.from_pretrained(
+                    self._model.model,
+                    peft_model_name_or_path,
+                    local_files_only=True,
+                )
+                self._model.config = self._model.model.config
 
     def embed(self, texts: Sequence[str]) -> np.ndarray:
         batches: list[np.ndarray] = []

@@ -163,6 +163,7 @@ def _base_parser() -> argparse.ArgumentParser:
     embed = subparsers.add_parser("embed-select")
     embed.add_argument("--output-dir", required=True)
     embed.add_argument("--embedding-model", required=True)
+    embed.add_argument("--mntp-model")
     embed.add_argument("--peft-model")
     embed.add_argument("--encode-batch-size", type=int, default=1)
     embed.add_argument("--encode-max-length", type=int, default=512)
@@ -322,6 +323,7 @@ def _embed_select(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     calibrations = calibrate_candidates(candidates, comparisons, judgments)
     embedder = LLM2VecPromptEmbedder(
         args.embedding_model,
+        mntp_model_name_or_path=args.mntp_model,
         peft_model_name_or_path=args.peft_model,
         batch_size=args.encode_batch_size,
         max_length=args.encode_max_length,
@@ -342,7 +344,9 @@ def _embed_select(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         {
             "status": "input-embedded-selected",
             "input_embedding_model": args.embedding_model,
+            "input_mntp_model": args.mntp_model,
             "input_peft_model": args.peft_model,
+            "embedding_git_commit_sha": _git_sha(),
             "encode_batch_size": args.encode_batch_size,
             "encode_max_length": args.encode_max_length,
             "minimum_judges_per_comparison": args.minimum_judges_per_comparison,
@@ -477,6 +481,7 @@ LLM2Vec-Gen anticipated-response diagnostics.
 - Generator model: `{manifest['generator_model']}`
 - Judge runs: `{manifest['judge_runs']}`
 - Primary LLM2Vec model: `{manifest['input_embedding_model']}`
+- Primary LLM2Vec MNTP model: `{manifest.get('input_mntp_model')}`
 - Primary LLM2Vec PEFT model: `{manifest['input_peft_model']}`
 - Candidate prompts: `{len(candidates)}`
 - Pairwise judgments: `{len(judgments)}`

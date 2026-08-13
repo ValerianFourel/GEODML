@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import sys
 import tempfile
+import types
 import unittest
+from unittest.mock import patch
 
 from analysis.interpretability.pipeline.search_purpose_continuum import (
     PermutationValidationError,
@@ -18,6 +21,7 @@ from analysis.interpretability.pipeline.two_axis_prompt_population import (
     FakeTwoAxisPromptEmbedder,
     LocalLLMPairwiseJudge,
     LocalLLMTwoAxisCandidateGenerator,
+    LLM2VecPromptEmbedder,
     PairwiseComparisonRequest,
     PairwiseJudgment,
     TwoAxisCandidateRequest,
@@ -121,6 +125,65 @@ class CandidatePopulationTests(unittest.TestCase):
         self.assertIn("bidirectional_qwen2", script)
         self.assertIn("bidirectional_qwen3", script)
         self.assertNotIn("llm2vec==0.2.3", script)
+
+    def test_llm2vec_loader_merges_mntp_before_loading_simcse(self) -> None:
+        calls = []
+
+        class FakeCUDA:
+            @staticmethod
+            def is_available():
+                return True
+
+            @staticmethod
+            def device_count():
+                return 1
+
+        class FakeLLM2Vec:
+            @classmethod
+            def from_pretrained(cls, model_name, **kwargs):
+                calls.append(("llm2vec", model_name, kwargs))
+                return types.SimpleNamespace(
+                    model=types.SimpleNamespace(config="merged-mntp-config"),
+                    config="merged-mntp-config",
+                )
+
+        class FakePeftModel:
+            @classmethod
+            def from_pretrained(cls, model, model_name, **kwargs):
+                calls.append(("peft", model_name, kwargs, model.config))
+                return types.SimpleNamespace(config="simcse-config")
+
+        modules = {
+            "torch": types.SimpleNamespace(cuda=FakeCUDA(), bfloat16="bf16"),
+            "llm2vec": types.SimpleNamespace(LLM2Vec=FakeLLM2Vec),
+            "peft": types.SimpleNamespace(PeftModel=FakePeftModel),
+        }
+        with patch.dict(sys.modules, modules):
+            embedder = LLM2VecPromptEmbedder(
+                "qwen-base",
+                mntp_model_name_or_path="mntp-adapter",
+                peft_model_name_or_path="simcse-adapter",
+                max_length=256,
+            )
+
+        self.assertEqual(calls[0][0:2], ("llm2vec", "qwen-base"))
+        self.assertEqual(calls[0][2]["peft_model_name_or_path"], "mntp-adapter")
+        self.assertTrue(calls[0][2]["merge_peft"])
+        self.assertEqual(calls[0][2]["max_length"], 256)
+        self.assertEqual(
+            calls[1],
+            (
+                "peft",
+                "simcse-adapter",
+                {"local_files_only": True},
+                "merged-mntp-config",
+            ),
+        )
+        self.assertEqual(embedder._model.config, "simcse-config")
+        self.assertEqual(
+            embedder.model_name,
+            "qwen-base+mntp:mntp-adapter+peft:simcse-adapter",
+        )
 
     def test_complete_grid_has_multiple_candidates_per_style(self) -> None:
         candidates, *_ = _pipeline()
