@@ -20,7 +20,7 @@ from typing import Sequence
 from .a1_prompt_manifold import SelectedA1Prompt
 
 
-A1_QUERY_PANEL_VERSION = "a1-query-panel-v1"
+A1_QUERY_PANEL_VERSION = "a1-query-panel-v2"
 _RESERVED_PLACEHOLDERS = ("{QUERY}", "{CANDIDATES}", "{TOP_N}")
 
 
@@ -52,13 +52,16 @@ class QueryConditionedA1Prompt:
 @dataclass(frozen=True, slots=True)
 class A1QueryPanelDiagnostics:
     design: str
+    style_assignment: str
     query_count: int
     prompts_per_query: int
     assignment_count: int
     a1_levels: tuple[float, ...]
     style_seeds: tuple[int, ...]
     exact_query_binding_rate: float
+    a1_level_coverage_rate: float
     complete_block_rate: float
+    maximum_within_query_style_imbalance: int
     duplicate_assignment_count: int
     duplicate_query_bound_prompt_count: int
 
@@ -68,14 +71,19 @@ def build_query_conditioned_a1_panel(
     search_terms: Sequence[str],
     selected_prompts: Sequence[SelectedA1Prompt],
     master_seed: int = 20260817,
+    style_assignment: str = "full-cross",
 ) -> tuple[tuple[QueryConditionedA1Prompt, ...], A1QueryPanelDiagnostics]:
-    """Cross every normalized query with the full frozen A1 manifold.
+    """Bind every query to a complete A1 block in randomized execution order.
 
-    The returned rows are in their randomized execution order.  Search terms
-    form complete blocks; within each block, every A1/style assignment appears
-    exactly once.
+    ``full-cross`` includes every A1/style cell. ``balanced-one-per-a1`` keeps
+    every A1 level exactly once per query and chooses styles with a seeded,
+    balanced random cycle.
     """
 
+    if style_assignment not in {"full-cross", "balanced-one-per-a1"}:
+        raise ValueError(
+            "style_assignment must be 'full-cross' or 'balanced-one-per-a1'"
+        )
     prompts, a1_levels, style_seeds = _validate_selected_prompts(selected_prompts)
     queries = _normalize_search_terms(search_terms)
 
@@ -86,8 +94,16 @@ def build_query_conditioned_a1_panel(
     rows: list[QueryConditionedA1Prompt] = []
     for keyword_order, query in enumerate(query_order, start=1):
         query_id = f"query:{_hash_text(query)[:24]}"
-        prompt_order = sorted(
+        block_prompts = _query_block_prompts(
             prompts,
+            a1_levels=a1_levels,
+            style_seeds=style_seeds,
+            query=query,
+            master_seed=master_seed,
+            style_assignment=style_assignment,
+        )
+        prompt_order = sorted(
+            block_prompts,
             key=lambda prompt: _randomization_key(
                 master_seed,
                 "within-query",
@@ -142,25 +158,52 @@ def build_query_conditioned_a1_panel(
                 )
             )
 
-    expected_block = {
-        (prompt.prompt_assignment_id, prompt.assigned_a1, prompt.style_seed)
-        for prompt in prompts
-    }
     complete_blocks = 0
+    covered_levels = 0
+    maximum_style_imbalance = 0
+    rows_by_query: dict[str, list[QueryConditionedA1Prompt]] = {}
+    for row in rows:
+        rows_by_query.setdefault(row.search_term, []).append(row)
     for query in queries:
+        block = rows_by_query[query]
+        observed_levels = {row.assigned_a1 for row in block}
+        covered_levels += len(observed_levels)
+        style_counts = [
+            sum(row.style_seed == style_seed for row in block)
+            for style_seed in style_seeds
+        ]
+        style_imbalance = max(style_counts) - min(style_counts)
+        maximum_style_imbalance = max(maximum_style_imbalance, style_imbalance)
         observed = {
             (row.source_prompt_assignment_id, row.assigned_a1, row.style_seed)
-            for row in rows
-            if row.search_term == query
+            for row in block
         }
-        complete_blocks += int(observed == expected_block)
+        if style_assignment == "full-cross":
+            expected = {
+                (prompt.prompt_assignment_id, prompt.assigned_a1, prompt.style_seed)
+                for prompt in prompts
+            }
+            complete_blocks += int(observed == expected)
+        else:
+            complete_blocks += int(
+                len(block) == len(a1_levels)
+                and observed_levels == set(a1_levels)
+                and style_imbalance <= 1
+            )
 
     assignment_ids = [row.panel_assignment_id for row in rows]
     prompt_hashes = [row.query_bound_prompt_hash for row in rows]
     diagnostics = A1QueryPanelDiagnostics(
-        design="randomized-complete-block",
+        design=(
+            "randomized-complete-block"
+            if style_assignment == "full-cross"
+            else "randomized-complete-a1-block"
+        ),
+        style_assignment=style_assignment,
         query_count=len(queries),
-        prompts_per_query=len(prompts),
+        prompts_per_query=(
+            len(prompts) if style_assignment == "full-cross" else len(a1_levels)
+        ),
         assignment_count=len(rows),
         a1_levels=a1_levels,
         style_seeds=style_seeds,
@@ -168,11 +211,53 @@ def build_query_conditioned_a1_panel(
             sum(row.search_term in row.query_bound_prompt_template for row in rows)
             / len(rows)
         ),
+        a1_level_coverage_rate=covered_levels / (len(queries) * len(a1_levels)),
         complete_block_rate=complete_blocks / len(queries),
+        maximum_within_query_style_imbalance=maximum_style_imbalance,
         duplicate_assignment_count=len(rows) - len(set(assignment_ids)),
         duplicate_query_bound_prompt_count=len(rows) - len(set(prompt_hashes)),
     )
     return tuple(rows), diagnostics
+
+
+def _query_block_prompts(
+    prompts: Sequence[SelectedA1Prompt],
+    *,
+    a1_levels: Sequence[float],
+    style_seeds: Sequence[int],
+    query: str,
+    master_seed: int,
+    style_assignment: str,
+) -> tuple[SelectedA1Prompt, ...]:
+    if style_assignment == "full-cross":
+        return tuple(prompts)
+
+    by_cell = {
+        (prompt.assigned_a1, prompt.style_seed): prompt for prompt in prompts
+    }
+    randomized_levels = sorted(
+        a1_levels,
+        key=lambda level: _randomization_key(
+            master_seed,
+            "style-level-order",
+            query,
+            f"{level:.17g}",
+        ),
+    )
+    randomized_styles = sorted(
+        style_seeds,
+        key=lambda style_seed: _randomization_key(
+            master_seed,
+            "style-cycle",
+            query,
+            style_seed,
+        ),
+    )
+    selected = [
+        by_cell[(level, randomized_styles[index % len(randomized_styles)])]
+        for index, level in enumerate(randomized_levels)
+    ]
+    return tuple(selected)
 
 
 def _validate_selected_prompts(

@@ -24,6 +24,7 @@ from analysis.interpretability.pipeline.a1_prompt_manifold import (
     generate_a1_candidate_bank,
     judge_a1_comparisons,
     select_a1_manifold,
+    stratified_random_a1_grid,
 )
 
 SCRIPTS_ROOT = Path(__file__).parents[1] / "scripts"
@@ -73,6 +74,22 @@ def _pipeline():
 
 
 class A1PromptManifoldTests(unittest.TestCase):
+    def test_stratified_random_grid_is_reproducible_smooth_and_seeded(self) -> None:
+        first = stratified_random_a1_grid(30, master_seed=20260817)
+        repeat = stratified_random_a1_grid(30, master_seed=20260817)
+        other = stratified_random_a1_grid(30, master_seed=20260818)
+
+        self.assertEqual(first, repeat)
+        self.assertNotEqual(first, other)
+        self.assertEqual(len(first), 30)
+        self.assertEqual(first[0], 0.0)
+        self.assertEqual(first[-1], 1.0)
+        self.assertEqual(tuple(sorted(set(first))), first)
+        nominal_step = 1 / 29
+        steps = [right - left for left, right in zip(first, first[1:])]
+        self.assertGreater(min(steps), 0.2 * nominal_step)
+        self.assertLess(max(steps), 1.8 * nominal_step)
+
     def test_candidate_bank_generates_only_the_objective_field(self) -> None:
         candidates, *_ = _pipeline()
         self.assertEqual(len(candidates), 2 * 7 * 4)

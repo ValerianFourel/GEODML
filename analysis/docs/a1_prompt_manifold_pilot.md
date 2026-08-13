@@ -81,3 +81,64 @@ The builder binds the literal query into each prompt while leaving
 randomized JSONL schedule, diagnostics, a source-hashed run manifest, and a
 short report atomically. It refuses an existing output directory. This stage
 does not invoke a model, alter candidate sets, or observe outcomes.
+
+## Dense 30-level semantic study
+
+The 7-level pilot validates the construction method but is not dense enough for
+the final semantic-axis study. Do not assign new continuous A1 coordinates to
+those 28 existing texts. Instead, construct and calibrate a new manifold at 30
+assigned levels.
+
+`--randomized-a1-levels 30` creates a deterministic stratified-random grid:
+
+- A1=0 and A1=1 are fixed semantic anchors;
+- each of the 28 interior coordinates is jittered around one equal-width grid
+  location using `--master-seed`;
+- jitter is bounded so coordinates remain strictly increasing and cover the
+  whole axis without clusters;
+- the generated objective clause, pairwise calibration, and dual embeddings
+  are recomputed at every new coordinate.
+
+With four surface styles and 12 generation candidates per cell, the dense
+construction has 1,440 raw candidates and selects 120 calibrated source prompts
+(30 levels x 4 styles). For the final query panel, use
+`--style-assignment balanced-one-per-a1`. Each query then receives all 30 A1
+levels exactly once. A seeded balanced cycle chooses the style at each level,
+so each of the four styles occurs either seven or eight times per query.
+
+For the canonical 1,009-query SearXNG top-20 pool, the final schedule therefore
+contains 30,270 query-bound prompts. A1 is the semantic treatment, query is the
+block, and style is randomized surface variation. The final schedule does not
+reuse the 7-level pilot as if it had 30 semantic coordinates.
+
+Start the new dense manifold in a new run directory:
+
+```bash
+srun -n1 --gres=gpu:1 python3 \
+  analysis/scripts/run_a1_prompt_manifold_pilot.py generate \
+  --output-dir "$A1_DENSE_OUTPUT" \
+  --search-term "abandoned cart recovery" \
+  --generator-model "$GENERATOR_SNAPSHOT" \
+  --precision full \
+  --randomized-a1-levels 30 \
+  --style-seeds 0,1,2,3 \
+  --number-candidates 12 \
+  --master-seed 20260817 \
+  --temperature 0.9 \
+  --max-new-tokens 500 \
+  --maximum-attempts 8
+```
+
+After completing the same two-judge, dual-embedding, and selection stages used
+by the pilot, build the dense query schedule:
+
+```bash
+python3 analysis/scripts/build_a1_query_panel.py \
+  --selected-manifold "$A1_DENSE_OUTPUT/selected_a1_prompt_manifold.jsonl" \
+  --source-run-manifest "$A1_DENSE_OUTPUT/run_manifest.json" \
+  --serp-parquet "$GEODML_DATA_ROOT/data/serp/phase0_top20_searxng.parquet" \
+  --expected-keywords 1009 \
+  --master-seed 20260817 \
+  --style-assignment balanced-one-per-a1 \
+  --output-dir "$A1_DENSE_QUERY_OUTPUT"
+```

@@ -35,6 +35,7 @@ from interpretability.pipeline.a1_prompt_manifold import (  # noqa: E402
     generate_a1_candidate_bank,
     judge_a1_comparisons,
     select_a1_manifold,
+    stratified_random_a1_grid,
 )
 from interpretability.pipeline.two_axis_prompt_population import (  # noqa: E402
     LLM2VecGenPromptEmbedder,
@@ -71,7 +72,20 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--search-term", required=True)
     generate.add_argument("--generator-model", required=True)
     generate.add_argument("--precision", choices=("full", "4bit"), default="full")
-    generate.add_argument("--a1-grid", type=_grid, default=tuple(step / 6 for step in range(7)))
+    grid = generate.add_mutually_exclusive_group()
+    grid.add_argument(
+        "--a1-grid",
+        type=_grid,
+        help="Explicit comma-separated A1 grid (default: seven equally spaced levels).",
+    )
+    grid.add_argument(
+        "--randomized-a1-levels",
+        type=int,
+        help=(
+            "Build this many reproducible stratified-random A1 levels, including "
+            "fixed endpoints 0 and 1; uses --master-seed."
+        ),
+    )
     generate.add_argument("--style-seeds", type=_integers, default=(0, 1, 2, 3))
     generate.add_argument("--number-candidates", type=int, default=12)
     generate.add_argument("--master-seed", type=int, default=20260817)
@@ -184,6 +198,15 @@ def _prepare_generation_root(paths: dict[str, Path], *, resume: bool) -> int:
 
 def _generate(args, paths) -> None:
     reused_cache_entries = _prepare_generation_root(paths, resume=args.resume)
+    if args.randomized_a1_levels is not None:
+        a1_grid = stratified_random_a1_grid(
+            args.randomized_a1_levels,
+            master_seed=args.master_seed,
+        )
+        a1_grid_design = "stratified-random-fixed-endpoints"
+    else:
+        a1_grid = args.a1_grid or tuple(step / 6 for step in range(7))
+        a1_grid_design = "explicit" if args.a1_grid is not None else "default-seven-level"
     generator = LocalLLMA1CandidateGenerator.from_model(
         args.generator_model,
         precision=args.precision,
@@ -194,7 +217,7 @@ def _generate(args, paths) -> None:
     )
     candidates = generate_a1_candidate_bank(
         search_term=args.search_term,
-        a1_grid=args.a1_grid,
+        a1_grid=a1_grid,
         style_seeds=args.style_seeds,
         number_candidates=args.number_candidates,
         master_seed=args.master_seed,
@@ -212,7 +235,9 @@ def _generate(args, paths) -> None:
             "git_commit_sha": _git_sha(),
             "generated_at": _now(),
             "search_term": args.search_term,
-            "a1_grid": args.a1_grid,
+            "a1_grid": a1_grid,
+            "a1_grid_design": a1_grid_design,
+            "a1_level_count": len(a1_grid),
             "style_seeds": args.style_seeds,
             "number_candidates_per_level": args.number_candidates,
             "master_seed": args.master_seed,

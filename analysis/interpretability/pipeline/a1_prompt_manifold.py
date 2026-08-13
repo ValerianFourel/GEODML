@@ -189,6 +189,35 @@ class A1ManifoldDiagnostics:
     mean_pairwise_lexical_similarity: float
 
 
+def stratified_random_a1_grid(
+    level_count: int,
+    *,
+    master_seed: int = 20260817,
+) -> tuple[float, ...]:
+    """Return a reproducible, smooth, jittered A1 grid with fixed endpoints.
+
+    Interior coordinates are centered on an equally spaced grid and jittered
+    by at most 40% of one nominal step.  Consequently, coordinates remain
+    strictly ordered and cover the whole axis without accidental clusters.
+    """
+
+    if isinstance(level_count, bool) or not isinstance(level_count, int):
+        raise TypeError("level_count must be an integer")
+    if level_count < 3:
+        raise ValueError("level_count must be at least 3 to retain both endpoints")
+    step = 1.0 / (level_count - 1)
+    values = [0.0]
+    for index in range(1, level_count - 1):
+        digest = hashlib.sha256(
+            f"{A1_MANIFOLD_VERSION}:stratified-grid:{master_seed}:{index}".encode()
+        ).digest()
+        uniform = int.from_bytes(digest[:8], "big") / 2**64
+        jitter = (uniform - 0.5) * 0.8 * step
+        values.append(index * step + jitter)
+    values.append(1.0)
+    return tuple(values)
+
+
 def generate_a1_candidate_bank(
     *,
     search_term: str,

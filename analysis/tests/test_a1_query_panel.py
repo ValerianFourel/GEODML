@@ -59,6 +59,34 @@ def _selected_manifold():
 
 
 class A1QueryPanelTests(unittest.TestCase):
+    def test_balanced_one_per_a1_keeps_every_level_and_randomizes_style(self) -> None:
+        selected = _selected_manifold()
+        queries = tuple(f"query {index}" for index in range(12))
+        rows, diagnostics = build_query_conditioned_a1_panel(
+            search_terms=queries,
+            selected_prompts=selected,
+            master_seed=73,
+            style_assignment="balanced-one-per-a1",
+        )
+
+        expected_levels = {item.assigned_a1 for item in selected}
+        self.assertEqual(len(expected_levels), 7)
+        self.assertEqual(len(rows), 12 * 7)
+        self.assertEqual(diagnostics.design, "randomized-complete-a1-block")
+        self.assertEqual(diagnostics.style_assignment, "balanced-one-per-a1")
+        self.assertEqual(diagnostics.prompts_per_query, 7)
+        self.assertEqual(diagnostics.a1_level_coverage_rate, 1.0)
+        self.assertEqual(diagnostics.complete_block_rate, 1.0)
+        self.assertLessEqual(diagnostics.maximum_within_query_style_imbalance, 1)
+        for query in queries:
+            block = [row for row in rows if row.search_term == query]
+            self.assertEqual({row.assigned_a1 for row in block}, expected_levels)
+            counts = [
+                sum(row.style_seed == style_seed for row in block)
+                for style_seed in diagnostics.style_seeds
+            ]
+            self.assertLessEqual(max(counts) - min(counts), 1)
+
     def test_every_query_receives_the_complete_semantic_manifold(self) -> None:
         selected = _selected_manifold()
         queries = ("abandoned cart recovery", "CRM for nonprofits", "API monitoring")

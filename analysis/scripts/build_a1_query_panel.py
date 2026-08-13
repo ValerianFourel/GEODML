@@ -48,6 +48,15 @@ def _parser() -> argparse.ArgumentParser:
         help="Fail unless this exact number of distinct normalized terms is loaded.",
     )
     parser.add_argument("--master-seed", type=int, default=20260817)
+    parser.add_argument(
+        "--style-assignment",
+        choices=("full-cross", "balanced-one-per-a1"),
+        default="full-cross",
+        help=(
+            "Use every style at every A1 level, or select one deterministically "
+            "balanced random style per level and query."
+        ),
+    )
     parser.add_argument("--output-dir", required=True)
     return parser
 
@@ -72,6 +81,7 @@ def main() -> int:
             search_terms=search_terms,
             selected_prompts=prompts,
             master_seed=args.master_seed,
+            style_assignment=args.style_assignment,
         )
         source_manifest = None
         if args.source_run_manifest:
@@ -84,7 +94,7 @@ def main() -> int:
             "artifact_version": A1_QUERY_PANEL_VERSION,
             "scientific_result": False,
             "status": "scheduled-unrun",
-            "design": "randomized-complete-block",
+            "design": diagnostics.design,
             "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "git_commit_sha": _git_sha(),
             "master_seed": args.master_seed,
@@ -102,6 +112,7 @@ def main() -> int:
             "assignment_count": diagnostics.assignment_count,
             "a1_levels": diagnostics.a1_levels,
             "style_seeds": diagnostics.style_seeds,
+            "style_assignment": diagnostics.style_assignment,
             "treatment": "assigned_a1",
             "surface_factor": "style_seed",
             "blocking_variable": "search_term",
@@ -185,13 +196,16 @@ def _report(manifest: dict[str, object], diagnostics: dict[str, object]) -> str:
             f"- Total scheduled assignments: `{diagnostics['assignment_count']}`",
             f"- Assigned A1 levels: `{diagnostics['a1_levels']}`",
             f"- Surface seeds: `{diagnostics['style_seeds']}`",
+            f"- Style assignment: `{diagnostics['style_assignment']}`",
             f"- Exact query binding rate: `{diagnostics['exact_query_binding_rate']}`",
+            f"- A1 level coverage rate: `{diagnostics['a1_level_coverage_rate']}`",
             f"- Complete block rate: `{diagnostics['complete_block_rate']}`",
             "",
             "`assigned_a1` is the semantic treatment. `style_seed` is a surface-realization",
             "factor, and `search_term` is the blocking variable. Every search term receives",
-            "the same complete 7 x 4 manifold. Seeded keyword and within-keyword execution",
-            "orders are randomized; treatment membership is not thinned or regenerated.",
+            "every assigned A1 level. Seeded keyword and within-keyword execution orders are",
+            "randomized. Under balanced-one-per-a1, one style is selected per level using a",
+            "seeded balanced cycle, so each query retains the full semantic axis.",
             "",
             "This artifact is a pre-outcome schedule. Candidate sets and ranking outcomes",
             "have not been bound, so it is not a scientific result.",
