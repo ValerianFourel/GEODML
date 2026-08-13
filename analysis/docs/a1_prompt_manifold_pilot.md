@@ -99,12 +99,12 @@ assigned levels.
 - the generated objective clause, pairwise calibration, and dual embeddings
   are recomputed at every new coordinate.
 
-With four surface styles and 12 generation candidates per cell, the dense
-construction has 1,440 raw candidates and selects 120 calibrated source prompts
-(30 levels x 4 styles). For the final query panel, use
-`--style-assignment balanced-one-per-a1`. Each query then receives all 30 A1
-levels exactly once. A seeded balanced cycle chooses the style at each level,
-so each of the four styles occurs either seven or eight times per query.
+With four surface styles and 12 generation candidates per proposal cell, the
+dense construction has 1,440 raw candidates. For the final query panel, a
+seeded globally balanced assignment fixes one of the four surface styles for
+each query. All 360 candidates in that query's assigned style are measured;
+the embedding selector then chooses 30. Fixing the surface frame within a query
+keeps wording style from changing along its measured semantic trajectory.
 
 For the canonical 1,009-query SearXNG top-20 pool, the final schedule therefore
 contains 30,270 query-bound prompts. A1 is the semantic treatment, query is the
@@ -129,19 +129,10 @@ srun -n1 --gres=gpu:1 python3 \
   --maximum-attempts 8
 ```
 
-After completing the same two-judge, dual-embedding, and selection stages used
-by the pilot, build the dense query schedule:
-
-```bash
-python3 analysis/scripts/build_a1_query_panel.py \
-  --selected-manifold "$A1_DENSE_OUTPUT/selected_a1_prompt_manifold.jsonl" \
-  --source-run-manifest "$A1_DENSE_OUTPUT/run_manifest.json" \
-  --serp-parquet "$GEODML_DATA_ROOT/data/serp/phase0_top20_searxng.parquet" \
-  --expected-keywords 1009 \
-  --master-seed 20260817 \
-  --style-assignment balanced-one-per-a1 \
-  --output-dir "$A1_DENSE_QUERY_OUTPUT"
-```
+The dense generator labels only organize the proposal bank. Do not run the
+pilot selector to define final coordinates for this study. The two judge runs
+may be retained for auxiliary agreement checks, but the embedding-positioning
+stage below performs the primary semantic measurement and selection.
 
 ## Primary embedding-coordinate correction
 
@@ -194,3 +185,57 @@ Each final prompt's A1 value will be its LLM2Vec projection onto the frozen
 query-prior vector, computed before candidate rankings or outcomes. Generator
 proposal coordinates and judge scores will remain in the artifacts for error
 and agreement analysis, but will not replace the embedding coordinate.
+
+## Embedding-positioned 30-prompt blocks
+
+Assign one surface style to each search-term block using a seeded, globally
+balanced randomization. For that query and style, bind the exact query into all
+360 available dense-bank candidates and embed the complete measurement prompt
+with a frozen candidate sentinel and output size. The primary coordinate is:
+
+```text
+observed_a1 = (candidate_projection - matched_informational_projection)
+              / matched_endpoint_projection_gap
+```
+
+The direction in this formula is always the frozen global query-prior vector.
+Matched query/style endpoints only remove the query and surface offset and set
+the local informational and transactional reference points to zero and one.
+
+For each query, select 30 unique prompts with an exact minimum-cost strictly
+increasing-subsequence algorithm. Its objective is squared distance between
+`observed_a1` and the deterministic stratified 30-point target grid. It never
+uses the generator's proposed coordinate or Qwen judgment as a selection
+coordinate.
+
+```bash
+srun -n1 --gres=gpu:1 python3 \
+  analysis/scripts/position_a1_prompts_on_embedding_axis.py \
+  --output-dir "$A1_POSITIONED_OUTPUT" \
+  --candidate-bank "$A1_DENSE_OUTPUT/a1_candidates.jsonl" \
+  --axis-json "$A1_EMBEDDING_AXIS_OUTPUT/a1_embedding_axis.json" \
+  --endpoint-projections "$A1_EMBEDDING_AXIS_OUTPUT/a1_endpoint_projections.jsonl" \
+  --serp-parquet "$GEODML_DATA_ROOT/data/serp/phase0_top20_searxng.parquet" \
+  --expected-keywords 1009 \
+  --expected-candidates 1440 \
+  --target-level-count 30 \
+  --master-seed 20260817 \
+  --embedding-model "$QWEN25_SNAPSHOT" \
+  --mntp-model "$LLM2VEC_MNTP_SNAPSHOT" \
+  --peft-model "$LLM2VEC_SIMCSE_SNAPSHOT" \
+  --encode-batch-size 8 \
+  --encode-max-length 512
+```
+
+Each completed query is cached atomically as scalar projections, so the same
+command with `--resume` continues across Slurm allocations. The final JSONL has
+30,270 rows and preserves `target_a1`, primary `observed_a1`, supplementary
+`global_a1`, and `source_generator_assigned_a1` as separate fields. Review the
+observed-coordinate error, extrapolation rates, strict-trajectory rate, style
+balance, and duplicate counts before binding real candidate sets or observing
+ranking outcomes.
+
+`axis_order` records low-to-high semantic position for diagnostics. Execution
+uses the separate seeded `within_keyword_order`; treatments are randomized
+inside every query block rather than always being run from informational to
+transactional.
