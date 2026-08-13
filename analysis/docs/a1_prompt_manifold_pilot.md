@@ -102,8 +102,9 @@ assigned levels.
 With four surface styles and 12 generation candidates per proposal cell, the
 dense construction has 1,440 raw candidates. For the final query panel, a
 seeded globally balanced assignment fixes one of the four surface styles for
-each query. All 360 candidates in that query's assigned style are measured;
-the embedding selector then chooses 30. Fixing the surface frame within a query
+each query. Identical text is collapsed within the nominal 360-candidate pool
+for that query's assigned style, all remaining unique candidates are measured,
+and the embedding selector chooses 30. Fixing the surface frame within a query
 keeps wording style from changing along its measured semantic trajectory.
 
 For the canonical 1,009-query SearXNG top-20 pool, the final schedule therefore
@@ -190,8 +191,11 @@ and agreement analysis, but will not replace the embedding coordinate.
 
 Assign one surface style to each search-term block using a seeded, globally
 balanced randomization. For that query and style, bind the exact query into all
-360 available dense-bank candidates and embed the complete measurement prompt
-with a frozen candidate sentinel and output size. The primary coordinate is:
+available dense-bank candidates, collapse identical prompt hashes within that
+style, and embed the unique complete measurement prompts with a frozen
+candidate sentinel and output size. The unchanged 1,440-row proposal bank and
+its duplicate counts remain recorded in the run manifest. The primary
+coordinate is:
 
 ```text
 observed_a1 = (candidate_projection - matched_informational_projection)

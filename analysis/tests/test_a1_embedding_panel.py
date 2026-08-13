@@ -15,6 +15,7 @@ from analysis.interpretability.pipeline.a1_embedding_panel import (
     A1CandidateCoordinate,
     balanced_query_style_assignment,
     build_positioned_rows,
+    deduplicate_candidates_by_hash,
     measure_candidate_coordinates,
     randomize_positioned_schedule,
     render_candidate_for_measurement,
@@ -88,6 +89,38 @@ class A1EmbeddingPanelTests(unittest.TestCase):
         self.assertNotIn("{QUERY}", rendered)
         self.assertNotIn("{CANDIDATES}", rendered)
         self.assertNotIn("{TOP_N}", rendered)
+
+    def test_duplicate_proposals_are_collapsed_within_surface_style(self) -> None:
+        first = _candidate("z-last", assigned_a1=0.0)
+        duplicate = A1Candidate(
+            candidate_id="a-first",
+            candidate_hash=first.candidate_hash,
+            assigned_a1=1.0,
+            style_seed=first.style_seed,
+            candidate_index=7,
+            generation_seed=19,
+            search_term=first.search_term,
+            search_objective_clause=first.search_objective_clause,
+            prompt_template=first.prompt_template,
+            generator_backend=first.generator_backend,
+            generator_model=first.generator_model,
+            structural_valid=True,
+            contract_failures=(),
+        )
+        distinct = _candidate("distinct", assigned_a1=0.5)
+
+        unique = deduplicate_candidates_by_hash((first, duplicate, distinct))
+
+        self.assertEqual(len(unique), 2)
+        self.assertEqual(
+            {candidate.candidate_id for candidate in unique},
+            {"a-first", "distinct"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "one surface style"):
+            deduplicate_candidates_by_hash(
+                (first, _candidate("other-style", style_seed=4))
+            )
 
     def test_matched_endpoint_projection_is_the_observed_coordinate(self) -> None:
         axis = QueryPriorA1Axis(

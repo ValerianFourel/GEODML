@@ -30,6 +30,7 @@ from interpretability.pipeline.a1_embedding_panel import (  # noqa: E402
     A1_EMBEDDING_PANEL_VERSION,
     balanced_query_style_assignment,
     build_positioned_rows,
+    deduplicate_candidates_by_hash,
     measure_candidate_coordinates,
     randomize_positioned_schedule,
     render_candidate_for_measurement,
@@ -83,8 +84,6 @@ def main() -> int:
             )
         if not all(candidate.structural_valid for candidate in candidates):
             raise ValueError("candidate bank contains structurally invalid prompts")
-        if len({candidate.candidate_hash for candidate in candidates}) != len(candidates):
-            raise ValueError("candidate bank contains duplicate prompt hashes")
         axis = QueryPriorA1Axis(**json.loads(axis_path.read_text(encoding="utf-8")))
         endpoints = tuple(
             A1EndpointProjection(**row) for row in _read_jsonl(endpoint_path)
@@ -96,7 +95,7 @@ def main() -> int:
                 f"expected {args.expected_keywords} search terms, loaded {len(queries)}"
             )
         styles = axis.style_seeds
-        by_style = {
+        raw_by_style = {
             style: tuple(
                 sorted(
                     (candidate for candidate in candidates if candidate.style_seed == style),
@@ -105,13 +104,20 @@ def main() -> int:
             )
             for style in styles
         }
-        if any(not group for group in by_style.values()):
+        if any(not group for group in raw_by_style.values()):
             raise ValueError("candidate bank lacks an axis surface style")
-        style_pool_sizes = {style: len(group) for style, group in by_style.items()}
-        if len(set(style_pool_sizes.values())) != 1:
-            raise ValueError(f"candidate pools are not balanced by style: {style_pool_sizes}")
-        if sum(style_pool_sizes.values()) != len(candidates):
+        if sum(len(group) for group in raw_by_style.values()) != len(candidates):
             raise ValueError("candidate bank contains styles outside the frozen axis")
+        by_style = {
+            style: deduplicate_candidates_by_hash(group)
+            for style, group in raw_by_style.items()
+        }
+        style_pool_sizes = {style: len(group) for style, group in by_style.items()}
+        if any(size < args.target_level_count for size in style_pool_sizes.values()):
+            raise ValueError(
+                f"too few unique prompts for {args.target_level_count}-point selection: "
+                f"{style_pool_sizes}"
+            )
         if any((query, style) not in endpoint_map for query in queries for style in styles):
             raise ValueError("endpoint projections do not cover every query/style pair")
         targets = stratified_random_a1_grid(
@@ -222,6 +228,17 @@ def main() -> int:
             "endpoint_projections_sha256": _sha256_file(endpoint_path),
             "candidate_bank": str(candidate_path),
             "candidate_bank_sha256": candidate_sha,
+            "candidate_bank_row_count": len(candidates),
+            "candidate_bank_unique_prompt_count": len(
+                {candidate.candidate_hash for candidate in candidates}
+            ),
+            "candidate_bank_duplicate_hash_count": (
+                len(candidates)
+                - len({candidate.candidate_hash for candidate in candidates})
+            ),
+            "within_style_duplicate_hash_count": sum(
+                len(raw_by_style[style]) - len(by_style[style]) for style in styles
+            ),
             "serp_parquet": str(serp_path),
             "serp_parquet_sha256": _sha256_file(serp_path),
             "embedding_model": embedder.model_name,
@@ -229,7 +246,9 @@ def main() -> int:
             "target_level_count": len(targets),
             "assignment_count": len(scheduled),
             "style_assignment": "one-query-level-style-balanced",
-            "candidate_pool_per_query": len(next(iter(by_style.values()))),
+            "candidate_pool_sizes_by_style": {
+                str(style): size for style, size in style_pool_sizes.items()
+            },
             "candidate_sets_bound": False,
             "outcomes_observed": False,
             "environment": {

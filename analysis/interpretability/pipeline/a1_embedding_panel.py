@@ -13,7 +13,7 @@ from .a1_embedding_axis import A1EndpointProjection, QueryPriorA1Axis
 from .a1_prompt_manifold import A1Candidate
 
 
-A1_EMBEDDING_PANEL_VERSION = "llm2vec-positioned-a1-panel-v1"
+A1_EMBEDDING_PANEL_VERSION = "llm2vec-positioned-a1-panel-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +97,25 @@ def render_candidate_for_measurement(candidate: A1Candidate, query: str) -> str:
     return rendered
 
 
+def deduplicate_candidates_by_hash(
+    candidates: Sequence[A1Candidate],
+) -> tuple[A1Candidate, ...]:
+    """Return one stable representative for each identical prompt template."""
+
+    items = tuple(candidates)
+    if not items:
+        raise ValueError("candidate pool must be non-empty")
+    styles = {candidate.style_seed for candidate in items}
+    if len(styles) != 1:
+        raise ValueError("candidate deduplication requires one surface style")
+    representatives: dict[str, A1Candidate] = {}
+    for candidate in sorted(items, key=lambda item: item.candidate_id):
+        representatives.setdefault(candidate.candidate_hash, candidate)
+    return tuple(
+        sorted(representatives.values(), key=lambda candidate: candidate.candidate_id)
+    )
+
+
 def measure_candidate_coordinates(
     *,
     axis: QueryPriorA1Axis,
@@ -154,6 +173,8 @@ def select_embedding_trajectory(
     desired = tuple(float(value) for value in targets)
     if not desired or tuple(sorted(set(desired))) != desired:
         raise ValueError("targets must be non-empty, unique, and increasing")
+    if len({item.candidate_hash for item in coordinates}) != len(coordinates):
+        raise ValueError("coordinates contain duplicate candidate hashes")
     ordered = sorted(
         coordinates,
         key=lambda item: (item.observed_a1, item.candidate_hash),
