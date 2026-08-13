@@ -19,9 +19,11 @@ from analysis.interpretability.pipeline.two_axis_prompt_population import (
     LocalLLMPairwiseJudge,
     LocalLLMTwoAxisCandidateGenerator,
     PairwiseComparisonRequest,
+    PairwiseJudgment,
     TwoAxisCandidateRequest,
     build_pairwise_comparison_requests,
     calibrate_candidates,
+    diagnose_pairwise_judgments,
     generate_candidate_bank,
     judge_comparison_requests,
     load_population_specification,
@@ -367,6 +369,63 @@ class PairwiseCalibrationTests(unittest.TestCase):
                     and candidate.assigned_a2 == fixed
                 ]
                 self.assertLess(sum(low_a1) / len(low_a1), sum(high_a1) / len(high_a1))
+
+    def test_judgment_diagnostics_match_calibration_and_separate_judges(self) -> None:
+        candidates, requests, judgments, *_ = _pipeline()
+        diagnostics = diagnose_pairwise_judgments(candidates, requests, judgments)
+        self.assertTrue(diagnostics["all_endpoint_slices_ordered"])
+        self.assertEqual(diagnostics["failing_endpoint_slices"], [])
+        self.assertEqual(diagnostics["judge_ids"], ["judge-one", "judge-two"])
+        self.assertGreater(diagnostics["cross_judge_agreement_rate"], 0.9)
+        self.assertEqual(len(diagnostics["slices"]), 12)
+        for item in diagnostics["slices"]:
+            self.assertGreater(item["pooled_endpoint_fit"]["upper_minus_lower"], 0)
+            self.assertEqual(len(item["per_judge"]), 2)
+            self.assertEqual(
+                item["pooled_direct_endpoint_evidence"][
+                    "presentation_order_consistency_rate"
+                ],
+                1.0,
+            )
+
+    def test_reversed_a2_judgments_name_the_failed_slice(self) -> None:
+        candidates, requests, judgments, *_ = _pipeline()
+        request_by_id = {request.comparison_id: request for request in requests}
+        reversed_judgments = tuple(
+            PairwiseJudgment(
+                comparison_id=judgment.comparison_id,
+                judge_id=judgment.judge_id,
+                winner_candidate_id=(
+                    None
+                    if judgment.is_tie
+                    else (
+                        request_by_id[judgment.comparison_id].right_candidate_id
+                        if judgment.winner_candidate_id
+                        == request_by_id[judgment.comparison_id].left_candidate_id
+                        else request_by_id[judgment.comparison_id].left_candidate_id
+                    )
+                ),
+                is_tie=judgment.is_tie,
+            )
+            if request_by_id[judgment.comparison_id].axis == "A2"
+            else judgment
+            for judgment in judgments
+        )
+        diagnostics = diagnose_pairwise_judgments(
+            candidates, requests, reversed_judgments
+        )
+        self.assertFalse(diagnostics["all_endpoint_slices_ordered"])
+        self.assertTrue(diagnostics["failing_endpoint_slices"])
+        self.assertEqual(
+            {item["axis"] for item in diagnostics["failing_endpoint_slices"]},
+            {"A2"},
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"A2 pairwise judgments do not order endpoint anchors for "
+            r"style_seed=3, fixed_coordinate=0: upper_minus_lower=-",
+        ):
+            calibrate_candidates(candidates, requests, reversed_judgments)
 
     def test_real_judge_maps_blind_json_label_and_caches(self) -> None:
         candidates, *_ = _pipeline()

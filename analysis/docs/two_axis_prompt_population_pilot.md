@@ -81,10 +81,13 @@ keeping their model lifetimes separate:
 2. `judge` loads a pinned local instruction LLM as a blind pairwise semantic
    judge. The same exact query is inserted into both compared prompts. Each
    presentation order remains a separate judgment.
-3. `embed-select` loads primary LLM2Vec on exactly one visible GPU, embeds the
+3. `diagnose-judgments` runs on CPU before embedding. It reports the exact
+   endpoint slice gaps, per-judge direction, reversed-presentation consistency,
+   and endpoint clauses without changing any judgment or treatment coordinate.
+4. `embed-select` loads primary LLM2Vec on exactly one visible GPU, embeds the
    query-bound input prompt text, performs constrained selection, and writes
    latent field diagnostics.
-4. `response-diagnostics` optionally loads LLM2Vec-Gen on exactly one visible
+5. `response-diagnostics` optionally loads LLM2Vec-Gen on exactly one visible
    GPU and measures anticipated-response geometry for the frozen selection. It
    never decodes a reconstruction state.
 
@@ -109,6 +112,8 @@ The real run produces:
 - `two_axis_candidates.jsonl`;
 - `pairwise_comparison_requests.jsonl`;
 - `pairwise_judgments.jsonl`;
+- `pairwise_judgment_diagnostics.json`;
+- `pairwise_judgment_report.md`;
 - `candidate_calibrations.jsonl`;
 - `selected_prompt_population.jsonl`;
 - `selection_diagnostics.json`;

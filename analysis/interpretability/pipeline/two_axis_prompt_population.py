@@ -76,6 +76,7 @@ __all__ = [
     "TwoAxisSelectionDiagnostics",
     "build_pairwise_comparison_requests",
     "calibrate_candidates",
+    "diagnose_pairwise_judgments",
     "generate_candidate_bank",
     "judge_comparison_requests",
     "load_population_specification",
@@ -554,7 +555,11 @@ def calibrate_candidates(
             lower = float(np.mean([fitted[candidate_id] for candidate_id in lower_ids]))
             upper = float(np.mean([fitted[candidate_id] for candidate_id in upper_ids]))
             if upper - lower <= 1e-9:
-                raise ValueError(f"{axis} pairwise judgments do not order endpoint anchors")
+                raise ValueError(
+                    f"{axis} pairwise judgments do not order endpoint anchors for "
+                    f"style_seed={style_seed}, fixed_coordinate={fixed:.12g}: "
+                    f"upper_minus_lower={upper - lower:.6g}"
+                )
             for candidate_id, score in fitted.items():
                 scores[candidate_id][axis] = (score - lower) / (upper - lower)
             for request in slice_requests:
@@ -572,6 +577,185 @@ def calibrate_candidates(
         for candidate in candidates
         if candidate.structural_valid
     )
+
+
+def diagnose_pairwise_judgments(
+    candidates: Sequence[TwoAxisCandidate],
+    requests: Sequence[PairwiseComparisonRequest],
+    judgments: Sequence[PairwiseJudgment],
+    *,
+    regularization: float = 0.5,
+) -> dict[str, object]:
+    """Describe endpoint direction and reliability without changing calibration.
+
+    The pooled endpoint gaps use the exact Bradley--Terry fit and endpoint
+    anchoring used by :func:`calibrate_candidates`. Direct endpoint win rates
+    and presentation-order checks are descriptive aids for diagnosing a failed
+    manipulation check; they do not redefine either assigned coordinate.
+    """
+
+    if regularization <= 0:
+        raise ValueError("regularization must be positive")
+    candidate_by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    request_by_id = {request.comparison_id: request for request in requests}
+    outcomes: dict[str, list[PairwiseJudgment]] = {}
+    duplicate_keys: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for judgment in judgments:
+        if judgment.comparison_id not in request_by_id:
+            raise ValueError("judgment references an unknown comparison")
+        key = (judgment.comparison_id, judgment.judge_id)
+        if key in seen:
+            duplicate_keys.append(
+                {"comparison_id": judgment.comparison_id, "judge_id": judgment.judge_id}
+            )
+        seen.add(key)
+        outcomes.setdefault(judgment.comparison_id, []).append(judgment)
+
+    judge_ids = sorted({judgment.judge_id for judgment in judgments})
+    slices: list[dict[str, object]] = []
+    for axis in ("A1", "A2"):
+        coordinate_name = "assigned_a1" if axis == "A1" else "assigned_a2"
+        axis_slices = sorted(
+            {
+                (request.style_seed, request.fixed_coordinate)
+                for request in requests
+                if request.axis == axis
+            }
+        )
+        for style_seed, fixed in axis_slices:
+            slice_requests = [
+                request
+                for request in requests
+                if request.axis == axis
+                and request.style_seed == style_seed
+                and math.isclose(request.fixed_coordinate, fixed)
+            ]
+            ids = sorted(
+                {
+                    candidate_id
+                    for request in slice_requests
+                    for candidate_id in (
+                        request.left_candidate_id,
+                        request.right_candidate_id,
+                    )
+                }
+            )
+            missing_ids = [candidate_id for candidate_id in ids if candidate_id not in candidate_by_id]
+            if missing_ids:
+                raise ValueError("comparison references an unknown candidate")
+            lower_ids = [
+                candidate_id
+                for candidate_id in ids
+                if math.isclose(getattr(candidate_by_id[candidate_id], coordinate_name), 0.0)
+            ]
+            upper_ids = [
+                candidate_id
+                for candidate_id in ids
+                if math.isclose(getattr(candidate_by_id[candidate_id], coordinate_name), 1.0)
+            ]
+            if not lower_ids or not upper_ids:
+                raise ValueError(f"{axis} calibration slice lacks endpoint anchors")
+
+            pooled_fit = _fit_bradley_terry(ids, slice_requests, outcomes, regularization)
+            pooled = _endpoint_gap(pooled_fit, lower_ids, upper_ids)
+            per_judge: list[dict[str, object]] = []
+            for judge_id in judge_ids:
+                judge_outcomes = {
+                    comparison_id: [
+                        judgment
+                        for judgment in values
+                        if judgment.judge_id == judge_id
+                    ]
+                    for comparison_id, values in outcomes.items()
+                }
+                judge_fit = _fit_bradley_terry(
+                    ids, slice_requests, judge_outcomes, regularization
+                )
+                per_judge.append(
+                    {
+                        "judge_id": judge_id,
+                        **_endpoint_gap(judge_fit, lower_ids, upper_ids),
+                        **_direct_endpoint_evidence(
+                            axis,
+                            coordinate_name,
+                            slice_requests,
+                            outcomes,
+                            candidate_by_id,
+                            judge_id=judge_id,
+                        ),
+                    }
+                )
+
+            endpoint_candidates = []
+            for candidate_id in sorted(
+                (*lower_ids, *upper_ids),
+                key=lambda value: (
+                    getattr(candidate_by_id[value], coordinate_name),
+                    candidate_by_id[value].candidate_index,
+                    value,
+                ),
+            ):
+                candidate = candidate_by_id[candidate_id]
+                endpoint_candidates.append(
+                    {
+                        "candidate_id": candidate.candidate_id,
+                        "candidate_index": candidate.candidate_index,
+                        "assigned_a1": candidate.assigned_a1,
+                        "assigned_a2": candidate.assigned_a2,
+                        "search_objective_clause": candidate.search_objective_clause,
+                        "source_preference_clause": candidate.source_preference_clause,
+                        "prompt_template": candidate.prompt_template,
+                    }
+                )
+            slices.append(
+                {
+                    "axis": axis,
+                    "style_seed": style_seed,
+                    "fixed_coordinate": fixed,
+                    "pooled_endpoint_fit": pooled,
+                    "pooled_direct_endpoint_evidence": _direct_endpoint_evidence(
+                        axis,
+                        coordinate_name,
+                        slice_requests,
+                        outcomes,
+                        candidate_by_id,
+                    ),
+                    "per_judge": per_judge,
+                    "endpoint_candidates": endpoint_candidates,
+                }
+            )
+
+    failing = [
+        {
+            "axis": item["axis"],
+            "style_seed": item["style_seed"],
+            "fixed_coordinate": item["fixed_coordinate"],
+            "upper_minus_lower": item["pooled_endpoint_fit"]["upper_minus_lower"],
+        }
+        for item in slices
+        if not item["pooled_endpoint_fit"]["ordered_expected_direction"]
+    ]
+    comparison_agreements = []
+    for comparison_id, values in outcomes.items():
+        if len(values) < 2:
+            continue
+        labels = ["tie" if value.is_tie else value.winner_candidate_id for value in values]
+        comparison_agreements.append(len(set(labels)) == 1)
+    return {
+        "candidate_count": len(candidates),
+        "comparison_count": len(requests),
+        "judgment_count": len(judgments),
+        "judge_ids": judge_ids,
+        "duplicate_comparison_judge_keys": duplicate_keys,
+        "cross_judge_comparison_count": len(comparison_agreements),
+        "cross_judge_agreement_rate": (
+            float(np.mean(comparison_agreements)) if comparison_agreements else None
+        ),
+        "all_endpoint_slices_ordered": not failing,
+        "failing_endpoint_slices": failing,
+        "slices": slices,
+    }
 
 
 def select_prompt_population(
@@ -1338,6 +1522,84 @@ def _fit_bradley_terry(
         raise RuntimeError(f"Bradley-Terry fit failed: {result.message}")
     centered = result.x - float(np.mean(result.x))
     return {candidate_id: float(centered[position]) for candidate_id, position in index.items()}
+
+
+def _endpoint_gap(
+    fitted: Mapping[str, float],
+    lower_ids: Sequence[str],
+    upper_ids: Sequence[str],
+) -> dict[str, float | bool]:
+    lower = float(np.mean([fitted[candidate_id] for candidate_id in lower_ids]))
+    upper = float(np.mean([fitted[candidate_id] for candidate_id in upper_ids]))
+    gap = upper - lower
+    return {
+        "lower_endpoint_mean": lower,
+        "upper_endpoint_mean": upper,
+        "upper_minus_lower": gap,
+        "ordered_expected_direction": gap > 1e-9,
+    }
+
+
+def _direct_endpoint_evidence(
+    axis: str,
+    coordinate_name: str,
+    requests: Sequence[PairwiseComparisonRequest],
+    outcomes: Mapping[str, Sequence[PairwiseJudgment]],
+    candidates: Mapping[str, TwoAxisCandidate],
+    *,
+    judge_id: str | None = None,
+) -> dict[str, object]:
+    expected = 0
+    reversed_count = 0
+    ties = 0
+    judgment_count = 0
+    order_groups: dict[tuple[str, str, str], list[str]] = {}
+    for request in requests:
+        left = candidates[request.left_candidate_id]
+        right = candidates[request.right_candidate_id]
+        left_coordinate = getattr(left, coordinate_name)
+        right_coordinate = getattr(right, coordinate_name)
+        if not (
+            {round(left_coordinate, 12), round(right_coordinate, 12)} == {0.0, 1.0}
+        ):
+            continue
+        upper_id = left.candidate_id if left_coordinate > right_coordinate else right.candidate_id
+        lower_id = right.candidate_id if upper_id == left.candidate_id else left.candidate_id
+        for judgment in outcomes.get(request.comparison_id, ()):
+            if judge_id is not None and judgment.judge_id != judge_id:
+                continue
+            judgment_count += 1
+            label = "tie" if judgment.is_tie else str(judgment.winner_candidate_id)
+            group_key = (
+                judgment.judge_id,
+                *sorted((left.candidate_id, right.candidate_id)),
+            )
+            order_groups.setdefault(group_key, []).append(label)
+            if judgment.is_tie:
+                ties += 1
+            elif judgment.winner_candidate_id == upper_id:
+                expected += 1
+            elif judgment.winner_candidate_id == lower_id:
+                reversed_count += 1
+            else:
+                raise ValueError(f"{axis} judgment winner is not in its comparison")
+    presentation_pairs = [labels for labels in order_groups.values() if len(labels) == 2]
+    consistent = sum(labels[0] == labels[1] for labels in presentation_pairs)
+    return {
+        "direct_endpoint_judgment_count": judgment_count,
+        "expected_direction_win_count": expected,
+        "reverse_direction_win_count": reversed_count,
+        "tie_count": ties,
+        "expected_direction_win_rate": expected / judgment_count if judgment_count else None,
+        "expected_direction_half_tie_score": (
+            (expected + 0.5 * ties) / judgment_count if judgment_count else None
+        ),
+        "presentation_order_pair_count": len(presentation_pairs),
+        "presentation_order_consistent_count": consistent,
+        "presentation_order_consistency_rate": (
+            consistent / len(presentation_pairs) if presentation_pairs else None
+        ),
+    }
 
 
 def _select_one_style(

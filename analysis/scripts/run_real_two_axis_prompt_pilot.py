@@ -31,6 +31,7 @@ from interpretability.pipeline.two_axis_prompt_population import (  # noqa: E402
     TwoAxisCandidate,
     build_pairwise_comparison_requests,
     calibrate_candidates,
+    diagnose_pairwise_judgments,
     generate_candidate_bank,
     judge_comparison_requests,
     measure_selected_latent_population,
@@ -121,6 +122,8 @@ def _paths(root: Path) -> dict[str, Path]:
         "candidates": root / "two_axis_candidates.jsonl",
         "comparisons": root / "pairwise_comparison_requests.jsonl",
         "judgments": root / "pairwise_judgments.jsonl",
+        "judgment_diagnostics": root / "pairwise_judgment_diagnostics.json",
+        "judgment_report": root / "pairwise_judgment_report.md",
         "calibrations": root / "candidate_calibrations.jsonl",
         "selected": root / "selected_prompt_population.jsonl",
         "selection": root / "selection_diagnostics.json",
@@ -165,6 +168,9 @@ def _base_parser() -> argparse.ArgumentParser:
     embed.add_argument("--maximum-neighbor-distance", type=float)
     embed.add_argument("--minimum-judges-per-comparison", type=int, default=2)
     embed.add_argument("--minimum-distinct-judge-models", type=int, default=2)
+
+    diagnose = subparsers.add_parser("diagnose-judgments")
+    diagnose.add_argument("--output-dir", required=True)
 
     response = subparsers.add_parser("response-diagnostics")
     response.add_argument("--output-dir", required=True)
@@ -344,6 +350,71 @@ def _embed_select(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     print(f"embedded and selected {len(selected)} prompts")
 
 
+def _diagnose_judgments(paths: dict[str, Path]) -> None:
+    candidates = tuple(_candidate(item) for item in _read_jsonl(paths["candidates"]))
+    comparisons = tuple(
+        PairwiseComparisonRequest(**item) for item in _read_jsonl(paths["comparisons"])
+    )
+    judgments = tuple(PairwiseJudgment(**item) for item in _read_jsonl(paths["judgments"]))
+    diagnostics = diagnose_pairwise_judgments(candidates, comparisons, judgments)
+    _json(paths["judgment_diagnostics"], diagnostics)
+    failing = diagnostics["failing_endpoint_slices"]
+    lines = [
+        "# Pairwise semantic-judgment diagnostics",
+        "",
+        "This is a pre-embedding manipulation-check diagnostic. It does not alter",
+        "assigned A1/A2, flip judge labels, or relax endpoint calibration.",
+        "",
+        f"- Candidates: `{diagnostics['candidate_count']}`",
+        f"- Comparisons: `{diagnostics['comparison_count']}`",
+        f"- Judgments: `{diagnostics['judgment_count']}`",
+        f"- Judges: `{diagnostics['judge_ids']}`",
+        f"- Cross-judge agreement: `{diagnostics['cross_judge_agreement_rate']}`",
+        f"- All endpoint slices ordered: `{diagnostics['all_endpoint_slices_ordered']}`",
+        f"- Failing endpoint slices: `{len(failing)}`",
+        "",
+        "## Endpoint slices",
+        "",
+        "| Axis | Style | Fixed | Pooled gap | Pooled direct score | Order consistency |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for item in diagnostics["slices"]:
+        pooled = item["pooled_endpoint_fit"]
+        direct = item["pooled_direct_endpoint_evidence"]
+        lines.append(
+            f"| {item['axis']} | {item['style_seed']} | {item['fixed_coordinate']:.6g} | "
+            f"{pooled['upper_minus_lower']:.6g} | "
+            f"{direct['expected_direction_half_tie_score']} | "
+            f"{direct['presentation_order_consistency_rate']} |"
+        )
+        if not pooled["ordered_expected_direction"]:
+            lines.extend(["", "### Failing slice endpoint prompts", ""])
+            for candidate in item["endpoint_candidates"]:
+                lines.extend(
+                    [
+                        f"- `{candidate['candidate_id']}` "
+                        f"(A1={candidate['assigned_a1']}, A2={candidate['assigned_a2']}, "
+                        f"candidate={candidate['candidate_index']})",
+                        f"  - Objective: {candidate['search_objective_clause']}",
+                        f"  - Source preference: {candidate['source_preference_clause']}",
+                    ]
+                )
+            lines.extend(["", "Per-judge details are preserved in the JSON artifact.", ""])
+    _atomic_text(paths["judgment_report"], "\n".join(lines) + "\n")
+    print(f"wrote {paths['judgment_diagnostics']}")
+    print(f"wrote {paths['judgment_report']}")
+    if failing:
+        print("endpoint calibration failures:")
+        for item in failing:
+            print(
+                f"  {item['axis']} style_seed={item['style_seed']} "
+                f"fixed_coordinate={item['fixed_coordinate']:.12g} "
+                f"upper_minus_lower={item['upper_minus_lower']:.6g}"
+            )
+    else:
+        print("all endpoint slices order in the expected direction")
+
+
 def _response_diagnostics(args: argparse.Namespace, paths: dict[str, Path]) -> None:
     selected_payloads = _read_jsonl(paths["selected"])
     selected = []
@@ -503,6 +574,8 @@ def main() -> int:
             _judge(args, paths)
         elif args.stage == "embed-select":
             _embed_select(args, paths)
+        elif args.stage == "diagnose-judgments":
+            _diagnose_judgments(paths)
         elif args.stage == "response-diagnostics":
             _response_diagnostics(args, paths)
         elif args.stage == "validate":
