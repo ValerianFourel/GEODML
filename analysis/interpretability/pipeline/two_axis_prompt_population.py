@@ -35,7 +35,7 @@ from .search_purpose_continuum import (
 )
 
 POPULATION_VERSION = "two-axis-prompt-population-v1"
-SEMANTIC_CONTRACT_VERSION = "coordinate-direction-v3-independent-slots"
+SEMANTIC_CONTRACT_VERSION = "coordinate-direction-v4-first-preference-object"
 DEFAULT_AXIS_GRID = tuple(step / 6.0 for step in range(7))
 _SPECIFICATION_PATH = (
     Path(__file__).with_name("specs") / "two_axis_prompt_population_v1.json"
@@ -56,11 +56,12 @@ _FORBIDDEN_PATTERNS = {
 
 _A1_INFORMATIONAL = re.compile(
     r"\b(?:understand|learn|explor|explain|mechanism|use cases?|limitations?|concepts?|"
-    r"foundational|category knowledge)\w*\b",
+    r"foundational|category knowledge|grasp|depth of category understanding)\w*\b",
     re.IGNORECASE,
 )
 _A1_MIDPOINT = re.compile(
-    r"\b(?:evaluation criteria|solution approaches?|practical evaluation)\b",
+    r"\b(?:evaluation criteria|solution approaches?|practical evaluation|evaluation methods?|"
+    r"implementation strategies|feasible implementation|viable solution approaches?)\b",
     re.IGNORECASE,
 )
 _A1_TRANSACTIONAL = re.compile(
@@ -78,18 +79,19 @@ _A1_NON_SELECTION = re.compile(
     r"trial|acquir|purchas|implement|commit)\w*",
     re.IGNORECASE,
 )
-_A2_INDEPENDENT_PREFERENCE = re.compile(
+_A2_PREFERENCE_VERB = re.compile(
     r"\b(?:prefer|prioriti[sz]e|favo(?:u)?r|value|give (?:a )?(?:clear |slight )?"
-    r"preference to)\b.{0,55}\b(?:seller-independent|vendor-independent|independent "
-    r"(?:evidence|research|analysis|sources?|publications?)|third-party (?:evidence|"
-    r"sources?|comparisons?|reviews?))\b",
+    r"preference to)\b",
     re.IGNORECASE,
 )
-_A2_CONTROLLED_PREFERENCE = re.compile(
-    r"\b(?:prefer|prioriti[sz]e|favo(?:u)?r|value|give (?:a )?(?:clear |slight )?"
-    r"preference to)\b.{0,55}\b(?:seller-controlled|vendor-controlled|seller-generated|"
-    r"vendor-generated|first-party|vendor (?:evidence|content|materials?|pages?|"
-    r"documentation)|product pages?)\b",
+_A2_INDEPENDENT_OBJECT = re.compile(
+    r"\b(?:seller-independent|vendor-independent|independent (?:evidence|research|analysis|"
+    r"sources?|publications?)|third-party (?:evidence|sources?|comparisons?|reviews?))\b",
+    re.IGNORECASE,
+)
+_A2_CONTROLLED_OBJECT = re.compile(
+    r"\b(?:seller-controlled|vendor-controlled|seller-generated|vendor-generated|first-party|"
+    r"vendor (?:evidence|content|materials?|pages?|documentation)|product pages?)\b",
     re.IGNORECASE,
 )
 _A2_NEUTRAL = re.compile(
@@ -498,8 +500,9 @@ def _coordinate_clause_failures(
                 failures.append("coordinate-mismatch:A1-midpoint")
     if assigned_a2 is not None:
         _coordinate("assigned_a2", assigned_a2)
-        independent = bool(_A2_INDEPENDENT_PREFERENCE.search(source))
-        controlled = bool(_A2_CONTROLLED_PREFERENCE.search(source))
+        preference_direction = _source_preference_direction(source)
+        independent = preference_direction == "independent"
+        controlled = preference_direction == "controlled"
         neutral = bool(_A2_NEUTRAL.search(source))
         if assigned_a2 < 0.5:
             if not independent:
@@ -517,6 +520,32 @@ def _coordinate_clause_failures(
             if independent or controlled:
                 failures.append("coordinate-mismatch:A2-directional-at-neutral")
     return tuple(failures)
+
+
+def _source_preference_direction(source_clause: str) -> str | None:
+    """Return the first ownership object governed by a preference verb.
+
+    Comparative clauses often name both poles, for example "prioritize
+    vendor-controlled evidence over seller-independent evidence." The first
+    governed ownership object carries the direction; later comparison objects
+    must not be misclassified as a second preference.
+    """
+
+    source = _single_line(source_clause)
+    verb = _A2_PREFERENCE_VERB.search(source)
+    if verb is None:
+        return None
+    independent = _A2_INDEPENDENT_OBJECT.search(source, verb.end())
+    controlled = _A2_CONTROLLED_OBJECT.search(source, verb.end())
+    objects = [
+        (match.start(), direction)
+        for match, direction in (
+            (independent, "independent"),
+            (controlled, "controlled"),
+        )
+        if match is not None
+    ]
+    return min(objects)[1] if objects else None
 
 
 def build_pairwise_comparison_requests(

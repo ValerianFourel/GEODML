@@ -105,6 +105,10 @@ ownership direction contradicts the assigned cell. Each candidate slot is
 generated and validated independently; an accepted slot is retained while only
 its failed slot is retried. This prevents a multi-candidate request from using
 semantic-axis variation to make its outputs superficially distinct.
+Comparative ownership clauses are parsed by the first ownership object governed
+by the preference verb. Thus, "prefer vendor-controlled evidence over
+seller-independent evidence" is correctly directional rather than treated as
+simultaneous preference for both poles.
 For Qwen3 structured requests, thinking is disabled through the chat template.
 Transport wrappers such as a residual thinking block or Markdown JSON fence are
 ignored only when they contain exactly one unambiguous schema-valid object. If

@@ -31,6 +31,7 @@ from analysis.interpretability.pipeline.two_axis_prompt_population import (
     measure_selected_latent_population,
     render_selected_two_axis_prompt,
     select_prompt_population,
+    semantic_contract_checks,
 )
 
 
@@ -452,6 +453,61 @@ class CandidatePopulationTests(unittest.TestCase):
             )
             self.assertEqual(generator.generate(request)[0][0], valid["candidates"][0]["search_objective_clause"])
             self.assertEqual(ranker.call_count, 3)
+
+    def test_real_generator_accepts_comparative_a2_and_midpoint_paraphrase(self) -> None:
+        rows = [
+            {
+                "search_objective_clause": "Prioritize candidates that demonstrate a clear grasp of the category, accompanied by actionable evaluation methods and feasible implementation strategies.",
+                "source_preference_clause": "Give preference to vendor-controlled content, such as product documentation or case studies, provided it is relevant to the topic.",
+            },
+            {
+                "search_objective_clause": "Arrange the candidates based on their relevance to category understanding, practical evaluation criteria, and potential solution approaches.",
+                "source_preference_clause": "Prioritize vendor-controlled evidence over seller-independent evidence, provided that topical relevance is equivalent.",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _StaticRanker(
+                [json.dumps({"candidates": [candidate]}) for candidate in rows]
+            )
+            generator = LocalLLMTwoAxisCandidateGenerator(
+                ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+                temperature=0.0,
+            )
+            request = TwoAxisCandidateRequest(
+                assigned_a1=0.5,
+                assigned_a2=1.0,
+                style_seed=0,
+                generation_seed=10,
+                number_candidates=2,
+                generator_model="test-generator",
+            )
+            generated = generator.generate(request)
+            self.assertEqual(len(generated), 2)
+            self.assertEqual(ranker.call_count, 2)
+
+    def test_comparative_a2_direction_uses_first_preference_object(self) -> None:
+        controlled = semantic_contract_checks(
+            "{QUERY} {CANDIDATES} {TOP_N} business software evaluator candidate identifiers only no explanation",
+            search_term="absent query",
+            business_actor="business software evaluator",
+            objective_clause="Understand the category and develop practical evaluation criteria.",
+            source_preference_clause="Prioritize vendor-controlled evidence over seller-independent evidence, conditional on equal relevance.",
+            assigned_a1=0.5,
+            assigned_a2=1.0,
+        )
+        independent = semantic_contract_checks(
+            "{QUERY} {CANDIDATES} {TOP_N} business software evaluator candidate identifiers only no explanation",
+            search_term="absent query",
+            business_actor="business software evaluator",
+            objective_clause="Understand the category and develop practical evaluation criteria.",
+            source_preference_clause="Prefer seller-independent research over vendor-controlled content, conditional on equal relevance.",
+            assigned_a1=0.5,
+            assigned_a2=0.0,
+        )
+        self.assertFalse(any(reason.startswith("coordinate-mismatch") for reason in controlled))
+        self.assertFalse(any(reason.startswith("coordinate-mismatch") for reason in independent))
 
 
 class PairwiseCalibrationTests(unittest.TestCase):
