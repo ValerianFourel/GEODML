@@ -108,6 +108,17 @@ class CandidatePopulationTests(unittest.TestCase):
             "two-axis-prompt-population-v1",
         )
 
+    def test_llm2vec_installer_pins_qwen_capable_upstream_revision(self) -> None:
+        script = (
+            Path(__file__).parents[1] / "scripts" / "install_llm2vec_runtime.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("0fbcf3304139099bda75c3d6b5d8e835d4894563", script)
+        self.assertIn("--no-deps", script)
+        self.assertIn("--force-reinstall", script)
+        self.assertIn("bidirectional_qwen2", script)
+        self.assertIn("bidirectional_qwen3", script)
+        self.assertNotIn("llm2vec==0.2.3", script)
+
     def test_complete_grid_has_multiple_candidates_per_style(self) -> None:
         candidates, *_ = _pipeline()
         self.assertEqual(len(candidates), 2 * 3 * 3 * 3)

@@ -88,6 +88,12 @@ keeping their model lifetimes separate:
    GPU and measures anticipated-response geometry for the frozen selection. It
    never decodes a reconstruction state.
 
+On HoreKa, install primary LLM2Vec through
+`analysis/scripts/install_llm2vec_runtime.sh`. The script pins the official
+Qwen2/Qwen3 support revision and installs it without dependencies. The PyPI
+0.2.3 package imports a Transformers class removed from the cluster runtime;
+downgrading Transformers would also disturb the validated LLM2Vec-Gen stack.
+
 All local-model outputs are cached by stable request/model/configuration hashes.
 For Qwen3 structured requests, thinking is disabled through the chat template.
 Transport wrappers such as a residual thinking block or Markdown JSON fence are
