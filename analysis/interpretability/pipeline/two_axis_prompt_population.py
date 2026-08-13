@@ -35,6 +35,7 @@ from .search_purpose_continuum import (
 )
 
 POPULATION_VERSION = "two-axis-prompt-population-v1"
+SEMANTIC_CONTRACT_VERSION = "coordinate-direction-v2"
 DEFAULT_AXIS_GRID = tuple(step / 6.0 for step in range(7))
 _SPECIFICATION_PATH = (
     Path(__file__).with_name("specs") / "two_axis_prompt_population_v1.json"
@@ -53,8 +54,53 @@ _FORBIDDEN_PATTERNS = {
     "hard-exclusion": r"\bexclude\b|\bnever rank\b|\bonly rank\b",
 }
 
+_A1_INFORMATIONAL = re.compile(
+    r"\b(?:understand|learn|explor|explain|mechanism|use cases?|limitations?|concepts?|"
+    r"foundational|category knowledge)\w*\b",
+    re.IGNORECASE,
+)
+_A1_MIDPOINT = re.compile(
+    r"\b(?:evaluation criteria|solution approaches?|practical evaluation)\b",
+    re.IGNORECASE,
+)
+_A1_TRANSACTIONAL = re.compile(
+    r"\b(?:actively evaluat|compar(?:e|ing)|shortlist|triall?|acquir|purchas|implement|"
+    r"select(?:ing)? (?:a |the )?(?:product|solution|software)|best fit)\w*\b",
+    re.IGNORECASE,
+)
+_A1_LOW_CONTAMINATION = re.compile(
+    r"\b(?:evaluation criteria|practical evaluation approaches?|develop evaluation|"
+    r"form evaluation|best fit|solutions? that align)\b",
+    re.IGNORECASE,
+)
+_A1_NON_SELECTION = re.compile(
+    r"\b(?:without|before|not)\s+(?:actively\s+)?(?:evaluat|select|choos|shortlist|"
+    r"trial|acquir|purchas|implement|commit)\w*",
+    re.IGNORECASE,
+)
+_A2_INDEPENDENT_PREFERENCE = re.compile(
+    r"\b(?:prefer|prioriti[sz]e|favo(?:u)?r|value|give (?:a )?(?:clear |slight )?"
+    r"preference to)\b.{0,55}\b(?:seller-independent|vendor-independent|independent "
+    r"(?:evidence|research|analysis|sources?|publications?)|third-party (?:evidence|"
+    r"sources?|comparisons?|reviews?))\b",
+    re.IGNORECASE,
+)
+_A2_CONTROLLED_PREFERENCE = re.compile(
+    r"\b(?:prefer|prioriti[sz]e|favo(?:u)?r|value|give (?:a )?(?:clear |slight )?"
+    r"preference to)\b.{0,55}\b(?:seller-controlled|vendor-controlled|seller-generated|"
+    r"vendor-generated|first-party|vendor (?:evidence|content|materials?|pages?|"
+    r"documentation)|product pages?)\b",
+    re.IGNORECASE,
+)
+_A2_NEUTRAL = re.compile(
+    r"\b(?:no (?:publisher-)?ownership preference|ownership(?:-| | as )neutral|regardless "
+    r"of (?:publisher|ownership)|strongest evidence regardless of publisher)\b",
+    re.IGNORECASE,
+)
+
 __all__ = [
     "DEFAULT_AXIS_GRID",
+    "SEMANTIC_CONTRACT_VERSION",
     "FakePairwiseJudge",
     "FakeTwoAxisCandidateGenerator",
     "FakeTwoAxisPromptEmbedder",
@@ -335,6 +381,8 @@ def generate_candidate_bank(
                         business_actor=business_actor,
                         objective_clause=objective,
                         source_preference_clause=source,
+                        assigned_a1=a1,
+                        assigned_a2=a2,
                     )
                     candidate_hash = _hash(template)
                     identity = {
@@ -382,6 +430,8 @@ def semantic_contract_checks(
     business_actor: str,
     objective_clause: str,
     source_preference_clause: str,
+    assigned_a1: float | None = None,
+    assigned_a2: float | None = None,
 ) -> tuple[str, ...]:
     """Apply hard structural/lexical screens before judging or selection."""
 
@@ -405,6 +455,67 @@ def semantic_contract_checks(
     for label, pattern in _FORBIDDEN_PATTERNS.items():
         if re.search(pattern, lowered):
             failures.append(f"off-axis:{label}")
+    failures.extend(
+        _coordinate_clause_failures(
+            objective_clause,
+            source_preference_clause,
+            assigned_a1=assigned_a1,
+            assigned_a2=assigned_a2,
+        )
+    )
+    return tuple(failures)
+
+
+def _coordinate_clause_failures(
+    objective_clause: str,
+    source_preference_clause: str,
+    *,
+    assigned_a1: float | None,
+    assigned_a2: float | None,
+) -> tuple[str, ...]:
+    failures: list[str] = []
+    objective = _single_line(objective_clause)
+    source = _single_line(source_preference_clause)
+    if assigned_a1 is not None:
+        _coordinate("assigned_a1", assigned_a1)
+        has_information = bool(_A1_INFORMATIONAL.search(objective))
+        has_midpoint = bool(_A1_MIDPOINT.search(objective))
+        has_transaction = bool(_A1_TRANSACTIONAL.search(objective))
+        has_low_contamination = bool(_A1_LOW_CONTAMINATION.search(objective))
+        has_non_selection = bool(_A1_NON_SELECTION.search(objective))
+        if assigned_a1 < 0.25:
+            if not has_information or has_low_contamination:
+                failures.append("coordinate-mismatch:A1-informational")
+            if has_transaction and not has_non_selection:
+                failures.append("coordinate-mismatch:A1-transactional-contamination")
+        elif assigned_a1 > 0.75:
+            if not has_transaction:
+                failures.append("coordinate-mismatch:A1-transactional")
+            if has_non_selection:
+                failures.append("coordinate-mismatch:A1-informational-contamination")
+        elif math.isclose(assigned_a1, 0.5, abs_tol=1e-9):
+            if not has_information or not has_midpoint:
+                failures.append("coordinate-mismatch:A1-midpoint")
+    if assigned_a2 is not None:
+        _coordinate("assigned_a2", assigned_a2)
+        independent = bool(_A2_INDEPENDENT_PREFERENCE.search(source))
+        controlled = bool(_A2_CONTROLLED_PREFERENCE.search(source))
+        neutral = bool(_A2_NEUTRAL.search(source))
+        if assigned_a2 < 0.5:
+            if not independent:
+                failures.append("coordinate-mismatch:A2-independent")
+            if controlled or neutral:
+                failures.append("coordinate-mismatch:A2-wrong-direction")
+        elif assigned_a2 > 0.5:
+            if not controlled:
+                failures.append("coordinate-mismatch:A2-controlled")
+            if independent or neutral:
+                failures.append("coordinate-mismatch:A2-wrong-direction")
+        else:
+            if not neutral:
+                failures.append("coordinate-mismatch:A2-neutral")
+            if independent or controlled:
+                failures.append("coordinate-mismatch:A2-directional-at-neutral")
     return tuple(failures)
 
 
@@ -1125,6 +1236,7 @@ class LocalLLMTwoAxisCandidateGenerator:
         cache_identity = {
             "kind": "two-axis-candidate-generation",
             "version": POPULATION_VERSION,
+            "semantic_contract_version": SEMANTIC_CONTRACT_VERSION,
             "model": self.model_name,
             "request": request_text,
             "seed": request.generation_seed,
@@ -1153,7 +1265,10 @@ class LocalLLMTwoAxisCandidateGenerator:
             try:
                 rows = _parse_generated_candidate_clauses(raw, request.number_candidates)
                 semantic_failures = _generated_clause_semantic_failures(
-                    rows, style_seed=request.style_seed
+                    rows,
+                    style_seed=request.style_seed,
+                    assigned_a1=request.assigned_a1,
+                    assigned_a2=request.assigned_a2,
                 )
                 if semantic_failures:
                     raise ValueError(
@@ -1881,9 +1996,11 @@ Return JSON only in this exact shape:
 
 def _candidate_retry_instruction() -> str:
     return (
-        "\nYour previous response failed structural validation. Regenerate the complete "
-        "JSON object with the exact requested number of distinct clause pairs. Return "
-        "JSON only, without Markdown fences or commentary."
+        "\nYour previous response failed structural or assigned-coordinate validation. "
+        "Regenerate the complete JSON object. Recheck that every objective has the "
+        "assigned A1 meaning and every source clause has the assigned A2 ownership "
+        "direction. Use the exact requested number of distinct clause pairs. Return JSON "
+        "only, without Markdown fences or commentary."
     )
 
 
@@ -1925,7 +2042,11 @@ def _parse_generated_candidate_clauses(
 
 
 def _generated_clause_semantic_failures(
-    rows: Sequence[tuple[str, str]], *, style_seed: int
+    rows: Sequence[tuple[str, str]],
+    *,
+    style_seed: int,
+    assigned_a1: float,
+    assigned_a2: float,
 ) -> dict[str, int]:
     actor = "a business software evaluator assessing a B2B SaaS category for an organization"
     style = TemplatePromptGenerator._build_style_plan(style_seed)
@@ -1944,6 +2065,8 @@ def _generated_clause_semantic_failures(
             business_actor=actor,
             objective_clause=objective,
             source_preference_clause=source,
+            assigned_a1=assigned_a1,
+            assigned_a2=assigned_a2,
         )
         for reason in reasons:
             failures[reason] = failures.get(reason, 0) + 1

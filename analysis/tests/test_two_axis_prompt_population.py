@@ -162,11 +162,11 @@ class CandidatePopulationTests(unittest.TestCase):
         payload = {
             "candidates": [
                 {
-                    "search_objective_clause": "Understand the category without selecting a product.",
-                    "source_preference_clause": "Conditional on equal topical relevance, prefer independent evidence.",
+                    "search_objective_clause": "Understand the category and develop practical evaluation criteria.",
+                    "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
                 },
                 {
-                    "search_objective_clause": "Learn the category mechanisms before evaluating products.",
+                    "search_objective_clause": "Learn the category mechanisms and practical evaluation criteria.",
                     "source_preference_clause": "Treat publisher ownership as neutral and rank by relevance.",
                 },
             ]
@@ -197,11 +197,11 @@ class CandidatePopulationTests(unittest.TestCase):
         payload = {
             "candidates": [
                 {
-                    "search_objective_clause": "Understand the category without selecting a product.",
-                    "source_preference_clause": "Conditional on equal topical relevance, prefer independent evidence.",
+                    "search_objective_clause": "Understand the category and develop practical evaluation criteria.",
+                    "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
                 },
                 {
-                    "search_objective_clause": "Learn the category mechanisms before evaluating products.",
+                    "search_objective_clause": "Learn the category mechanisms and practical evaluation criteria.",
                     "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
                 },
             ]
@@ -258,11 +258,11 @@ class CandidatePopulationTests(unittest.TestCase):
         payload = {
             "candidates": [
                 {
-                    "search_objective_clause": "Understand the category without selecting a product.",
-                    "source_preference_clause": "Conditional on equal topical relevance, prefer independent evidence.",
+                    "search_objective_clause": "Understand the category and develop practical evaluation criteria.",
+                    "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
                 },
                 {
-                    "search_objective_clause": "Learn the category mechanisms before evaluating products.",
+                    "search_objective_clause": "Learn the category mechanisms and practical evaluation criteria.",
                     "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
                 },
             ]
@@ -304,11 +304,11 @@ class CandidatePopulationTests(unittest.TestCase):
         valid = {
             "candidates": [
                 {
-                    "search_objective_clause": "Understand the category without selecting a product.",
-                    "source_preference_clause": "Conditional on equal topical relevance, prefer independent evidence.",
+                    "search_objective_clause": "Understand the category and develop practical evaluation criteria.",
+                    "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
                 },
                 {
-                    "search_objective_clause": "Learn the category mechanisms before evaluation.",
+                    "search_objective_clause": "Learn the category mechanisms and practical evaluation criteria.",
                     "source_preference_clause": "Apply no publisher-ownership preference and rank by relevance.",
                 },
             ]
@@ -330,6 +330,102 @@ class CandidatePopulationTests(unittest.TestCase):
                 generator_model="test-generator",
             )
             self.assertEqual(len(generator.generate(request)), 2)
+            self.assertEqual(ranker.call_count, 2)
+
+    def test_real_generator_retries_wrong_coordinate_directions(self) -> None:
+        reversed_a2 = {
+            "candidates": [
+                {
+                    "search_objective_clause": "Understand the category without selecting a product.",
+                    "source_preference_clause": "Prefer seller-controlled evidence, conditional on equal topical relevance.",
+                },
+                {
+                    "search_objective_clause": "Explore category mechanisms without choosing a product.",
+                    "source_preference_clause": "Favor vendor-controlled content when it is equally relevant.",
+                },
+            ]
+        }
+        valid = {
+            "candidates": [
+                {
+                    "search_objective_clause": "Understand the category without selecting a product.",
+                    "source_preference_clause": "Prefer seller-independent evidence, conditional on equal topical relevance.",
+                },
+                {
+                    "search_objective_clause": "Explore category mechanisms without choosing a product.",
+                    "source_preference_clause": "Favor independent research when it is equally relevant.",
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _StaticRanker([json.dumps(reversed_a2), json.dumps(valid)])
+            generator = LocalLLMTwoAxisCandidateGenerator(
+                ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+                temperature=0.0,
+            )
+            request = TwoAxisCandidateRequest(
+                assigned_a1=0.0,
+                assigned_a2=0.0,
+                style_seed=2,
+                generation_seed=4,
+                number_candidates=2,
+                generator_model="test-generator",
+            )
+            generated = generator.generate(request)
+            self.assertEqual(generated[0][1], valid["candidates"][0]["source_preference_clause"])
+            self.assertEqual(ranker.call_count, 2)
+            cache = next(
+                path
+                for path in Path(directory).glob("*.json")
+                if not path.name.endswith(".failed.json")
+            )
+            payload = json.loads(cache.read_text(encoding="utf-8"))
+            self.assertIn("coordinate-mismatch:A2-independent", payload["rejected_attempts"][0]["error"])
+
+    def test_real_generator_retries_a1_low_evaluation_contamination(self) -> None:
+        contaminated = {
+            "candidates": [
+                {
+                    "search_objective_clause": "Understand the category and develop evaluation criteria.",
+                    "source_preference_clause": "Prefer seller-independent evidence, conditional on equal topical relevance.",
+                },
+                {
+                    "search_objective_clause": "Learn the category and form practical evaluation approaches.",
+                    "source_preference_clause": "Favor independent research when it is equally relevant.",
+                },
+            ]
+        }
+        valid = {
+            "candidates": [
+                {
+                    "search_objective_clause": "Understand category mechanisms without selecting a product.",
+                    "source_preference_clause": "Prefer seller-independent evidence, conditional on equal topical relevance.",
+                },
+                {
+                    "search_objective_clause": "Explore relevant concepts without choosing a product.",
+                    "source_preference_clause": "Favor independent research when it is equally relevant.",
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            ranker = _StaticRanker([json.dumps(contaminated), json.dumps(valid)])
+            generator = LocalLLMTwoAxisCandidateGenerator(
+                ranker,
+                model_name="test-generator",
+                cache_directory=directory,
+                temperature=0.0,
+            )
+            request = TwoAxisCandidateRequest(
+                assigned_a1=0.0,
+                assigned_a2=0.0,
+                style_seed=2,
+                generation_seed=4,
+                number_candidates=2,
+                generator_model="test-generator",
+            )
+            self.assertEqual(generator.generate(request)[0][0], valid["candidates"][0]["search_objective_clause"])
             self.assertEqual(ranker.call_count, 2)
 
 

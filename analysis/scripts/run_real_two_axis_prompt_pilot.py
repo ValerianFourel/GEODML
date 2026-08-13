@@ -28,6 +28,7 @@ from interpretability.pipeline.two_axis_prompt_population import (  # noqa: E402
     LocalLLMTwoAxisCandidateGenerator,
     PairwiseComparisonRequest,
     PairwiseJudgment,
+    SEMANTIC_CONTRACT_VERSION,
     TwoAxisCandidate,
     build_pairwise_comparison_requests,
     calibrate_candidates,
@@ -148,6 +149,7 @@ def _base_parser() -> argparse.ArgumentParser:
     generate.add_argument("--master-seed", type=int, default=20260813)
     generate.add_argument("--temperature", type=float, default=0.8)
     generate.add_argument("--max-new-tokens", type=int, default=1200)
+    generate.add_argument("--maximum-attempts", type=int, default=5)
 
     judge = subparsers.add_parser("judge")
     judge.add_argument("--output-dir", required=True)
@@ -197,6 +199,7 @@ def _generate(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         precision=args.precision,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
+        maximum_attempts=args.maximum_attempts,
     )
     candidates = generate_candidate_bank(
         search_term=args.search_term,
@@ -231,6 +234,8 @@ def _generate(args: argparse.Namespace, paths: dict[str, Path]) -> None:
         "generator_precision": args.precision,
         "generator_temperature": args.temperature,
         "generator_max_new_tokens": args.max_new_tokens,
+        "generator_maximum_attempts": args.maximum_attempts,
+        "semantic_contract_version": SEMANTIC_CONTRACT_VERSION,
         "judge_runs": [],
         "environment": _environment_manifest(),
     }

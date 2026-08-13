@@ -98,6 +98,10 @@ Qwen2/Qwen3 support revision and installs it without dependencies. The PyPI
 downgrading Transformers would also disturb the validated LLM2Vec-Gen stack.
 
 All local-model outputs are cached by stable request/model/configuration hashes.
+The cache identity also includes the semantic-contract version, so a stricter
+coordinate-direction screen cannot reuse candidates accepted under an older
+screen. Candidate generation rejects and retries clauses whose A1 meaning or A2
+ownership direction contradicts the assigned cell.
 For Qwen3 structured requests, thinking is disabled through the chat template.
 Transport wrappers such as a residual thinking block or Markdown JSON fence are
 ignored only when they contain exactly one unambiguous schema-valid object. If
