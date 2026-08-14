@@ -551,11 +551,9 @@ class LocalRanker:
         attention_mask = None
         if self._has_chat_template:
             messages = [{"role": "user", "content": prompt}]
-            template_kwargs = dict(chat_template_kwargs or {})
-            if chat_template_kwargs is not None:
-                # Structured-generation callers need an attention mask when a
-                # model (including Qwen3) uses the EOS token for padding.
-                template_kwargs["return_dict"] = True
+            template_kwargs = _chat_template_tokenization_kwargs(
+                chat_template_kwargs
+            )
             tok_out = self.tok.apply_chat_template(
                 messages,
                 add_generation_prompt=True,
@@ -593,6 +591,17 @@ class LocalRanker:
         # Strip the prompt tokens — only return the generated continuation.
         gen = out[0, input_ids.shape[-1]:]
         return self.tok.decode(gen, skip_special_tokens=True)
+
+
+def _chat_template_tokenization_kwargs(
+    chat_template_kwargs: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Always request reliable generation masks from chat-template tokenization."""
+
+    template_kwargs = dict(chat_template_kwargs or {})
+    template_kwargs["return_dict"] = True
+    template_kwargs["return_attention_mask"] = True
+    return template_kwargs
 
 
 class OpenAIRanker:
