@@ -57,6 +57,7 @@ def main() -> int:
     responses = []
     for index, task in enumerate(tasks, 1):
         cache_path = cache / f"{task.task_id.replace(':', '_')}.json"
+        failure_path = cache_path.with_suffix(".failed.json")
         if cache_path.exists():
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             if cached.get("task_id") != task.task_id or cached.get("model") != args.model:
@@ -64,14 +65,11 @@ def main() -> int:
             parse_readiness_judgment(task, str(cached["raw_response"]))
             responses.append(cached)
             continue
-        attempts = []
-        for attempt in range(args.maximum_attempts):
+        attempts = _load_rejected_attempts(failure_path) if args.resume else []
+        for _ in range(args.maximum_attempts):
             prompt = task.prompt
-            if attempt:
-                prompt += (
-                    "\nYour previous response violated the exact JSON contract. "
-                    "Return one valid object only; do not add markdown or commentary."
-                )
+            if attempts:
+                prompt = _render_retry_prompt(prompt, str(attempts[-1]["error"]))
             raw = str(
                 ranker.rank(
                     prompt,
@@ -82,7 +80,13 @@ def main() -> int:
             try:
                 parse_readiness_judgment(task, raw)
             except ValueError as exc:
-                attempts.append({"attempt": attempt + 1, "error": str(exc), "raw": raw})
+                attempts.append(
+                    {
+                        "attempt": len(attempts) + 1,
+                        "error": str(exc),
+                        "raw": raw,
+                    }
+                )
                 continue
             row = {
                 "task_id": task.task_id,
@@ -95,12 +99,12 @@ def main() -> int:
                 "rejected_attempts": attempts,
             }
             _atomic_json(cache_path, row)
+            failure_path.unlink(missing_ok=True)
             responses.append(row)
             break
         else:
-            failure = cache_path.with_suffix(".failed.json")
             _atomic_json(
-                failure,
+                failure_path,
                 {
                     "task_id": task.task_id,
                     "model": args.model,
@@ -108,7 +112,7 @@ def main() -> int:
                     "attempts": attempts,
                 },
             )
-            raise SystemExit(f"judge exhausted attempts: {failure}")
+            raise SystemExit(f"judge exhausted attempts: {failure_path}")
         if index % 50 == 0 or index == len(tasks):
             print(f"[{index}/{len(tasks)}] {args.judge_slot}", flush=True)
     _atomic_jsonl(output / "judge_responses.jsonl", responses)
@@ -137,6 +141,38 @@ def _read_jsonl(path: Path):
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def _load_rejected_attempts(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    attempts = payload.get("attempts", [])
+    if not isinstance(attempts, list):
+        raise SystemExit(f"invalid failed-attempt cache: {path}")
+    return list(attempts)
+
+
+def _render_retry_prompt(prompt: str, validation_error: str) -> str:
+    return f'''{prompt}
+
+Your previous response failed validation: {validation_error}
+Return exactly one JSON object and nothing else. Use these exact keys without
+renaming, shortening, or adding keys:
+{{
+  "overall_readiness_0_100": <integer 0..100>,
+  "information_seeking_1_7": <integer 1..7>,
+  "evaluation_1_7": <integer 1..7>,
+  "selection_commitment_1_7": <integer 1..7>,
+  "action_implementation_1_7": <integer 1..7>,
+  "category": <"information"|"criteria"|"comparison"|"selection"|"action"|"mixed"|"not_applicable">,
+  "not_applicable": <true|false>,
+  "ambiguity_1_7": <integer 1..7>,
+  "confidence_0_1": <number 0..1>,
+  "brief_reason": <1 to 20 words>
+}}
+Do not use category values such as evaluation or review. Preserve your semantic
+judgment while correcting only the stated contract violation.'''
 
 
 def _atomic_json(path: Path, value) -> None:
