@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+analysis/output/query_free_surface_corpus_v1/
+analysis/output/query_free_surface_corpus_v2/raw/

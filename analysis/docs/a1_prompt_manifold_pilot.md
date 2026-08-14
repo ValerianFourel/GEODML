@@ -1,5 +1,11 @@
 # A1 decision-readiness prompt-manifold pilot
 
+> Historical design: the active workflow now starts with the query-free
+> LLM2Vec direction experiment in
+> `analysis/docs/query_free_decision_readiness_axis.md`. Preserve this document
+> and its legacy pipelines as baselines; do not use its query-conditioned axis
+> to bypass the new Stage A validation gates.
+
 This experiment varies only the business evaluator's decision readiness:
 
 ```text

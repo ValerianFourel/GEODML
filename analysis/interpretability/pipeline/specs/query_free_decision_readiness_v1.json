@@ -1,0 +1,145 @@
+{
+  "specification_version": "query-free-decision-readiness-v1",
+  "construct": {
+    "name": "decision_readiness",
+    "lower_pole": "information seeking",
+    "upper_pole": "decision/action readiness",
+    "anchors": {
+      "0.00": "Understand or learn about the subject",
+      "0.25": "Identify relevant concepts, criteria, or possible uses",
+      "0.50": "Compare or evaluate alternatives without choosing one",
+      "0.75": "Shortlist, select, or recommend an alternative",
+      "1.00": "Acquire, adopt, deploy, execute, or implement a solution"
+    }
+  },
+  "design": {
+    "master_seed": 20260817,
+    "level_count": 7,
+    "jitter_fraction": 0.35,
+    "minimum_separation": 0.04,
+    "representation_views": [
+      "intent-only",
+      "content-masked",
+      "full-content"
+    ]
+  },
+  "realization_plans": [
+    {
+      "plan_id": "dev-direct-imperative",
+      "split": "development",
+      "tone": "neutral",
+      "sentence_length_band": "short",
+      "syntax": "imperative",
+      "clause_order": "subject-first",
+      "directness": "direct",
+      "formality": "neutral",
+      "response_form": "instruction"
+    },
+    {
+      "plan_id": "dev-formal-declarative",
+      "split": "development",
+      "tone": "formal",
+      "sentence_length_band": "medium",
+      "syntax": "declarative",
+      "clause_order": "objective-first",
+      "directness": "direct",
+      "formality": "formal",
+      "response_form": "instruction"
+    },
+    {
+      "plan_id": "confirm-conversational-question",
+      "split": "confirmation",
+      "tone": "conversational",
+      "sentence_length_band": "medium",
+      "syntax": "interrogative",
+      "clause_order": "subject-first",
+      "directness": "direct",
+      "formality": "neutral",
+      "response_form": "question"
+    },
+    {
+      "plan_id": "confirm-indirect-request",
+      "split": "confirmation",
+      "tone": "courteous",
+      "sentence_length_band": "short",
+      "syntax": "request",
+      "clause_order": "objective-first",
+      "directness": "indirect",
+      "formality": "formal",
+      "response_form": "instruction"
+    }
+  ],
+  "contexts": [
+    {"context_id":"software-01","macrodomain":"software-digital-tools","payload":"customer relationship management platforms","split":"development"},
+    {"context_id":"software-02","macrodomain":"software-digital-tools","payload":"team scheduling applications","split":"development"},
+    {"context_id":"software-03","macrodomain":"software-digital-tools","payload":"cloud backup systems","split":"development"},
+    {"context_id":"software-04","macrodomain":"software-digital-tools","payload":"website accessibility tools","split":"development"},
+    {"context_id":"software-05","macrodomain":"software-digital-tools","payload":"inventory management platforms","split":"development"},
+    {"context_id":"software-06","macrodomain":"software-digital-tools","payload":"digital note-taking applications","split":"confirmation"},
+    {"context_id":"software-07","macrodomain":"software-digital-tools","payload":"network monitoring systems","split":"confirmation"},
+    {"context_id":"software-08","macrodomain":"software-digital-tools","payload":"online form builders","split":"confirmation"},
+
+    {"context_id":"equipment-01","macrodomain":"physical-products-equipment","payload":"ergonomic office chairs","split":"development"},
+    {"context_id":"equipment-02","macrodomain":"physical-products-equipment","payload":"cordless power drills","split":"development"},
+    {"context_id":"equipment-03","macrodomain":"physical-products-equipment","payload":"countertop water filters","split":"development"},
+    {"context_id":"equipment-04","macrodomain":"physical-products-equipment","payload":"portable document scanners","split":"development"},
+    {"context_id":"equipment-05","macrodomain":"physical-products-equipment","payload":"warehouse label printers","split":"development"},
+    {"context_id":"equipment-06","macrodomain":"physical-products-equipment","payload":"compact air purifiers","split":"confirmation"},
+    {"context_id":"equipment-07","macrodomain":"physical-products-equipment","payload":"adjustable standing desks","split":"confirmation"},
+    {"context_id":"equipment-08","macrodomain":"physical-products-equipment","payload":"rechargeable work lights","split":"confirmation"},
+
+    {"context_id":"services-01","macrodomain":"professional-organizational-services","payload":"small-business bookkeeping services","split":"development"},
+    {"context_id":"services-02","macrodomain":"professional-organizational-services","payload":"technical translation services","split":"development"},
+    {"context_id":"services-03","macrodomain":"professional-organizational-services","payload":"commercial cleaning services","split":"development"},
+    {"context_id":"services-04","macrodomain":"professional-organizational-services","payload":"employee training providers","split":"development"},
+    {"context_id":"services-05","macrodomain":"professional-organizational-services","payload":"event production services","split":"development"},
+    {"context_id":"services-06","macrodomain":"professional-organizational-services","payload":"records digitization services","split":"confirmation"},
+    {"context_id":"services-07","macrodomain":"professional-organizational-services","payload":"workspace design consultants","split":"confirmation"},
+    {"context_id":"services-08","macrodomain":"professional-organizational-services","payload":"equipment maintenance providers","split":"confirmation"},
+
+    {"context_id":"education-01","macrodomain":"education-skill-development","payload":"project management courses","split":"development"},
+    {"context_id":"education-02","macrodomain":"education-skill-development","payload":"language learning programs","split":"development"},
+    {"context_id":"education-03","macrodomain":"education-skill-development","payload":"data visualization workshops","split":"development"},
+    {"context_id":"education-04","macrodomain":"education-skill-development","payload":"workplace safety training","split":"development"},
+    {"context_id":"education-05","macrodomain":"education-skill-development","payload":"digital photography classes","split":"development"},
+    {"context_id":"education-06","macrodomain":"education-skill-development","payload":"public speaking programs","split":"confirmation"},
+    {"context_id":"education-07","macrodomain":"education-skill-development","payload":"spreadsheet skills courses","split":"confirmation"},
+    {"context_id":"education-08","macrodomain":"education-skill-development","payload":"woodworking instruction programs","split":"confirmation"},
+
+    {"context_id":"travel-01","macrodomain":"travel-logistics-planning","payload":"regional rail pass systems","split":"development"},
+    {"context_id":"travel-02","macrodomain":"travel-logistics-planning","payload":"carry-on luggage systems","split":"development"},
+    {"context_id":"travel-03","macrodomain":"travel-logistics-planning","payload":"bicycle route planning tools","split":"development"},
+    {"context_id":"travel-04","macrodomain":"travel-logistics-planning","payload":"group accommodation services","split":"development"},
+    {"context_id":"travel-05","macrodomain":"travel-logistics-planning","payload":"urban transit card programs","split":"development"},
+    {"context_id":"travel-06","macrodomain":"travel-logistics-planning","payload":"airport transfer services","split":"confirmation"},
+    {"context_id":"travel-07","macrodomain":"travel-logistics-planning","payload":"campground reservation systems","split":"confirmation"},
+    {"context_id":"travel-08","macrodomain":"travel-logistics-planning","payload":"international plug adapter kits","split":"confirmation"},
+
+    {"context_id":"household-01","macrodomain":"household-maintenance-diy","payload":"wall insulation materials","split":"development"},
+    {"context_id":"household-02","macrodomain":"household-maintenance-diy","payload":"lawn irrigation systems","split":"development"},
+    {"context_id":"household-03","macrodomain":"household-maintenance-diy","payload":"kitchen cabinet finishes","split":"development"},
+    {"context_id":"household-04","macrodomain":"household-maintenance-diy","payload":"home composting systems","split":"development"},
+    {"context_id":"household-05","macrodomain":"household-maintenance-diy","payload":"window weather-sealing materials","split":"development"},
+    {"context_id":"household-06","macrodomain":"household-maintenance-diy","payload":"garage storage systems","split":"confirmation"},
+    {"context_id":"household-07","macrodomain":"household-maintenance-diy","payload":"interior wall paints","split":"confirmation"},
+    {"context_id":"household-08","macrodomain":"household-maintenance-diy","payload":"rainwater collection systems","split":"confirmation"},
+
+    {"context_id":"public-01","macrodomain":"public-information-programs","payload":"municipal recycling programs","split":"development"},
+    {"context_id":"public-02","macrodomain":"public-information-programs","payload":"public library services","split":"development"},
+    {"context_id":"public-03","macrodomain":"public-information-programs","payload":"community garden programs","split":"development"},
+    {"context_id":"public-04","macrodomain":"public-information-programs","payload":"local heritage archives","split":"development"},
+    {"context_id":"public-05","macrodomain":"public-information-programs","payload":"household waste collection schedules","split":"development"},
+    {"context_id":"public-06","macrodomain":"public-information-programs","payload":"regional park pass programs","split":"confirmation"},
+    {"context_id":"public-07","macrodomain":"public-information-programs","payload":"community workshop spaces","split":"confirmation"},
+    {"context_id":"public-08","macrodomain":"public-information-programs","payload":"local history walking routes","split":"confirmation"},
+
+    {"context_id":"creative-01","macrodomain":"creative-hobbies-workflows","payload":"digital drawing tablets","split":"development"},
+    {"context_id":"creative-02","macrodomain":"creative-hobbies-workflows","payload":"home recording equipment","split":"development"},
+    {"context_id":"creative-03","macrodomain":"creative-hobbies-workflows","payload":"tabletop terrain materials","split":"development"},
+    {"context_id":"creative-04","macrodomain":"creative-hobbies-workflows","payload":"sewing pattern systems","split":"development"},
+    {"context_id":"creative-05","macrodomain":"creative-hobbies-workflows","payload":"personal knowledge organization methods","split":"development"},
+    {"context_id":"creative-06","macrodomain":"creative-hobbies-workflows","payload":"ceramic glazing supplies","split":"confirmation"},
+    {"context_id":"creative-07","macrodomain":"creative-hobbies-workflows","payload":"podcast editing workflows","split":"confirmation"},
+    {"context_id":"creative-08","macrodomain":"creative-hobbies-workflows","payload":"scale model painting tools","split":"confirmation"}
+  ]
+}
