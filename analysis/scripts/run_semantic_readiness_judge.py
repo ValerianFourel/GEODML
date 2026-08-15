@@ -69,7 +69,11 @@ def main() -> int:
         for _ in range(args.maximum_attempts):
             prompt = task.prompt
             if attempts:
-                prompt = _render_retry_prompt(prompt, str(attempts[-1]["error"]))
+                prompt = _render_retry_prompt(
+                    prompt,
+                    str(attempts[-1]["error"]),
+                    str(attempts[-1]["raw"]),
+                )
             raw = str(
                 ranker.rank(
                     prompt,
@@ -153,10 +157,22 @@ def _load_rejected_attempts(path: Path) -> list[dict[str, object]]:
     return list(attempts)
 
 
-def _render_retry_prompt(prompt: str, validation_error: str) -> str:
+def _render_retry_prompt(
+    prompt: str,
+    validation_error: str,
+    previous_raw_response: str,
+) -> str:
     return f'''{prompt}
 
 Your previous response failed validation: {validation_error}
+Repair the previous response shown below. Make the minimum correction required
+by the validation error and preserve every other semantic judgment whenever it
+is already valid.
+
+<previous_invalid_response>
+{previous_raw_response}
+</previous_invalid_response>
+
 Return exactly one JSON object and nothing else. Use these exact keys without
 renaming, shortening, or adding keys:
 {{
@@ -171,8 +187,11 @@ renaming, shortening, or adding keys:
   "confidence_0_1": <number 0..1>,
   "brief_reason": <1 to 20 words>
 }}
-Do not use category values such as evaluation or review. Preserve your semantic
-judgment while correcting only the stated contract violation.'''
+The brief_reason must contain at most 20 whitespace-separated words; count them
+before responding. The not_applicable field must be true if and only if category
+is "not_applicable". For every other category, not_applicable must be false. If
+those two fields previously disagreed, decide which valid pair best represents
+the text. Do not use category values such as evaluation or review.'''
 
 
 def _atomic_json(path: Path, value) -> None:

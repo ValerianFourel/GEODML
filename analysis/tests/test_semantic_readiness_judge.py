@@ -18,15 +18,33 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
         prompt = _render_retry_prompt(
             "ORIGINAL PROMPT",
             "unknown readiness category",
+            '{"category": "evaluation"}',
         )
 
         self.assertIn("ORIGINAL PROMPT", prompt)
         self.assertIn("unknown readiness category", prompt)
+        self.assertIn('{"category": "evaluation"}', prompt)
+        self.assertIn("<previous_invalid_response>", prompt)
         self.assertIn('"information_seeking_1_7"', prompt)
         self.assertIn('"selection_commitment_1_7"', prompt)
         self.assertIn('"brief_reason": <1 to 20 words>', prompt)
         self.assertIn('"information"|"criteria"|"comparison"', prompt)
         self.assertIn("Do not use category values such as evaluation or review", prompt)
+
+    def test_retry_prompt_makes_observed_failure_rules_explicit(self) -> None:
+        prompt = _render_retry_prompt(
+            "ORIGINAL PROMPT",
+            "category and not_applicable disagree",
+            '{"category": "information", "not_applicable": true}',
+        )
+
+        self.assertIn("at most 20 whitespace-separated words", prompt)
+        self.assertIn(
+            'not_applicable field must be true if and only if category\nis "not_applicable"',
+            prompt,
+        )
+        self.assertIn("decide which valid pair best represents\nthe text", prompt)
+        self.assertIn("preserve every other semantic judgment", prompt)
 
     def test_failed_attempts_are_reused_on_resume(self) -> None:
         attempts = [
