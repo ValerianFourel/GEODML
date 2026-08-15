@@ -36,6 +36,8 @@ class HorekaSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('VISIBLE_GPU_COUNT\" != \"4', job)
         self.assertIn('gpu_name\" != *A100*', job)
         self.assertIn("four-A100 contract satisfied", job)
+        self.assertIn("READINESS_SKIP_TASK_ID", job)
+        self.assertIn('--skip-task-id "$READINESS_SKIP_TASK_ID"', job)
 
 
 if __name__ == "__main__":

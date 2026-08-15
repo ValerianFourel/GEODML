@@ -35,6 +35,12 @@ def main() -> int:
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--skip-task-id",
+        action="append",
+        default=[],
+        help="Explicit task ID to retain as missing; may be repeated.",
+    )
     args = parser.parse_args()
 
     output = Path(args.output_dir).resolve()
@@ -51,6 +57,7 @@ def main() -> int:
         raise SystemExit(f"no tasks for judge slot {args.judge_slot!r}")
     stop = None if args.limit is None else args.start_index + args.limit
     tasks = tasks[args.start_index:stop]
+    skipped_task_ids = _validate_skipped_task_ids(tasks, args.skip_task_id)
     from interpretability.utils import make_ranker
 
     ranker = make_ranker(args.backend, args.model, precision=args.precision)
@@ -58,6 +65,9 @@ def main() -> int:
     for index, task in enumerate(tasks, 1):
         cache_path = cache / f"{task.task_id.replace(':', '_')}.json"
         failure_path = cache_path.with_suffix(".failed.json")
+        if task.task_id in skipped_task_ids:
+            print(f"[{index}/{len(tasks)}] skipped {task.task_id}", flush=True)
+            continue
         if cache_path.exists():
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             if cached.get("task_id") != task.task_id or cached.get("model") != args.model:
@@ -132,6 +142,8 @@ def main() -> int:
             "start_index": args.start_index,
             "limit": args.limit,
             "completed_count": len(responses),
+            "skipped_count": len(skipped_task_ids),
+            "skipped_task_ids": sorted(skipped_task_ids),
             "scientific_result": False,
         },
     )
@@ -155,6 +167,22 @@ def _load_rejected_attempts(path: Path) -> list[dict[str, object]]:
     if not isinstance(attempts, list):
         raise SystemExit(f"invalid failed-attempt cache: {path}")
     return list(attempts)
+
+
+def _validate_skipped_task_ids(
+    tasks: list[ReadinessLabelTask],
+    requested_task_ids: list[str],
+) -> frozenset[str]:
+    requested = frozenset(
+        str(value).strip()
+        for value in requested_task_ids
+        if str(value).strip()
+    )
+    available = {task.task_id for task in tasks}
+    unknown = sorted(requested - available)
+    if unknown:
+        raise SystemExit(f"skip task IDs are outside the selected judge slice: {unknown}")
+    return requested
 
 
 def _render_retry_prompt(

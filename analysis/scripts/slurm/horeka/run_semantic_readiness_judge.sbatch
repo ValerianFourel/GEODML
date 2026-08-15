@@ -83,7 +83,13 @@ echo "[readiness] commit=$(git rev-parse HEAD)"
 echo "[readiness] slot=$JUDGE_SLOT"
 echo "[readiness] model=$JUDGE_MODEL"
 echo "[readiness] output=$output_directory"
+echo "[readiness] explicit_missing_task=${READINESS_SKIP_TASK_ID:-none}"
 nvidia-smi -L
+
+skip_arguments=()
+if [[ -n "${READINESS_SKIP_TASK_ID:-}" ]]; then
+    skip_arguments+=(--skip-task-id "$READINESS_SKIP_TASK_ID")
+fi
 
 srun --ntasks=1 python3 analysis/scripts/run_semantic_readiness_judge.py \
     --tasks "$READINESS_JUDGE_TASKS" \
@@ -94,4 +100,5 @@ srun --ntasks=1 python3 analysis/scripts/run_semantic_readiness_judge.py \
     --max-new-tokens 300 \
     --maximum-attempts 5 \
     --resume \
+    "${skip_arguments[@]}" \
     --output-dir "$output_directory"

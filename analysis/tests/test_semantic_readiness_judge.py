@@ -10,6 +10,10 @@ import unittest
 from analysis.scripts.run_semantic_readiness_judge import (
     _load_rejected_attempts,
     _render_retry_prompt,
+    _validate_skipped_task_ids,
+)
+from analysis.interpretability.pipeline.semantic_readiness_dataset import (
+    ReadinessLabelTask,
 )
 
 
@@ -63,6 +67,23 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "missing.failed.json"
             self.assertEqual(_load_rejected_attempts(path), [])
+
+    def test_only_explicit_tasks_in_the_selected_slice_may_be_skipped(self) -> None:
+        task = ReadinessLabelTask(
+            task_id="task:known",
+            item_id="item:1",
+            judge_slot="judge-a",
+            presentation_variant="forward-anchors",
+            rubric_version="test",
+            prompt="PROMPT",
+        )
+
+        self.assertEqual(
+            _validate_skipped_task_ids([task], ["task:known"]),
+            frozenset({"task:known"}),
+        )
+        with self.assertRaisesRegex(SystemExit, "outside the selected judge slice"):
+            _validate_skipped_task_ids([task], ["task:unknown"])
 
 
 if __name__ == "__main__":

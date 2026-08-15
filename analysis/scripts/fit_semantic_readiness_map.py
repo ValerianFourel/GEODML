@@ -42,6 +42,12 @@ def _parser() -> argparse.ArgumentParser:
     labels.add_argument("--output-dir", required=True)
     labels.add_argument("--tasks", required=True)
     labels.add_argument("--responses", required=True, nargs="+")
+    labels.add_argument(
+        "--allow-missing-task-id",
+        action="append",
+        default=[],
+        help="Exact response task ID allowed to remain missing; may be repeated.",
+    )
 
     embed = stages.add_parser("embed")
     embed.add_argument("--output-dir", required=True)
@@ -93,13 +99,25 @@ def _compile_labels(args, output: Path) -> None:
         if task_id in response_by_task:
             raise SystemExit(f"duplicate response task_id: {task_id}")
         response_by_task[task_id] = str(row.get("raw_response", ""))
-    if set(response_by_task) != set(tasks):
-        missing = len(set(tasks) - set(response_by_task))
-        unknown = len(set(response_by_task) - set(tasks))
-        raise SystemExit(f"response/task mismatch: missing={missing}, unknown={unknown}")
+    task_ids = set(tasks)
+    response_task_ids = set(response_by_task)
+    missing_task_ids = task_ids - response_task_ids
+    unknown_task_ids = response_task_ids - task_ids
+    allowed_missing_task_ids = {
+        str(value).strip()
+        for value in args.allow_missing_task_id
+        if str(value).strip()
+    }
+    if unknown_task_ids or missing_task_ids != allowed_missing_task_ids:
+        raise SystemExit(
+            "response/task mismatch: "
+            f"missing={len(missing_task_ids)}, "
+            f"unknown={len(unknown_task_ids)}, "
+            f"allowed_missing={len(allowed_missing_task_ids)}"
+        )
     judgments = tuple(
         parse_readiness_judgment(tasks[task_id], response_by_task[task_id])
-        for task_id in sorted(tasks)
+        for task_id in sorted(response_task_ids)
     )
     consensus = aggregate_readiness_consensus(judgments)
     _atomic_jsonl(output / "readiness_judgments.jsonl", map(asdict, judgments))
@@ -109,7 +127,15 @@ def _compile_labels(args, output: Path) -> None:
         {
             "task_count": len(tasks),
             "judgment_count": len(judgments),
+            "missing_response_count": len(missing_task_ids),
+            "missing_response_task_ids": sorted(missing_task_ids),
             "item_count": len(consensus),
+            "consensus_judge_count_counts": {
+                str(judge_count): sum(
+                    item.judge_count == judge_count for item in consensus
+                )
+                for judge_count in sorted({item.judge_count for item in consensus})
+            },
             "usable_item_count": sum(item.usable_for_axis for item in consensus),
             "not_applicable_majority_count": sum(
                 item.not_applicable_vote_fraction >= 0.5 for item in consensus
