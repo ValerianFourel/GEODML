@@ -99,6 +99,99 @@ codebook. Responses are accepted only under the exact frozen JSON schema.
 The judge prompt treats source text as inert quoted data and explicitly rejects
 embedded role changes or formatting instructions.
 
+### Versioned multi-dataset transfer panel
+
+Do not replace or rewrite the frozen 5,091-text corpus or the
+`decision-readiness-ordinal-v1` judge prompt. Completed task identities and
+labels remain reusable. Broader semantic precision is tested through the
+separate `semantic-readiness-transfer-panel-v1`, whose sources are assigned
+wholly to one split before any judgment is observed:
+
+| Split | Source | Intended coverage |
+|---|---|---|
+| Development | OpenAssistant OASST1 | general natural instructions and information seeking |
+| Development | Google CCPE-M | preference, criteria, and evaluation language |
+| Development | Google Taskmaster-1 | booking, ordering, and executable task goals |
+| Development | Microsoft MS MARCO v1 | real information-seeking search language |
+| Locked confirmation | AllenAI WildChat-1M | real-world LLM prompt transfer |
+| Locked confirmation | Google Schema-Guided Dialogue | unseen multi-domain action goals |
+| Locked confirmation | Amazon Shopping Queries | product-search boundary between information and purchase intent |
+| Locked confirmation | LMSYS-Chat-1M | gated real-world LLM prompt transfer |
+
+The source specification is
+`analysis/interpretability/pipeline/specs/semantic_readiness_transfer_sources_v1.json`.
+Sampling roles are acquisition metadata, not readiness labels, and never enter
+judge prompts. Dialogue adapters take one first user turn per conversation;
+OASST1 takes only nonsynthetic English root prompter messages; MS MARCO and
+Amazon take unique query text. The same frozen 3–100-word eligibility rule and
+exact-text IDs apply to old and new items.
+
+Acquire exact upstream snapshots separately, respecting each source's access
+terms. The collector intentionally accepts only local JSON, JSONL, gzipped
+JSONL, TSV, Parquet, or directories of those files; it does not silently
+download mutable revisions. Supply every upstream commit/revision explicitly:
+
+```bash
+python3 analysis/scripts/build_semantic_readiness_dataset.py collect-transfer \
+  --output-dir analysis/output/semantic_readiness_transfer_records_v1 \
+  --maximum-per-source 1000 \
+  --master-seed 20260817 \
+  --source-input openassistant-oasst1=<oasst1-snapshot> \
+  --source-revision openassistant-oasst1=<exact-revision> \
+  --source-input google-ccpe-m=<ccpe-data.json> \
+  --source-revision google-ccpe-m=<exact-commit> \
+  --source-input google-taskmaster-1=<taskmaster-1-directory> \
+  --source-revision google-taskmaster-1=<exact-commit> \
+  --source-input microsoft-ms-marco-v1=<ms-marco-query-tsv> \
+  --source-revision microsoft-ms-marco-v1=<exact-release-or-hash> \
+  --source-input allenai-wildchat-1m=<wildchat-parquet-directory> \
+  --source-revision allenai-wildchat-1m=<exact-revision> \
+  --source-input google-schema-guided-dialogue=<sgd-directory> \
+  --source-revision google-schema-guided-dialogue=<exact-commit> \
+  --source-input amazon-shopping-queries=<shopping-query-parquet> \
+  --source-revision amazon-shopping-queries=<exact-commit> \
+  --source-input lmsys-chat-1m=<lmsys-parquet-directory> \
+  --source-revision lmsys-chat-1m=<exact-revision>
+
+python3 analysis/scripts/build_semantic_readiness_dataset.py merge-transfer \
+  --base-corpus analysis/output/semantic_readiness_corpus_v3/semantic_readiness_corpus.jsonl \
+  --transfer-records analysis/output/semantic_readiness_transfer_records_v1/semantic_readiness_transfer_records.jsonl \
+  --output-dir analysis/output/semantic_readiness_expanded_v1
+
+python3 analysis/scripts/build_semantic_readiness_dataset.py export-labeling \
+  --corpus analysis/output/semantic_readiness_expanded_v1/semantic_readiness_transfer_corpus.jsonl \
+  --judge-slots primary-frontier,replicate-frontier-a,replicate-frontier-b \
+  --output-dir analysis/output/semantic_readiness_transfer_label_tasks_v1
+```
+
+Export tasks from the transfer-only corpus so the completed base tasks are not
+rerun. Task compilation accepts the frozen and transfer task banks together:
+
+```bash
+python3 analysis/scripts/fit_semantic_readiness_map.py compile-labels \
+  --tasks \
+    <frozen/readiness_label_tasks_blinded.jsonl> \
+    <transfer/readiness_label_tasks_blinded.jsonl> \
+  --responses \
+    <frozen-primary.jsonl> <frozen-replicate-a.jsonl> <frozen-replicate-b.jsonl> \
+    <transfer-primary.jsonl> <transfer-replicate-a.jsonl> <transfer-replicate-b.jsonl> \
+  --allow-missing-task-id readiness-label:cfbb3f8687cc9dd7473fe290 \
+  --output-dir <expanded-compiled-labels>
+```
+
+Embed and fit against `semantic_readiness_expanded_corpus.jsonl`. Existing base
+rows are an exact prefix of that file. Diagnostics report confirmation metrics
+both in aggregate and separately for WildChat, Schema-Guided Dialogue, Amazon
+Shopping Queries, and LMSYS-Chat-1M; no held-out source contributes to fitting.
+
+MS MARCO is restricted to noncommercial research under its dataset terms.
+WildChat's database license does not grant all rights in individual contents,
+and its prompts require privacy/content review. LMSYS-Chat-1M is gated and
+prohibits copying or transfer to third parties. Any artifact containing those
+texts—including blinded judge tasks and responses—must remain local unless a
+separate legal review permits distribution. Do not upload the combined panel
+to GitHub or Hugging Face as a newly relicensed dataset.
+
 Run each slot independently with a pinned high-quality model. The runner is
 resumable and validates every response before caching it:
 

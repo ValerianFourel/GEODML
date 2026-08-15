@@ -514,6 +514,18 @@ Return exactly one JSON object with:
 """
 
 
+def normalize_semantic_readiness_text(value: object) -> str:
+    """Expose the frozen natural-text normalization contract to source adapters."""
+
+    return _normalize(value)
+
+
+def is_semantic_readiness_text_eligible(value: object) -> bool:
+    """Apply the frozen 3--100 word eligibility window."""
+
+    return _eligible_text(_normalize(value))
+
+
 def _eligible_text(text: str) -> bool:
     word_count = len(_WORD.findall(text))
     return 3 <= word_count <= 100

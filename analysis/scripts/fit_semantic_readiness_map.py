@@ -40,7 +40,12 @@ def _parser() -> argparse.ArgumentParser:
 
     labels = stages.add_parser("compile-labels")
     labels.add_argument("--output-dir", required=True)
-    labels.add_argument("--tasks", required=True)
+    labels.add_argument(
+        "--tasks",
+        required=True,
+        nargs="+",
+        help="One or more disjoint frozen/transfer task JSONL files.",
+    )
     labels.add_argument("--responses", required=True, nargs="+")
     labels.add_argument(
         "--allow-missing-task-id",
@@ -84,10 +89,14 @@ def main() -> int:
 
 
 def _compile_labels(args, output: Path) -> None:
-    tasks = {
-        row["task_id"]: ReadinessLabelTask(**row)
-        for row in _read_jsonl(Path(args.tasks).resolve())
-    }
+    task_paths = _path_arguments(args.tasks)
+    tasks = {}
+    for task_path in task_paths:
+        for row in _read_jsonl(task_path):
+            task = ReadinessLabelTask(**row)
+            if task.task_id in tasks:
+                raise SystemExit(f"duplicate task_id across task files: {task.task_id}")
+            tasks[task.task_id] = task
     responses = [
         row
         for response_path in args.responses
@@ -125,6 +134,10 @@ def _compile_labels(args, output: Path) -> None:
     _atomic_json(
         output / "label_diagnostics.json",
         {
+            "task_files": [str(path) for path in task_paths],
+            "task_file_sha256s": {
+                str(path): _sha256_file(path) for path in task_paths
+            },
             "task_count": len(tasks),
             "judgment_count": len(judgments),
             "missing_response_count": len(missing_task_ids),
@@ -227,6 +240,18 @@ def _fit(args, output: Path) -> None:
         {
             "development": asdict(dev_diagnostics),
             "confirmation": asdict(confirm_diagnostics),
+            "development_by_source": _evaluate_by_source(
+                fitted,
+                development,
+                consensus,
+                matrix[development_indices],
+            ),
+            "confirmation_by_source": _evaluate_by_source(
+                fitted,
+                confirmation,
+                consensus,
+                matrix[confirmation_indices],
+            ),
         },
     )
     _atomic_jsonl(
@@ -248,6 +273,52 @@ def _read_jsonl(path: Path):
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def _path_arguments(values) -> tuple[Path, ...]:
+    if isinstance(values, (str, Path)):
+        values = (values,)
+    return tuple(Path(value).resolve() for value in values)
+
+
+def _evaluate_by_source(fitted, items, consensus, embeddings):
+    usable_ids = {item.item_id for item in consensus if item.usable_for_axis}
+    source_indices = {}
+    for index, item in enumerate(items):
+        source_indices.setdefault(item.source_name, []).append(index)
+    rows = {}
+    for source_name, indices in sorted(source_indices.items()):
+        source_items = tuple(items[index] for index in indices)
+        usable_count = sum(item.item_id in usable_ids for item in source_items)
+        if usable_count == 0:
+            rows[source_name] = {
+                "status": "no-usable-consensus-labels",
+                "item_count": len(source_items),
+                "usable_item_count": 0,
+            }
+            continue
+        try:
+            _, diagnostics = evaluate_readiness_embedding_map(
+                fitted,
+                source_items,
+                consensus,
+                embeddings[indices],
+            )
+        except ValueError as exc:
+            rows[source_name] = {
+                "status": "evaluation-error",
+                "item_count": len(source_items),
+                "usable_item_count": usable_count,
+                "error": str(exc),
+            }
+            continue
+        rows[source_name] = {
+            "status": "ok",
+            "item_count": len(source_items),
+            "usable_item_count": usable_count,
+            **asdict(diagnostics),
+        }
+    return rows
 
 
 def _atomic_json(path: Path, value) -> None:

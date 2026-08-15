@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 from datetime import datetime, timezone
+import gzip
 import hashlib
 import json
 import os
@@ -32,6 +33,14 @@ from interpretability.pipeline.semantic_readiness_dataset import (  # noqa: E402
     merge_web_records,
     parse_stackexchange_items,
 )
+from interpretability.pipeline.semantic_readiness_transfer import (  # noqa: E402
+    DEFAULT_TRANSFER_SPEC,
+    TRANSFER_PANEL_VERSION,
+    TransferPromptRecord,
+    build_transfer_prompt_panel,
+    extend_semantic_readiness_corpus,
+    load_transfer_source_specification,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,6 +62,32 @@ def _parser() -> argparse.ArgumentParser:
     merge.add_argument("--surface-corpus", required=True)
     merge.add_argument("--web-records", required=True)
 
+    transfer = stages.add_parser("collect-transfer")
+    transfer.add_argument("--output-dir", required=True)
+    transfer.add_argument("--source-specification")
+    transfer.add_argument(
+        "--source-input",
+        action="append",
+        required=True,
+        metavar="SOURCE_ID=PATH",
+        help="Local JSON/JSONL/JSONL.GZ/TSV/Parquet file or directory.",
+    )
+    transfer.add_argument(
+        "--source-revision",
+        action="append",
+        required=True,
+        metavar="SOURCE_ID=REVISION",
+        help="Exact upstream commit or dataset revision for each source input.",
+    )
+    transfer.add_argument("--maximum-per-source", type=int, default=1_000)
+    transfer.add_argument("--master-seed", type=int, default=20260817)
+
+    extend = stages.add_parser("merge-transfer")
+    extend.add_argument("--output-dir", required=True)
+    extend.add_argument("--base-corpus", required=True)
+    extend.add_argument("--transfer-records", required=True)
+    extend.add_argument("--source-specification")
+
     label = stages.add_parser("export-labeling")
     label.add_argument("--output-dir", required=True)
     label.add_argument("--corpus", required=True)
@@ -70,6 +105,10 @@ def main() -> int:
         _collect_web(args, output)
     elif args.stage == "merge":
         _merge(args, output)
+    elif args.stage == "collect-transfer":
+        _collect_transfer(args, output)
+    elif args.stage == "merge-transfer":
+        _merge_transfer(args, output)
     else:
         _export_labeling(args, output)
     print(f"output: {output}")
@@ -197,6 +236,160 @@ def _merge(args, output: Path) -> None:
     )
 
 
+def _collect_transfer(args, output: Path) -> None:
+    specification_path = Path(
+        args.source_specification or DEFAULT_TRANSFER_SPEC
+    ).resolve()
+    sources = load_transfer_source_specification(specification_path)
+    source_inputs = _key_value_arguments(args.source_input, label="source input")
+    source_revisions = _key_value_arguments(
+        args.source_revision,
+        label="source revision",
+    )
+    if set(source_inputs) != set(source_revisions):
+        raise SystemExit(
+            "--source-input and --source-revision must name the same source IDs"
+        )
+    source_ids = {item.source_id for item in sources}
+    unknown = sorted(set(source_inputs) - source_ids)
+    if unknown:
+        raise SystemExit(f"source inputs not present in specification: {unknown}")
+    resolved_inputs = {
+        source_id: Path(path).resolve()
+        for source_id, path in source_inputs.items()
+    }
+    missing_paths = sorted(
+        str(path) for path in resolved_inputs.values() if not path.exists()
+    )
+    if missing_paths:
+        raise SystemExit(f"missing source inputs: {missing_paths}")
+    rows_by_source = {
+        source_id: _iter_source_rows(path)
+        for source_id, path in resolved_inputs.items()
+    }
+    records, diagnostics = build_transfer_prompt_panel(
+        rows_by_source,
+        source_revisions=source_revisions,
+        sources=sources,
+        maximum_per_source=args.maximum_per_source,
+        master_seed=args.master_seed,
+    )
+    record_path = output / "semantic_readiness_transfer_records.jsonl"
+    _atomic_jsonl(record_path, map(asdict, records))
+    _atomic_json(
+        output / "transfer_source_diagnostics.json",
+        {
+            "transfer_panel_version": TRANSFER_PANEL_VERSION,
+            "sources": [asdict(item) for item in diagnostics],
+        },
+    )
+    source_by_id = {item.source_id: item for item in sources}
+    input_audit = []
+    for source_id, path in sorted(resolved_inputs.items()):
+        source = source_by_id[source_id]
+        input_audit.append(
+            {
+                **asdict(source),
+                "source_revision": source_revisions[source_id],
+                "local_input": str(path),
+                "local_input_sha256": _sha256_source_input(path),
+                "local_input_size_bytes": _source_input_size(path),
+            }
+        )
+    _atomic_json(
+        output / "run_manifest.json",
+        _manifest(
+            artifact_version=TRANSFER_PANEL_VERSION,
+            stage="collect-transfer",
+            source_specification=str(specification_path),
+            source_specification_sha256=_sha256_file(specification_path),
+            master_seed=args.master_seed,
+            maximum_per_source=args.maximum_per_source,
+            included_source_ids=sorted(resolved_inputs),
+            omitted_source_ids=sorted(source_ids - set(resolved_inputs)),
+            source_inputs=input_audit,
+            transfer_record_count=len(records),
+            transfer_records_sha256=_sha256_file(record_path),
+            sampling_roles_are_labels=False,
+            sampling_roles_visible_to_judges=False,
+            restricted_source_text_may_require_local_only_outputs=any(
+                "local-only" in source_by_id[item.source_id].redistribution_policy
+                for item in records
+            ),
+            scientific_result=False,
+        ),
+    )
+
+
+def _merge_transfer(args, output: Path) -> None:
+    from interpretability.pipeline.semantic_readiness_dataset import (
+        SemanticReadinessItem,
+    )
+
+    specification_path = Path(
+        args.source_specification or DEFAULT_TRANSFER_SPEC
+    ).resolve()
+    sources = load_transfer_source_specification(specification_path)
+    base_path = Path(args.base_corpus).resolve()
+    transfer_path = Path(args.transfer_records).resolve()
+    base = tuple(
+        SemanticReadinessItem(**row) for row in _read_jsonl(base_path)
+    )
+    records = tuple(
+        TransferPromptRecord(**row) for row in _read_jsonl(transfer_path)
+    )
+    source_by_id = {item.source_id: item for item in sources}
+    included_source_ids = {item.source_id for item in records}
+    restricted_source_ids = sorted(
+        source_id
+        for source_id in included_source_ids
+        if "local-only" in source_by_id[source_id].redistribution_policy
+    )
+    transfer, expanded, diagnostics = extend_semantic_readiness_corpus(
+        base,
+        records,
+        sources=sources,
+    )
+    transfer_corpus_path = output / "semantic_readiness_transfer_corpus.jsonl"
+    expanded_corpus_path = output / "semantic_readiness_expanded_corpus.jsonl"
+    _atomic_jsonl(transfer_corpus_path, map(asdict, transfer))
+    _atomic_jsonl(expanded_corpus_path, map(asdict, expanded))
+    counts = {}
+    for item in transfer:
+        key = f"{item.source_name}|{item.split}"
+        counts[key] = counts.get(key, 0) + 1
+    _atomic_json(
+        output / "run_manifest.json",
+        _manifest(
+            artifact_version=TRANSFER_PANEL_VERSION,
+            stage="merge-transfer",
+            source_specification=str(specification_path),
+            source_specification_sha256=_sha256_file(specification_path),
+            base_corpus=str(base_path),
+            base_corpus_sha256=_sha256_file(base_path),
+            transfer_records=str(transfer_path),
+            transfer_records_sha256=_sha256_file(transfer_path),
+            transfer_corpus_sha256=_sha256_file(transfer_corpus_path),
+            expanded_corpus_sha256=_sha256_file(expanded_corpus_path),
+            counts_by_source_and_split=counts,
+            included_source_ids=sorted(included_source_ids),
+            restricted_source_ids=restricted_source_ids,
+            redistribution_allowed=not restricted_source_ids,
+            redistribution_notice=(
+                "Artifacts containing restricted-source text must remain local "
+                "and must not be uploaded to GitHub, Hugging Face, or APIs."
+                if restricted_source_ids
+                else "Source-specific license and attribution requirements still apply."
+            ),
+            frozen_base_is_exact_expanded_prefix=True,
+            label_rubric_changed=False,
+            **asdict(diagnostics),
+            semantic_labels_present=False,
+            scientific_result=False,
+        ),
+    )
+
+
 def _export_labeling(args, output: Path) -> None:
     corpus_path = Path(args.corpus).resolve()
     from interpretability.pipeline.semantic_readiness_dataset import (
@@ -236,9 +429,119 @@ def _read_jsonl(path: Path):
     ]
 
 
+def _iter_source_rows(path: Path):
+    if path.is_dir():
+        files = sorted(
+            item
+            for item in path.rglob("*")
+            if item.is_file() and _supported_source_file(item)
+        )
+        if not files:
+            raise SystemExit(f"source input directory contains no supported files: {path}")
+        for item in files:
+            yield from _iter_source_rows(item)
+        return
+    suffixes = path.suffixes
+    if suffixes[-2:] == [".jsonl", ".gz"]:
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    row = json.loads(line)
+                    if isinstance(row, dict):
+                        yield row
+        return
+    if path.suffix == ".jsonl":
+        yield from _read_jsonl(path)
+        return
+    if path.suffix == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, list):
+            for row in payload:
+                if isinstance(row, dict):
+                    yield row
+            return
+        if isinstance(payload, dict):
+            for key in ("data", "dialogs", "dialogues", "conversations", "questions"):
+                rows = payload.get(key)
+                if isinstance(rows, list):
+                    for row in rows:
+                        if isinstance(row, dict):
+                            yield row
+                    return
+            yield payload
+            return
+        raise SystemExit(f"unsupported JSON root in source input: {path}")
+    if path.suffix == ".tsv":
+        with path.open(encoding="utf-8") as handle:
+            for index, line in enumerate(handle):
+                columns = line.rstrip("\n").split("\t", 1)
+                if len(columns) == 2:
+                    yield {"query_id": columns[0] or str(index), "query": columns[1]}
+        return
+    if path.suffix == ".parquet":
+        try:
+            import pyarrow.parquet as pq
+        except ImportError as exc:
+            raise SystemExit("pyarrow is required to read Parquet source inputs") from exc
+        parquet = pq.ParquetFile(path)
+        for batch in parquet.iter_batches(batch_size=4_096):
+            yield from batch.to_pylist()
+        return
+    raise SystemExit(f"unsupported source input: {path}")
+
+
+def _supported_source_file(path: Path) -> bool:
+    return (
+        path.suffix in {".json", ".jsonl", ".tsv", ".parquet"}
+        or path.suffixes[-2:] == [".jsonl", ".gz"]
+    )
+
+
+def _key_value_arguments(values, *, label: str) -> dict[str, str]:
+    parsed = {}
+    for value in values:
+        key, separator, raw = str(value).partition("=")
+        key = key.strip()
+        raw = raw.strip()
+        if not separator or not key or not raw:
+            raise SystemExit(f"invalid {label}; expected SOURCE_ID=VALUE: {value!r}")
+        if key in parsed:
+            raise SystemExit(f"duplicate {label} for {key}")
+        parsed[key] = raw
+    return parsed
+
+
+def _source_files(path: Path) -> tuple[Path, ...]:
+    if path.is_file():
+        return (path,)
+    return tuple(
+        sorted(
+            item
+            for item in path.rglob("*")
+            if item.is_file() and _supported_source_file(item)
+        )
+    )
+
+
+def _sha256_source_input(path: Path) -> str:
+    if path.is_file():
+        return _sha256_file(path)
+    digest = hashlib.sha256()
+    for item in _source_files(path):
+        digest.update(str(item.relative_to(path)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(_sha256_file(item).encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _source_input_size(path: Path) -> int:
+    return sum(item.stat().st_size for item in _source_files(path))
+
+
 def _manifest(**values):
     return {
-        "artifact_version": SEMANTIC_DATASET_VERSION,
+        "artifact_version": values.pop("artifact_version", SEMANTIC_DATASET_VERSION),
         "git_commit_sha": _git_sha(),
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "reranking_outcomes_observed": False,

@@ -99,6 +99,76 @@ class SemanticReadinessMapTests(unittest.TestCase):
             )
             self.assertEqual(diagnostics["consensus_judge_count_counts"], {"2": 1})
 
+    def test_compile_labels_accepts_disjoint_frozen_and_transfer_task_files(self) -> None:
+        corpus = build_semantic_readiness_corpus(
+            (
+                {
+                    "source_id": "databricks-dolly-15k",
+                    "source_record_id": "dolly:1",
+                    "text": "Explain how a heat pump works in winter.",
+                    "corpus_split": "development",
+                    "surface_family_id": "family:1",
+                },
+                {
+                    "source_id": "anthropic-hh-helpful-base",
+                    "source_record_id": "hh:1",
+                    "text": "Choose a heat pump and schedule its installation.",
+                    "corpus_split": "confirmation",
+                    "surface_family_id": "family:2",
+                },
+            ),
+            (),
+        )
+        tasks, _ = build_readiness_label_tasks(
+            corpus,
+            judge_slots=("judge-a", "judge-b"),
+        )
+        responses = []
+        for task in tasks:
+            responses.append(
+                {
+                    "task_id": task.task_id,
+                    "raw_response": json.dumps(
+                        {
+                            "overall_readiness_0_100": 50,
+                            "information_seeking_1_7": 3,
+                            "evaluation_1_7": 4,
+                            "selection_commitment_1_7": 3,
+                            "action_implementation_1_7": 2,
+                            "category": "comparison",
+                            "not_applicable": False,
+                            "ambiguity_1_7": 2,
+                            "confidence_0_1": 0.9,
+                            "brief_reason": "The text expresses an applicable readiness goal.",
+                        }
+                    ),
+                }
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            frozen_tasks = root / "frozen_tasks.jsonl"
+            transfer_tasks = root / "transfer_tasks.jsonl"
+            response_path = root / "responses.jsonl"
+            _write_jsonl(frozen_tasks, map(asdict, tasks[:2]))
+            _write_jsonl(transfer_tasks, map(asdict, tasks[2:]))
+            _write_jsonl(response_path, responses)
+            output = root / "combined"
+            output.mkdir()
+            _compile_labels(
+                SimpleNamespace(
+                    tasks=[str(frozen_tasks), str(transfer_tasks)],
+                    responses=[str(response_path)],
+                    allow_missing_task_id=[],
+                ),
+                output,
+            )
+            diagnostics = json.loads(
+                (output / "label_diagnostics.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(diagnostics["task_count"], 4)
+            self.assertEqual(diagnostics["item_count"], 2)
+            self.assertEqual(len(diagnostics["task_files"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

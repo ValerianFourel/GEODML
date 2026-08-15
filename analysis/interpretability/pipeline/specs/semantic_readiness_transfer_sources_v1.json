@@ -1,0 +1,96 @@
+{
+  "specification_version": "semantic-readiness-transfer-panel-v1",
+  "base_corpus_version": "semantic-readiness-natural-text-v1",
+  "label_rubric_version": "decision-readiness-ordinal-v1",
+  "design": "Each source is assigned wholly to development or confirmation before judging. Source metadata and sampling roles never enter judge prompts.",
+  "sources": [
+    {
+      "source_id": "openassistant-oasst1",
+      "adapter": "oasst1",
+      "source_kind": "open-assistant-root-user-prompt",
+      "split": "development",
+      "license": "Apache-2.0",
+      "redistribution_policy": "source-license-and-attribution",
+      "access": "open",
+      "source_url": "https://huggingface.co/datasets/OpenAssistant/oasst1",
+      "sampling_role": "general natural instructions and information seeking"
+    },
+    {
+      "source_id": "google-ccpe-m",
+      "adapter": "ccpe",
+      "source_kind": "preference-elicitation-user-turn",
+      "split": "development",
+      "license": "CC-BY-4.0",
+      "redistribution_policy": "source-license-and-attribution",
+      "access": "open",
+      "source_url": "https://github.com/google-research-datasets/ccpe",
+      "sampling_role": "preference, criteria, and evaluation language"
+    },
+    {
+      "source_id": "google-taskmaster-1",
+      "adapter": "taskmaster",
+      "source_kind": "task-oriented-first-user-turn",
+      "split": "development",
+      "license": "CC-BY-4.0",
+      "redistribution_policy": "source-license-and-attribution",
+      "access": "open",
+      "source_url": "https://github.com/google-research-datasets/Taskmaster/tree/master/TM-1-2019",
+      "sampling_role": "booking, ordering, and executable task goals"
+    },
+    {
+      "source_id": "microsoft-ms-marco-v1",
+      "adapter": "ms-marco",
+      "source_kind": "real-search-query",
+      "split": "development",
+      "license": "MS-MARCO-NONCOMMERCIAL-RESEARCH-TERMS",
+      "redistribution_policy": "local-only-no-redistribution",
+      "access": "open-with-terms",
+      "source_url": "https://github.com/microsoft/msmarco",
+      "sampling_role": "real information-seeking search language"
+    },
+    {
+      "source_id": "allenai-wildchat-1m",
+      "adapter": "chat-conversations",
+      "source_kind": "real-llm-first-user-prompt",
+      "split": "confirmation",
+      "license": "ODC-BY-1.0-DATABASE-CONTENT-RIGHTS-NOT-GRANTED",
+      "redistribution_policy": "local-only-license-privacy-and-content-review",
+      "access": "open-with-terms-and-sensitive-content",
+      "source_url": "https://huggingface.co/datasets/allenai/WildChat-1M",
+      "sampling_role": "held-out real-world LLM prompt transfer"
+    },
+    {
+      "source_id": "google-schema-guided-dialogue",
+      "adapter": "schema-guided-dialogue",
+      "source_kind": "task-oriented-first-user-turn",
+      "split": "confirmation",
+      "license": "CC-BY-SA-4.0",
+      "redistribution_policy": "source-license-attribution-and-share-alike",
+      "access": "open",
+      "source_url": "https://github.com/google-research-datasets/dstc8-schema-guided-dialogue",
+      "sampling_role": "held-out multi-domain action-goal transfer"
+    },
+    {
+      "source_id": "amazon-shopping-queries",
+      "adapter": "amazon-shopping-queries",
+      "source_kind": "real-product-search-query",
+      "split": "confirmation",
+      "license": "Apache-2.0",
+      "redistribution_policy": "source-license-and-attribution",
+      "access": "open",
+      "source_url": "https://github.com/amazon-science/esci-data",
+      "sampling_role": "held-out product-search boundary between information and purchase intent"
+    },
+    {
+      "source_id": "lmsys-chat-1m",
+      "adapter": "chat-conversations",
+      "source_kind": "real-llm-first-user-prompt",
+      "split": "confirmation",
+      "license": "LMSYS-CHAT-1M-DATASET-LICENSE-AGREEMENT",
+      "redistribution_policy": "local-only-no-copy-disclosure-hosting-or-transfer",
+      "access": "gated-explicit-acceptance-required",
+      "source_url": "https://huggingface.co/datasets/lmsys/lmsys-chat-1m",
+      "sampling_role": "held-out gated real-world LLM prompt transfer"
+    }
+  ]
+}

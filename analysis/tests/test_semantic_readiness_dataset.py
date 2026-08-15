@@ -249,6 +249,16 @@ class SemanticReadinessDatasetTests(unittest.TestCase):
             np.mean([item.absolute_error for item in coordinates]),
             0.08,
         )
+        from analysis.scripts.fit_semantic_readiness_map import _evaluate_by_source
+
+        by_source = _evaluate_by_source(
+            fitted,
+            tuple(items[30:]),
+            labels,
+            matrix[30:],
+        )
+        self.assertEqual(set(by_source), {"source-a", "source-b"})
+        self.assertTrue(all(row["status"] == "ok" for row in by_source.values()))
 
 
 if __name__ == "__main__":
