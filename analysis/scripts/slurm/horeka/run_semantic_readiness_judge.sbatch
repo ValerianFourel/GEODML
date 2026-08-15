@@ -1,10 +1,11 @@
 #!/bin/bash -l
-# Resume one semantic-readiness judge slot on one HoreKa GPU.
+# Resume one semantic-readiness judge slot on one complete HoreKa A100 node.
 
+#SBATCH --partition=accelerated
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --time=06:00:00
 #SBATCH --job-name=readiness-judge
 
@@ -31,8 +32,32 @@ export HF_HOME="${HF_HOME:-$REPOSITORY_ROOT/.cache/huggingface}"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
-export GEODML_REQUIRED_GPU_COUNT=1
-export GEODML_DEVICE_MAP=auto
+export GEODML_REQUIRED_GPU_COUNT=4
+export GEODML_DEVICE_MAP=balanced
+
+if [[ "${SLURM_JOB_PARTITION:-}" != "accelerated" ]]; then
+    echo "A100 partition contract violated: expected accelerated, found ${SLURM_JOB_PARTITION:-unset}" >&2
+    exit 2
+fi
+VISIBLE_GPU_COUNT="$(python3 -c 'import torch; print(torch.cuda.device_count())')"
+if [[ "$VISIBLE_GPU_COUNT" != "4" ]]; then
+    echo "Four-GPU contract violated: PyTorch sees $VISIBLE_GPU_COUNT GPUs, expected 4" >&2
+    exit 2
+fi
+mapfile -t VISIBLE_GPU_NAMES < <(
+    nvidia-smi --query-gpu=name --format=csv,noheader
+)
+if [[ "${#VISIBLE_GPU_NAMES[@]}" != "4" ]]; then
+    echo "A100 hardware contract violated: nvidia-smi reports ${#VISIBLE_GPU_NAMES[@]} GPUs, expected 4" >&2
+    exit 2
+fi
+for gpu_name in "${VISIBLE_GPU_NAMES[@]}"; do
+    if [[ "$gpu_name" != *A100* ]]; then
+        echo "A100 hardware contract violated: found $gpu_name" >&2
+        exit 2
+    fi
+done
+echo "[readiness] four-A100 contract satisfied; device_map=$GEODML_DEVICE_MAP"
 
 if [[ -n "${GEODML_EXPECTED_COMMIT:-}" ]]; then
     actual_commit="$(git rev-parse HEAD)"

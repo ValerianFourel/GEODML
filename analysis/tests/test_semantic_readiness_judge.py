@@ -39,11 +39,10 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
         )
 
         self.assertIn("at most 20 whitespace-separated words", prompt)
-        self.assertIn(
-            'not_applicable field must be true if and only if category\nis "not_applicable"',
-            prompt,
-        )
-        self.assertIn("decide which valid pair best represents\nthe text", prompt)
+        self.assertIn("silently\nre-read the original text", prompt)
+        self.assertIn('category is "not_applicable" and not_applicable is true', prompt)
+        self.assertIn('or "mixed", and not_applicable is false', prompt)
+        self.assertIn("invalid pair from the previous response must not be repeated", prompt)
         self.assertIn("preserve every other semantic judgment", prompt)
 
     def test_failed_attempts_are_reused_on_resume(self) -> None:

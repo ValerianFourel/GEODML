@@ -188,10 +188,13 @@ renaming, shortening, or adding keys:
   "brief_reason": <1 to 20 words>
 }}
 The brief_reason must contain at most 20 whitespace-separated words; count them
-before responding. The not_applicable field must be true if and only if category
-is "not_applicable". For every other category, not_applicable must be false. If
-those two fields previously disagreed, decide which valid pair best represents
-the text. Do not use category values such as evaluation or review.'''
+before responding. If category and not_applicable previously disagreed, silently
+re-read the original text and choose exactly one of these valid forms:
+- applicable: category is one of "information", "criteria", "comparison",
+  "selection", "action", or "mixed", and not_applicable is false;
+- not applicable: category is "not_applicable" and not_applicable is true.
+The invalid pair from the previous response must not be repeated. Preserve every
+other valid field. Do not use category values such as evaluation or review.'''
 
 
 def _atomic_json(path: Path, value) -> None:
