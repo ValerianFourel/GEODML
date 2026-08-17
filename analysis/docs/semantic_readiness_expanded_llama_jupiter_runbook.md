@@ -4,7 +4,9 @@ This run extends the frozen 5,091-item base corpus with the already frozen
 five-source open transfer panel plus a deterministic 1,000-prompt sample from
 `lmsys/lmsys-chat-1m`. The original rubric and the first three judge slots are
 unchanged. `meta-llama/Llama-3.3-70B-Instruct` is added only as
-`replicate-frontier-c`.
+`replicate-frontier-c`. Qwen3-8B also labels every new prompt as a sensitivity
+judge, but it retains its historical `primary-frontier` identity and therefore
+must not be combined with Gemma as though it were a fifth independent slot.
 
 LMSYS-Chat-1M is gated. Accept its license through Hugging Face before running
 these commands. Its extracted text and all downstream artifacts must remain
@@ -142,7 +144,7 @@ export READINESS_EXPANDED_TASKS_SHA256="$(sha256sum "$READINESS_EXPANDED_TASKS" 
 
 echo "transfer prompts: $READINESS_TRANSFER_TASKS_PER_SLOT"
 echo "expanded prompts: $READINESS_EXPANDED_TASKS_PER_SLOT"
-echo "new judgments requested: $((3 * READINESS_TRANSFER_TASKS_PER_SLOT + READINESS_EXPANDED_TASKS_PER_SLOT))"
+echo "new judgments requested: $((4 * READINESS_TRANSFER_TASKS_PER_SLOT + READINESS_EXPANDED_TASKS_PER_SLOT))"
 ```
 
 Verify that the fourth slot and added rows did not alter any old task ID,
@@ -211,7 +213,7 @@ grep -R -E 'Traceback|ERROR|OutOfMemory|exhausted|CANCELLED|TIMEOUT' \
   2>/dev/null
 ```
 
-Expected complete full outputs are three transfer-only response files, each
+Expected complete full outputs are four transfer-only response files, each
 with `READINESS_TRANSFER_TASKS_PER_SLOT` rows, and one Llama response file with
 `READINESS_EXPANDED_TASKS_PER_SLOT` rows. These are raw annotation artifacts,
 not scientific conclusions.

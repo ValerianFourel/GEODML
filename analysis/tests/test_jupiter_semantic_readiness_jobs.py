@@ -101,6 +101,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("--model-family llama", queue)
         self.assertIn("--batch-size \"${LLAMA_BATCH_SIZE:-16}\"", queue)
         self.assertIn("GEODML_DEVICE_MAP=balanced", queue)
+        self.assertIn("run_data_parallel full qwen3-8b-primary-sensitivity", queue)
         self.assertIn("run_data_parallel full qwen3-32b", queue)
         self.assertIn("run_data_parallel full ministral3-8b", queue)
         self.assertIn("run_data_parallel full gemma4-31b", queue)

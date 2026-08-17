@@ -129,12 +129,14 @@ validate_bank \
 
 qwen32_revision="9216db5781bf21249d130ec9da846c4624c16137"
 qwen32_model="$GEODML_PROJECT_ROOT/models/qwen/Qwen3-32B/$qwen32_revision"
+qwen8_revision="b968826d9c46dd6066d109eabc6255188de91218"
+qwen8_model="$GEODML_PROJECT_ROOT/models/qwen/Qwen3-8B/$qwen8_revision"
 ministral_revision="f6fae9795746f63c9be8344932f01275f3c63734"
 ministral_model="$GEODML_PROJECT_ROOT/models/mistral/Ministral-3-8B-Instruct-2512-BF16/$ministral_revision"
 gemma_revision="842da3794eaa0b77d5f08bae87a17459d91ff475"
 gemma_model="$GEODML_PROJECT_ROOT/models/gemma/gemma-4-31B-it/$gemma_revision"
 
-for model in "$qwen32_model" "$ministral_model" "$gemma_model" "$LLAMA_MODEL"; do
+for model in "$qwen8_model" "$qwen32_model" "$ministral_model" "$gemma_model" "$LLAMA_MODEL"; do
     if [[ ! -s "$model/config.json" ]]; then
         echo "missing model snapshot: $model" >&2
         exit 2
@@ -229,6 +231,8 @@ run_llama() {
     echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] finished $stage/llama3.3-70b-replicate-c exit=0" | tee -a "$queue_root/queue.log"
 }
 
+run_data_parallel smoke qwen3-8b-primary-sensitivity primary-frontier "$qwen8_model" qwen "$qwen8_revision" 32 8 true
+run_data_parallel full qwen3-8b-primary-sensitivity primary-frontier "$qwen8_model" qwen "$qwen8_revision" 32 "" true
 run_data_parallel smoke qwen3-32b-replicate-a replicate-frontier-a "$qwen32_model" qwen "$qwen32_revision" 16 8 true
 run_data_parallel full qwen3-32b-replicate-a replicate-frontier-a "$qwen32_model" qwen "$qwen32_revision" 16 "" true
 run_data_parallel smoke ministral3-8b-replicate-b replicate-frontier-b "$ministral_model" mistral "$ministral_revision" 32 8 false
