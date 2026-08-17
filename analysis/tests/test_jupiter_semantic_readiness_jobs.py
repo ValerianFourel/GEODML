@@ -40,6 +40,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("gemma-4-31B-it", queue)
         self.assertIn("--run-purpose debug", queue)
         self.assertIn("--resume", queue)
+        self.assertIn("READINESS_DEBUG_QUEUE_ROOT", queue)
+        self.assertIn("slurm-job-$SLURM_JOB_ID.txt", queue)
         self.assertIn("artifact-sha256.txt", queue)
 
     def test_job_requires_one_complete_gh200_node(self) -> None:

@@ -51,7 +51,7 @@ fi
 
 tasks="$GEODML_PROJECT_ROOT/runs/semantic-readiness-base-axis/f6d9e6df42c90b425e4035bb9f28cb551be63175/label-tasks/readiness_label_tasks_blinded.jsonl"
 tasks_sha256="9c1e084332d4fc3129a1f1c5400b8118d7a3425a01f3c771edb133d66d496775"
-queue_root="$GEODML_PROJECT_ROOT/runs/semantic-readiness-debug/$SLURM_JOB_ID/unattended-behavioral-queue-$GEODML_EXPECTED_COMMIT"
+queue_root="${READINESS_DEBUG_QUEUE_ROOT:-$GEODML_PROJECT_ROOT/runs/semantic-readiness-debug/unattended-behavioral-queue-$GEODML_EXPECTED_COMMIT}"
 mkdir -p "$queue_root/logs" "$queue_root/smoke" "$queue_root/full"
 
 actual_tasks_sha256="$(sha256sum "$tasks" | awk '{print $1}')"
@@ -61,9 +61,9 @@ if [[ "$actual_tasks_sha256" != "$tasks_sha256" ]]; then
 fi
 printf '%s  %s\n' "$actual_tasks_sha256" "$tasks" > "$queue_root/task-bank-sha256.txt"
 git rev-parse HEAD > "$queue_root/git-commit.txt"
-scontrol show job "$SLURM_JOB_ID" > "$queue_root/slurm-job.txt"
-nvidia-smi > "$queue_root/gpu-environment-start.txt"
-date -u +"%Y-%m-%dT%H:%M:%SZ" > "$queue_root/started-at.txt"
+scontrol show job "$SLURM_JOB_ID" > "$queue_root/slurm-job-$SLURM_JOB_ID.txt"
+nvidia-smi > "$queue_root/gpu-environment-start-$SLURM_JOB_ID.txt"
+date -u +"%Y-%m-%dT%H:%M:%SZ" > "$queue_root/started-at-$SLURM_JOB_ID.txt"
 
 run_stage() {
     local stage="$1"
@@ -147,7 +147,7 @@ run_model qwen3-32b-replicate-a replicate-frontier-a "$qwen32_model" qwen "$qwen
 run_model ministral3-8b-replicate-b replicate-frontier-b "$ministral_model" mistral "$ministral_revision" 32 false
 run_model gemma4-31b-primary primary-frontier "$gemma_model" gemma "$gemma_revision" 8 false
 
-nvidia-smi > "$queue_root/gpu-environment-end.txt"
-date -u +"%Y-%m-%dT%H:%M:%SZ" > "$queue_root/completed-at.txt"
+nvidia-smi > "$queue_root/gpu-environment-end-$SLURM_JOB_ID.txt"
+date -u +"%Y-%m-%dT%H:%M:%SZ" > "$queue_root/completed-at-$SLURM_JOB_ID.txt"
 find "$queue_root" -type f ! -name artifact-sha256.txt -print0 | sort -z | xargs -0 sha256sum > "$queue_root/artifact-sha256.txt"
 echo "queue complete: $queue_root" | tee -a "$queue_root/queue.log"
