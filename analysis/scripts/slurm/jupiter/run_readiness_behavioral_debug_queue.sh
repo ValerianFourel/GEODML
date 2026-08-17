@@ -74,6 +74,7 @@ run_stage() {
     local revision="$6"
     local batch_size="$7"
     local limit="$8"
+    local disable_thinking="$9"
     local output="$queue_root/$stage/$tag"
     local log="$queue_root/logs/$stage-$tag.log"
     local -a args=(
@@ -97,6 +98,9 @@ run_stage() {
     if [[ -n "$limit" ]]; then
         args+=(--limit "$limit")
     fi
+    if [[ "$disable_thinking" == "true" ]]; then
+        args+=(--disable-thinking)
+    fi
     if [[ -e "$output" ]]; then
         args+=(--resume)
     fi
@@ -117,27 +121,31 @@ run_model() {
     local family="$4"
     local revision="$5"
     local batch_size="$6"
+    local disable_thinking="$7"
 
     if [[ ! -s "$model/config.json" ]]; then
         echo "missing model snapshot: $model" | tee -a "$queue_root/queue.log"
         return 0
     fi
-    if ! run_stage smoke "$tag" "$slot" "$model" "$family" "$revision" "$batch_size" 8; then
+    if ! run_stage smoke "$tag" "$slot" "$model" "$family" "$revision" "$batch_size" 8 "$disable_thinking"; then
         echo "smoke failed; skipping full run for $tag" | tee -a "$queue_root/queue.log"
         return 0
     fi
-    if ! run_stage full "$tag" "$slot" "$model" "$family" "$revision" "$batch_size" ""; then
+    if ! run_stage full "$tag" "$slot" "$model" "$family" "$revision" "$batch_size" "" "$disable_thinking"; then
         echo "full run failed or was interrupted for $tag" | tee -a "$queue_root/queue.log"
     fi
 }
 
+qwen32_revision="9216db5781bf21249d130ec9da846c4624c16137"
+qwen32_model="$GEODML_PROJECT_ROOT/models/qwen/Qwen3-32B/$qwen32_revision"
 ministral_revision="f6fae9795746f63c9be8344932f01275f3c63734"
 ministral_model="$GEODML_PROJECT_ROOT/models/mistral/Ministral-3-8B-Instruct-2512-BF16/$ministral_revision"
 gemma_revision="842da3794eaa0b77d5f08bae87a17459d91ff475"
 gemma_model="$GEODML_PROJECT_ROOT/models/gemma/gemma-4-31B-it/$gemma_revision"
 
-run_model ministral3-8b-replicate-b replicate-frontier-b "$ministral_model" mistral "$ministral_revision" 32
-run_model gemma4-31b-primary primary-frontier "$gemma_model" gemma "$gemma_revision" 8
+run_model qwen3-32b-replicate-a replicate-frontier-a "$qwen32_model" qwen "$qwen32_revision" 16 true
+run_model ministral3-8b-replicate-b replicate-frontier-b "$ministral_model" mistral "$ministral_revision" 32 false
+run_model gemma4-31b-primary primary-frontier "$gemma_model" gemma "$gemma_revision" 8 false
 
 nvidia-smi > "$queue_root/gpu-environment-end.txt"
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$queue_root/completed-at.txt"

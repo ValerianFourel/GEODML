@@ -34,6 +34,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('visible_gpus" != "4"', queue)
         self.assertIn("run_stage smoke", queue)
         self.assertIn("run_stage full", queue)
+        self.assertIn("Qwen3-32B", queue)
+        self.assertIn("--disable-thinking", queue)
         self.assertIn("Ministral-3-8B-Instruct-2512-BF16", queue)
         self.assertIn("gemma-4-31B-it", queue)
         self.assertIn("--run-purpose debug", queue)
