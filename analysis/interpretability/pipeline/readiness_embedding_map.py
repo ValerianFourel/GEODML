@@ -12,7 +12,9 @@ import numpy as np
 from .semantic_readiness_dataset import ReadinessConsensus, SemanticReadinessItem
 
 
-READINESS_MAP_VERSION = "llm2vec-readiness-map-v1"
+READINESS_MAP_VERSION = "llm2vec-readiness-map-v2"
+PCA_RANDOM_SEED = 20260817
+PCA_COMPONENT_COUNT = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +36,17 @@ class ReadinessEmbeddingMap:
     rubric_singular_values: tuple[float, ...]
     rubric_first_component_share: float
     supervised_subspace_axes: tuple[tuple[float, ...], ...]
+    ordinal_rubric_names: tuple[str, ...]
+    ordinal_direction: tuple[float, ...]
+    ordinal_unit_direction: tuple[float, ...]
+    ordinal_thresholds_by_rubric: tuple[tuple[float, ...], ...]
+    ridge_ordinal_cosine_similarity: float
+    pca_method: str
+    pca_random_seed: int
+    pca_axes: tuple[tuple[float, ...], ...]
+    pca_explained_variance_ratio: tuple[float, ...]
+    ridge_pca_absolute_cosine_similarity: tuple[float, ...]
+    ordinal_pca_absolute_cosine_similarity: tuple[float, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +68,9 @@ class ReadinessMapDiagnostics:
     pairwise_order_accuracy: float
     usable_label_range: tuple[float, float]
     rubric_first_component_share: float
+    ordinal_spearman: float
+    ordinal_pairwise_order_accuracy: float
+    ridge_ordinal_cosine_similarity: float
     source_spearman: tuple[tuple[str, float | None], ...]
 
 
@@ -70,7 +86,10 @@ def fit_readiness_embedding_map(
 
     if ridge_penalty <= 0:
         raise ValueError("ridge_penalty must be positive")
-    rows, labels, matrix = _aligned_usable(items, consensus, embeddings)
+    all_matrix = _unit_rows(np.asarray(embeddings, dtype=np.float64))
+    if len(all_matrix) != len(items):
+        raise ValueError("embeddings must align with every corpus item")
+    rows, labels, matrix = _aligned_usable(items, consensus, all_matrix)
     if len(rows) < 10:
         raise ValueError("at least ten usable labeled items are required")
     mean = np.mean(matrix, axis=0)
@@ -105,6 +124,28 @@ def fit_readiness_embedding_map(
     variance = singular**2
     first_share = float(variance[0] / max(np.sum(variance), 1e-12))
     axes = left[:, : min(2, left.shape[1])].T
+    ordinal_coefficients, ordinal_thresholds = _fit_ordinal_coefficients(
+        centered,
+        labels,
+        ridge_penalty,
+    )
+    ordinal_left, _, _ = np.linalg.svd(ordinal_coefficients, full_matrices=False)
+    ordinal_direction = ordinal_left[:, 0]
+    if float(ordinal_direction @ scalar) < 0:
+        ordinal_direction = -ordinal_direction
+    ordinal_norm = float(np.linalg.norm(ordinal_direction))
+    if ordinal_norm <= 1e-12:
+        raise ValueError("ordinal labels do not identify a nonzero direction")
+    ordinal_unit = ordinal_direction / ordinal_norm
+    scalar_unit = scalar / norm
+    ridge_ordinal_cosine = float(scalar_unit @ ordinal_unit)
+    pca_axes, pca_variance = _randomized_pca(
+        all_matrix - np.mean(all_matrix, axis=0),
+        component_count=PCA_COMPONENT_COUNT,
+        random_seed=PCA_RANDOM_SEED,
+    )
+    ridge_pca_cosine = tuple(float(abs(axis @ scalar_unit)) for axis in pca_axes)
+    ordinal_pca_cosine = tuple(float(abs(axis @ ordinal_unit)) for axis in pca_axes)
     boundaries = (0.125, 0.375, 0.625, 0.875)
     offsets = tuple(float(boundary - label_mean + scalar @ mean) for boundary in boundaries)
     identity = json.dumps(
@@ -113,6 +154,10 @@ def fit_readiness_embedding_map(
             "embedding_model": embedding_model,
             "item_ids": [item.item_id for item in rows],
             "direction_hash": hashlib.sha256(scalar.astype("<f8").tobytes()).hexdigest(),
+            "ordinal_direction_hash": hashlib.sha256(
+                ordinal_unit.astype("<f8").tobytes()
+            ).hexdigest(),
+            "pca_seed": PCA_RANDOM_SEED,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -127,7 +172,7 @@ def fit_readiness_embedding_map(
         embedding_mean=tuple(float(value) for value in mean),
         label_mean=label_mean,
         scalar_direction=tuple(float(value) for value in scalar),
-        scalar_unit_direction=tuple(float(value) for value in scalar / norm),
+        scalar_unit_direction=tuple(float(value) for value in scalar_unit),
         ordinal_boundaries_0_1=boundaries,
         ordinal_plane_offsets=offsets,
         rubric_names=rubric_names,
@@ -139,6 +184,17 @@ def fit_readiness_embedding_map(
         supervised_subspace_axes=tuple(
             tuple(float(value) for value in row) for row in axes
         ),
+        ordinal_rubric_names=rubric_names,
+        ordinal_direction=tuple(float(value) for value in ordinal_direction),
+        ordinal_unit_direction=tuple(float(value) for value in ordinal_unit),
+        ordinal_thresholds_by_rubric=ordinal_thresholds,
+        ridge_ordinal_cosine_similarity=ridge_ordinal_cosine,
+        pca_method="deterministic-randomized-svd-v1",
+        pca_random_seed=PCA_RANDOM_SEED,
+        pca_axes=tuple(tuple(float(value) for value in row) for row in pca_axes),
+        pca_explained_variance_ratio=tuple(float(value) for value in pca_variance),
+        ridge_pca_absolute_cosine_similarity=ridge_pca_cosine,
+        ordinal_pca_absolute_cosine_similarity=ordinal_pca_cosine,
     )
 
 
@@ -152,11 +208,13 @@ def evaluate_readiness_embedding_map(
     if matrix.shape[1] != fitted.dimension:
         raise ValueError("embedding dimension does not match readiness map")
     direction = np.asarray(fitted.scalar_direction, dtype=np.float64)
+    ordinal_direction = np.asarray(fitted.ordinal_unit_direction, dtype=np.float64)
     center = np.asarray(fitted.embedding_mean, dtype=np.float64)
     predicted = fitted.label_mean + (matrix - center) @ direction
     observed = np.asarray(
         [item.overall_readiness_0_100 / 100.0 for item in labels], dtype=np.float64
     )
+    ordinal_predicted = (matrix - center) @ ordinal_direction
     coordinates = tuple(
         ReadinessMapCoordinate(
             item_id=item.item_id,
@@ -183,6 +241,11 @@ def evaluate_readiness_embedding_map(
         pairwise_order_accuracy=_pairwise_order_accuracy(observed, predicted),
         usable_label_range=(float(np.min(observed)), float(np.max(observed))),
         rubric_first_component_share=fitted.rubric_first_component_share,
+        ordinal_spearman=_spearman(observed, ordinal_predicted),
+        ordinal_pairwise_order_accuracy=_pairwise_order_accuracy(
+            observed, ordinal_predicted
+        ),
+        ridge_ordinal_cosine_similarity=fitted.ridge_ordinal_cosine_similarity,
         source_spearman=tuple(source_metrics),
     )
     return coordinates, diagnostics
@@ -210,6 +273,158 @@ def _ridge_coefficients(x: np.ndarray, y: np.ndarray, penalty: float) -> np.ndar
         return np.linalg.solve(x.T @ x + penalty * np.eye(dimension), x.T @ y)
     dual = np.linalg.solve(x @ x.T + penalty * np.eye(sample_count), y)
     return x.T @ dual
+
+
+def _fit_ordinal_coefficients(
+    x: np.ndarray,
+    labels: Sequence[ReadinessConsensus],
+    penalty: float,
+) -> tuple[np.ndarray, tuple[tuple[float, ...], ...]]:
+    """Fit one proportional-odds direction per frozen 1--7 Likert field."""
+
+    ordinal_targets = np.asarray(
+        [
+            (
+                8.0 - item.information_seeking_1_7,
+                item.evaluation_1_7,
+                item.selection_commitment_1_7,
+                item.action_implementation_1_7,
+            )
+            for item in labels
+        ],
+        dtype=np.float64,
+    )
+    coefficients = []
+    thresholds = []
+    for column in ordinal_targets.T:
+        # Consensus Likert values can be thirds. Rounding converts them back to the
+        # declared seven ordered response levels without using the continuous label.
+        target = np.clip(np.floor(column + 0.5), 1, 7).astype(np.int64)
+        coefficient, cuts = _fit_proportional_odds(x, target, penalty)
+        coefficients.append(coefficient)
+        thresholds.append(tuple(float(value) for value in cuts))
+    return np.column_stack(coefficients), tuple(thresholds)
+
+
+def _fit_proportional_odds(
+    x: np.ndarray,
+    target: np.ndarray,
+    penalty: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    from scipy.optimize import minimize
+
+    levels, encoded = np.unique(target, return_inverse=True)
+    if len(levels) < 2:
+        raise ValueError("ordinal supervision needs at least two observed levels")
+    cut_count = len(levels) - 1
+    cumulative = np.asarray(
+        [np.mean(encoded <= index) for index in range(cut_count)], dtype=np.float64
+    )
+    cumulative = np.clip(cumulative, 1e-5, 1.0 - 1e-5)
+    initial_cuts = np.log(cumulative / (1.0 - cumulative))
+    raw_cuts = np.empty(cut_count, dtype=np.float64)
+    raw_cuts[0] = initial_cuts[0]
+    if cut_count > 1:
+        differences = np.maximum(np.diff(initial_cuts), 1e-4)
+        raw_cuts[1:] = np.log(np.expm1(differences))
+    initial = np.concatenate([np.zeros(x.shape[1], dtype=np.float64), raw_cuts])
+
+    def objective(parameters: np.ndarray) -> tuple[float, np.ndarray]:
+        coefficient = parameters[: x.shape[1]]
+        raw = parameters[x.shape[1] :]
+        cuts = _ordered_cuts(raw)
+        eta = x @ coefficient
+        upper = np.ones(len(x), dtype=np.float64)
+        lower = np.zeros(len(x), dtype=np.float64)
+        upper_derivative = np.zeros(len(x), dtype=np.float64)
+        lower_derivative = np.zeros(len(x), dtype=np.float64)
+        for category in range(len(levels)):
+            mask = encoded == category
+            if category < cut_count:
+                values = _sigmoid(cuts[category] - eta[mask])
+                upper[mask] = values
+                upper_derivative[mask] = values * (1.0 - values)
+            if category > 0:
+                values = _sigmoid(cuts[category - 1] - eta[mask])
+                lower[mask] = values
+                lower_derivative[mask] = values * (1.0 - values)
+        probability = np.maximum(upper - lower, 1e-12)
+        value = -float(np.sum(np.log(probability)))
+        value += 0.5 * penalty * float(coefficient @ coefficient)
+        probability_eta_derivative = -upper_derivative + lower_derivative
+        eta_gradient = -probability_eta_derivative / probability
+        coefficient_gradient = x.T @ eta_gradient + penalty * coefficient
+        cut_gradient = np.zeros(cut_count, dtype=np.float64)
+        for category in range(len(levels)):
+            mask = encoded == category
+            if category < cut_count:
+                cut_gradient[category] -= float(
+                    np.sum(upper_derivative[mask] / probability[mask])
+                )
+            if category > 0:
+                cut_gradient[category - 1] += float(
+                    np.sum(lower_derivative[mask] / probability[mask])
+                )
+        raw_gradient = np.empty_like(raw)
+        raw_gradient[0] = float(np.sum(cut_gradient))
+        if cut_count > 1:
+            raw_gradient[1:] = _sigmoid(raw[1:]) * np.cumsum(cut_gradient[::-1])[::-1][1:]
+        return value, np.concatenate([coefficient_gradient, raw_gradient])
+
+    result = minimize(
+        objective,
+        initial,
+        jac=True,
+        method="L-BFGS-B",
+        options={"maxiter": 300, "ftol": 1e-10, "gtol": 1e-6},
+    )
+    if not result.success or not np.isfinite(result.fun):
+        raise ValueError(f"ordinal optimizer failed: {result.message}")
+    return result.x[: x.shape[1]], _ordered_cuts(result.x[x.shape[1] :])
+
+
+def _ordered_cuts(raw: np.ndarray) -> np.ndarray:
+    cuts = np.empty_like(raw)
+    cuts[0] = raw[0]
+    if len(raw) > 1:
+        cuts[1:] = raw[0] + np.cumsum(np.logaddexp(0.0, raw[1:]) + 1e-8)
+    return cuts
+
+
+def _sigmoid(values: np.ndarray) -> np.ndarray:
+    positive = values >= 0
+    result = np.empty_like(values, dtype=np.float64)
+    result[positive] = 1.0 / (1.0 + np.exp(-values[positive]))
+    exponential = np.exp(values[~positive])
+    result[~positive] = exponential / (1.0 + exponential)
+    return result
+
+
+def _randomized_pca(
+    centered: np.ndarray,
+    *,
+    component_count: int,
+    random_seed: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return deterministic approximate PCs without treating them as readiness."""
+
+    maximum = min(centered.shape)
+    count = min(component_count, maximum)
+    projection_count = min(maximum, count + 8)
+    rng = np.random.default_rng(random_seed)
+    projection = rng.standard_normal((centered.shape[1], projection_count))
+    basis, _ = np.linalg.qr(centered @ projection, mode="reduced")
+    for _ in range(2):
+        basis, _ = np.linalg.qr(centered @ (centered.T @ basis), mode="reduced")
+    _, singular_values, right = np.linalg.svd(basis.T @ centered, full_matrices=False)
+    axes = right[:count].copy()
+    for axis in axes:
+        pivot = int(np.argmax(np.abs(axis)))
+        if axis[pivot] < 0:
+            axis *= -1
+    total_variance = float(np.sum(centered**2))
+    ratios = singular_values[:count] ** 2 / max(total_variance, 1e-12)
+    return axes, ratios
 
 
 def _unit_rows(values: np.ndarray) -> np.ndarray:

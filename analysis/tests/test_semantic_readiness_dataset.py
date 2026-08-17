@@ -249,8 +249,19 @@ class SemanticReadinessDatasetTests(unittest.TestCase):
         )
         self.assertEqual(len(fitted.ordinal_plane_offsets), 4)
         self.assertEqual(len(fitted.supervised_subspace_axes), 2)
+        self.assertEqual(len(fitted.ordinal_thresholds_by_rubric), 4)
+        self.assertGreater(fitted.ridge_ordinal_cosine_similarity, 0.95)
+        self.assertEqual(fitted.pca_method, "deterministic-randomized-svd-v1")
+        self.assertEqual(fitted.pca_random_seed, 20260817)
+        self.assertEqual(len(fitted.pca_axes), 4)
+        self.assertEqual(len(fitted.pca_explained_variance_ratio), 4)
+        self.assertTrue(
+            all(value >= 0 for value in fitted.pca_explained_variance_ratio)
+        )
         self.assertGreater(fitted.rubric_first_component_share, 0.95)
         self.assertGreater(diagnostics.spearman, 0.99)
+        self.assertGreater(diagnostics.ordinal_spearman, 0.99)
+        self.assertGreater(diagnostics.ordinal_pairwise_order_accuracy, 0.9)
         self.assertLess(
             np.mean([item.absolute_error for item in coordinates]),
             0.08,

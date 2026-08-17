@@ -288,6 +288,22 @@ def _fit(args, output: Path) -> None:
     _atomic_json(
         output / "readiness_embedding_map_diagnostics.json",
         {
+            "geometry_robustness": {
+                "ridge_ordinal_cosine_similarity": (
+                    fitted.ridge_ordinal_cosine_similarity
+                ),
+                "pca_method": fitted.pca_method,
+                "pca_random_seed": fitted.pca_random_seed,
+                "pca_explained_variance_ratio": (
+                    fitted.pca_explained_variance_ratio
+                ),
+                "ridge_pca_absolute_cosine_similarity": (
+                    fitted.ridge_pca_absolute_cosine_similarity
+                ),
+                "ordinal_pca_absolute_cosine_similarity": (
+                    fitted.ordinal_pca_absolute_cosine_similarity
+                ),
+            },
             "development": asdict(dev_diagnostics),
             "confirmation": asdict(confirm_diagnostics),
             "development_by_source": _evaluate_by_source(
