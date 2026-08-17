@@ -11,11 +11,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 JUPITER_ROOT = REPOSITORY_ROOT / "analysis/scripts/slurm/jupiter"
 SBATCH = JUPITER_ROOT / "run_semantic_readiness_judge.sbatch"
 SUBMIT = JUPITER_ROOT / "submit_semantic_readiness_panel.sh"
+BEHAVIORAL_DEBUG_QUEUE = JUPITER_ROOT / "run_readiness_behavioral_debug_queue.sh"
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
     def test_shell_scripts_are_valid_bash(self) -> None:
-        for script in (SBATCH, SUBMIT):
+        for script in (SBATCH, SUBMIT, BEHAVIORAL_DEBUG_QUEUE):
             with self.subTest(script=script.name):
                 result = subprocess.run(
                     ["bash", "-n", str(script)],
@@ -24,6 +25,20 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_behavioral_debug_queue_smokes_before_full_runs(self) -> None:
+        queue = BEHAVIORAL_DEBUG_QUEUE.read_text(encoding="utf-8")
+
+        self.assertIn('actual_commit="$(git rev-parse HEAD)"', queue)
+        self.assertIn("task-bank hash mismatch", queue)
+        self.assertIn('visible_gpus" != "4"', queue)
+        self.assertIn("run_stage smoke", queue)
+        self.assertIn("run_stage full", queue)
+        self.assertIn("Ministral-3-8B-Instruct-2512-BF16", queue)
+        self.assertIn("gemma-4-31B-it", queue)
+        self.assertIn("--run-purpose debug", queue)
+        self.assertIn("--resume", queue)
+        self.assertIn("artifact-sha256.txt", queue)
 
     def test_job_requires_one_complete_gh200_node(self) -> None:
         job = SBATCH.read_text(encoding="utf-8")

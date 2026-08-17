@@ -14,6 +14,7 @@ from analysis.interpretability.pipeline.semantic_readiness_dataset import (
 from analysis.scripts.run_semantic_readiness_judge_4gpu import (
     _completed_resume_matches,
     _is_noop_completed_resume,
+    _model_loader_kind,
     _prompt_for_attempt,
     _render_chat_prompts,
     _shard_tasks,
@@ -42,6 +43,21 @@ class _FakeTokenizer:
 
 
 class SemanticReadinessJudge4GpuTests(unittest.TestCase):
+    def test_model_loader_supports_frozen_behavioral_architectures(self) -> None:
+        self.assertEqual(_model_loader_kind(["Qwen3ForCausalLM"]), "causal")
+        self.assertEqual(
+            _model_loader_kind(["Mistral3ForConditionalGeneration"]),
+            "multimodal",
+        )
+        self.assertEqual(
+            _model_loader_kind(["Gemma4ForConditionalGeneration"]),
+            "multimodal",
+        )
+
+    def test_model_loader_rejects_unreviewed_conditional_architectures(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "explicitly supported"):
+            _model_loader_kind(["UnknownForConditionalGeneration"])
+
     def test_strided_shards_are_complete_balanced_and_disjoint(self) -> None:
         tasks = tuple(_task(index) for index in range(11))
         shards = [_shard_tasks(tasks, rank, 4) for rank in range(4)]

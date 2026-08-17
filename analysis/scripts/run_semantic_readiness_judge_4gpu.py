@@ -43,6 +43,12 @@ except ModuleNotFoundError:  # pragma: no cover - direct cluster invocation
 
 BACKEND_NAME = "local-four-gpu-data-parallel"
 FORMAT_VERSION = "semantic-readiness-four-gpu-v1"
+TEXT_ONLY_MULTIMODAL_ARCHITECTURES = frozenset(
+    {
+        "Gemma4ForConditionalGeneration",
+        "Mistral3ForConditionalGeneration",
+    }
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -321,11 +327,13 @@ class FourGpuCausalJudge:
         self.disable_thinking = disable_thinking
         config = AutoConfig.from_pretrained(model_path, local_files_only=True)
         architectures = tuple(config.architectures or ())
-        if not any(name.endswith("ForCausalLM") for name in architectures):
-            raise RuntimeError(
-                "the optimized runner currently requires a causal-LM checkpoint; "
-                f"found architectures={architectures!r}"
-            )
+        loader_kind = _model_loader_kind(architectures)
+        if loader_kind == "causal":
+            auto_model_class = AutoModelForCausalLM
+        else:
+            from transformers import AutoModelForMultimodalLM
+
+            auto_model_class = AutoModelForMultimodalLM
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_path,
             use_fast=True,
@@ -340,7 +348,7 @@ class FourGpuCausalJudge:
         if hasattr(torch.backends, "cudnn"):
             torch.backends.cudnn.allow_tf32 = True
         torch.set_float32_matmul_precision("high")
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = auto_model_class.from_pretrained(
             model_path,
             dtype=torch.bfloat16,
             device_map={"": local_rank},
@@ -430,6 +438,18 @@ def _render_chat_prompts(
             options["enable_thinking"] = False
         rendered.append(tokenizer.apply_chat_template(messages, **options))
     return rendered
+
+
+def _model_loader_kind(architectures: Sequence[str]) -> str:
+    if any(name.endswith("ForCausalLM") for name in architectures):
+        return "causal"
+    if any(name in TEXT_ONLY_MULTIMODAL_ARCHITECTURES for name in architectures):
+        return "multimodal"
+    raise RuntimeError(
+        "the optimized runner requires a causal-LM checkpoint or an explicitly "
+        "supported text-only conditional checkpoint; "
+        f"found architectures={tuple(architectures)!r}"
+    )
 
 
 def _shard_tasks(
