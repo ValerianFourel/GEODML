@@ -17,7 +17,10 @@ ANALYSIS_ROOT = Path(__file__).resolve().parents[1]
 if str(ANALYSIS_ROOT) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_ROOT))
 
-from analysis.interpretability.utils import _chat_template_tokenization_kwargs
+from analysis.interpretability.utils import (
+    _chat_template_tokenization_kwargs,
+    _generation_sampling_kwargs,
+)
 
 
 class LocalRankerGenerationTests(unittest.TestCase):
@@ -36,6 +39,27 @@ class LocalRankerGenerationTests(unittest.TestCase):
                 "return_attention_mask": True,
             },
         )
+
+    def test_deterministic_generation_neutralizes_sampling_defaults(self) -> None:
+        self.assertEqual(
+            _generation_sampling_kwargs(0.0),
+            {
+                "do_sample": False,
+                "temperature": None,
+                "top_p": None,
+                "top_k": None,
+            },
+        )
+
+    def test_positive_temperature_enables_sampling(self) -> None:
+        self.assertEqual(
+            _generation_sampling_kwargs(0.25),
+            {"do_sample": True, "temperature": 0.25, "top_p": 1.0},
+        )
+
+    def test_negative_temperature_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "nonnegative"):
+            _generation_sampling_kwargs(-0.1)
 
 
 if __name__ == "__main__":

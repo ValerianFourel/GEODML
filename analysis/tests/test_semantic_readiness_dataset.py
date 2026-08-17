@@ -22,6 +22,7 @@ from analysis.interpretability.pipeline.semantic_readiness_dataset import (
     merge_web_records,
     parse_readiness_judgment,
     parse_stackexchange_items,
+    summarize_readiness_judge_agreement,
 )
 
 
@@ -176,6 +177,11 @@ class SemanticReadinessDatasetTests(unittest.TestCase):
         self.assertEqual(consensus[0].overall_readiness_0_100, 56.0)
         self.assertEqual(consensus[0].overall_median_absolute_deviation, 4.0)
         self.assertTrue(consensus[0].usable_for_axis)
+        agreement = summarize_readiness_judge_agreement(judgments)
+        self.assertEqual(agreement["complete_panel_item_count"], 1)
+        self.assertEqual(len(agreement["pairwise"]), 3)
+        self.assertEqual(agreement["mean_pairwise_category_exact_agreement"], 1.0)
+        self.assertGreater(agreement["mean_complete_item_overall_variance"], 0.0)
 
         invalid = raw.replace('"confidence_0_1": 0.9', '"confidence_0_1": 2.0')
         with self.assertRaisesRegex(ValueError, "confidence"):

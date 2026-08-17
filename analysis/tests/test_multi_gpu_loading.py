@@ -44,6 +44,8 @@ class MultiGpuLoadingTests(unittest.TestCase):
             )
         self.assertEqual(kwargs["device_map"], "balanced")
         self.assertTrue(kwargs["low_cpu_mem_usage"])
+        self.assertEqual(kwargs["dtype"], "bfloat16")
+        self.assertNotIn("torch_dtype", kwargs)
         self.assertEqual(
             {key: kwargs["max_memory"][key] for key in range(4)},
             {0: "32GiB", 1: "32GiB", 2: "32GiB", 3: "32GiB"},

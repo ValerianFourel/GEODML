@@ -472,6 +472,155 @@ def aggregate_readiness_consensus(
     return tuple(rows)
 
 
+def summarize_readiness_judge_agreement(
+    judgments: Sequence[ReadinessJudgment],
+) -> dict[str, object]:
+    """Summarize blinded inter-judge reliability without selecting a winner."""
+
+    import itertools
+    import numpy as np
+
+    by_judge: dict[str, dict[str, ReadinessJudgment]] = {}
+    for judgment in judgments:
+        items = by_judge.setdefault(judgment.judge_slot, {})
+        if judgment.item_id in items:
+            raise ValueError(
+                f"duplicate item/judge judgment: {(judgment.item_id, judgment.judge_slot)}"
+            )
+        items[judgment.item_id] = judgment
+    judge_slots = sorted(by_judge)
+    if len(judge_slots) < 2:
+        raise ValueError("agreement diagnostics require at least two judges")
+
+    score_fields = (
+        "overall_readiness_0_100",
+        "information_seeking_1_7",
+        "evaluation_1_7",
+        "selection_commitment_1_7",
+        "action_implementation_1_7",
+        "ambiguity_1_7",
+        "confidence_0_1",
+    )
+    pairwise = []
+    for left_slot, right_slot in itertools.combinations(judge_slots, 2):
+        overlap = sorted(set(by_judge[left_slot]) & set(by_judge[right_slot]))
+        if not overlap:
+            raise ValueError(f"judges have no overlapping items: {left_slot}, {right_slot}")
+        left_rows = [by_judge[left_slot][item_id] for item_id in overlap]
+        right_rows = [by_judge[right_slot][item_id] for item_id in overlap]
+        field_metrics = {}
+        for field in score_fields:
+            left = np.asarray([getattr(row, field) for row in left_rows], dtype=float)
+            right = np.asarray([getattr(row, field) for row in right_rows], dtype=float)
+            field_metrics[field] = {
+                "pearson": _safe_correlation(left, right),
+                "spearman": _safe_correlation(_average_ranks(left), _average_ranks(right)),
+                "mean_absolute_difference": float(np.mean(np.abs(left - right))),
+            }
+        overall_differences = np.abs(
+            np.asarray([row.overall_readiness_0_100 for row in left_rows], dtype=float)
+            - np.asarray([row.overall_readiness_0_100 for row in right_rows], dtype=float)
+        )
+        pairwise.append(
+            {
+                "left_judge": left_slot,
+                "right_judge": right_slot,
+                "overlap_count": len(overlap),
+                "field_metrics": field_metrics,
+                "overall_within_10_points_fraction": float(
+                    np.mean(overall_differences <= 10.0)
+                ),
+                "category_exact_agreement_fraction": float(
+                    np.mean(
+                        [
+                            left.category == right.category
+                            for left, right in zip(left_rows, right_rows)
+                        ]
+                    )
+                ),
+                "not_applicable_agreement_fraction": float(
+                    np.mean(
+                        [
+                            left.not_applicable == right.not_applicable
+                            for left, right in zip(left_rows, right_rows)
+                        ]
+                    )
+                ),
+            }
+        )
+
+    by_item: dict[str, list[ReadinessJudgment]] = {}
+    for judgment in judgments:
+        by_item.setdefault(judgment.item_id, []).append(judgment)
+    complete_items = [
+        rows for rows in by_item.values() if len({row.judge_slot for row in rows}) == len(judge_slots)
+    ]
+    per_item_variances = [
+        float(np.var([row.overall_readiness_0_100 for row in rows], ddof=0))
+        for rows in complete_items
+    ]
+    return {
+        "judge_slots": judge_slots,
+        "judgment_count": len(judgments),
+        "item_count": len(by_item),
+        "complete_panel_item_count": len(complete_items),
+        "per_judge_item_counts": {
+            slot: len(by_judge[slot]) for slot in judge_slots
+        },
+        "pairwise": pairwise,
+        "mean_pairwise_overall_pearson": _mean_available(
+            row["field_metrics"]["overall_readiness_0_100"]["pearson"]
+            for row in pairwise
+        ),
+        "mean_pairwise_overall_spearman": _mean_available(
+            row["field_metrics"]["overall_readiness_0_100"]["spearman"]
+            for row in pairwise
+        ),
+        "mean_pairwise_category_exact_agreement": float(
+            np.mean([row["category_exact_agreement_fraction"] for row in pairwise])
+        ),
+        "mean_complete_item_overall_variance": (
+            float(np.mean(per_item_variances)) if per_item_variances else None
+        ),
+        "maximum_complete_item_overall_variance": (
+            float(np.max(per_item_variances)) if per_item_variances else None
+        ),
+    }
+
+
+def _average_ranks(values):
+    import numpy as np
+
+    values = np.asarray(values, dtype=float)
+    order = np.argsort(values, kind="mergesort")
+    ranks = np.empty(len(values), dtype=float)
+    start = 0
+    while start < len(values):
+        stop = start + 1
+        while stop < len(values) and values[order[stop]] == values[order[start]]:
+            stop += 1
+        ranks[order[start:stop]] = (start + stop - 1) / 2.0
+        start = stop
+    return ranks
+
+
+def _safe_correlation(left, right) -> float | None:
+    import numpy as np
+
+    left = np.asarray(left, dtype=float)
+    right = np.asarray(right, dtype=float)
+    if len(left) < 2 or float(np.std(left)) == 0.0 or float(np.std(right)) == 0.0:
+        return None
+    return float(np.corrcoef(left, right)[0, 1])
+
+
+def _mean_available(values) -> float | None:
+    import numpy as np
+
+    available = [float(value) for value in values if value is not None]
+    return float(np.mean(available)) if available else None
+
+
 def _render_label_prompt(text: str, variant: str) -> str:
     anchors = (
         "0 = only understand/learn; 25 = identify concepts, criteria, or uses; "

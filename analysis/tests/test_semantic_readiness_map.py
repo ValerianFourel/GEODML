@@ -98,6 +98,11 @@ class SemanticReadinessMapTests(unittest.TestCase):
                 [missing_task_id],
             )
             self.assertEqual(diagnostics["consensus_judge_count_counts"], {"2": 1})
+            agreement = json.loads(
+                (output / "judge_agreement.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(agreement["complete_panel_item_count"], 1)
+            self.assertEqual(agreement["per_judge_item_counts"], {"judge-a": 1, "judge-b": 1})
 
     def test_compile_labels_accepts_disjoint_frozen_and_transfer_task_files(self) -> None:
         corpus = build_semantic_readiness_corpus(
@@ -149,15 +154,29 @@ class SemanticReadinessMapTests(unittest.TestCase):
             frozen_tasks = root / "frozen_tasks.jsonl"
             transfer_tasks = root / "transfer_tasks.jsonl"
             response_path = root / "responses.jsonl"
+            codebook_path = root / "codebook.jsonl"
             _write_jsonl(frozen_tasks, map(asdict, tasks[:2]))
             _write_jsonl(transfer_tasks, map(asdict, tasks[2:]))
             _write_jsonl(response_path, responses)
+            item_splits = {item.item_id: item.split for item in corpus}
+            _write_jsonl(
+                codebook_path,
+                (
+                    {
+                        "task_id": task.task_id,
+                        "item_id": task.item_id,
+                        "split": item_splits[task.item_id],
+                    }
+                    for task in tasks
+                ),
+            )
             output = root / "combined"
             output.mkdir()
             _compile_labels(
                 SimpleNamespace(
                     tasks=[str(frozen_tasks), str(transfer_tasks)],
                     responses=[str(response_path)],
+                    codebooks=[str(codebook_path)],
                     allow_missing_task_id=[],
                 ),
                 output,
@@ -168,6 +187,10 @@ class SemanticReadinessMapTests(unittest.TestCase):
             self.assertEqual(diagnostics["task_count"], 4)
             self.assertEqual(diagnostics["item_count"], 2)
             self.assertEqual(len(diagnostics["task_files"]), 2)
+            agreement = json.loads(
+                (output / "judge_agreement.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(set(agreement["by_split"]), {"development", "confirmation"})
 
 
 if __name__ == "__main__":

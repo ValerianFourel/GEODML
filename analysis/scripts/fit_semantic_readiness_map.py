@@ -28,6 +28,7 @@ from interpretability.pipeline.semantic_readiness_dataset import (  # noqa: E402
     SemanticReadinessItem,
     aggregate_readiness_consensus,
     parse_readiness_judgment,
+    summarize_readiness_judge_agreement,
 )
 from interpretability.pipeline.two_axis_prompt_population import (  # noqa: E402
     LLM2VecPromptEmbedder,
@@ -47,6 +48,12 @@ def _parser() -> argparse.ArgumentParser:
         help="One or more disjoint frozen/transfer task JSONL files.",
     )
     labels.add_argument("--responses", required=True, nargs="+")
+    labels.add_argument(
+        "--codebooks",
+        nargs="*",
+        default=[],
+        help="Optional private codebooks used only to stratify diagnostics.",
+    )
     labels.add_argument(
         "--allow-missing-task-id",
         action="append",
@@ -129,12 +136,24 @@ def _compile_labels(args, output: Path) -> None:
         for task_id in sorted(response_task_ids)
     )
     consensus = aggregate_readiness_consensus(judgments)
+    agreement = summarize_readiness_judge_agreement(judgments)
+    codebook_paths = _path_arguments(getattr(args, "codebooks", ()))
+    if codebook_paths:
+        item_splits = _item_splits_from_codebooks(codebook_paths, tasks)
+        agreement["by_split"] = {
+            split: summarize_readiness_judge_agreement(
+                [item for item in judgments if item_splits[item.item_id] == split]
+            )
+            for split in sorted(set(item_splits.values()))
+        }
     _atomic_jsonl(output / "readiness_judgments.jsonl", map(asdict, judgments))
     _atomic_jsonl(output / "readiness_consensus.jsonl", map(asdict, consensus))
+    _atomic_json(output / "judge_agreement.json", agreement)
     _atomic_json(
         output / "label_diagnostics.json",
         {
             "task_files": [str(path) for path in task_paths],
+            "codebook_files": [str(path) for path in codebook_paths],
             "task_file_sha256s": {
                 str(path): _sha256_file(path) for path in task_paths
             },
@@ -163,6 +182,37 @@ def _compile_labels(args, output: Path) -> None:
             ),
         },
     )
+
+
+def _item_splits_from_codebooks(
+    codebook_paths: tuple[Path, ...],
+    tasks: dict[str, ReadinessLabelTask],
+) -> dict[str, str]:
+    item_splits: dict[str, str] = {}
+    seen_task_ids = set()
+    for path in codebook_paths:
+        for row in _read_jsonl(path):
+            task_id = str(row.get("task_id", ""))
+            if task_id in seen_task_ids:
+                raise SystemExit(f"duplicate task_id across codebooks: {task_id}")
+            seen_task_ids.add(task_id)
+            if task_id not in tasks:
+                raise SystemExit(f"codebook task is absent from task bank: {task_id}")
+            item_id = tasks[task_id].item_id
+            split = str(row.get("split", ""))
+            if split not in {"development", "confirmation"}:
+                raise SystemExit(f"invalid codebook split for task: {task_id}")
+            previous = item_splits.setdefault(item_id, split)
+            if previous != split:
+                raise SystemExit(f"inconsistent codebook split for item: {item_id}")
+    expected_task_ids = set(tasks)
+    if seen_task_ids != expected_task_ids:
+        raise SystemExit(
+            "codebook/task mismatch: "
+            f"missing={len(expected_task_ids - seen_task_ids)}, "
+            f"unknown={len(seen_task_ids - expected_task_ids)}"
+        )
+    return item_splits
 
 
 def _embed(args, output: Path) -> None:

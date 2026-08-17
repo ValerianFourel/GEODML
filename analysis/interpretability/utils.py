@@ -339,7 +339,7 @@ def multi_gpu_load_kwargs(
             raise RuntimeError(
                 f"required {required_gpu_count} CUDA GPUs, but CUDA is unavailable"
             )
-        kw["torch_dtype"] = torch.float32
+        kw["dtype"] = torch.float32
         return kw
 
     n_gpus = torch.cuda.device_count()
@@ -377,12 +377,12 @@ def multi_gpu_load_kwargs(
             )
         except Exception as e:
             print(f"[load] bitsandbytes unavailable ({e}); falling back to fp16")
-            kw["torch_dtype"] = torch.float16
+            kw["dtype"] = torch.float16
     else:
         # Full-precision path: bf16 on H100/A100. Matches HF Inference endpoint
         # serving precision closely enough that snippet↔RAG comparisons are not
         # confounded with quantization.
-        kw["torch_dtype"] = torch.bfloat16
+        kw["dtype"] = torch.bfloat16
     return kw
 
 
@@ -513,7 +513,7 @@ class LocalRanker:
         if attention_implementation:
             kw["attn_implementation"] = attention_implementation
         if not torch.cuda.is_available():
-            kw["torch_dtype"] = getattr(torch, dtype, torch.float32)
+            kw["dtype"] = getattr(torch, dtype, torch.float32)
         print(
             f"[LocalRanker] model={model} precision={'4bit-nf4' if quantize else 'bf16-full'} "
             f"device_map={device_map_strategy} attention={attention_implementation or 'model-default'}",
@@ -582,9 +582,7 @@ class LocalRanker:
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=max_tokens,
-                do_sample=temperature > 0,
-                temperature=max(temperature, 1e-5),
-                top_p=1.0,
+                **_generation_sampling_kwargs(temperature),
                 use_cache=True,
                 pad_token_id=self.tok.eos_token_id,
             )
@@ -602,6 +600,30 @@ def _chat_template_tokenization_kwargs(
     template_kwargs["return_dict"] = True
     template_kwargs["return_attention_mask"] = True
     return template_kwargs
+
+
+def _generation_sampling_kwargs(temperature: float) -> dict[str, object]:
+    """Return warning-free deterministic or sampling generation options.
+
+    Transformers validates sampling-only values already present in a model's
+    ``generation_config`` even when ``do_sample`` is false.  Explicit ``None``
+    values neutralize those model defaults for deterministic judge runs.
+    """
+
+    if temperature < 0:
+        raise ValueError("temperature must be nonnegative")
+    if temperature == 0:
+        return {
+            "do_sample": False,
+            "temperature": None,
+            "top_p": None,
+            "top_k": None,
+        }
+    return {
+        "do_sample": True,
+        "temperature": float(temperature),
+        "top_p": 1.0,
+    }
 
 
 class OpenAIRanker:

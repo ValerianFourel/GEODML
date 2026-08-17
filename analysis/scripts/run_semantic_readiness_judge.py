@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
+import socket
+import subprocess
 import sys
 import tempfile
 
@@ -29,6 +33,14 @@ def main() -> int:
     parser.add_argument("--judge-slot", required=True)
     parser.add_argument("--backend", choices=("local", "api", "openai"), required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument(
+        "--model-family",
+        help="Frozen model-family label; required for production runs.",
+    )
+    parser.add_argument(
+        "--model-revision",
+        help="Immutable model revision; required for production runs.",
+    )
     parser.add_argument("--precision", choices=("full", "4bit"), default="full")
     parser.add_argument("--max-new-tokens", type=int, default=300)
     parser.add_argument("--maximum-attempts", type=int, default=3)
@@ -36,12 +48,20 @@ def main() -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
+        "--run-purpose",
+        choices=("debug", "production"),
+        default="debug",
+        help="Production requires an immutable model revision.",
+    )
+    parser.add_argument(
         "--skip-task-id",
         action="append",
         default=[],
         help="Explicit task ID to retain as missing; may be repeated.",
     )
     args = parser.parse_args()
+    _validate_run_contract(args)
+    started_at = _utc_now()
 
     output = Path(args.output_dir).resolve()
     if output.exists() and not args.resume:
@@ -52,11 +72,11 @@ def main() -> int:
     all_tasks = tuple(
         ReadinessLabelTask(**row) for row in _read_jsonl(Path(args.tasks).resolve())
     )
-    tasks = [item for item in all_tasks if item.judge_slot == args.judge_slot]
-    if not tasks:
+    slot_tasks = [item for item in all_tasks if item.judge_slot == args.judge_slot]
+    if not slot_tasks:
         raise SystemExit(f"no tasks for judge slot {args.judge_slot!r}")
     stop = None if args.limit is None else args.start_index + args.limit
-    tasks = tasks[args.start_index:stop]
+    tasks = slot_tasks[args.start_index:stop]
     skipped_task_ids = _validate_skipped_task_ids(tasks, args.skip_task_id)
     from interpretability.utils import make_ranker
 
@@ -72,6 +92,12 @@ def main() -> int:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             if cached.get("task_id") != task.task_id or cached.get("model") != args.model:
                 raise SystemExit(f"cache identity mismatch: {cache_path}")
+            cached_family = cached.get("model_family")
+            if cached_family is not None and cached_family != args.model_family:
+                raise SystemExit(f"cache model family mismatch: {cache_path}")
+            cached_revision = cached.get("model_revision")
+            if cached_revision is not None and cached_revision != args.model_revision:
+                raise SystemExit(f"cache model revision mismatch: {cache_path}")
             parse_readiness_judgment(task, str(cached["raw_response"]))
             responses.append(cached)
             continue
@@ -107,6 +133,8 @@ def main() -> int:
                 "item_id": task.item_id,
                 "judge_slot": task.judge_slot,
                 "model": args.model,
+                "model_family": args.model_family,
+                "model_revision": args.model_revision,
                 "backend": args.backend,
                 "precision": args.precision if args.backend == "local" else None,
                 "raw_response": raw,
@@ -122,6 +150,7 @@ def main() -> int:
                 {
                     "task_id": task.task_id,
                     "model": args.model,
+                    "model_family": args.model_family,
                     "backend": args.backend,
                     "attempts": attempts,
                 },
@@ -135,20 +164,84 @@ def main() -> int:
         {
             "judge_slot": args.judge_slot,
             "model": args.model,
+            "model_family": args.model_family,
+            "model_revision": args.model_revision,
             "backend": args.backend,
             "precision": args.precision if args.backend == "local" else None,
+            "run_purpose": args.run_purpose,
             "task_file": str(Path(args.tasks).resolve()),
             "task_file_sha256": _sha256_file(Path(args.tasks).resolve()),
+            "task_count_for_slot": len(slot_tasks),
+            "selected_task_count": len(tasks),
             "start_index": args.start_index,
             "limit": args.limit,
+            "max_new_tokens": args.max_new_tokens,
+            "maximum_attempts": args.maximum_attempts,
             "completed_count": len(responses),
             "skipped_count": len(skipped_task_ids),
             "skipped_task_ids": sorted(skipped_task_ids),
+            "started_at": started_at,
+            "completed_at": _utc_now(),
+            "git_commit_sha": _git_commit_sha(),
+            "runtime_environment": _runtime_environment(),
+            "artifact_role": "raw_judge_responses",
             "scientific_result": False,
         },
     )
     print(f"output: {output}")
     return 0
+
+
+def _validate_run_contract(args) -> None:
+    if args.start_index < 0:
+        raise SystemExit("start index must be nonnegative")
+    if args.limit is not None and args.limit <= 0:
+        raise SystemExit("limit must be positive")
+    if args.max_new_tokens <= 0 or args.maximum_attempts <= 0:
+        raise SystemExit("generation limits must be positive")
+    if args.run_purpose == "production":
+        if not str(args.model_family or "").strip():
+            raise SystemExit("production runs require --model-family")
+        if not str(args.model_revision or "").strip():
+            raise SystemExit("production runs require --model-revision")
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _git_commit_sha() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable"
+
+
+def _runtime_environment() -> dict[str, object]:
+    gpu_names: list[str] = []
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        gpu_names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return {
+        "hostname": socket.gethostname(),
+        "slurm_job_id": os.getenv("SLURM_JOB_ID"),
+        "slurm_job_partition": os.getenv("SLURM_JOB_PARTITION"),
+        "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES"),
+        "gpu_names": gpu_names,
+        "python_executable": sys.executable,
+    }
 
 
 def _read_jsonl(path: Path):

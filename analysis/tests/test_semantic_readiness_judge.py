@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -11,6 +12,7 @@ from analysis.scripts.run_semantic_readiness_judge import (
     _load_rejected_attempts,
     _render_retry_prompt,
     _validate_skipped_task_ids,
+    _validate_run_contract,
 )
 from analysis.interpretability.pipeline.semantic_readiness_dataset import (
     ReadinessLabelTask,
@@ -18,6 +20,39 @@ from analysis.interpretability.pipeline.semantic_readiness_dataset import (
 
 
 class SemanticReadinessJudgeTests(unittest.TestCase):
+    def test_production_run_requires_model_revision(self) -> None:
+        args = SimpleNamespace(
+            start_index=0,
+            limit=None,
+            max_new_tokens=300,
+            maximum_attempts=3,
+            run_purpose="production",
+            model_family="qwen",
+            model_revision=None,
+        )
+        with self.assertRaisesRegex(SystemExit, "model-revision"):
+            _validate_run_contract(args)
+
+        args.model_revision = "a" * 40
+        _validate_run_contract(args)
+
+        args.model_family = None
+        with self.assertRaisesRegex(SystemExit, "model-family"):
+            _validate_run_contract(args)
+
+    def test_debug_run_retains_backwards_compatible_optional_revision(self) -> None:
+        _validate_run_contract(
+            SimpleNamespace(
+                start_index=0,
+                limit=5,
+                max_new_tokens=300,
+                maximum_attempts=3,
+                run_purpose="debug",
+                model_family=None,
+                model_revision=None,
+            )
+        )
+
     def test_retry_prompt_repeats_the_frozen_contract(self) -> None:
         prompt = _render_retry_prompt(
             "ORIGINAL PROMPT",
