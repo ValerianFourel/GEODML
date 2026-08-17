@@ -56,6 +56,7 @@ export PYTHONUNBUFFERED=1
 export PYTHONFAULTHANDLER=1
 export GEODML_REQUIRED_GPU_COUNT=4
 export GEODML_DEVICE_MAP="${GEODML_DEVICE_MAP:-balanced}"
+READINESS_JUDGE_BATCH_SIZE="${READINESS_JUDGE_BATCH_SIZE:-1}"
 
 mkdir -p "$HF_HOME" "$PIP_CACHE_DIR" "$TMPDIR"
 
@@ -147,6 +148,7 @@ srun --ntasks=1 python -u analysis/scripts/run_semantic_readiness_judge.py \
     --precision full \
     --max-new-tokens 300 \
     --maximum-attempts 5 \
+    --batch-size "$READINESS_JUDGE_BATCH_SIZE" \
     --run-purpose production \
     --resume \
     "${skip_arguments[@]}" \

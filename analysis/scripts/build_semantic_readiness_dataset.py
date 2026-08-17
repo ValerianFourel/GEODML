@@ -86,6 +86,12 @@ def _parser() -> argparse.ArgumentParser:
     extend.add_argument("--output-dir", required=True)
     extend.add_argument("--base-corpus", required=True)
     extend.add_argument("--transfer-records", required=True)
+    extend.add_argument(
+        "--additional-transfer-records",
+        action="append",
+        default=[],
+        help="Additional disjoint transfer-record JSONL file; may be repeated.",
+    )
     extend.add_argument("--source-specification")
 
     label = stages.add_parser("export-labeling")
@@ -332,11 +338,17 @@ def _merge_transfer(args, output: Path) -> None:
     sources = load_transfer_source_specification(specification_path)
     base_path = Path(args.base_corpus).resolve()
     transfer_path = Path(args.transfer_records).resolve()
+    additional_transfer_paths = tuple(
+        Path(value).resolve() for value in args.additional_transfer_records
+    )
+    transfer_paths = (transfer_path, *additional_transfer_paths)
     base = tuple(
         SemanticReadinessItem(**row) for row in _read_jsonl(base_path)
     )
     records = tuple(
-        TransferPromptRecord(**row) for row in _read_jsonl(transfer_path)
+        TransferPromptRecord(**row)
+        for path in transfer_paths
+        for row in _read_jsonl(path)
     )
     source_by_id = {item.source_id: item for item in sources}
     included_source_ids = {item.source_id for item in records}
@@ -369,6 +381,13 @@ def _merge_transfer(args, output: Path) -> None:
             base_corpus_sha256=_sha256_file(base_path),
             transfer_records=str(transfer_path),
             transfer_records_sha256=_sha256_file(transfer_path),
+            additional_transfer_records=[
+                {
+                    "path": str(path),
+                    "sha256": _sha256_file(path),
+                }
+                for path in additional_transfer_paths
+            ],
             transfer_corpus_sha256=_sha256_file(transfer_corpus_path),
             expanded_corpus_sha256=_sha256_file(expanded_corpus_path),
             counts_by_source_and_split=counts,

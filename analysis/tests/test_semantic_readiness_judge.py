@@ -11,6 +11,7 @@ import unittest
 from analysis.scripts.run_semantic_readiness_judge import (
     _load_rejected_attempts,
     _render_retry_prompt,
+    _run_local_batches,
     _validate_skipped_task_ids,
     _validate_run_contract,
 )
@@ -20,6 +21,23 @@ from analysis.interpretability.pipeline.semantic_readiness_dataset import (
 
 
 class SemanticReadinessJudgeTests(unittest.TestCase):
+    @staticmethod
+    def _valid_response(overall: int = 50) -> str:
+        return json.dumps(
+            {
+                "overall_readiness_0_100": overall,
+                "information_seeking_1_7": 4,
+                "evaluation_1_7": 4,
+                "selection_commitment_1_7": 4,
+                "action_implementation_1_7": 4,
+                "category": "mixed",
+                "not_applicable": False,
+                "ambiguity_1_7": 2,
+                "confidence_0_1": 0.8,
+                "brief_reason": "The request mixes information and action.",
+            }
+        )
+
     def test_production_run_requires_model_revision(self) -> None:
         args = SimpleNamespace(
             start_index=0,
@@ -52,6 +70,74 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
                 model_revision=None,
             )
         )
+
+    def test_nonlocal_batching_is_rejected(self) -> None:
+        args = SimpleNamespace(
+            start_index=0,
+            limit=None,
+            max_new_tokens=300,
+            maximum_attempts=3,
+            batch_size=2,
+            backend="api",
+            run_purpose="debug",
+            model_family=None,
+            model_revision=None,
+        )
+        with self.assertRaisesRegex(SystemExit, "backend local"):
+            _validate_run_contract(args)
+
+    def test_local_batches_retry_only_invalid_rows_and_restore_task_order(self) -> None:
+        tasks = [
+            ReadinessLabelTask(
+                task_id=f"task:{index}",
+                item_id=f"item:{index}",
+                judge_slot="judge-a",
+                presentation_variant="forward-anchors",
+                rubric_version="test",
+                prompt=f"PROMPT {index}",
+            )
+            for index in range(3)
+        ]
+
+        class FakeRanker:
+            calls = 0
+
+            def rank_batch(self, prompts, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return [SemanticReadinessJudgeTests._valid_response(10), "{}"]
+                if self.calls == 2:
+                    return [
+                        SemanticReadinessJudgeTests._valid_response(30),
+                        SemanticReadinessJudgeTests._valid_response(20),
+                    ]
+                raise AssertionError("unexpected extra generation batch")
+
+        args = SimpleNamespace(
+            batch_size=2,
+            max_new_tokens=300,
+            maximum_attempts=3,
+            resume=False,
+            model="llama",
+            model_family="llama",
+            model_revision="revision",
+            backend="local",
+            precision="full",
+            judge_slot="judge-a",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            rows = _run_local_batches(
+                FakeRanker(),
+                tasks,
+                cache=cache,
+                skipped_task_ids=frozenset(),
+                args=args,
+            )
+
+            self.assertEqual([row["task_id"] for row in rows], [task.task_id for task in tasks])
+            retried = json.loads((cache / "task_1.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(retried["rejected_attempts"]), 1)
 
     def test_retry_prompt_repeats_the_frozen_contract(self) -> None:
         prompt = _render_retry_prompt(

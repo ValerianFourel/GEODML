@@ -44,6 +44,12 @@ def main() -> int:
     parser.add_argument("--precision", choices=("full", "4bit"), default="full")
     parser.add_argument("--max-new-tokens", type=int, default=300)
     parser.add_argument("--maximum-attempts", type=int, default=3)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Local-backend generation batch size; OOM batches split automatically.",
+    )
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--resume", action="store_true")
@@ -81,6 +87,65 @@ def main() -> int:
     from interpretability.utils import make_ranker
 
     ranker = make_ranker(args.backend, args.model, precision=args.precision)
+    if args.backend == "local" and args.batch_size > 1:
+        responses = _run_local_batches(
+            ranker,
+            tasks,
+            cache=cache,
+            skipped_task_ids=skipped_task_ids,
+            args=args,
+        )
+    else:
+        responses = _run_serial_tasks(
+            ranker,
+            tasks,
+            cache=cache,
+            skipped_task_ids=skipped_task_ids,
+            args=args,
+        )
+    _atomic_jsonl(output / "judge_responses.jsonl", responses)
+    _atomic_json(
+        output / "run_manifest.json",
+        {
+            "judge_slot": args.judge_slot,
+            "model": args.model,
+            "model_family": args.model_family,
+            "model_revision": args.model_revision,
+            "backend": args.backend,
+            "precision": args.precision if args.backend == "local" else None,
+            "batch_size": args.batch_size,
+            "run_purpose": args.run_purpose,
+            "task_file": str(Path(args.tasks).resolve()),
+            "task_file_sha256": _sha256_file(Path(args.tasks).resolve()),
+            "task_count_for_slot": len(slot_tasks),
+            "selected_task_count": len(tasks),
+            "start_index": args.start_index,
+            "limit": args.limit,
+            "max_new_tokens": args.max_new_tokens,
+            "maximum_attempts": args.maximum_attempts,
+            "completed_count": len(responses),
+            "skipped_count": len(skipped_task_ids),
+            "skipped_task_ids": sorted(skipped_task_ids),
+            "started_at": started_at,
+            "completed_at": _utc_now(),
+            "git_commit_sha": _git_commit_sha(),
+            "runtime_environment": _runtime_environment(),
+            "artifact_role": "raw_judge_responses",
+            "scientific_result": False,
+        },
+    )
+    print(f"output: {output}")
+    return 0
+
+
+def _run_serial_tasks(
+    ranker,
+    tasks: list[ReadinessLabelTask],
+    *,
+    cache: Path,
+    skipped_task_ids: frozenset[str],
+    args,
+) -> list[dict[str, object]]:
     responses = []
     for index, task in enumerate(tasks, 1):
         cache_path = cache / f"{task.task_id.replace(':', '_')}.json"
@@ -158,38 +223,116 @@ def main() -> int:
             raise SystemExit(f"judge exhausted attempts: {failure_path}")
         if index % 50 == 0 or index == len(tasks):
             print(f"[{index}/{len(tasks)}] {args.judge_slot}", flush=True)
-    _atomic_jsonl(output / "judge_responses.jsonl", responses)
-    _atomic_json(
-        output / "run_manifest.json",
-        {
-            "judge_slot": args.judge_slot,
-            "model": args.model,
-            "model_family": args.model_family,
-            "model_revision": args.model_revision,
-            "backend": args.backend,
-            "precision": args.precision if args.backend == "local" else None,
-            "run_purpose": args.run_purpose,
-            "task_file": str(Path(args.tasks).resolve()),
-            "task_file_sha256": _sha256_file(Path(args.tasks).resolve()),
-            "task_count_for_slot": len(slot_tasks),
-            "selected_task_count": len(tasks),
-            "start_index": args.start_index,
-            "limit": args.limit,
-            "max_new_tokens": args.max_new_tokens,
-            "maximum_attempts": args.maximum_attempts,
-            "completed_count": len(responses),
-            "skipped_count": len(skipped_task_ids),
-            "skipped_task_ids": sorted(skipped_task_ids),
-            "started_at": started_at,
-            "completed_at": _utc_now(),
-            "git_commit_sha": _git_commit_sha(),
-            "runtime_environment": _runtime_environment(),
-            "artifact_role": "raw_judge_responses",
-            "scientific_result": False,
-        },
-    )
-    print(f"output: {output}")
-    return 0
+    return responses
+
+
+def _run_local_batches(
+    ranker,
+    tasks: list[ReadinessLabelTask],
+    *,
+    cache: Path,
+    skipped_task_ids: frozenset[str],
+    args,
+) -> list[dict[str, object]]:
+    completed: dict[str, dict[str, object]] = {}
+    pending: list[tuple[ReadinessLabelTask, list[dict[str, object]]]] = []
+    for task in tasks:
+        if task.task_id in skipped_task_ids:
+            continue
+        cache_path = cache / f"{task.task_id.replace(':', '_')}.json"
+        failure_path = cache_path.with_suffix(".failed.json")
+        if cache_path.exists():
+            row = json.loads(cache_path.read_text(encoding="utf-8"))
+            _validate_cached_response(task, row, cache_path, args)
+            completed[task.task_id] = row
+        else:
+            attempts = _load_rejected_attempts(failure_path) if args.resume else []
+            pending.append((task, attempts))
+
+    while pending:
+        batch = pending[: args.batch_size]
+        del pending[: args.batch_size]
+        prompts = [
+            _render_retry_prompt(task.prompt, str(attempts[-1]["error"]), str(attempts[-1]["raw"]))
+            if attempts
+            else task.prompt
+            for task, attempts in batch
+        ]
+        raw_responses = ranker.rank_batch(
+            prompts,
+            max_tokens=args.max_new_tokens,
+            temperature=0.0,
+        )
+        if len(raw_responses) != len(batch):
+            raise SystemExit(
+                f"local batch returned {len(raw_responses)} responses for {len(batch)} tasks"
+            )
+        exhausted = []
+        for (task, attempts), raw in zip(batch, raw_responses):
+            cache_path = cache / f"{task.task_id.replace(':', '_')}.json"
+            failure_path = cache_path.with_suffix(".failed.json")
+            try:
+                parse_readiness_judgment(task, str(raw))
+            except ValueError as exc:
+                attempts.append(
+                    {"attempt": len(attempts) + 1, "error": str(exc), "raw": str(raw)}
+                )
+                _atomic_json(
+                    failure_path,
+                    {
+                        "task_id": task.task_id,
+                        "model": args.model,
+                        "model_family": args.model_family,
+                        "backend": args.backend,
+                        "attempts": attempts,
+                    },
+                )
+                if len(attempts) >= args.maximum_attempts:
+                    exhausted.append(task.task_id)
+                else:
+                    pending.append((task, attempts))
+                continue
+            row = _response_row(task, str(raw), attempts, args)
+            _atomic_json(cache_path, row)
+            failure_path.unlink(missing_ok=True)
+            completed[task.task_id] = row
+        print(
+            f"[{len(completed)}/{len(tasks) - len(skipped_task_ids)}] "
+            f"{args.judge_slot}; pending={len(pending)}",
+            flush=True,
+        )
+        if exhausted:
+            raise SystemExit(f"judge exhausted attempts for task IDs: {sorted(exhausted)}")
+    return [
+        completed[task.task_id]
+        for task in tasks
+        if task.task_id not in skipped_task_ids
+    ]
+
+
+def _validate_cached_response(task, row, cache_path: Path, args) -> None:
+    if row.get("task_id") != task.task_id or row.get("model") != args.model:
+        raise SystemExit(f"cache identity mismatch: {cache_path}")
+    if row.get("model_family") not in {None, args.model_family}:
+        raise SystemExit(f"cache model family mismatch: {cache_path}")
+    if row.get("model_revision") not in {None, args.model_revision}:
+        raise SystemExit(f"cache model revision mismatch: {cache_path}")
+    parse_readiness_judgment(task, str(row["raw_response"]))
+
+
+def _response_row(task, raw: str, attempts, args) -> dict[str, object]:
+    return {
+        "task_id": task.task_id,
+        "item_id": task.item_id,
+        "judge_slot": task.judge_slot,
+        "model": args.model,
+        "model_family": args.model_family,
+        "model_revision": args.model_revision,
+        "backend": args.backend,
+        "precision": args.precision if args.backend == "local" else None,
+        "raw_response": raw,
+        "rejected_attempts": attempts,
+    }
 
 
 def _validate_run_contract(args) -> None:
@@ -199,6 +342,10 @@ def _validate_run_contract(args) -> None:
         raise SystemExit("limit must be positive")
     if args.max_new_tokens <= 0 or args.maximum_attempts <= 0:
         raise SystemExit("generation limits must be positive")
+    if getattr(args, "batch_size", 1) <= 0:
+        raise SystemExit("batch size must be positive")
+    if getattr(args, "backend", "local") != "local" and getattr(args, "batch_size", 1) != 1:
+        raise SystemExit("batch sizes above one currently require --backend local")
     if args.run_purpose == "production":
         if not str(args.model_family or "").strip():
             raise SystemExit("production runs require --model-family")

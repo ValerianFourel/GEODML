@@ -495,6 +495,7 @@ class LocalRanker:
         self.tok = AutoTokenizer.from_pretrained(model, use_fast=True)
         if self.tok.pad_token_id is None:
             self.tok.pad_token = self.tok.eos_token
+        self.tok.padding_side = "left"
 
         required_gpu_text = os.getenv("GEODML_REQUIRED_GPU_COUNT")
         required_gpu_count = int(required_gpu_text) if required_gpu_text else None
@@ -589,6 +590,76 @@ class LocalRanker:
         # Strip the prompt tokens — only return the generated continuation.
         gen = out[0, input_ids.shape[-1]:]
         return self.tok.decode(gen, skip_special_tokens=True)
+
+    def rank_batch(
+        self,
+        prompts: Sequence[str],
+        max_tokens: int = 500,
+        temperature: float = 0.1,
+        *,
+        chat_template_kwargs: Mapping[str, object] | None = None,
+    ) -> list[str]:
+        """Generate independent continuations as one padded local batch."""
+
+        import torch
+
+        if not prompts:
+            return []
+        if self._has_chat_template:
+            template_kwargs = dict(chat_template_kwargs or {})
+            rendered = [
+                self.tok.apply_chat_template(
+                    [{"role": "user", "content": prompt}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    **template_kwargs,
+                )
+                for prompt in prompts
+            ]
+        else:
+            rendered = list(prompts)
+        encoded = self.tok(
+            rendered,
+            add_special_tokens=False,
+            padding=True,
+            return_attention_mask=True,
+            return_tensors="pt",
+        ).to(self.device)
+        prompt_width = int(encoded["input_ids"].shape[-1])
+        try:
+            with torch.inference_mode():
+                output = self.model.generate(
+                    **encoded,
+                    max_new_tokens=max_tokens,
+                    **_generation_sampling_kwargs(temperature),
+                    use_cache=True,
+                    pad_token_id=self.tok.pad_token_id,
+                )
+        except torch.OutOfMemoryError:
+            if len(prompts) == 1:
+                raise
+            torch.cuda.empty_cache()
+            midpoint = len(prompts) // 2
+            print(
+                f"[LocalRanker] splitting OOM batch {len(prompts)} into "
+                f"{midpoint}+{len(prompts) - midpoint}",
+                flush=True,
+            )
+            return self.rank_batch(
+                prompts[:midpoint],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                chat_template_kwargs=chat_template_kwargs,
+            ) + self.rank_batch(
+                prompts[midpoint:],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                chat_template_kwargs=chat_template_kwargs,
+            )
+        return self.tok.batch_decode(
+            output[:, prompt_width:],
+            skip_special_tokens=True,
+        )
 
 
 def _chat_template_tokenization_kwargs(

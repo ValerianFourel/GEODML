@@ -247,6 +247,67 @@ class SemanticReadinessTransferTests(unittest.TestCase):
         self.assertEqual(new_tasks[0].prompt, old_tasks[0].prompt)
         self.assertNotIn("google-taskmaster-1", new_tasks[-1].prompt)
 
+    def test_fourth_judge_and_transfer_rows_preserve_every_frozen_panel_task(self) -> None:
+        sources = load_transfer_source_specification()
+        base = build_semantic_readiness_corpus(
+            (
+                {
+                    "source_id": "databricks-dolly-15k",
+                    "source_record_id": "dolly:1",
+                    "text": "Explain how solar panels generate electricity.",
+                    "corpus_split": "development",
+                    "surface_family_id": "family:1",
+                },
+            ),
+            (),
+        )
+        records = build_transfer_prompt_panel(
+            {
+                "lmsys-chat-1m": (
+                    {
+                        "conversation_id": "lmsys-new",
+                        "language": "English",
+                        "conversation": [
+                            {
+                                "role": "user",
+                                "content": "Help me choose a retirement account.",
+                            }
+                        ],
+                    },
+                )
+            },
+            source_revisions={"lmsys-chat-1m": "pinned-revision"},
+            sources=sources,
+            maximum_per_source=10,
+        )[0]
+        _, expanded, _ = extend_semantic_readiness_corpus(
+            base,
+            records,
+            sources=sources,
+        )
+        frozen_slots = (
+            "primary-frontier",
+            "replicate-frontier-a",
+            "replicate-frontier-b",
+        )
+        old_tasks, _ = build_readiness_label_tasks(base, judge_slots=frozen_slots)
+        new_tasks, _ = build_readiness_label_tasks(
+            expanded,
+            judge_slots=(*frozen_slots, "replicate-frontier-c"),
+        )
+        new_by_identity = {
+            (task.item_id, task.judge_slot): task for task in new_tasks
+        }
+
+        for old_task in old_tasks:
+            preserved = new_by_identity[(old_task.item_id, old_task.judge_slot)]
+            self.assertEqual(preserved.task_id, old_task.task_id)
+            self.assertEqual(preserved.prompt, old_task.prompt)
+            self.assertEqual(
+                preserved.presentation_variant,
+                old_task.presentation_variant,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

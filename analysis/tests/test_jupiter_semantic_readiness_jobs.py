@@ -12,11 +12,12 @@ JUPITER_ROOT = REPOSITORY_ROOT / "analysis/scripts/slurm/jupiter"
 SBATCH = JUPITER_ROOT / "run_semantic_readiness_judge.sbatch"
 SUBMIT = JUPITER_ROOT / "submit_semantic_readiness_panel.sh"
 BEHAVIORAL_DEBUG_QUEUE = JUPITER_ROOT / "run_readiness_behavioral_debug_queue.sh"
+EXPANDED_LLAMA_QUEUE = JUPITER_ROOT / "run_readiness_expanded_llama_queue.sbatch"
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
     def test_shell_scripts_are_valid_bash(self) -> None:
-        for script in (SBATCH, SUBMIT, BEHAVIORAL_DEBUG_QUEUE):
+        for script in (SBATCH, SUBMIT, BEHAVIORAL_DEBUG_QUEUE, EXPANDED_LLAMA_QUEUE):
             with self.subTest(script=script.name):
                 result = subprocess.run(
                     ["bash", "-n", str(script)],
@@ -70,6 +71,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("--model-family \"$JUDGE_MODEL_FAMILY\"", job)
         self.assertIn("--run-purpose production", job)
         self.assertIn("--resume", job)
+        self.assertIn("READINESS_JUDGE_BATCH_SIZE", job)
         self.assertIn("artifact-sha256.txt", job)
         self.assertIn('manifest["task_count_for_slot"]', job)
 
@@ -88,6 +90,23 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("replicate-frontier-a", submitter)
         self.assertIn("replicate-frontier-b", submitter)
         self.assertEqual(submitter.count("\nsubmit_one "), 3)
+
+    def test_expanded_queue_uses_four_distinct_families_and_two_task_banks(self) -> None:
+        queue = EXPANDED_LLAMA_QUEUE.read_text(encoding="utf-8")
+
+        self.assertIn("READINESS_TRANSFER_TASKS_SHA256", queue)
+        self.assertIn("READINESS_EXPANDED_TASKS_SHA256", queue)
+        self.assertIn("replicate-frontier-c", queue)
+        self.assertIn("llama3.3-70b-replicate-c", queue)
+        self.assertIn("--model-family llama", queue)
+        self.assertIn("--batch-size \"${LLAMA_BATCH_SIZE:-16}\"", queue)
+        self.assertIn("GEODML_DEVICE_MAP=balanced", queue)
+        self.assertIn("run_data_parallel full qwen3-32b", queue)
+        self.assertIn("run_data_parallel full ministral3-8b", queue)
+        self.assertIn("run_data_parallel full gemma4-31b", queue)
+        self.assertIn("--run-purpose \"$purpose\"", queue)
+        self.assertIn("--resume", queue)
+        self.assertIn("artifact-sha256.txt", queue)
 
 
 if __name__ == "__main__":
