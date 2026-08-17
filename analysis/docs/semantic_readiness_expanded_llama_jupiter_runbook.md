@@ -58,7 +58,6 @@ HF_XET_HIGH_PERFORMANCE=1 hf download \
   "$LMSYS_REPO" \
   --repo-type dataset \
   --revision "$LMSYS_REVISION" \
-  --include 'data/*.parquet' README.md \
   --local-dir "$LMSYS_SNAPSHOT"
 
 HF_XET_HIGH_PERFORMANCE=1 hf download \
