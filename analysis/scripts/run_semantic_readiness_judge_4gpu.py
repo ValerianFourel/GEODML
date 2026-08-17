@@ -261,7 +261,17 @@ def main() -> int:
             "started_at": started_at,
             "completed_at": _utc_now(),
         }
-        _atomic_json(worker_directory / "worker_manifest.json", worker_manifest)
+        worker_manifest_path = worker_directory / "worker_manifest.json"
+        if not _is_noop_completed_resume(
+            output,
+            args=args,
+            cached_count=cached_count,
+            generated_count=generated_count,
+            exhausted_task_ids=exhausted_task_ids,
+            worker_task_count=len(worker_tasks),
+            worker_manifest_path=worker_manifest_path,
+        ):
+            _atomic_json(worker_manifest_path, worker_manifest)
 
         all_exhausted = [None for _ in range(world_size)]
         distributed.all_gather_object(all_exhausted, exhausted_task_ids)
@@ -564,6 +574,18 @@ def _merge_responses(
         "git_commit_sha": _git_commit_sha(),
         "completed_at": _utc_now(),
     }
+    if _completed_resume_matches(
+        output,
+        args=args,
+        responses=responses,
+        expected_manifest=manifest,
+    ):
+        print(
+            f"[rank 0] resume validated {len(responses)}/{len(selected_tasks)} "
+            f"cached responses; preserving completed artifacts: {output}",
+            flush=True,
+        )
+        return
     _atomic_json(output / "run_manifest.json", manifest)
     if failed_task_ids or missing_task_ids:
         raise RuntimeError(
@@ -575,6 +597,65 @@ def _merge_responses(
         f"[rank 0] merged {len(responses)}/{len(selected_tasks)} responses: {output}",
         flush=True,
     )
+
+
+def _is_noop_completed_resume(
+    output: Path,
+    *,
+    args,
+    cached_count: int,
+    generated_count: int,
+    exhausted_task_ids: Sequence[str],
+    worker_task_count: int,
+    worker_manifest_path: Path,
+) -> bool:
+    if not args.resume:
+        return False
+    if generated_count or exhausted_task_ids or cached_count != worker_task_count:
+        return False
+    run_manifest_path = output / "run_manifest.json"
+    if not run_manifest_path.exists() or not worker_manifest_path.exists():
+        return False
+    manifest = _read_json(run_manifest_path)
+    return bool(manifest.get("is_complete"))
+
+
+def _completed_resume_matches(
+    output: Path,
+    *,
+    args,
+    responses: Sequence[dict[str, object]],
+    expected_manifest: dict[str, object],
+) -> bool:
+    if not args.resume:
+        return False
+    manifest_path = output / "run_manifest.json"
+    response_path = output / "judge_responses.jsonl"
+    if not manifest_path.exists() or not response_path.exists():
+        return False
+    existing_manifest = _read_json(manifest_path)
+    identity_fields = (
+        "format_version",
+        "backend",
+        "judge_slot",
+        "model",
+        "model_family",
+        "model_revision",
+        "task_file_sha256",
+        "selected_task_count",
+        "start_index",
+        "limit",
+        "world_size",
+        "batch_size_per_gpu",
+    )
+    if any(
+        existing_manifest.get(field) != expected_manifest.get(field)
+        for field in identity_fields
+    ):
+        return False
+    if not existing_manifest.get("is_complete"):
+        return False
+    return _read_jsonl(response_path) == list(responses)
 
 
 def _validate_arguments(args) -> None:

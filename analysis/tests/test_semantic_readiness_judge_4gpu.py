@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 
@@ -9,6 +12,8 @@ from analysis.interpretability.pipeline.semantic_readiness_dataset import (
     ReadinessLabelTask,
 )
 from analysis.scripts.run_semantic_readiness_judge_4gpu import (
+    _completed_resume_matches,
+    _is_noop_completed_resume,
     _prompt_for_attempt,
     _render_chat_prompts,
     _shard_tasks,
@@ -104,6 +109,77 @@ class SemanticReadinessJudge4GpuTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SystemExit, "may not set --limit"):
             _validate_arguments(args)
+
+    def test_completed_cache_only_resume_preserves_existing_artifacts(self) -> None:
+        args = SimpleNamespace(resume=True)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory)
+            worker_manifest = output / "workers" / "rank-0" / "worker_manifest.json"
+            worker_manifest.parent.mkdir(parents=True)
+            worker_manifest.write_text("{}\n", encoding="utf-8")
+            (output / "run_manifest.json").write_text(
+                json.dumps({"is_complete": True}) + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                _is_noop_completed_resume(
+                    output,
+                    args=args,
+                    cached_count=3,
+                    generated_count=0,
+                    exhausted_task_ids=[],
+                    worker_task_count=3,
+                    worker_manifest_path=worker_manifest,
+                )
+            )
+
+    def test_completed_resume_requires_identical_merged_responses(self) -> None:
+        args = SimpleNamespace(resume=True)
+        expected_manifest = {
+            "format_version": "v1",
+            "backend": "backend",
+            "judge_slot": "slot",
+            "model": "model",
+            "model_family": "family",
+            "model_revision": "revision",
+            "task_file_sha256": "sha",
+            "selected_task_count": 1,
+            "start_index": 0,
+            "limit": None,
+            "world_size": 4,
+            "batch_size_per_gpu": 32,
+            "is_complete": True,
+        }
+        responses = [{"task_id": "task:0", "raw_response": "{}"}]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory)
+            (output / "run_manifest.json").write_text(
+                json.dumps(expected_manifest) + "\n",
+                encoding="utf-8",
+            )
+            (output / "judge_responses.jsonl").write_text(
+                json.dumps(responses[0]) + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                _completed_resume_matches(
+                    output,
+                    args=args,
+                    responses=responses,
+                    expected_manifest=expected_manifest,
+                )
+            )
+            responses[0]["raw_response"] = "changed"
+            self.assertFalse(
+                _completed_resume_matches(
+                    output,
+                    args=args,
+                    responses=responses,
+                    expected_manifest=expected_manifest,
+                )
+            )
 
 
 if __name__ == "__main__":
