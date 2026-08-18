@@ -47,6 +47,15 @@ def main() -> int:
     parser.add_argument("--max-new-tokens", type=int, default=300)
     parser.add_argument("--maximum-attempts", type=int, default=3)
     parser.add_argument(
+        "--resume-extra-attempts",
+        type=int,
+        default=0,
+        help=(
+            "Additional attempts for tasks that already have a failed cache when "
+            "--resume starts; successful caches are never regenerated."
+        ),
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=1,
@@ -125,6 +134,7 @@ def main() -> int:
             "limit": args.limit,
             "max_new_tokens": args.max_new_tokens,
             "maximum_attempts": args.maximum_attempts,
+            "resume_extra_attempts": args.resume_extra_attempts,
             "completed_count": len(responses),
             "skipped_count": len(skipped_task_ids),
             "skipped_task_ids": sorted(skipped_task_ids),
@@ -169,7 +179,8 @@ def _run_serial_tasks(
             responses.append(cached)
             continue
         attempts = _load_rejected_attempts(failure_path) if args.resume else []
-        for _ in range(args.maximum_attempts):
+        attempt_limit = _resume_attempt_limit(args, attempts)
+        for _ in range(attempt_limit - len(attempts)):
             prompt = task.prompt
             if attempts:
                 prompt = _render_retry_prompt(
@@ -250,7 +261,7 @@ def _run_local_batches(
             completed[task.task_id] = row
         else:
             attempts = _load_rejected_attempts(failure_path) if args.resume else []
-            pending.append((task, attempts))
+            pending.append((task, attempts, _resume_attempt_limit(args, attempts)))
 
     while pending:
         batch = pending[: args.batch_size]
@@ -264,7 +275,7 @@ def _run_local_batches(
             )
             if attempts
             else task.prompt
-            for task, attempts in batch
+            for task, attempts, _ in batch
         ]
         raw_responses = ranker.rank_batch(
             prompts,
@@ -276,7 +287,7 @@ def _run_local_batches(
                 f"local batch returned {len(raw_responses)} responses for {len(batch)} tasks"
             )
         exhausted = []
-        for (task, attempts), raw in zip(batch, raw_responses):
+        for (task, attempts, attempt_limit), raw in zip(batch, raw_responses):
             cache_path = cache / f"{task.task_id.replace(':', '_')}.json"
             failure_path = cache_path.with_suffix(".failed.json")
             try:
@@ -295,10 +306,10 @@ def _run_local_batches(
                         "attempts": attempts,
                     },
                 )
-                if len(attempts) >= args.maximum_attempts:
+                if len(attempts) >= attempt_limit:
                     exhausted.append(task.task_id)
                 else:
-                    pending.append((task, attempts))
+                    pending.append((task, attempts, attempt_limit))
                 continue
             row = _response_row(task, str(raw), attempts, args)
             _atomic_json(cache_path, row)
@@ -350,6 +361,8 @@ def _validate_run_contract(args) -> None:
         raise SystemExit("limit must be positive")
     if args.max_new_tokens <= 0 or args.maximum_attempts <= 0:
         raise SystemExit("generation limits must be positive")
+    if getattr(args, "resume_extra_attempts", 0) < 0:
+        raise SystemExit("resume extra attempts must be nonnegative")
     if getattr(args, "batch_size", 1) <= 0:
         raise SystemExit("batch size must be positive")
     if getattr(args, "backend", "local") != "local" and getattr(args, "batch_size", 1) != 1:
@@ -451,13 +464,23 @@ def _render_retry_prompt(
   "category": <"information"|"criteria"|"comparison"|"selection"|"action"|"mixed"|null>,
   "ambiguity_1_7": <integer 1..7>,
   "confidence_0_1": <number 0..1>,
-  "brief_reason": <1 to 20 words>
+  "brief_reason": <1 to 25 words>
 }
 For answer_type="rating", all five scores must be integers and category must
 be an applicable category. For answer_type="not_applicable" or "dont_know",
 all five scores and category must be null. Preserve the distinction:
 not_applicable means the construct is irrelevant; dont_know means it is
 relevant but cannot be rated defensibly from the text.'''
+        repair_rules = '''
+Return filled JSON values, never schema placeholders, angle brackets, field
+descriptions, Markdown, or copied prompt text. The category field describes the
+readiness stage and must be exactly one of "information", "criteria",
+"comparison", "selection", "action", or "mixed" for answer_type="rating".
+The value "evaluation" is never a valid category; evaluation intensity belongs
+only in evaluation_1_7. Use "criteria" for assessing requirements, suitability,
+risk, or safety without explicit alternatives; use "comparison" only when the
+text compares alternatives. If the previous category was invalid, re-read the
+text and replace only that category with the best valid readiness-stage value.'''
     else:
         contract = '''{
   "overall_readiness_0_100": <integer 0..100>,
@@ -479,6 +502,7 @@ re-read the original text and choose exactly one of these valid forms:
 - not applicable: category is "not_applicable" and not_applicable is true.
 The invalid pair from the previous response must not be repeated. Preserve every
 other valid field. Do not use category values such as evaluation or review.'''
+        repair_rules = ""
     return f'''{prompt}
 
 Your previous response failed validation: {validation_error}
@@ -492,7 +516,20 @@ is already valid.
 
 Return exactly one JSON object and nothing else. Use these exact keys without
 renaming, shortening, or adding keys:
-{contract}'''
+{contract}
+{repair_rules}'''
+
+
+def _resume_attempt_limit(args, attempts: list[dict[str, object]]) -> int:
+    """Return a fixed per-task cap for this process invocation."""
+
+    maximum_attempts = int(args.maximum_attempts)
+    if not args.resume or not attempts:
+        return maximum_attempts
+    return max(
+        maximum_attempts,
+        len(attempts) + int(getattr(args, "resume_extra_attempts", 0)),
+    )
 
 
 def _atomic_json(path: Path, value) -> None:

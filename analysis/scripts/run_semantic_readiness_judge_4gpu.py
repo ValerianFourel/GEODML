@@ -36,9 +36,13 @@ from interpretability.pipeline.semantic_readiness_dataset import (  # noqa: E402
 try:  # Support package imports in tests and direct script execution.
     from analysis.scripts.run_semantic_readiness_judge import (  # noqa: E402
         _render_retry_prompt,
+        _resume_attempt_limit,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct cluster invocation
-    from run_semantic_readiness_judge import _render_retry_prompt  # noqa: E402
+    from run_semantic_readiness_judge import (  # noqa: E402
+        _render_retry_prompt,
+        _resume_attempt_limit,
+    )
 
 
 BACKEND_NAME = "local-four-gpu-data-parallel"
@@ -65,6 +69,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-input-tokens", type=int, default=2048)
     parser.add_argument("--max-new-tokens", type=int, default=300)
     parser.add_argument("--maximum-attempts", type=int, default=5)
+    parser.add_argument(
+        "--resume-extra-attempts",
+        type=int,
+        default=0,
+        help=(
+            "Additional attempts for tasks with a failed cache at resume start; "
+            "successful caches are never regenerated."
+        ),
+    )
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--expected-world-size", type=int, default=4)
@@ -162,10 +175,11 @@ def main() -> int:
             attempts = _load_failure_attempts(
                 cache_path.with_suffix(".failed.json"), task, args
             )
-            if len(attempts) >= args.maximum_attempts:
+            attempt_limit = _resume_attempt_limit(args, attempts)
+            if len(attempts) >= attempt_limit:
                 exhausted_task_ids.append(task.task_id)
                 continue
-            pending.append((task, attempts))
+            pending.append((task, attempts, attempt_limit))
 
         model = None
         load_seconds = 0.0
@@ -192,7 +206,7 @@ def main() -> int:
             del pending[: args.batch_size]
             prompts = [
                 _prompt_for_attempt(task, attempts)
-                for task, attempts in current
+                for task, attempts, _ in current
             ]
             raw_responses = model.generate(
                 prompts,
@@ -201,7 +215,9 @@ def main() -> int:
             if len(raw_responses) != len(current):
                 raise RuntimeError("batched generation changed response cardinality")
 
-            for (task, attempts), raw_response in zip(current, raw_responses):
+            for (task, attempts, attempt_limit), raw_response in zip(
+                current, raw_responses
+            ):
                 cache_path = _task_cache_path(cache_directory, task.task_id)
                 failure_path = cache_path.with_suffix(".failed.json")
                 try:
@@ -219,10 +235,10 @@ def main() -> int:
                         failure_path,
                         _failure_payload(task, attempts, args, rank),
                     )
-                    if len(attempts) >= args.maximum_attempts:
+                    if len(attempts) >= attempt_limit:
                         exhausted_task_ids.append(task.task_id)
                     else:
-                        pending.append((task, attempts))
+                        pending.append((task, attempts, attempt_limit))
                     continue
 
                 _atomic_json(
@@ -261,6 +277,7 @@ def main() -> int:
             "cached_count": cached_count,
             "generated_count": generated_count,
             "rejected_attempt_count": rejected_count,
+            "resume_extra_attempts": args.resume_extra_attempts,
             "exhausted_task_ids": exhausted_task_ids,
             "load_seconds": load_seconds,
             "wall_seconds": time.monotonic() - wall_started,
@@ -590,6 +607,7 @@ def _merge_responses(
         "missing_count": len(missing_task_ids),
         "missing_task_ids": missing_task_ids,
         "exhausted_task_ids_by_rank": list(all_exhausted),
+        "resume_extra_attempts": args.resume_extra_attempts,
         "is_complete": len(responses) == len(selected_tasks),
         "worker_manifests": worker_manifests,
         "git_commit_sha": _git_commit_sha(),
@@ -693,6 +711,8 @@ def _validate_arguments(args) -> None:
     ):
         if int(getattr(args, name)) <= 0:
             raise SystemExit(f"{name.replace('_', '-')} must be positive")
+    if args.resume_extra_attempts < 0:
+        raise SystemExit("resume-extra-attempts must be nonnegative")
     if args.start_index < 0:
         raise SystemExit("start-index must be nonnegative")
     if args.limit is not None and args.limit <= 0:

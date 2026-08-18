@@ -117,6 +117,7 @@ class SemanticReadinessJudge4GpuTests(unittest.TestCase):
             max_input_tokens=2048,
             max_new_tokens=300,
             maximum_attempts=5,
+            resume_extra_attempts=0,
             expected_world_size=4,
             start_index=0,
             limit=8,

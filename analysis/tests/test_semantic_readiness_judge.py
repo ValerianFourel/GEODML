@@ -11,6 +11,7 @@ import unittest
 from analysis.scripts.run_semantic_readiness_judge import (
     _load_rejected_attempts,
     _render_retry_prompt,
+    _resume_attempt_limit,
     _run_local_batches,
     _validate_skipped_task_ids,
     _validate_run_contract,
@@ -182,7 +183,95 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
         self.assertIn('"answer_type": <"rating"|"not_applicable"|"dont_know">', prompt)
         self.assertIn("all five scores and category must be null", prompt)
         self.assertIn("not_applicable means the construct is irrelevant", prompt)
+        self.assertIn('The value "evaluation" is never a valid category', prompt)
+        self.assertIn("never schema placeholders", prompt)
         self.assertNotIn('"not_applicable": <true|false>', prompt)
+
+    def test_resume_attempt_limit_grants_only_failed_caches_extra_attempts(self) -> None:
+        args = SimpleNamespace(
+            maximum_attempts=5,
+            resume=True,
+            resume_extra_attempts=3,
+        )
+
+        self.assertEqual(_resume_attempt_limit(args, []), 5)
+        self.assertEqual(_resume_attempt_limit(args, [{"attempt": 1}]), 5)
+        self.assertEqual(
+            _resume_attempt_limit(args, [{"attempt": index} for index in range(5)]),
+            8,
+        )
+
+    def test_resume_repairs_only_exhausted_failed_cache(self) -> None:
+        tasks = [
+            ReadinessLabelTask(
+                task_id=f"task:{index}",
+                item_id=f"item:{index}",
+                judge_slot="judge-a",
+                presentation_variant="forward-anchors",
+                rubric_version="test",
+                prompt=f"PROMPT {index}",
+            )
+            for index in range(2)
+        ]
+
+        class FakeRanker:
+            prompts = []
+
+            def rank_batch(self, prompts, **kwargs):
+                self.prompts.extend(prompts)
+                return [SemanticReadinessJudgeTests._valid_response(70)]
+
+        args = SimpleNamespace(
+            batch_size=2,
+            max_new_tokens=300,
+            maximum_attempts=5,
+            resume_extra_attempts=3,
+            resume=True,
+            model="qwen",
+            model_family="qwen",
+            model_revision="revision",
+            backend="local",
+            precision="full",
+            judge_slot="judge-a",
+        )
+        rejected = [
+            {"attempt": index, "error": "unknown readiness category", "raw": "{}"}
+            for index in range(1, 6)
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            existing = {
+                "task_id": tasks[0].task_id,
+                "item_id": tasks[0].item_id,
+                "judge_slot": tasks[0].judge_slot,
+                "model": args.model,
+                "model_family": args.model_family,
+                "model_revision": args.model_revision,
+                "backend": args.backend,
+                "precision": args.precision,
+                "raw_response": self._valid_response(30),
+                "rejected_attempts": [],
+            }
+            (cache / "task_0.json").write_text(json.dumps(existing), encoding="utf-8")
+            (cache / "task_1.failed.json").write_text(
+                json.dumps({"attempts": rejected}),
+                encoding="utf-8",
+            )
+            ranker = FakeRanker()
+
+            rows = _run_local_batches(
+                ranker,
+                tasks,
+                cache=cache,
+                skipped_task_ids=frozenset(),
+                args=args,
+            )
+
+            self.assertEqual([row["task_id"] for row in rows], [task.task_id for task in tasks])
+            self.assertEqual(len(ranker.prompts), 1)
+            repaired = json.loads((cache / "task_1.json").read_text(encoding="utf-8"))
+            self.assertEqual(repaired["rejected_attempts"], rejected)
+            self.assertFalse((cache / "task_1.failed.json").exists())
 
     def test_failed_attempts_are_reused_on_resume(self) -> None:
         attempts = [

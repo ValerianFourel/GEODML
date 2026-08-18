@@ -157,6 +157,8 @@ printf '%s\n' \
         self.assertIn("task_cache", queue)
         self.assertIn("slice checkpointed", queue)
         self.assertIn("--resume", queue)
+        self.assertIn("--resume-extra-attempts", queue)
+        self.assertIn("resume-extra-attempts.txt", queue)
         self.assertIn("skipping complete", queue)
         self.assertIn("run_data_parallel full qwen3-32b-replicate-a", queue)
         self.assertIn("run_data_parallel full ministral3-8b-replicate-b", queue)

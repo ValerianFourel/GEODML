@@ -138,6 +138,7 @@ mkdir -p "$slice_dir"
 printf '%s\n' "$READINESS_APPROVED_WALLTIME" > "$slice_dir/approved-walltime.txt"
 printf '%s\n' "$READINESS_ALLOCATION_ESTIMATE" > "$slice_dir/allocation-estimate.txt"
 printf '%s\n' "$READINESS_SLICE_BUDGET_SECONDS" > "$slice_dir/internal-budget-seconds.txt"
+printf '%s\n' "${READINESS_RESUME_EXTRA_ATTEMPTS:-3}" > "$slice_dir/resume-extra-attempts.txt"
 scontrol show job "$SLURM_JOB_ID" > "$slice_dir/slurm-job.txt"
 nvidia-smi > "$slice_dir/gpu-environment-start.txt"
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$slice_dir/started-at.txt"
@@ -261,6 +262,7 @@ run_data_parallel() {
         --max-input-tokens 2048
         --max-new-tokens 300
         --maximum-attempts 5
+        --resume-extra-attempts "${READINESS_RESUME_EXTRA_ATTEMPTS:-3}"
         --expected-world-size 4
         --attention-implementation sdpa
     )
@@ -297,6 +299,7 @@ run_llama() {
         --batch-size "${LLAMA_BATCH_SIZE:-16}"
         --max-new-tokens 300
         --maximum-attempts 5
+        --resume-extra-attempts "${READINESS_RESUME_EXTRA_ATTEMPTS:-3}"
         --output-dir "$output"
     )
     if [[ -n "$limit" ]]; then
