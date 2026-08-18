@@ -159,6 +159,33 @@ remaining_budget() {
     echo $((READINESS_SLICE_BUDGET_SECONDS - elapsed))
 }
 
+wait_for_idle_gpus() {
+    local stage="$1"
+    local deadline pids
+    deadline=$(( $(date +%s) + 120 ))
+    while true; do
+        pids="$(
+            nvidia-smi \
+                --query-compute-apps=pid \
+                --format=csv,noheader,nounits \
+                2>/dev/null \
+                | awk '$1 ~ /^[0-9]+$/ {print $1}' \
+                | sort -u \
+                | paste -sd, -
+        )"
+        if [[ -z "$pids" ]]; then
+            return 0
+        fi
+        if (( $(date +%s) >= deadline )); then
+            echo "GPU processes did not exit before $stage: pids=$pids" >&2
+            nvidia-smi >&2 || true
+            return 2
+        fi
+        echo "waiting for prior GPU processes before $stage: pids=$pids"
+        sleep 5
+    done
+}
+
 checkpoint_and_exit() {
     local stage="$1"
     local output="$2"
@@ -186,6 +213,7 @@ run_bounded() {
     if (( remaining < 600 )); then
         checkpoint_and_exit "$stage" "$output" "$completed"
     fi
+    wait_for_idle_gpus "$stage"
     echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] starting/resuming $stage cached=$completed expected=$expected budget=${remaining}s" \
         | tee -a "$queue_root/queue.log"
     set +e
@@ -283,16 +311,16 @@ run_llama() {
     run_bounded "$stage/$tag" "$output" "$expected" "${args[@]}"
 }
 
-# Every smoke cache is retained, so subsequent slices skip these checks.
+# Pair each smoke directly with its full run. This prevents a large model from
+# remaining resident while a different full model is loaded. Every cache is
+# retained, so subsequent slices skip completed stages without model loading.
 run_data_parallel smoke qwen3-32b-replicate-a replicate-frontier-a "$qwen32_model" qwen "$qwen32_revision" 16 8
-run_data_parallel smoke ministral3-8b-replicate-b replicate-frontier-b "$ministral_model" mistral "$ministral_revision" 32 8
-run_data_parallel smoke gemma4-31b-primary primary-frontier "$gemma_model" gemma "$gemma_revision" 8 8
-run_llama smoke 8
-
-# Finish quick models first, then use later slices for the slower models.
 run_data_parallel full qwen3-32b-replicate-a replicate-frontier-a "$qwen32_model" qwen "$qwen32_revision" 16 ""
+run_data_parallel smoke ministral3-8b-replicate-b replicate-frontier-b "$ministral_model" mistral "$ministral_revision" 32 8
 run_data_parallel full ministral3-8b-replicate-b replicate-frontier-b "$ministral_model" mistral "$ministral_revision" 32 ""
+run_data_parallel smoke gemma4-31b-primary primary-frontier "$gemma_model" gemma "$gemma_revision" 8 8
 run_data_parallel full gemma4-31b-primary primary-frontier "$gemma_model" gemma "$gemma_revision" 8 ""
+run_llama smoke 8
 run_llama full ""
 
 python3 - "$queue_root" "$READINESS_20K_TASKS" "$READINESS_20K_TASKS_PER_SLOT" <<'PY'

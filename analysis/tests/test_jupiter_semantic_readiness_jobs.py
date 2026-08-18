@@ -25,6 +25,7 @@ ABSTENTION_20K_PREPARER = (
 )
 ABSTENTION_20K_SLICE = JUPITER_ROOT / "run_readiness_20k_abstention_slice.sbatch"
 INCREMENTAL_AUDIT = JUPITER_ROOT / "audit_readiness_incremental_four_judge.sh"
+ABSTENTION_20K_AUDIT = JUPITER_ROOT / "audit_readiness_20k_abstention.sh"
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -40,6 +41,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             ABSTENTION_20K_PREPARER,
             ABSTENTION_20K_SLICE,
             INCREMENTAL_AUDIT,
+            ABSTENTION_20K_AUDIT,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -150,6 +152,8 @@ printf '%s\n' \
         self.assertIn("READINESS_ALLOCATION_ESTIMATE", queue)
         self.assertIn("READINESS_SLICE_BUDGET_SECONDS", queue)
         self.assertIn("timeout --signal=TERM", queue)
+        self.assertIn("wait_for_idle_gpus", queue)
+        self.assertIn("GPU processes did not exit", queue)
         self.assertIn("task_cache", queue)
         self.assertIn("slice checkpointed", queue)
         self.assertIn("--resume", queue)
@@ -160,12 +164,26 @@ printf '%s\n' \
         self.assertIn('run_llama full ""', queue)
         self.assertNotIn("Qwen3-8B", queue)
         self.assertNotIn("primary-sensitivity", queue)
+        self.assertLess(
+            queue.index("run_data_parallel smoke qwen3-32b-replicate-a"),
+            queue.index("run_data_parallel full qwen3-32b-replicate-a"),
+        )
+        self.assertLess(
+            queue.index("run_data_parallel full qwen3-32b-replicate-a"),
+            queue.index("run_data_parallel smoke ministral3-8b-replicate-b"),
+        )
 
         audit = INCREMENTAL_AUDIT.read_text(encoding="utf-8")
         self.assertNotIn("sbatch", audit)
         self.assertIn("OBSERVED STAGE DURATIONS", audit)
         self.assertIn("TASK AND CACHE COUNTS", audit)
         self.assertIn("sacct", audit)
+
+        v2_audit = ABSTENTION_20K_AUDIT.read_text(encoding="utf-8")
+        self.assertNotIn("sbatch", v2_audit)
+        self.assertNotIn("semantic_readiness_dataset", v2_audit)
+        self.assertIn("json.JSONDecoder", v2_audit)
+        self.assertIn("V2 ANSWER TYPES", v2_audit)
 
     def test_behavioral_debug_queue_smokes_before_full_runs(self) -> None:
         queue = BEHAVIORAL_DEBUG_QUEUE.read_text(encoding="utf-8")
