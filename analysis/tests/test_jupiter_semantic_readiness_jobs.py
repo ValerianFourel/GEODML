@@ -13,11 +13,18 @@ SBATCH = JUPITER_ROOT / "run_semantic_readiness_judge.sbatch"
 SUBMIT = JUPITER_ROOT / "submit_semantic_readiness_panel.sh"
 BEHAVIORAL_DEBUG_QUEUE = JUPITER_ROOT / "run_readiness_behavioral_debug_queue.sh"
 EXPANDED_LLAMA_QUEUE = JUPITER_ROOT / "run_readiness_expanded_llama_queue.sbatch"
+PROJECT_SETUP = JUPITER_ROOT / "geodml_project_setup.sh"
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
     def test_shell_scripts_are_valid_bash(self) -> None:
-        for script in (SBATCH, SUBMIT, BEHAVIORAL_DEBUG_QUEUE, EXPANDED_LLAMA_QUEUE):
+        for script in (
+            SBATCH,
+            SUBMIT,
+            BEHAVIORAL_DEBUG_QUEUE,
+            EXPANDED_LLAMA_QUEUE,
+            PROJECT_SETUP,
+        ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
                     ["bash", "-n", str(script)],
@@ -26,6 +33,57 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_project_setup_is_source_only_and_exports_portable_roots(self) -> None:
+        direct = subprocess.run(
+            ["bash", str(PROJECT_SETUP)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(direct.returncode, 2)
+        self.assertIn("must be sourced", direct.stderr)
+
+        setup = PROJECT_SETUP.read_text(encoding="utf-8")
+        self.assertIn('jutil env activate -p "$project_name"', setup)
+        self.assertIn('$PROJECT/$USER/geodml', setup)
+        self.assertIn('$FSCRATCH/$USER/geodml', setup)
+        self.assertIn('git -C "$GEODML_REPOSITORY"', setup)
+        self.assertNotIn("git fetch", setup)
+        self.assertNotIn("module load", setup)
+        self.assertNotIn("sbatch", setup)
+
+        sourced = subprocess.run(
+            [
+                "bash",
+                "-c",
+                """
+jutil() {
+    export PROJECT=/project
+    export FSCRATCH=/scratch
+}
+export USER=tester
+export GEODML_REPOSITORY="$2"
+source "$1"
+printf '%s\n' \
+    "$JUPITER_PROJECT" \
+    "$GEODML_PROJECT_ROOT" \
+    "$GEODML_CACHE_ROOT" \
+    "$PWD"
+""",
+                "bash",
+                str(PROJECT_SETUP),
+                str(REPOSITORY_ROOT),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(sourced.returncode, 0, sourced.stderr)
+        self.assertIn("geodml environment ready", sourced.stdout)
+        self.assertIn("scifi\n/project/tester/geodml", sourced.stdout)
+        self.assertIn("/scratch/tester/geodml", sourced.stdout)
+        self.assertTrue(sourced.stdout.rstrip().endswith(str(REPOSITORY_ROOT)))
 
     def test_behavioral_debug_queue_smokes_before_full_runs(self) -> None:
         queue = BEHAVIORAL_DEBUG_QUEUE.read_text(encoding="utf-8")
