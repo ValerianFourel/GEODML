@@ -14,6 +14,7 @@ from analysis.interpretability.pipeline.readiness_embedding_map import (
 )
 
 from analysis.interpretability.pipeline.semantic_readiness_dataset import (
+    ABSTENTION_LABEL_RUBRIC_VERSION,
     WebRetrievalProbe,
     build_readiness_label_tasks,
     build_semantic_readiness_corpus,
@@ -138,6 +139,72 @@ class SemanticReadinessDatasetTests(unittest.TestCase):
         web = parse_stackexchange_items(payload, probe)
         self.assertEqual(web[0].license, "unknown")
         self.assertEqual(build_semantic_readiness_corpus((), web), ())
+
+    def test_abstention_v2_separates_rating_not_applicable_and_dont_know(self) -> None:
+        corpus = build_semantic_readiness_corpus(
+            (
+                {
+                    "source_id": "databricks-dolly-15k",
+                    "source_record_id": "dolly:1",
+                    "text": "Can you help me decide whether this unclear option is suitable?",
+                    "corpus_split": "development",
+                    "surface_family_id": "family:1",
+                },
+            ),
+            (),
+        )
+        legacy, _ = build_readiness_label_tasks(corpus, judge_slots=("judge-a",))
+        tasks, _ = build_readiness_label_tasks(
+            corpus,
+            judge_slots=("judge-a",),
+            rubric_version=ABSTENTION_LABEL_RUBRIC_VERSION,
+        )
+        task = tasks[0]
+        self.assertNotEqual(task.task_id, legacy[0].task_id)
+        self.assertEqual(task.rubric_version, ABSTENTION_LABEL_RUBRIC_VERSION)
+        self.assertIn('"dont_know"', task.prompt)
+        self.assertIn("all five readiness scores and category to null", task.prompt)
+
+        dont_know = {
+            "answer_type": "dont_know",
+            "overall_readiness_0_100": None,
+            "information_seeking_1_7": None,
+            "evaluation_1_7": None,
+            "selection_commitment_1_7": None,
+            "action_implementation_1_7": None,
+            "category": None,
+            "ambiguity_1_7": 7,
+            "confidence_0_1": 0.2,
+            "brief_reason": "The intended decision cannot be determined from the text.",
+        }
+        parsed = parse_readiness_judgment(task, json.dumps(dont_know))
+        self.assertEqual(parsed.answer_type, "dont_know")
+        self.assertIsNone(parsed.overall_readiness_0_100)
+
+        not_applicable = dict(dont_know, answer_type="not_applicable")
+        parsed_not_applicable = parse_readiness_judgment(
+            task, json.dumps(not_applicable)
+        )
+        self.assertEqual(parsed_not_applicable.answer_type, "not_applicable")
+
+        invalid = dict(dont_know, overall_readiness_0_100=50)
+        with self.assertRaisesRegex(ValueError, "must be null"):
+            parse_readiness_judgment(task, json.dumps(invalid))
+
+        rating = {
+            **dont_know,
+            "answer_type": "rating",
+            "overall_readiness_0_100": 50,
+            "information_seeking_1_7": 3,
+            "evaluation_1_7": 6,
+            "selection_commitment_1_7": 3,
+            "action_implementation_1_7": 2,
+            "category": "comparison",
+        }
+        self.assertEqual(
+            parse_readiness_judgment(task, json.dumps(rating)).answer_type,
+            "rating",
+        )
 
     def test_label_parser_and_consensus_preserve_judge_disagreement(self) -> None:
         corpus = build_semantic_readiness_corpus(

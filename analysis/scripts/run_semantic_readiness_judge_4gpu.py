@@ -473,6 +473,7 @@ def _prompt_for_attempt(
         task.prompt,
         str(previous.get("error", "invalid model response")),
         str(previous.get("raw", "")),
+        rubric_version=task.rubric_version,
     )
 
 

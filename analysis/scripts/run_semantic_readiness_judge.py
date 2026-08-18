@@ -21,6 +21,8 @@ if str(ANALYSIS_ROOT) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_ROOT))
 
 from interpretability.pipeline.semantic_readiness_dataset import (  # noqa: E402
+    ABSTENTION_LABEL_RUBRIC_VERSION,
+    LABEL_RUBRIC_VERSION,
     ReadinessLabelTask,
     parse_readiness_judgment,
 )
@@ -174,6 +176,7 @@ def _run_serial_tasks(
                     prompt,
                     str(attempts[-1]["error"]),
                     str(attempts[-1]["raw"]),
+                    rubric_version=task.rubric_version,
                 )
             raw = str(
                 ranker.rank(
@@ -253,7 +256,12 @@ def _run_local_batches(
         batch = pending[: args.batch_size]
         del pending[: args.batch_size]
         prompts = [
-            _render_retry_prompt(task.prompt, str(attempts[-1]["error"]), str(attempts[-1]["raw"]))
+            _render_retry_prompt(
+                task.prompt,
+                str(attempts[-1]["error"]),
+                str(attempts[-1]["raw"]),
+                rubric_version=task.rubric_version,
+            )
             if attempts
             else task.prompt
             for task, attempts in batch
@@ -429,7 +437,48 @@ def _render_retry_prompt(
     prompt: str,
     validation_error: str,
     previous_raw_response: str,
+    *,
+    rubric_version: str = LABEL_RUBRIC_VERSION,
 ) -> str:
+    if rubric_version == ABSTENTION_LABEL_RUBRIC_VERSION:
+        contract = '''{
+  "answer_type": <"rating"|"not_applicable"|"dont_know">,
+  "overall_readiness_0_100": <integer 0..100|null>,
+  "information_seeking_1_7": <integer 1..7|null>,
+  "evaluation_1_7": <integer 1..7|null>,
+  "selection_commitment_1_7": <integer 1..7|null>,
+  "action_implementation_1_7": <integer 1..7|null>,
+  "category": <"information"|"criteria"|"comparison"|"selection"|"action"|"mixed"|null>,
+  "ambiguity_1_7": <integer 1..7>,
+  "confidence_0_1": <number 0..1>,
+  "brief_reason": <1 to 20 words>
+}
+For answer_type="rating", all five scores must be integers and category must
+be an applicable category. For answer_type="not_applicable" or "dont_know",
+all five scores and category must be null. Preserve the distinction:
+not_applicable means the construct is irrelevant; dont_know means it is
+relevant but cannot be rated defensibly from the text.'''
+    else:
+        contract = '''{
+  "overall_readiness_0_100": <integer 0..100>,
+  "information_seeking_1_7": <integer 1..7>,
+  "evaluation_1_7": <integer 1..7>,
+  "selection_commitment_1_7": <integer 1..7>,
+  "action_implementation_1_7": <integer 1..7>,
+  "category": <"information"|"criteria"|"comparison"|"selection"|"action"|"mixed"|"not_applicable">,
+  "not_applicable": <true|false>,
+  "ambiguity_1_7": <integer 1..7>,
+  "confidence_0_1": <number 0..1>,
+  "brief_reason": <1 to 20 words>
+}
+The brief_reason must contain at most 20 whitespace-separated words; count them
+before responding. If category and not_applicable previously disagreed, silently
+re-read the original text and choose exactly one of these valid forms:
+- applicable: category is one of "information", "criteria", "comparison",
+  "selection", "action", or "mixed", and not_applicable is false;
+- not applicable: category is "not_applicable" and not_applicable is true.
+The invalid pair from the previous response must not be repeated. Preserve every
+other valid field. Do not use category values such as evaluation or review.'''
     return f'''{prompt}
 
 Your previous response failed validation: {validation_error}
@@ -443,26 +492,7 @@ is already valid.
 
 Return exactly one JSON object and nothing else. Use these exact keys without
 renaming, shortening, or adding keys:
-{{
-  "overall_readiness_0_100": <integer 0..100>,
-  "information_seeking_1_7": <integer 1..7>,
-  "evaluation_1_7": <integer 1..7>,
-  "selection_commitment_1_7": <integer 1..7>,
-  "action_implementation_1_7": <integer 1..7>,
-  "category": <"information"|"criteria"|"comparison"|"selection"|"action"|"mixed"|"not_applicable">,
-  "not_applicable": <true|false>,
-  "ambiguity_1_7": <integer 1..7>,
-  "confidence_0_1": <number 0..1>,
-  "brief_reason": <1 to 20 words>
-}}
-The brief_reason must contain at most 20 whitespace-separated words; count them
-before responding. If category and not_applicable previously disagreed, silently
-re-read the original text and choose exactly one of these valid forms:
-- applicable: category is one of "information", "criteria", "comparison",
-  "selection", "action", or "mixed", and not_applicable is false;
-- not applicable: category is "not_applicable" and not_applicable is true.
-The invalid pair from the previous response must not be repeated. Preserve every
-other valid field. Do not use category values such as evaluation or review.'''
+{contract}'''
 
 
 def _atomic_json(path: Path, value) -> None:

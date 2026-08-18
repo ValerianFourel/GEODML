@@ -26,6 +26,7 @@ if str(ANALYSIS_ROOT) not in sys.path:
 from interpretability.pipeline.semantic_readiness_dataset import (  # noqa: E402
     LABEL_RUBRIC_VERSION,
     SEMANTIC_DATASET_VERSION,
+    SUPPORTED_LABEL_RUBRIC_VERSIONS,
     WebTextRecord,
     build_readiness_label_tasks,
     build_semantic_readiness_corpus,
@@ -98,6 +99,11 @@ def _parser() -> argparse.ArgumentParser:
     label.add_argument("--output-dir", required=True)
     label.add_argument("--corpus", required=True)
     label.add_argument("--judge-slots", required=True)
+    label.add_argument(
+        "--rubric-version",
+        choices=sorted(SUPPORTED_LABEL_RUBRIC_VERSIONS),
+        default=LABEL_RUBRIC_VERSION,
+    )
     return parser
 
 
@@ -417,7 +423,11 @@ def _export_labeling(args, output: Path) -> None:
 
     corpus = tuple(SemanticReadinessItem(**row) for row in _read_jsonl(corpus_path))
     slots = tuple(value.strip() for value in args.judge_slots.split(",") if value.strip())
-    tasks, codebook = build_readiness_label_tasks(corpus, judge_slots=slots)
+    tasks, codebook = build_readiness_label_tasks(
+        corpus,
+        judge_slots=slots,
+        rubric_version=args.rubric_version,
+    )
     _atomic_jsonl(output / "readiness_label_tasks_blinded.jsonl", map(asdict, tasks))
     _atomic_jsonl(
         output / "readiness_label_codebook_private.jsonl",
@@ -432,7 +442,7 @@ def _export_labeling(args, output: Path) -> None:
             corpus_count=len(corpus),
             judge_slots=slots,
             task_count=len(tasks),
-            rubric_version=LABEL_RUBRIC_VERSION,
+            rubric_version=args.rubric_version,
             source_metadata_visible_to_judges=False,
             retrieval_regions_visible_to_judges=False,
             scientific_result=False,

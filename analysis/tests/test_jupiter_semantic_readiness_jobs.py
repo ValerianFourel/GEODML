@@ -20,6 +20,11 @@ INCREMENTAL_FOUR_JUDGE_QUEUE = (
 INCREMENTAL_FOUR_JUDGE_SUBMITTER = (
     JUPITER_ROOT / "submit_readiness_incremental_four_judge.sh"
 )
+ABSTENTION_20K_PREPARER = (
+    JUPITER_ROOT / "prepare_readiness_20k_abstention_four_judge.sh"
+)
+ABSTENTION_20K_SLICE = JUPITER_ROOT / "run_readiness_20k_abstention_slice.sbatch"
+INCREMENTAL_AUDIT = JUPITER_ROOT / "audit_readiness_incremental_four_judge.sh"
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -32,6 +37,9 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             PROJECT_SETUP,
             INCREMENTAL_FOUR_JUDGE_QUEUE,
             INCREMENTAL_FOUR_JUDGE_SUBMITTER,
+            ABSTENTION_20K_PREPARER,
+            ABSTENTION_20K_SLICE,
+            INCREMENTAL_AUDIT,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -122,6 +130,42 @@ printf '%s\n' \
         self.assertIn("FOUR-SLOT COVERAGE: PASS", submitter)
         self.assertIn("run_readiness_incremental_four_judge_queue.sbatch", submitter)
         self.assertIn("ALL INPUTS VALIDATED AND INCREMENTAL JOB SUBMITTED: PASS", submitter)
+
+    def test_20k_abstention_preparation_never_allocates_and_freezes_v2(self) -> None:
+        preparer = ABSTENTION_20K_PREPARER.read_text(encoding="utf-8")
+
+        self.assertIn("semantic_readiness_expanded_corpus.jsonl", preparer)
+        self.assertIn("READINESS_MINIMUM_COMBINED_PROMPTS:-20000", preparer)
+        self.assertIn("decision-readiness-ordinal-abstention-v2", preparer)
+        self.assertIn("judge slots do not cover identical prompt items", preparer)
+        self.assertIn("DONT-KNOW CONTRACT: PASS", preparer)
+        self.assertIn("No Slurm allocation was submitted", preparer)
+        self.assertNotIn("sbatch", preparer)
+
+    def test_20k_abstention_slice_is_short_resumable_and_has_no_default_time(self) -> None:
+        queue = ABSTENTION_20K_SLICE.read_text(encoding="utf-8")
+
+        self.assertNotIn("#SBATCH --time", queue)
+        self.assertIn("READINESS_APPROVED_WALLTIME", queue)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", queue)
+        self.assertIn("READINESS_SLICE_BUDGET_SECONDS", queue)
+        self.assertIn("timeout --signal=TERM", queue)
+        self.assertIn("task_cache", queue)
+        self.assertIn("slice checkpointed", queue)
+        self.assertIn("--resume", queue)
+        self.assertIn("skipping complete", queue)
+        self.assertIn("run_data_parallel full qwen3-32b-replicate-a", queue)
+        self.assertIn("run_data_parallel full ministral3-8b-replicate-b", queue)
+        self.assertIn("run_data_parallel full gemma4-31b-primary", queue)
+        self.assertIn('run_llama full ""', queue)
+        self.assertNotIn("Qwen3-8B", queue)
+        self.assertNotIn("primary-sensitivity", queue)
+
+        audit = INCREMENTAL_AUDIT.read_text(encoding="utf-8")
+        self.assertNotIn("sbatch", audit)
+        self.assertIn("OBSERVED STAGE DURATIONS", audit)
+        self.assertIn("TASK AND CACHE COUNTS", audit)
+        self.assertIn("sacct", audit)
 
     def test_behavioral_debug_queue_smokes_before_full_runs(self) -> None:
         queue = BEHAVIORAL_DEBUG_QUEUE.read_text(encoding="utf-8")

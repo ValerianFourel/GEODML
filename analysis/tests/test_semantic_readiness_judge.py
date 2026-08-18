@@ -16,6 +16,7 @@ from analysis.scripts.run_semantic_readiness_judge import (
     _validate_run_contract,
 )
 from analysis.interpretability.pipeline.semantic_readiness_dataset import (
+    ABSTENTION_LABEL_RUBRIC_VERSION,
     ReadinessLabelTask,
 )
 
@@ -169,6 +170,19 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
         self.assertIn('or "mixed", and not_applicable is false', prompt)
         self.assertIn("invalid pair from the previous response must not be repeated", prompt)
         self.assertIn("preserve every other semantic judgment", prompt)
+
+    def test_retry_prompt_preserves_abstention_v2_contract(self) -> None:
+        prompt = _render_retry_prompt(
+            "ORIGINAL V2 PROMPT",
+            "scores must be null",
+            '{"answer_type":"dont_know","overall_readiness_0_100":50}',
+            rubric_version=ABSTENTION_LABEL_RUBRIC_VERSION,
+        )
+
+        self.assertIn('"answer_type": <"rating"|"not_applicable"|"dont_know">', prompt)
+        self.assertIn("all five scores and category must be null", prompt)
+        self.assertIn("not_applicable means the construct is irrelevant", prompt)
+        self.assertNotIn('"not_applicable": <true|false>', prompt)
 
     def test_failed_attempts_are_reused_on_resume(self) -> None:
         attempts = [
