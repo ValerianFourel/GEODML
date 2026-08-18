@@ -247,6 +247,69 @@ class SemanticReadinessTransferTests(unittest.TestCase):
         self.assertEqual(new_tasks[0].prompt, old_tasks[0].prompt)
         self.assertNotIn("google-taskmaster-1", new_tasks[-1].prompt)
 
+    def test_bottom_hash_expansion_is_nested_and_yields_only_new_prompts(self) -> None:
+        sources = load_transfer_source_specification()
+        source_id = "allenai-wildchat-1m"
+        rows = {
+            source_id: tuple(
+                {
+                    "conversation_hash": f"wild-{index:03d}",
+                    "language": "English",
+                    "conversation": [
+                        {
+                            "role": "user",
+                            "content": (
+                                "Help me compare the available option numbered "
+                                f"{index:03d} before I decide what to do."
+                            ),
+                        }
+                    ],
+                }
+                for index in range(20)
+            )
+        }
+        revisions = {source_id: "frozen-wildchat-revision"}
+
+        first, _ = build_transfer_prompt_panel(
+            rows,
+            source_revisions=revisions,
+            sources=sources,
+            maximum_per_source=4,
+            master_seed=20260817,
+        )
+        expanded_sample, _ = build_transfer_prompt_panel(
+            rows,
+            source_revisions=revisions,
+            sources=sources,
+            maximum_per_source=12,
+            master_seed=20260817,
+        )
+
+        first_hashes = {item.text_sha256 for item in first}
+        expanded_hashes = {item.text_sha256 for item in expanded_sample}
+        self.assertEqual(len(first_hashes), 4)
+        self.assertEqual(len(expanded_hashes), 12)
+        self.assertLessEqual(first_hashes, expanded_hashes)
+
+        _, existing_corpus, _ = extend_semantic_readiness_corpus(
+            (),
+            first,
+            sources=sources,
+        )
+        incremental, combined, diagnostics = extend_semantic_readiness_corpus(
+            existing_corpus,
+            expanded_sample,
+            sources=sources,
+        )
+        self.assertEqual(len(incremental), 8)
+        self.assertEqual(len(combined), 12)
+        self.assertEqual(diagnostics.duplicate_of_base_count, 4)
+        self.assertTrue(
+            {item.text_sha256 for item in existing_corpus}.isdisjoint(
+                item.text_sha256 for item in incremental
+            )
+        )
+
     def test_fourth_judge_and_transfer_rows_preserve_every_frozen_panel_task(self) -> None:
         sources = load_transfer_source_specification()
         base = build_semantic_readiness_corpus(
