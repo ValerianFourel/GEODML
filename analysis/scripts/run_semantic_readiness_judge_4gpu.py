@@ -89,6 +89,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable-thinking", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
+        "--allow-failed-tasks",
+        action="store_true",
+        help="Retain exhausted failed caches without aborting the model stage.",
+    )
+    parser.add_argument(
         "--run-purpose",
         choices=("debug", "production"),
         default="debug",
@@ -608,6 +613,7 @@ def _merge_responses(
         "missing_task_ids": missing_task_ids,
         "exhausted_task_ids_by_rank": list(all_exhausted),
         "resume_extra_attempts": args.resume_extra_attempts,
+        "allow_failed_tasks": args.allow_failed_tasks,
         "is_complete": len(responses) == len(selected_tasks),
         "worker_manifests": worker_manifests,
         "git_commit_sha": _git_commit_sha(),
@@ -626,12 +632,19 @@ def _merge_responses(
         )
         return
     _atomic_json(output / "run_manifest.json", manifest)
-    if failed_task_ids or missing_task_ids:
+    if missing_task_ids or (failed_task_ids and not args.allow_failed_tasks):
         raise RuntimeError(
             "four-GPU judge run is incomplete: "
             f"completed={len(responses)}, failed={len(failed_task_ids)}, "
             f"missing={len(missing_task_ids)}"
         )
+    if failed_task_ids:
+        print(
+            f"[rank 0] retained {len(failed_task_ids)} exhausted tasks and merged "
+            f"{len(responses)}/{len(selected_tasks)} valid responses: {output}",
+            flush=True,
+        )
+        return
     print(
         f"[rank 0] merged {len(responses)}/{len(selected_tasks)} responses: {output}",
         flush=True,

@@ -120,6 +120,7 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
             max_new_tokens=300,
             maximum_attempts=3,
             resume=False,
+            allow_failed_tasks=False,
             model="llama",
             model_family="llama",
             model_revision="revision",
@@ -227,6 +228,7 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
             maximum_attempts=5,
             resume_extra_attempts=3,
             resume=True,
+            allow_failed_tasks=False,
             model="qwen",
             model_family="qwen",
             model_revision="revision",
@@ -272,6 +274,51 @@ class SemanticReadinessJudgeTests(unittest.TestCase):
             repaired = json.loads((cache / "task_1.json").read_text(encoding="utf-8"))
             self.assertEqual(repaired["rejected_attempts"], rejected)
             self.assertFalse((cache / "task_1.failed.json").exists())
+
+    def test_local_batches_retain_exhausted_task_when_explicitly_allowed(self) -> None:
+        task = ReadinessLabelTask(
+            task_id="task:failed",
+            item_id="item:failed",
+            judge_slot="judge-a",
+            presentation_variant="forward-anchors",
+            rubric_version="test",
+            prompt="PROMPT",
+        )
+
+        class InvalidRanker:
+            def rank_batch(self, prompts, **kwargs):
+                return ["{}" for _ in prompts]
+
+        args = SimpleNamespace(
+            batch_size=1,
+            max_new_tokens=300,
+            maximum_attempts=2,
+            resume_extra_attempts=0,
+            resume=False,
+            allow_failed_tasks=True,
+            model="llama",
+            model_family="llama",
+            model_revision="revision",
+            backend="local",
+            precision="full",
+            judge_slot="judge-a",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+
+            rows = _run_local_batches(
+                InvalidRanker(),
+                [task],
+                cache=cache,
+                skipped_task_ids=frozenset(),
+                args=args,
+            )
+
+            self.assertEqual(rows, [])
+            failed = json.loads(
+                (cache / "task_failed.failed.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(len(failed["attempts"]), 2)
 
     def test_failed_attempts_are_reused_on_resume(self) -> None:
         attempts = [

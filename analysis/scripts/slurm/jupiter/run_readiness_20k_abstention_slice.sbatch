@@ -139,6 +139,7 @@ printf '%s\n' "$READINESS_APPROVED_WALLTIME" > "$slice_dir/approved-walltime.txt
 printf '%s\n' "$READINESS_ALLOCATION_ESTIMATE" > "$slice_dir/allocation-estimate.txt"
 printf '%s\n' "$READINESS_SLICE_BUDGET_SECONDS" > "$slice_dir/internal-budget-seconds.txt"
 printf '%s\n' "${READINESS_RESUME_EXTRA_ATTEMPTS:-3}" > "$slice_dir/resume-extra-attempts.txt"
+printf '%s\n' "${READINESS_ALLOW_FAILED_TASKS:-0}" > "$slice_dir/allow-failed-tasks.txt"
 scontrol show job "$SLURM_JOB_ID" > "$slice_dir/slurm-job.txt"
 nvidia-smi > "$slice_dir/gpu-environment-start.txt"
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$slice_dir/started-at.txt"
@@ -151,6 +152,15 @@ cache_count() {
         return
     fi
     find "$output/task_cache" -maxdepth 1 -type f -name '*.json' ! -name '*.failed.json' | wc -l
+}
+
+failed_count() {
+    local output="$1"
+    if [[ ! -d "$output/task_cache" ]]; then
+        echo 0
+        return
+    fi
+    find "$output/task_cache" -maxdepth 1 -type f -name '*.failed.json' | wc -l
 }
 
 remaining_budget() {
@@ -203,10 +213,21 @@ run_bounded() {
     local output="$2"
     local expected="$3"
     shift 3
-    local completed remaining status now
+    local completed failed terminal allow_failed remaining status now
     completed="$(cache_count "$output")"
+    failed="$(failed_count "$output")"
+    terminal=$((completed + failed))
+    allow_failed=0
+    if [[ "$stage" == full/* && "${READINESS_ALLOW_FAILED_TASKS:-0}" == 1 ]]; then
+        allow_failed=1
+    fi
     if [[ "$completed" -eq "$expected" ]]; then
         echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] skipping complete $stage ($completed/$expected)" \
+            | tee -a "$queue_root/queue.log"
+        return 0
+    fi
+    if (( allow_failed == 1 && terminal == expected )); then
+        echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] skipping terminal $stage successful=$completed failed=$failed expected=$expected" \
             | tee -a "$queue_root/queue.log"
         return 0
     fi
@@ -222,6 +243,8 @@ run_bounded() {
     status=$?
     set -e
     completed="$(cache_count "$output")"
+    failed="$(failed_count "$output")"
+    terminal=$((completed + failed))
     if [[ "$status" -eq 124 || "$status" -eq 137 ]]; then
         now="$(remaining_budget)"
         if (( now > 180 )); then
@@ -234,11 +257,12 @@ run_bounded() {
         echo "stage failed: $stage exit=$status cached=$completed/$expected" >&2
         return "$status"
     fi
-    if [[ "$completed" -ne "$expected" ]]; then
+    if [[ "$completed" -ne "$expected" ]] \
+        && ! (( allow_failed == 1 && terminal == expected )); then
         echo "stage returned success but is incomplete: $stage cached=$completed/$expected" >&2
         return 2
     fi
-    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] finished $stage cached=$completed/$expected" \
+    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] finished $stage successful=$completed failed=$failed expected=$expected" \
         | tee -a "$queue_root/queue.log"
 }
 
@@ -275,6 +299,9 @@ run_data_parallel() {
     if [[ "$family" == qwen ]]; then
         args+=(--disable-thinking)
     fi
+    if [[ "$stage" == full && "${READINESS_ALLOW_FAILED_TASKS:-0}" == 1 ]]; then
+        args+=(--allow-failed-tasks)
+    fi
     if [[ -e "$output" ]]; then
         args+=(--resume)
     fi
@@ -308,6 +335,9 @@ run_llama() {
         purpose=debug
     fi
     args+=(--run-purpose "$purpose")
+    if [[ "$stage" == full && "${READINESS_ALLOW_FAILED_TASKS:-0}" == 1 ]]; then
+        args+=(--allow-failed-tasks)
+    fi
     if [[ -e "$output" ]]; then
         args+=(--resume)
     fi
@@ -326,7 +356,11 @@ run_data_parallel full gemma4-31b-primary primary-frontier "$gemma_model" gemma 
 run_llama smoke 8
 run_llama full ""
 
-python3 - "$queue_root" "$READINESS_20K_TASKS" "$READINESS_20K_TASKS_PER_SLOT" <<'PY'
+python3 - \
+    "$queue_root" \
+    "$READINESS_20K_TASKS" \
+    "$READINESS_20K_TASKS_PER_SLOT" \
+    "${READINESS_ALLOW_FAILED_TASKS:-0}" <<'PY'
 import json
 import pathlib
 import sys
@@ -334,6 +368,7 @@ import sys
 root = pathlib.Path(sys.argv[1])
 tasks_path = pathlib.Path(sys.argv[2])
 expected = int(sys.argv[3])
+allow_failed = sys.argv[4] == "1"
 tasks = [
     json.loads(line)
     for line in tasks_path.read_text(encoding="utf-8").splitlines()
@@ -353,9 +388,14 @@ for slot, tag in outputs.items():
     cache = root / "full" / tag / "task_cache"
     successful = [path for path in cache.glob("*.json") if not path.name.endswith(".failed.json")]
     failed = list(cache.glob("*.failed.json"))
-    if len(successful) != expected or failed:
+    if not allow_failed and (len(successful) != expected or failed):
         raise SystemExit(
             f"incomplete {slot}: successful={len(successful)} failed={len(failed)} expected={expected}"
+        )
+    if allow_failed and len(successful) + len(failed) != expected:
+        raise SystemExit(
+            f"nonterminal {slot}: successful={len(successful)} "
+            f"failed={len(failed)} expected={expected}"
         )
     seen = set()
     for path in successful:
@@ -363,12 +403,20 @@ for slot, tag in outputs.items():
         if row["task_id"] not in by_slot[slot] or row["task_id"] in seen:
             raise SystemExit(f"unexpected or duplicate cache task: {path}")
         seen.add(row["task_id"])
+    for path in failed:
+        row = json.loads(path.read_text(encoding="utf-8"))
+        if row["task_id"] not in by_slot[slot] or row["task_id"] in seen:
+            raise SystemExit(f"unexpected or duplicate failed cache task: {path}")
+        seen.add(row["task_id"])
     if seen != set(by_slot[slot]):
         raise SystemExit(f"cache coverage mismatch for {slot}")
-    print(f"{slot}: PASS ({len(seen)}/{expected})")
+    print(
+        f"{slot}: PASS terminal={len(seen)}/{expected} "
+        f"valid={len(successful)} retained_failed={len(failed)}"
+    )
 PY
 
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$slice_dir/completed-at.txt"
 nvidia-smi > "$slice_dir/gpu-environment-end.txt"
-echo "queue complete: $queue_root" | tee -a "$queue_root/queue.log" "$queue_root/queue.complete"
+echo "queue terminal complete: $queue_root" | tee -a "$queue_root/queue.log" "$queue_root/queue.complete"
 find "$queue_root" -type f ! -name artifact-sha256.txt -print0 | sort -z | xargs -0 sha256sum > "$queue_root/artifact-sha256.txt"

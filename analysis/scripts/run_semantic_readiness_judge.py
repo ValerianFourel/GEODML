@@ -65,6 +65,14 @@ def main() -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
+        "--allow-failed-tasks",
+        action="store_true",
+        help=(
+            "Retain exhausted failed caches and continue the model stage "
+            "instead of aborting."
+        ),
+    )
+    parser.add_argument(
         "--run-purpose",
         choices=("debug", "production"),
         default="debug",
@@ -114,6 +122,10 @@ def main() -> int:
             skipped_task_ids=skipped_task_ids,
             args=args,
         )
+    failed_task_ids = sorted(
+        str(json.loads(path.read_text(encoding="utf-8")).get("task_id", ""))
+        for path in cache.glob("*.failed.json")
+    )
     _atomic_jsonl(output / "judge_responses.jsonl", responses)
     _atomic_json(
         output / "run_manifest.json",
@@ -135,7 +147,13 @@ def main() -> int:
             "max_new_tokens": args.max_new_tokens,
             "maximum_attempts": args.maximum_attempts,
             "resume_extra_attempts": args.resume_extra_attempts,
+            "allow_failed_tasks": args.allow_failed_tasks,
             "completed_count": len(responses),
+            "failed_count": len(failed_task_ids),
+            "failed_task_ids": failed_task_ids,
+            "is_complete": not failed_task_ids and (
+                len(responses) + len(skipped_task_ids) == len(tasks)
+            ),
             "skipped_count": len(skipped_task_ids),
             "skipped_task_ids": sorted(skipped_task_ids),
             "started_at": started_at,
@@ -234,6 +252,9 @@ def _run_serial_tasks(
                     "attempts": attempts,
                 },
             )
+            if args.allow_failed_tasks:
+                print(f"retaining exhausted task: {task.task_id}", flush=True)
+                continue
             raise SystemExit(f"judge exhausted attempts: {failure_path}")
         if index % 50 == 0 or index == len(tasks):
             print(f"[{index}/{len(tasks)}] {args.judge_slot}", flush=True)
@@ -249,7 +270,7 @@ def _run_local_batches(
     args,
 ) -> list[dict[str, object]]:
     completed: dict[str, dict[str, object]] = {}
-    pending: list[tuple[ReadinessLabelTask, list[dict[str, object]]]] = []
+    pending: list[tuple[ReadinessLabelTask, list[dict[str, object]], int]] = []
     for task in tasks:
         if task.task_id in skipped_task_ids:
             continue
@@ -320,12 +341,12 @@ def _run_local_batches(
             f"{args.judge_slot}; pending={len(pending)}",
             flush=True,
         )
-        if exhausted:
+        if exhausted and not args.allow_failed_tasks:
             raise SystemExit(f"judge exhausted attempts for task IDs: {sorted(exhausted)}")
     return [
         completed[task.task_id]
         for task in tasks
-        if task.task_id not in skipped_task_ids
+        if task.task_id not in skipped_task_ids and task.task_id in completed
     ]
 
 
