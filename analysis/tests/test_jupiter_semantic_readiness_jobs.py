@@ -26,6 +26,7 @@ ABSTENTION_20K_PREPARER = (
 ABSTENTION_20K_SLICE = JUPITER_ROOT / "run_readiness_20k_abstention_slice.sbatch"
 INCREMENTAL_AUDIT = JUPITER_ROOT / "audit_readiness_incremental_four_judge.sh"
 ABSTENTION_20K_AUDIT = JUPITER_ROOT / "audit_readiness_20k_abstention.sh"
+READINESS_HF_EMBEDDINGS = JUPITER_ROOT / "run_readiness_hf_embedding_views.sh"
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -42,6 +43,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             ABSTENTION_20K_SLICE,
             INCREMENTAL_AUDIT,
             ABSTENTION_20K_AUDIT,
+            READINESS_HF_EMBEDDINGS,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -51,6 +53,20 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_hf_embedding_runner_never_allocates_and_is_resumable(self) -> None:
+        script = READINESS_HF_EMBEDDINGS.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotIn("sbatch", script)
+        self.assertNotIn("srun", script)
+        self.assertIn("exactly one visible GPU", script)
+        self.assertIn("restricted-local/prompts.jsonl", script)
+        self.assertIn("qwen3-8b-mntp-unsup-simcse", script)
+        self.assertIn("qwen3-8b-mntp-supervised", script)
+        self.assertIn("qwen3-8b-llm2vec-gen", script)
+        self.assertIn("--shard-size", script)
+        self.assertIn("--git-commit-sha", script)
 
     def test_project_setup_is_source_only_and_exports_portable_roots(self) -> None:
         direct = subprocess.run(
