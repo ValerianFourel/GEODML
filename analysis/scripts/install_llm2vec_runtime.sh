@@ -9,14 +9,21 @@ set -euo pipefail
 LLM2VEC_GIT_REVISION="0fbcf3304139099bda75c3d6b5d8e835d4894563"
 LLM2VEC_GIT_URL="https://github.com/McGill-NLP/llm2vec.git"
 REGEX_VERSION="2025.11.3"
+TRANSFORMERS_VERSION="4.56.2"
+PEFT_VERSION="0.18.0"
 
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     echo "Activate the intended Python virtual environment first." >&2
     exit 2
 fi
 
+VENV_SITE_PACKAGES="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+export PYTHONPATH="${VENV_SITE_PACKAGES}${PYTHONPATH:+:${PYTHONPATH}}"
+
 python3 -m pip install \
-    "regex==${REGEX_VERSION}"
+    "regex==${REGEX_VERSION}" \
+    "transformers==${TRANSFORMERS_VERSION}" \
+    "peft==${PEFT_VERSION}"
 
 python3 -m pip install \
     --no-deps \
