@@ -5,7 +5,7 @@ set -euo pipefail
 # retained through Transformers 4.47.1. Keep this runtime separate from the
 # Qwen2/Qwen3 environment and do not replace HoreKa's CUDA PyTorch.
 
-LLM2VEC_GIT_REVISION="0fbcf3304139099bda75c3d6b5d8e835d4894563"
+LLM2VEC_GIT_REVISION="4fb28798ac93b3b00bbb4bdfcb6e5480aeb17bac"
 LLM2VEC_GIT_URL="https://github.com/McGill-NLP/llm2vec.git"
 REGEX_VERSION="2025.11.3"
 TRANSFORMERS_VERSION="4.47.1"

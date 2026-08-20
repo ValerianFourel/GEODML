@@ -147,7 +147,7 @@ class CandidatePopulationTests(unittest.TestCase):
             / "scripts"
             / "install_llm2vec_mistral_runtime.sh"
         ).read_text(encoding="utf-8")
-        self.assertIn("0fbcf3304139099bda75c3d6b5d8e835d4894563", script)
+        self.assertIn("4fb28798ac93b3b00bbb4bdfcb6e5480aeb17bac", script)
         self.assertIn('TRANSFORMERS_VERSION="4.47.1"', script)
         self.assertIn('PEFT_VERSION="0.14.0"', script)
         self.assertIn('TOKENIZERS_VERSION="0.21.4"', script)
