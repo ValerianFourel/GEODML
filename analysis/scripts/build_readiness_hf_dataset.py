@@ -91,6 +91,13 @@ def _parser() -> argparse.ArgumentParser:
     subspace.add_argument("--minimum-mean-confidence", type=float, default=0.60)
     subspace.add_argument("--maximum-global-mad", type=float, default=15.0)
     subspace.add_argument("--ridge-penalty", type=float, default=1.0)
+    subspace.add_argument(
+        "--compute-backend",
+        choices=("numpy", "torch-cuda"),
+        default="numpy",
+    )
+    subspace.add_argument("--bootstrap-replicates", type=int, default=500)
+    subspace.add_argument("--bootstrap-seed", type=int, default=20260820)
     subspace.add_argument("--git-commit-sha")
 
     finalize = commands.add_parser("finalize")
@@ -230,6 +237,9 @@ def _fit_subspace(args) -> int:
         minimum_rating_judges=args.minimum_rating_judges,
         minimum_mean_confidence=args.minimum_mean_confidence,
         maximum_global_mad=args.maximum_global_mad,
+        compute_backend=args.compute_backend,
+        bootstrap_replicates=args.bootstrap_replicates,
+        bootstrap_seed=args.bootstrap_seed,
         progress=lambda message: print(f"[fit-subspace] {message}", flush=True),
     )
     print(f"output: {Path(args.output_dir).resolve()}")
@@ -238,6 +248,12 @@ def _fit_subspace(args) -> int:
         f"training={manifest['usable_development_count']} "
         f"confirmation={manifest['usable_confirmation_count']} "
         f"dimension={manifest['embedding_dimension']}"
+    )
+    print(
+        "evidence_assessment="
+        f"{manifest['evidence_assessment']['status']} "
+        f"checks={manifest['evidence_assessment']['passed_check_count']}/"
+        f"{manifest['evidence_assessment']['total_check_count']}"
     )
     print("READINESS SUBSPACE: PASS")
     return 0

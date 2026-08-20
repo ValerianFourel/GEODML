@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Sequence
+from typing import Callable, Sequence
 
 import numpy as np
 
 from .semantic_readiness_dataset import ReadinessConsensus, SemanticReadinessItem
 
 
-READINESS_MAP_VERSION = "llm2vec-readiness-map-v2"
+READINESS_MAP_VERSION = "llm2vec-readiness-map-v3"
 PCA_RANDOM_SEED = 20260817
 PCA_COMPONENT_COUNT = 10
 
@@ -47,6 +47,7 @@ class ReadinessEmbeddingMap:
     pca_explained_variance_ratio: tuple[float, ...]
     ridge_pca_absolute_cosine_similarity: tuple[float, ...]
     ordinal_pca_absolute_cosine_similarity: tuple[float, ...]
+    compute_backend: str = "numpy"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,11 +82,17 @@ def fit_readiness_embedding_map(
     *,
     embedding_model: str,
     ridge_penalty: float = 1.0,
+    compute_backend: str = "numpy",
+    progress: Callable[[str], None] | None = None,
 ) -> ReadinessEmbeddingMap:
     """Fit scalar level-set planes and a multirubric supervised subspace."""
 
     if ridge_penalty <= 0:
         raise ValueError("ridge_penalty must be positive")
+    if compute_backend not in {"numpy", "torch-cuda"}:
+        raise ValueError("compute_backend must be numpy or torch-cuda")
+    if compute_backend == "torch-cuda":
+        _require_torch_cuda()
     all_matrix = _unit_rows(np.asarray(embeddings, dtype=np.float64))
     if len(all_matrix) != len(items):
         raise ValueError("embeddings must align with every corpus item")
@@ -96,7 +103,13 @@ def fit_readiness_embedding_map(
     centered = matrix - mean
     y = np.asarray([item.overall_readiness_0_100 / 100.0 for item in labels])
     label_mean = float(np.mean(y))
-    scalar = _ridge_coefficients(centered, (y - label_mean)[:, None], ridge_penalty)[:, 0]
+    _emit(progress, f"scalar ridge solve on {compute_backend}")
+    scalar = _ridge_coefficients(
+        centered,
+        (y - label_mean)[:, None],
+        ridge_penalty,
+        compute_backend=compute_backend,
+    )[:, 0]
     norm = float(np.linalg.norm(scalar))
     if norm <= 1e-12:
         raise ValueError("labels do not identify a nonzero LLM2Vec direction")
@@ -119,11 +132,18 @@ def fit_readiness_embedding_map(
         dtype=np.float64,
     )
     rubric_centered = rubric - np.mean(rubric, axis=0)
-    coefficients = _ridge_coefficients(centered, rubric_centered, ridge_penalty)
+    _emit(progress, f"multirubric ridge solve on {compute_backend}")
+    coefficients = _ridge_coefficients(
+        centered,
+        rubric_centered,
+        ridge_penalty,
+        compute_backend=compute_backend,
+    )
     left, singular, _ = np.linalg.svd(coefficients, full_matrices=False)
     variance = singular**2
     first_share = float(variance[0] / max(np.sum(variance), 1e-12))
     axes = left[:, : min(2, left.shape[1])].T
+    _emit(progress, "ordinal proportional-odds fit on scipy-cpu")
     ordinal_coefficients, ordinal_thresholds = _fit_ordinal_coefficients(
         centered,
         labels,
@@ -139,10 +159,12 @@ def fit_readiness_embedding_map(
     ordinal_unit = ordinal_direction / ordinal_norm
     scalar_unit = scalar / norm
     ridge_ordinal_cosine = float(scalar_unit @ ordinal_unit)
+    _emit(progress, f"randomized PCA on {compute_backend}")
     pca_axes, pca_variance = _randomized_pca(
         all_matrix - np.mean(all_matrix, axis=0),
         component_count=PCA_COMPONENT_COUNT,
         random_seed=PCA_RANDOM_SEED,
+        compute_backend=compute_backend,
     )
     ridge_pca_cosine = tuple(float(abs(axis @ scalar_unit)) for axis in pca_axes)
     ordinal_pca_cosine = tuple(float(abs(axis @ ordinal_unit)) for axis in pca_axes)
@@ -158,6 +180,7 @@ def fit_readiness_embedding_map(
                 ordinal_unit.astype("<f8").tobytes()
             ).hexdigest(),
             "pca_seed": PCA_RANDOM_SEED,
+            "compute_backend": compute_backend,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -189,12 +212,17 @@ def fit_readiness_embedding_map(
         ordinal_unit_direction=tuple(float(value) for value in ordinal_unit),
         ordinal_thresholds_by_rubric=ordinal_thresholds,
         ridge_ordinal_cosine_similarity=ridge_ordinal_cosine,
-        pca_method="deterministic-randomized-svd-v1",
+        pca_method=(
+            "deterministic-randomized-svd-torch-cuda-v1"
+            if compute_backend == "torch-cuda"
+            else "deterministic-randomized-svd-v1"
+        ),
         pca_random_seed=PCA_RANDOM_SEED,
         pca_axes=tuple(tuple(float(value) for value in row) for row in pca_axes),
         pca_explained_variance_ratio=tuple(float(value) for value in pca_variance),
         ridge_pca_absolute_cosine_similarity=ridge_pca_cosine,
         ordinal_pca_absolute_cosine_similarity=ordinal_pca_cosine,
+        compute_backend=compute_backend,
     )
 
 
@@ -267,7 +295,15 @@ def _aligned_usable(items, consensus, embeddings):
     )
 
 
-def _ridge_coefficients(x: np.ndarray, y: np.ndarray, penalty: float) -> np.ndarray:
+def _ridge_coefficients(
+    x: np.ndarray,
+    y: np.ndarray,
+    penalty: float,
+    *,
+    compute_backend: str = "numpy",
+) -> np.ndarray:
+    if compute_backend == "torch-cuda":
+        return _torch_ridge_coefficients(x, y, penalty, device_name="cuda")
     sample_count, dimension = x.shape
     if dimension <= sample_count:
         return np.linalg.solve(x.T @ x + penalty * np.eye(dimension), x.T @ y)
@@ -405,8 +441,17 @@ def _randomized_pca(
     *,
     component_count: int,
     random_seed: int,
+    compute_backend: str = "numpy",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return deterministic approximate PCs without treating them as readiness."""
+
+    if compute_backend == "torch-cuda":
+        return _torch_randomized_pca(
+            centered,
+            component_count=component_count,
+            random_seed=random_seed,
+            device_name="cuda",
+        )
 
     maximum = min(centered.shape)
     count = min(component_count, maximum)
@@ -425,6 +470,85 @@ def _randomized_pca(
     total_variance = float(np.sum(centered**2))
     ratios = singular_values[:count] ** 2 / max(total_variance, 1e-12)
     return axes, ratios
+
+
+def _require_torch_cuda() -> None:
+    try:
+        import torch
+    except ImportError as exc:
+        raise ValueError("torch-cuda backend requires PyTorch") from exc
+    if not torch.cuda.is_available():
+        raise ValueError("torch-cuda backend requires a visible CUDA GPU")
+
+
+def _torch_ridge_coefficients(
+    x: np.ndarray,
+    y: np.ndarray,
+    penalty: float,
+    *,
+    device_name: str,
+) -> np.ndarray:
+    import torch
+
+    device = torch.device(device_name)
+    x_tensor = torch.as_tensor(x, dtype=torch.float64, device=device)
+    y_tensor = torch.as_tensor(y, dtype=torch.float64, device=device)
+    sample_count, dimension = x_tensor.shape
+    if dimension <= sample_count:
+        gram = x_tensor.T @ x_tensor
+        gram.diagonal().add_(penalty)
+        coefficients = torch.linalg.solve(gram, x_tensor.T @ y_tensor)
+    else:
+        gram = x_tensor @ x_tensor.T
+        gram.diagonal().add_(penalty)
+        coefficients = x_tensor.T @ torch.linalg.solve(gram, y_tensor)
+    return coefficients.cpu().numpy()
+
+
+def _torch_randomized_pca(
+    centered: np.ndarray,
+    *,
+    component_count: int,
+    random_seed: int,
+    device_name: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    import torch
+
+    device = torch.device(device_name)
+    values = torch.as_tensor(centered, dtype=torch.float64, device=device)
+    maximum = min(values.shape)
+    count = min(component_count, maximum)
+    projection_count = min(maximum, count + 8)
+    generator = torch.Generator(device=device)
+    generator.manual_seed(random_seed)
+    projection = torch.randn(
+        (values.shape[1], projection_count),
+        dtype=torch.float64,
+        device=device,
+        generator=generator,
+    )
+    basis, _ = torch.linalg.qr(values @ projection, mode="reduced")
+    for _ in range(2):
+        basis, _ = torch.linalg.qr(values @ (values.T @ basis), mode="reduced")
+    _, singular_values, right = torch.linalg.svd(
+        basis.T @ values,
+        full_matrices=False,
+    )
+    axes = right[:count].cpu().numpy().copy()
+    for axis in axes:
+        pivot = int(np.argmax(np.abs(axis)))
+        if axis[pivot] < 0:
+            axis *= -1
+    total_variance = float(torch.sum(values**2).item())
+    ratios = singular_values[:count].cpu().numpy() ** 2 / max(
+        total_variance, 1e-12
+    )
+    return axes, ratios
+
+
+def _emit(callback: Callable[[str], None] | None, message: str) -> None:
+    if callback is not None:
+        callback(message)
 
 
 def _unit_rows(values: np.ndarray) -> np.ndarray:
@@ -446,7 +570,14 @@ def _spearman(left: np.ndarray, right: np.ndarray) -> float:
 def _ranks(values: np.ndarray) -> np.ndarray:
     order = np.argsort(values, kind="mergesort")
     ranks = np.empty(len(values), dtype=np.float64)
-    ranks[order] = np.arange(len(values), dtype=np.float64)
+    sorted_values = values[order]
+    start = 0
+    while start < len(values):
+        stop = start + 1
+        while stop < len(values) and sorted_values[stop] == sorted_values[start]:
+            stop += 1
+        ranks[order[start:stop]] = 0.5 * (start + stop - 1)
+        start = stop
     return ranks
 
 

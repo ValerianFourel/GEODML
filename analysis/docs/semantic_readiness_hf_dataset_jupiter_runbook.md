@@ -230,14 +230,15 @@ export READINESS_HF_EMBEDDING_VIEWS="qwen3-8b-mntp-unsup-simcse"
 
 ## 6. Fit the three-judge supervised readiness subspace
 
-This stage is CPU-only. It uses only the three completed judge slots, treats
+This stage can use a GPU for the large linear-algebra operations. It uses only
+the three completed judge slots, treats
 `not_applicable` and `dont_know` as abstentions rather than numeric scores,
 fits the supervised directions on the frozen development split, and evaluates
 the confirmation split without refitting. The incomplete fourth judge is
 excluded explicitly.
 
 ```bash
-export READINESS_SUBSPACE_OUTPUT="$READINESS_HF_EXPORT_ROOT/maps/qwen3-8b-mntp-unsup-simcse-three-judge"
+export READINESS_SUBSPACE_OUTPUT="$READINESS_HF_EXPORT_ROOT/maps/qwen3-8b-mntp-unsup-simcse-three-judge-gpu-v2"
 
 cd "$GEODML_REPOSITORY"
 
@@ -249,6 +250,8 @@ python analysis/scripts/build_readiness_hf_dataset.py fit-subspace \
   --judge-slots "primary-frontier,replicate-frontier-a,replicate-frontier-b" \
   --minimum-rating-judges 2 \
   --ridge-penalty 1.0 \
+  --compute-backend torch-cuda \
+  --bootstrap-replicates 500 \
   --git-commit-sha "$GEODML_EXPECTED_COMMIT"
 
 cat "$READINESS_SUBSPACE_OUTPUT/subspace_manifest.json"
@@ -257,7 +260,10 @@ cat "$READINESS_SUBSPACE_OUTPUT/readiness_embedding_map_diagnostics.json"
 
 The output directory is immutable: choose a new path to change the panel,
 thresholds, ridge penalty, or embedding view. PCA components are retained only
-as unsupervised geometry diagnostics; they do not define readiness.
+as unsupervised geometry diagnostics; they do not define readiness. The CUDA
+backend accelerates ridge and PCA linear algebra; the frozen proportional-odds
+estimator remains on SciPy/CPU. Restricted-local axis exemplars must never be
+uploaded.
 
 ## 7. Finalize the HF-safe Parquet repository without GPUs
 

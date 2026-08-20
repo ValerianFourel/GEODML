@@ -116,6 +116,10 @@ class ReadinessHfSubspaceTests(unittest.TestCase):
             self.assertEqual(manifest["confirmation_prompt_count"], 10)
             self.assertEqual(manifest["training_item_count"], 30)
             self.assertEqual(manifest["embedding_dimension"], 4)
+            self.assertEqual(manifest["compute_backend"], "numpy")
+            self.assertEqual(
+                manifest["evidence_assessment"]["status"], "inconclusive"
+            )
             self.assertEqual(
                 read_json(output / "subspace_manifest.json")["map_id"],
                 manifest["map_id"],
@@ -136,6 +140,82 @@ class ReadinessHfSubspaceTests(unittest.TestCase):
                 output / "readiness_embedding_map_diagnostics.json"
             )
             self.assertGreater(diagnostics["confirmation"]["spearman"], 0.9)
+            self.assertGreater(
+                diagnostics["holdout_evidence"]["relative_mae_improvement"],
+                0.0,
+            )
+            self.assertEqual(
+                len(diagnostics["label_panel"]["pairwise_judge_agreement"]),
+                3,
+            )
+            subspace_rows = read_jsonl(
+                output / "readiness_supervised_subspace_coordinates.jsonl"
+            )
+            self.assertEqual(len(subspace_rows), 40)
+            self.assertIn("axis_2", subspace_rows[0])
+            exemplars = read_json(
+                output / "readiness_axis_exemplars.restricted-local.json"
+            )
+            self.assertEqual(exemplars["scope"], "restricted-local")
+
+    def test_unknown_compute_backend_is_rejected(self) -> None:
+        from analysis.interpretability.pipeline.readiness_embedding_map import (
+            fit_readiness_embedding_map,
+        )
+
+        with self.assertRaisesRegex(ValueError, "compute_backend"):
+            fit_readiness_embedding_map(
+                (),
+                (),
+                np.empty((0, 2)),
+                embedding_model="test",
+                compute_backend="unknown",
+            )
+
+    def test_spearman_ranks_average_ties(self) -> None:
+        from analysis.interpretability.pipeline.readiness_embedding_map import _ranks
+
+        ranks = _ranks(np.asarray([3.0, 1.0, 1.0, 2.0]))
+        np.testing.assert_array_equal(ranks, np.asarray([3.0, 0.5, 0.5, 2.0]))
+
+    def test_torch_linear_algebra_matches_numpy_on_cpu(self) -> None:
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            self.skipTest("PyTorch is unavailable")
+        from analysis.interpretability.pipeline.readiness_embedding_map import (
+            _randomized_pca,
+            _ridge_coefficients,
+            _torch_randomized_pca,
+            _torch_ridge_coefficients,
+        )
+
+        rng = np.random.default_rng(17)
+        matrix = rng.normal(size=(30, 6))
+        targets = rng.normal(size=(30, 2))
+        expected = _ridge_coefficients(matrix, targets, 0.7)
+        actual = _torch_ridge_coefficients(
+            matrix,
+            targets,
+            0.7,
+            device_name="cpu",
+        )
+        np.testing.assert_allclose(actual, expected, rtol=1e-10, atol=1e-10)
+
+        numpy_axes, _ = _randomized_pca(
+            matrix,
+            component_count=3,
+            random_seed=11,
+        )
+        torch_axes, torch_variance = _torch_randomized_pca(
+            matrix,
+            component_count=3,
+            random_seed=11,
+            device_name="cpu",
+        )
+        self.assertEqual(torch_axes.shape, numpy_axes.shape)
+        self.assertEqual(torch_variance.shape, (3,))
+        np.testing.assert_allclose(torch_axes @ torch_axes.T, np.eye(3), atol=1e-10)
 
 
 def _item(index: int) -> SemanticReadinessItem:
