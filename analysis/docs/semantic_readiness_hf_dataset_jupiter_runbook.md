@@ -228,7 +228,38 @@ one view first, set for example:
 export READINESS_HF_EMBEDDING_VIEWS="qwen3-8b-mntp-unsup-simcse"
 ```
 
-## 6. Finalize the HF-safe Parquet repository without GPUs
+## 6. Fit the three-judge supervised readiness subspace
+
+This stage is CPU-only. It uses only the three completed judge slots, treats
+`not_applicable` and `dont_know` as abstentions rather than numeric scores,
+fits the supervised directions on the frozen development split, and evaluates
+the confirmation split without refitting. The incomplete fourth judge is
+excluded explicitly.
+
+```bash
+export READINESS_SUBSPACE_OUTPUT="$READINESS_HF_EXPORT_ROOT/maps/qwen3-8b-mntp-unsup-simcse-three-judge"
+
+cd "$GEODML_REPOSITORY"
+
+python analysis/scripts/build_readiness_hf_dataset.py fit-subspace \
+  --prompts "$READINESS_HF_BUNDLE_ROOT/restricted-local/prompts.jsonl" \
+  --annotations "$READINESS_HF_BUNDLE_ROOT/restricted-local/annotations.jsonl" \
+  --embedding-dir "$READINESS_HF_EMBEDDING_ROOT/qwen3-8b-mntp-unsup-simcse" \
+  --output-dir "$READINESS_SUBSPACE_OUTPUT" \
+  --judge-slots "primary-frontier,replicate-frontier-a,replicate-frontier-b" \
+  --minimum-rating-judges 2 \
+  --ridge-penalty 1.0 \
+  --git-commit-sha "$GEODML_EXPECTED_COMMIT"
+
+cat "$READINESS_SUBSPACE_OUTPUT/subspace_manifest.json"
+cat "$READINESS_SUBSPACE_OUTPUT/readiness_embedding_map_diagnostics.json"
+```
+
+The output directory is immutable: choose a new path to change the panel,
+thresholds, ridge penalty, or embedding view. PCA components are retained only
+as unsupervised geometry diagnostics; they do not define readiness.
+
+## 7. Finalize the HF-safe Parquet repository without GPUs
 
 Include only embedding directories whose manifests say `is_complete=true`.
 This example requires all three views:
@@ -252,7 +283,7 @@ find "$READINESS_HF_DATASET_ROOT" -type f -maxdepth 4 -print
 cat "$READINESS_HF_DATASET_ROOT/dataset_manifest.json"
 ```
 
-## 7. Explicit private Hugging Face upload
+## 8. Explicit private Hugging Face upload
 
 Uploading is deliberately separate from assembly and finalization. Choose the
 repository ID explicitly and repeat it as confirmation. `HF_TOKEN` must be in

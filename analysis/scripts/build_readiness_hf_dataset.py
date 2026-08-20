@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, embed, finalize, and explicitly publish the readiness HF dataset."""
+"""Build, embed, fit, finalize, and explicitly publish the readiness HF dataset."""
 
 from __future__ import annotations
 
@@ -28,6 +28,9 @@ from interpretability.pipeline.readiness_hf_dataset import (  # noqa: E402
     read_json,
     read_jsonl,
     sha256_file,
+)
+from interpretability.pipeline.readiness_hf_subspace import (  # noqa: E402
+    fit_readiness_hf_subspace,
 )
 from interpretability.pipeline.two_axis_prompt_population import (  # noqa: E402
     LLM2VecGenPromptEmbedder,
@@ -75,6 +78,21 @@ def _parser() -> argparse.ArgumentParser:
     embed.add_argument("--shard-size", type=int, default=512)
     embed.add_argument("--git-commit-sha")
 
+    subspace = commands.add_parser("fit-subspace")
+    subspace.add_argument("--prompts", required=True)
+    subspace.add_argument("--annotations", required=True)
+    subspace.add_argument("--embedding-dir", required=True)
+    subspace.add_argument("--output-dir", required=True)
+    subspace.add_argument(
+        "--judge-slots",
+        default="primary-frontier,replicate-frontier-a,replicate-frontier-b",
+    )
+    subspace.add_argument("--minimum-rating-judges", type=int, default=2)
+    subspace.add_argument("--minimum-mean-confidence", type=float, default=0.60)
+    subspace.add_argument("--maximum-global-mad", type=float, default=15.0)
+    subspace.add_argument("--ridge-penalty", type=float, default=1.0)
+    subspace.add_argument("--git-commit-sha")
+
     finalize = commands.add_parser("finalize")
     finalize.add_argument("--bundle-root", required=True)
     finalize.add_argument("--embedding-dir", action="append", default=[])
@@ -100,6 +118,8 @@ def main() -> int:
         return _assemble(args)
     if args.command == "embed":
         return _embed(args)
+    if args.command == "fit-subspace":
+        return _fit_subspace(args)
     if args.command == "finalize":
         return _finalize(args)
     if args.command == "verify":
@@ -193,6 +213,33 @@ def _embed(args) -> int:
         f"{manifest['item_count']} dimension={manifest['embedding_dimension']}"
     )
     print("EMBEDDING VIEW: PASS")
+    return 0
+
+
+def _fit_subspace(args) -> int:
+    manifest = fit_readiness_hf_subspace(
+        prompts_path=args.prompts,
+        annotations_path=args.annotations,
+        embedding_dir=args.embedding_dir,
+        output_dir=args.output_dir,
+        judge_slots=tuple(
+            value.strip() for value in args.judge_slots.split(",") if value.strip()
+        ),
+        git_commit_sha=args.git_commit_sha or _git_commit_sha(),
+        ridge_penalty=args.ridge_penalty,
+        minimum_rating_judges=args.minimum_rating_judges,
+        minimum_mean_confidence=args.minimum_mean_confidence,
+        maximum_global_mad=args.maximum_global_mad,
+        progress=lambda message: print(f"[fit-subspace] {message}", flush=True),
+    )
+    print(f"output: {Path(args.output_dir).resolve()}")
+    print(f"map_id={manifest['map_id']}")
+    print(
+        f"training={manifest['usable_development_count']} "
+        f"confirmation={manifest['usable_confirmation_count']} "
+        f"dimension={manifest['embedding_dimension']}"
+    )
+    print("READINESS SUBSPACE: PASS")
     return 0
 
 
