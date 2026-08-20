@@ -128,6 +128,46 @@ class SelectedReadinessQuestion:
     selection_objective: float
 
 
+@dataclass(frozen=True, slots=True)
+class SearchQuestionReview:
+    candidate_id: str
+    judge_id: str
+    judge_model: str
+    exact_keyword_present: bool
+    single_question: bool
+    topic_relevant: bool
+    search_intent: bool
+    web_answerable: bool
+    standalone: bool
+    natural_language: bool
+    relevance_score_1_5: int
+    accepted: bool
+    concise_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class SpatiallySelectedReadinessQuestion:
+    keyword_id: str
+    keyword: str
+    target_id: str
+    target_index: int
+    candidate_id: str
+    question: str
+    generator_id: str
+    generator_model: str
+    target_normalized_axis_1: float
+    target_normalized_axis_2: float
+    consensus_normalized_axis_1: float
+    consensus_normalized_axis_2: float
+    reference_normalized_axis_1: float
+    reference_normalized_axis_2: float
+    candidate_aligned_normalized_axis_1: float
+    candidate_aligned_normalized_axis_2: float
+    target_distance: float
+    cross_embedding_disagreement: float
+    assignment_cost: float
+
+
 class ReadinessQuestionGenerator(Protocol):
     generator_id: str
     model_name: str
@@ -136,6 +176,15 @@ class ReadinessQuestionGenerator(Protocol):
     def generate(
         self, task: ReadinessGenerationTask
     ) -> tuple[str, ...]: ...
+
+
+class SearchQuestionValidator(Protocol):
+    judge_id: str
+    model_name: str
+
+    def review(
+        self, candidate: ReadinessQuestionCandidate
+    ) -> SearchQuestionReview: ...
 
 
 class FakeReadinessQuestionGenerator:
@@ -275,6 +324,88 @@ class LocalReadinessQuestionGenerator:
             {"identity": identity, "questions": accepted, "failures": failures},
         )
         return tuple(accepted)
+
+
+class LocalSearchQuestionValidator:
+    """Independent cached review of topic fidelity and online-search utility."""
+
+    def __init__(
+        self,
+        ranker,
+        *,
+        judge_id: str,
+        model_name: str,
+        cache_directory: str | Path,
+        maximum_attempts: int = 3,
+    ) -> None:
+        if not judge_id.strip() or not model_name.strip() or maximum_attempts <= 0:
+            raise ValueError("invalid search-question validator configuration")
+        self._ranker = ranker
+        self.judge_id = judge_id
+        self.model_name = model_name
+        self.cache_directory = Path(cache_directory)
+        self.maximum_attempts = maximum_attempts
+
+    @classmethod
+    def from_model(
+        cls,
+        model_name: str,
+        *,
+        judge_id: str,
+        cache_directory: str | Path,
+        backend: str = "local",
+        precision: str = "full",
+        maximum_attempts: int = 3,
+    ) -> "LocalSearchQuestionValidator":
+        from ..utils import make_ranker
+
+        return cls(
+            make_ranker(backend, model_name, precision=precision),
+            judge_id=judge_id,
+            model_name=model_name,
+            cache_directory=cache_directory,
+            maximum_attempts=maximum_attempts,
+        )
+
+    def review(self, candidate: ReadinessQuestionCandidate) -> SearchQuestionReview:
+        identity = {
+            "version": READINESS_PROMPT_POPULATION_VERSION,
+            "judge_id": self.judge_id,
+            "judge_model": self.model_name,
+            "candidate_id": candidate.candidate_id,
+            "question_sha256": candidate.question_sha256,
+        }
+        cache_path = self.cache_directory / f"{_stable_hash(identity)}.json"
+        if cache_path.exists():
+            return SearchQuestionReview(**json.loads(cache_path.read_text(encoding="utf-8"))["review"])
+        failures = []
+        for attempt in range(self.maximum_attempts):
+            raw = _generate_with_seed(
+                self._ranker,
+                render_search_validation_request(candidate),
+                seed=candidate.generation_seed + 900_001 + attempt,
+                max_new_tokens=220,
+                temperature=0.0,
+            )
+            try:
+                review = parse_search_question_review(
+                    raw,
+                    candidate,
+                    judge_id=self.judge_id,
+                    judge_model=self.model_name,
+                )
+            except ValueError as exc:
+                failures.append({"attempt": attempt, "error": str(exc), "raw": raw})
+                continue
+            _atomic_json(
+                cache_path,
+                {"identity": identity, "review": asdict(review), "failures": failures},
+            )
+            return review
+        raise RuntimeError(
+            f"search validation failed for {candidate.candidate_id}: "
+            f"{failures[-1]['error'] if failures else 'unknown error'}"
+        )
 
 
 def load_readiness_embedding_map(path: str | Path) -> ReadinessEmbeddingMap:
@@ -466,6 +597,82 @@ def validate_generated_question(question: str, keyword: str) -> None:
     )
     if any(term in lowered for term in forbidden):
         raise ValueError("question contains forbidden meta-policy language")
+
+
+def render_search_validation_request(candidate: ReadinessQuestionCandidate) -> str:
+    return f"""Independently evaluate whether the candidate is a useful simulated online-search question.
+
+Required topic phrase: {candidate.keyword}
+Candidate question: {candidate.question}
+
+Judge the text itself, not the generator. A valid candidate must:
+- remain directly about the required topic phrase;
+- express a genuine information need suitable for an online search;
+- be answerable using information that could reasonably be found on the web;
+- stand alone without hidden conversational context;
+- read as one natural question rather than an answer, command to manipulate a model,
+  or meta-comment about an experiment.
+
+Return only one JSON object with exactly these fields:
+{{"topic_relevant":true,"search_intent":true,"web_answerable":true,
+"standalone":true,"natural_language":true,"relevance_score_1_5":5,
+"concise_reason":"short reason"}}
+"""
+
+
+def parse_search_question_review(
+    raw: str,
+    candidate: ReadinessQuestionCandidate,
+    *,
+    judge_id: str,
+    judge_model: str,
+) -> SearchQuestionReview:
+    decoder = json.JSONDecoder()
+    payload = None
+    for match in re.finditer(r"\{", raw):
+        try:
+            value, _ = decoder.raw_decode(raw[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            payload = value
+            break
+    required_booleans = (
+        "topic_relevant",
+        "search_intent",
+        "web_answerable",
+        "standalone",
+        "natural_language",
+    )
+    if payload is None or any(type(payload.get(name)) is not bool for name in required_booleans):
+        raise ValueError("validator output lacks required boolean fields")
+    score = payload.get("relevance_score_1_5")
+    reason = " ".join(str(payload.get("concise_reason", "")).split())
+    if type(score) is not int or not 1 <= score <= 5 or not reason or len(reason) > 240:
+        raise ValueError("validator output has invalid score or concise reason")
+    exact_keyword = candidate.keyword in candidate.question
+    single_question = candidate.question.endswith("?") and candidate.question.count("?") == 1
+    accepted = (
+        exact_keyword
+        and single_question
+        and all(bool(payload[name]) for name in required_booleans)
+        and score >= 4
+    )
+    return SearchQuestionReview(
+        candidate_id=candidate.candidate_id,
+        judge_id=judge_id,
+        judge_model=judge_model,
+        exact_keyword_present=exact_keyword,
+        single_question=single_question,
+        topic_relevant=payload["topic_relevant"],
+        search_intent=payload["search_intent"],
+        web_answerable=payload["web_answerable"],
+        standalone=payload["standalone"],
+        natural_language=payload["natural_language"],
+        relevance_score_1_5=score,
+        accepted=accepted,
+        concise_reason=reason,
+    )
 
 
 def generate_question_candidates(
@@ -716,6 +923,217 @@ def select_diverse_questions(
         ),
     }
     return tuple(selected), diagnostics
+
+
+def select_spatially_matched_questions(
+    candidates: Sequence[ReadinessQuestionCandidate],
+    targets: Sequence[ReadinessPromptTarget],
+    coordinates_by_candidate: Mapping[str, Mapping[str, float]],
+    *,
+    accepted_candidate_ids: set[str],
+    disagreement_weight: float = 0.10,
+    distance_tolerance: float = 0.22,
+) -> tuple[tuple[SpatiallySelectedReadinessQuestion, ...], dict[str, object]]:
+    """Globally match validated candidates to the grid using two-view coordinates."""
+
+    if not targets or disagreement_weight < 0 or distance_tolerance < 0:
+        raise ValueError("invalid spatial matching configuration")
+    if len({target.target_id for target in targets}) != len(targets):
+        raise ValueError("spatial matching targets must be unique")
+    grouped: dict[str, list[ReadinessQuestionCandidate]] = {}
+    for candidate in candidates:
+        grouped.setdefault(candidate.keyword_id, [])
+        if candidate.candidate_id not in accepted_candidate_ids:
+            continue
+        coordinate = coordinates_by_candidate.get(candidate.candidate_id)
+        if coordinate is None:
+            raise ValueError(f"accepted candidate lacks aligned coordinates: {candidate.candidate_id}")
+        values = np.asarray(
+            [
+                coordinate["consensus_normalized_axis_1"],
+                coordinate["consensus_normalized_axis_2"],
+                coordinate["cross_embedding_disagreement"],
+            ],
+            dtype=np.float64,
+        )
+        if not np.isfinite(values).all():
+            raise ValueError(f"candidate has nonfinite aligned coordinates: {candidate.candidate_id}")
+        grouped[candidate.keyword_id].append(candidate)
+    if not grouped:
+        raise ValueError("no candidates are available for spatial matching")
+
+    from scipy.optimize import linear_sum_assignment
+
+    selected = []
+    keyword_diagnostics = {}
+    target_matrix = np.asarray(
+        [
+            [target.normalized_axis_1, target.normalized_axis_2]
+            for target in targets
+        ],
+        dtype=np.float64,
+    )
+    for keyword_id, pool in sorted(grouped.items()):
+        if not pool:
+            keyword_diagnostics[keyword_id] = _spatial_coverage_diagnostics(
+                (), target_count=len(targets), distance_tolerance=distance_tolerance
+            )
+            continue
+        pool = sorted(pool, key=lambda row: row.candidate_id)
+        observed = np.asarray(
+            [
+                [
+                    coordinates_by_candidate[row.candidate_id]["consensus_normalized_axis_1"],
+                    coordinates_by_candidate[row.candidate_id]["consensus_normalized_axis_2"],
+                ]
+                for row in pool
+            ],
+            dtype=np.float64,
+        )
+        disagreement = np.asarray(
+            [
+                coordinates_by_candidate[row.candidate_id]["cross_embedding_disagreement"]
+                for row in pool
+            ],
+            dtype=np.float64,
+        )
+        distances = np.linalg.norm(
+            target_matrix[:, None, :] - observed[None, :, :], axis=2
+        )
+        costs = distances + disagreement_weight * disagreement[None, :]
+        target_indices, candidate_indices = linear_sum_assignment(costs)
+        rows = []
+        for target_index, candidate_index in zip(target_indices, candidate_indices):
+            target = targets[int(target_index)]
+            candidate = pool[int(candidate_index)]
+            coordinate = coordinates_by_candidate[candidate.candidate_id]
+            row = SpatiallySelectedReadinessQuestion(
+                keyword_id=candidate.keyword_id,
+                keyword=candidate.keyword,
+                target_id=target.target_id,
+                target_index=target.target_index,
+                candidate_id=candidate.candidate_id,
+                question=candidate.question,
+                generator_id=candidate.generator_id,
+                generator_model=candidate.generator_model,
+                target_normalized_axis_1=target.normalized_axis_1,
+                target_normalized_axis_2=target.normalized_axis_2,
+                consensus_normalized_axis_1=float(observed[candidate_index, 0]),
+                consensus_normalized_axis_2=float(observed[candidate_index, 1]),
+                reference_normalized_axis_1=float(coordinate["reference_normalized_axis_1"]),
+                reference_normalized_axis_2=float(coordinate["reference_normalized_axis_2"]),
+                candidate_aligned_normalized_axis_1=float(
+                    coordinate["candidate_aligned_normalized_axis_1"]
+                ),
+                candidate_aligned_normalized_axis_2=float(
+                    coordinate["candidate_aligned_normalized_axis_2"]
+                ),
+                target_distance=float(distances[target_index, candidate_index]),
+                cross_embedding_disagreement=float(disagreement[candidate_index]),
+                assignment_cost=float(costs[target_index, candidate_index]),
+            )
+            rows.append(row)
+            selected.append(row)
+        keyword_diagnostics[keyword_id] = _spatial_coverage_diagnostics(
+            rows,
+            target_count=len(targets),
+            distance_tolerance=distance_tolerance,
+        )
+
+    all_distances = [row.target_distance for row in selected]
+    all_disagreement = [row.cross_embedding_disagreement for row in selected]
+    diagnostics = {
+        "format_version": READINESS_PROMPT_POPULATION_VERSION,
+        "candidate_count": len(candidates),
+        "accepted_candidate_count": len(accepted_candidate_ids),
+        "selected_count": len(selected),
+        "keyword_count": len(grouped),
+        "target_count_per_keyword": len(targets),
+        "mean_target_distance": float(np.mean(all_distances)) if all_distances else None,
+        "maximum_target_distance": float(np.max(all_distances)) if all_distances else None,
+        "mean_cross_embedding_disagreement": (
+            float(np.mean(all_disagreement)) if all_disagreement else None
+        ),
+        "keywords": keyword_diagnostics,
+        "all_keywords_pass_spacing_gate": all(
+            item["spacing_gate_passed"] for item in keyword_diagnostics.values()
+        ),
+        "selection_method": "global-linear-assignment-on-aligned-two-view-consensus",
+    }
+    return tuple(sorted(selected, key=lambda row: (row.keyword_id, row.target_index))), diagnostics
+
+
+def _spatial_coverage_diagnostics(rows, *, target_count: int, distance_tolerance: float):
+    if not rows:
+        gate_checks = {
+            "complete_target_count": False,
+            "mean_target_distance_at_most_0_25": False,
+            "at_least_80_percent_within_tolerance": False,
+            "both_axis_spans_at_least_0_70": False,
+            "median_nearest_neighbor_at_least_0_08": False,
+            "at_least_60_percent_grid_bins_occupied": False,
+        }
+        return {
+            "target_count": target_count,
+            "selected_count": 0,
+            "spacing_gate_passed": False,
+            "uncovered_target_count": target_count,
+            "within_distance_tolerance_fraction": 0.0,
+            "axis_1_span": 0.0,
+            "axis_2_span": 0.0,
+            "median_nearest_neighbor_distance": 0.0,
+            "occupied_grid_bin_count": 0,
+            "gate_checks": gate_checks,
+        }
+    coordinates = np.asarray(
+        [
+            [row.consensus_normalized_axis_1, row.consensus_normalized_axis_2]
+            for row in rows
+        ],
+        dtype=np.float64,
+    )
+    if len(rows) > 1:
+        pairwise = np.linalg.norm(
+            coordinates[:, None, :] - coordinates[None, :, :], axis=2
+        )
+        np.fill_diagonal(pairwise, np.inf)
+        nearest = pairwise.min(axis=1)
+    else:
+        nearest = np.asarray([0.0])
+    distances = np.asarray([row.target_distance for row in rows])
+    axis_spans = np.ptp(coordinates, axis=0)
+    occupied = {
+        (
+            int(np.clip(np.rint(value[0] * 5), 0, 5)),
+            int(np.clip(np.rint(value[1] * 4), 0, 4)),
+        )
+        for value in coordinates
+    }
+    within = int(np.sum(distances <= distance_tolerance))
+    gate_checks = {
+        "complete_target_count": len(rows) == target_count,
+        "mean_target_distance_at_most_0_25": float(np.mean(distances)) <= 0.25,
+        "at_least_80_percent_within_tolerance": within >= int(np.ceil(0.80 * target_count)),
+        "both_axis_spans_at_least_0_70": bool(np.all(axis_spans >= 0.70)),
+        "median_nearest_neighbor_at_least_0_08": float(np.median(nearest)) >= 0.08,
+        "at_least_60_percent_grid_bins_occupied": len(occupied) >= int(np.ceil(0.60 * target_count)),
+    }
+    return {
+        "target_count": target_count,
+        "selected_count": len(rows),
+        "uncovered_target_count": target_count - len(rows),
+        "mean_target_distance": float(np.mean(distances)),
+        "maximum_target_distance": float(np.max(distances)),
+        "within_distance_tolerance_count": within,
+        "within_distance_tolerance_fraction": within / target_count,
+        "axis_1_span": float(axis_spans[0]),
+        "axis_2_span": float(axis_spans[1]),
+        "minimum_nearest_neighbor_distance": float(np.min(nearest)),
+        "median_nearest_neighbor_distance": float(np.median(nearest)),
+        "occupied_grid_bin_count": len(occupied),
+        "gate_checks": gate_checks,
+        "spacing_gate_passed": all(gate_checks.values()),
+    }
 
 
 def build_refinement_tasks(

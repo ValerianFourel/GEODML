@@ -29,6 +29,7 @@ from interpretability.pipeline.readiness_hf_dataset import (  # noqa: E402
 from interpretability.pipeline.readiness_prompt_population import (  # noqa: E402
     READINESS_PROMPT_POPULATION_VERSION,
     FakeReadinessQuestionGenerator,
+    LocalSearchQuestionValidator,
     LocalReadinessQuestionGenerator,
     ReadinessGenerationTask,
     ReadinessPromptTarget,
@@ -43,6 +44,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     project_questions,
     project_text_embeddings,
     select_diverse_questions,
+    select_spatially_matched_questions,
     validate_generated_question,
 )
 from interpretability.pipeline.two_axis_prompt_population import (  # noqa: E402
@@ -103,6 +105,22 @@ def _parser() -> argparse.ArgumentParser:
     imported.add_argument("--proposal-kind", default="llm2vec-gen-decoded-proposal")
     imported.add_argument("--output", required=True)
 
+    validate = stages.add_parser(
+        "validate-candidates",
+        help="independently judge topic fidelity and online-search usefulness",
+    )
+    validate.add_argument("--candidates", nargs="+", required=True)
+    validate.add_argument("--judge-id", required=True)
+    validate.add_argument("--model", required=True)
+    validate.add_argument(
+        "--backend", choices=("local", "api", "openai"), default="local"
+    )
+    validate.add_argument("--precision", choices=("full", "4bit"), default="full")
+    validate.add_argument("--cache-dir", required=True)
+    validate.add_argument("--output", required=True)
+    validate.add_argument("--maximum-attempts", type=int, default=3)
+    validate.add_argument("--resume", action="store_true")
+
     score = stages.add_parser(
         "score-select",
         help="LLM2Vec-project, diversify, and plan refinement",
@@ -146,6 +164,24 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--candidate-projections", required=True)
     compare.add_argument("--robustness-battery", required=True)
     compare.add_argument("--output-dir", required=True)
+
+    spatial = stages.add_parser(
+        "spatial-select",
+        help="globally match validated candidates to the grid in both embeddings",
+    )
+    spatial.add_argument("--plan-dir", required=True)
+    spatial.add_argument("--candidates", nargs="+", required=True)
+    spatial.add_argument("--reference-projections", required=True)
+    spatial.add_argument("--candidate-projections", required=True)
+    spatial.add_argument("--robustness-battery", required=True)
+    spatial.add_argument("--validations", nargs="+", required=True)
+    spatial.add_argument("--generator-ids", required=True)
+    spatial.add_argument("--next-round-index", type=int, default=1)
+    spatial.add_argument("--distance-tolerance", type=float, default=0.22)
+    spatial.add_argument("--disagreement-weight", type=float, default=0.10)
+    spatial.add_argument("--candidates-per-task", type=int, default=3)
+    spatial.add_argument("--master-seed", type=int, default=20260820)
+    spatial.add_argument("--output-dir", required=True)
     return parser
 
 
@@ -157,12 +193,16 @@ def main() -> int:
         return _generate(args)
     if args.stage == "import-proposals":
         return _import_proposals(args)
+    if args.stage == "validate-candidates":
+        return _validate_candidates(args)
     if args.stage == "score-select":
         return _score_select(args)
     if args.stage == "project-candidates":
         return _project_candidates(args)
     if args.stage == "compare-projections":
         return _compare_projections(args)
+    if args.stage == "spatial-select":
+        return _spatial_select(args)
     raise AssertionError(args.stage)
 
 
@@ -343,6 +383,72 @@ def _import_proposals(args) -> int:
         },
     )
     print(f"imported_candidates={len(rows)} output={output}")
+    return 0
+
+
+def _validate_candidates(args) -> int:
+    output = Path(args.output).resolve()
+    if output.exists() and not args.resume:
+        raise ValueError(f"refusing to overwrite validation file: {output}")
+    candidates = tuple(
+        ReadinessQuestionCandidate(**row)
+        for path in args.candidates
+        for row in read_jsonl(path)
+    )
+    if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
+        raise ValueError("validation candidates must be nonempty and uniquely identified")
+    existing = {
+        str(row["candidate_id"]): row
+        for row in (read_jsonl(output) if output.exists() else [])
+    }
+    candidate_ids = {row.candidate_id for row in candidates}
+    if not set(existing).issubset(candidate_ids):
+        raise ValueError("existing validation contains unknown candidate ids")
+    pending = [row for row in candidates if row.candidate_id not in existing]
+    if pending:
+        validator = LocalSearchQuestionValidator.from_model(
+            args.model,
+            judge_id=args.judge_id,
+            cache_directory=args.cache_dir,
+            backend=args.backend,
+            precision=args.precision,
+            maximum_attempts=args.maximum_attempts,
+        )
+        for index, candidate in enumerate(pending, start=1):
+            review = validator.review(candidate)
+            existing[candidate.candidate_id] = asdict(review)
+            if index % 10 == 0 or index == len(pending):
+                print(
+                    f"validated={len(existing)}/{len(candidates)} "
+                    f"accepted={sum(bool(row['accepted']) for row in existing.values())}"
+                )
+    rows = [existing[candidate_id] for candidate_id in sorted(existing)]
+    atomic_jsonl(output, rows)
+    atomic_json(
+        output.with_suffix(output.suffix + ".manifest.json"),
+        {
+            "format_version": READINESS_PROMPT_POPULATION_VERSION,
+            "completed_at": _now(),
+            "git_commit_sha": _git_sha(),
+            "slurm": _slurm_environment(),
+            "candidate_files": [_file_identity(path) for path in args.candidates],
+            "candidate_count": len(candidates),
+            "reviewed_count": len(rows),
+            "accepted_count": sum(bool(row["accepted"]) for row in rows),
+            "judge_id": args.judge_id,
+            "judge_model": args.model,
+            "judge_backend": args.backend,
+            "judge_precision": args.precision,
+            "acceptance_contract": (
+                "Exact keyword, one question, topic relevance, search intent, web "
+                "answerability, standalone wording, natural language, and score >= 4/5."
+            ),
+        },
+    )
+    print(
+        f"reviewed={len(rows)} accepted="
+        f"{sum(bool(row['accepted']) for row in rows)} output={output}"
+    )
     return 0
 
 
@@ -554,6 +660,37 @@ def _compare_projections(args) -> int:
     reference_root = Path(args.reference_projections).resolve()
     candidate_root = Path(args.candidate_projections).resolve()
     battery_root = Path(args.robustness_battery).resolve()
+    rows, identities, summary = _aligned_projection_rows(
+        reference_root, candidate_root, battery_root
+    )
+    output.mkdir(parents=True)
+    atomic_jsonl(output / "aligned_question_projections.jsonl", rows)
+    atomic_json(output / "projection_comparison.json", summary)
+    atomic_text(
+        output / "projection_comparison_report.md",
+        _projection_comparison_report(summary),
+    )
+    atomic_json(
+        output / "comparison_manifest.json",
+        {
+            "format_version": READINESS_PROMPT_POPULATION_VERSION,
+            "created_at": _now(),
+            "git_commit_sha": _git_sha(),
+            "slurm": _slurm_environment(),
+            **identities,
+            "candidate_count": len(rows),
+        },
+    )
+    print(
+        f"axis_1_spearman={summary['axis_1']['spearman']:.4f} "
+        f"axis_2_spearman={summary['axis_2']['spearman']:.4f} "
+        f"scalar_spearman={summary['scalar_readiness']['spearman']:.4f}"
+    )
+    print(f"output={output}")
+    return 0
+
+
+def _aligned_projection_rows(reference_root, candidate_root, battery_root):
     reference_manifest = read_json(reference_root / "projection_manifest.json")
     candidate_manifest = read_json(candidate_root / "projection_manifest.json")
     battery_manifest = read_json(battery_root / "battery_manifest.json")
@@ -586,6 +723,7 @@ def _compare_projections(args) -> int:
         right_raw = np.asarray([right["raw_axis_1"], right["raw_axis_2"]])
         left_z = (left_raw - reference_mean) / reference_scale
         right_z = ((right_raw - candidate_mean) / candidate_scale) @ rotation
+        right_aligned_raw = reference_mean + right_z * reference_scale
         reference_z_rows.append(left_z)
         candidate_z_rows.append(right_z)
         reference_scalar.append(left["predicted_scalar_readiness_0_1"])
@@ -594,6 +732,10 @@ def _compare_projections(args) -> int:
             {
                 "candidate_id": candidate_id,
                 "text_sha256": left["text_sha256"],
+                "reference_raw_axis_1": float(left_raw[0]),
+                "reference_raw_axis_2": float(left_raw[1]),
+                "candidate_aligned_raw_axis_1": float(right_aligned_raw[0]),
+                "candidate_aligned_raw_axis_2": float(right_aligned_raw[1]),
                 "reference_axis_1_z": float(left_z[0]),
                 "reference_axis_2_z": float(left_z[1]),
                 "candidate_aligned_axis_1_z": float(right_z[0]),
@@ -621,37 +763,177 @@ def _compare_projections(args) -> int:
             "these generated questions were not used to fit it."
         ),
     }
-    output.mkdir(parents=True)
-    atomic_jsonl(output / "aligned_question_projections.jsonl", rows)
-    atomic_json(output / "projection_comparison.json", summary)
-    atomic_text(
-        output / "projection_comparison_report.md",
-        _projection_comparison_report(summary),
+    identities = {
+        "reference_projection_manifest": _file_identity(
+            reference_root / "projection_manifest.json"
+        ),
+        "candidate_projection_manifest": _file_identity(
+            candidate_root / "projection_manifest.json"
+        ),
+        "robustness_battery_manifest": _file_identity(
+            battery_root / "battery_manifest.json"
+        ),
+    }
+    return rows, identities, summary
+
+
+def _spatial_select(args) -> int:
+    output = Path(args.output_dir).resolve()
+    if output.exists():
+        raise ValueError(f"refusing to overwrite spatial selection directory: {output}")
+    plan = Path(args.plan_dir).resolve()
+    bounds = ReadinessSubspaceBounds(**read_json(plan / "subspace_bounds.json"))
+    targets = tuple(
+        ReadinessPromptTarget(**row) for row in read_jsonl(plan / "target_grid.jsonl")
     )
+    candidates = tuple(
+        ReadinessQuestionCandidate(**row)
+        for path in args.candidates
+        for row in read_jsonl(path)
+    )
+    if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
+        raise ValueError("spatial selection candidates must be nonempty and unique")
+
+    aligned_rows, identities, agreement = _aligned_projection_rows(
+        Path(args.reference_projections).resolve(),
+        Path(args.candidate_projections).resolve(),
+        Path(args.robustness_battery).resolve(),
+    )
+    aligned = {str(row["candidate_id"]): row for row in aligned_rows}
+    candidate_ids = {row.candidate_id for row in candidates}
+    if set(aligned) != candidate_ids:
+        raise ValueError("aligned projections and candidate identities differ")
+
+    accepted_sets = []
+    validation_identities = []
+    for path in args.validations:
+        reviews = {str(row["candidate_id"]): row for row in read_jsonl(path)}
+        if set(reviews) != candidate_ids:
+            raise ValueError(f"validation does not cover the exact candidate set: {path}")
+        accepted_sets.append(
+            {candidate_id for candidate_id, row in reviews.items() if bool(row["accepted"])}
+        )
+        validation_identities.append(_file_identity(path))
+    accepted = set.intersection(*accepted_sets)
+
+    coordinates = {}
+    for candidate_id, row in aligned.items():
+        reference_axis_1 = _normalize_coordinate(
+            row["reference_raw_axis_1"], bounds.axis_1_low, bounds.axis_1_high
+        )
+        reference_axis_2 = _normalize_coordinate(
+            row["reference_raw_axis_2"], bounds.axis_2_low, bounds.axis_2_high
+        )
+        candidate_axis_1 = _normalize_coordinate(
+            row["candidate_aligned_raw_axis_1"], bounds.axis_1_low, bounds.axis_1_high
+        )
+        candidate_axis_2 = _normalize_coordinate(
+            row["candidate_aligned_raw_axis_2"], bounds.axis_2_low, bounds.axis_2_high
+        )
+        coordinates[candidate_id] = {
+            "reference_normalized_axis_1": reference_axis_1,
+            "reference_normalized_axis_2": reference_axis_2,
+            "candidate_aligned_normalized_axis_1": candidate_axis_1,
+            "candidate_aligned_normalized_axis_2": candidate_axis_2,
+            "consensus_normalized_axis_1": (reference_axis_1 + candidate_axis_1) / 2,
+            "consensus_normalized_axis_2": (reference_axis_2 + candidate_axis_2) / 2,
+            "cross_embedding_disagreement": float(
+                np.hypot(
+                    reference_axis_1 - candidate_axis_1,
+                    reference_axis_2 - candidate_axis_2,
+                )
+            ),
+        }
+
+    selected, diagnostics = select_spatially_matched_questions(
+        candidates,
+        targets,
+        coordinates,
+        accepted_candidate_ids=accepted,
+        disagreement_weight=args.disagreement_weight,
+        distance_tolerance=args.distance_tolerance,
+    )
+    generators = _csv(args.generator_ids)
+    keywords = sorted({(row.keyword_id, row.keyword) for row in candidates})
+    selected_by_key = {(row.keyword_id, row.target_id): row for row in selected}
+    bad_pairs = set()
+    feedback = {}
+    for keyword_id, _ in keywords:
+        for target in targets:
+            row = selected_by_key.get((keyword_id, target.target_id))
+            if row is None or row.target_distance > args.distance_tolerance:
+                bad_pairs.add((keyword_id, target.target_id))
+                if row is None:
+                    feedback[(keyword_id, target.target_id)] = (
+                        "No independently validated candidate covered this cell."
+                    )
+                else:
+                    delta_1 = target.normalized_axis_1 - row.consensus_normalized_axis_1
+                    delta_2 = target.normalized_axis_2 - row.consensus_normalized_axis_2
+                    feedback[(keyword_id, target.target_id)] = (
+                        f"The closest validated question landed at "
+                        f"({row.consensus_normalized_axis_1:.3f}, "
+                        f"{row.consensus_normalized_axis_2:.3f}); shift axis 1 by "
+                        f"{delta_1:+.3f} and axis 2 by {delta_2:+.3f}."
+                    )
+    all_next_tasks = build_generation_tasks(
+        keywords,
+        targets,
+        generators,
+        round_index=args.next_round_index,
+        master_seed=args.master_seed,
+        requested_candidate_count=args.candidates_per_task,
+        feedback_by_keyword_target=feedback,
+    )
+    next_tasks = tuple(
+        row
+        for row in all_next_tasks
+        if (row.keyword_id, row.target.target_id) in bad_pairs
+    )
+
+    diagnostics.update(
+        {
+            "validation_file_count": len(args.validations),
+            "jointly_accepted_candidate_count": len(accepted),
+            "next_round_task_count": len(next_tasks),
+            "distance_tolerance": args.distance_tolerance,
+            "disagreement_weight": args.disagreement_weight,
+            "cross_embedding_agreement": agreement,
+        }
+    )
+    output.mkdir(parents=True)
+    atomic_jsonl(output / "spatially_selected_questions.jsonl", (asdict(row) for row in selected))
+    atomic_jsonl(
+        output / f"generation_tasks_round_{args.next_round_index:02d}.jsonl",
+        (_task_row(row) for row in next_tasks),
+    )
+    atomic_json(output / "spatial_coverage_diagnostics.json", diagnostics)
+    atomic_text(output / "spatial_coverage_report.md", _spatial_report(diagnostics))
     atomic_json(
-        output / "comparison_manifest.json",
+        output / "run_manifest.json",
         {
             "format_version": READINESS_PROMPT_POPULATION_VERSION,
             "created_at": _now(),
             "git_commit_sha": _git_sha(),
             "slurm": _slurm_environment(),
-            "reference_projection_manifest": _file_identity(
-                reference_root / "projection_manifest.json"
+            "plan_manifest": _file_identity(plan / "plan_manifest.json"),
+            "candidate_files": [_file_identity(path) for path in args.candidates],
+            "validation_files": validation_identities,
+            **identities,
+            "candidate_count": len(candidates),
+            "jointly_accepted_candidate_count": len(accepted),
+            "selected_count": len(selected),
+            "next_round_task_count": len(next_tasks),
+            "scientific_guard": (
+                "Aligned prompt coordinates describe text and do not define the randomized policy B."
             ),
-            "candidate_projection_manifest": _file_identity(
-                candidate_root / "projection_manifest.json"
-            ),
-            "robustness_battery_manifest": _file_identity(
-                battery_root / "battery_manifest.json"
-            ),
-            "candidate_count": len(rows),
         },
     )
     print(
-        f"axis_1_spearman={summary['axis_1']['spearman']:.4f} "
-        f"axis_2_spearman={summary['axis_2']['spearman']:.4f} "
-        f"scalar_spearman={summary['scalar_readiness']['spearman']:.4f}"
+        f"accepted={len(accepted)}/{len(candidates)} selected={len(selected)} "
+        f"next_round_tasks={len(next_tasks)}"
     )
+    print(f"spacing_gate_passed={diagnostics['all_keywords_pass_spacing_gate']}")
     print(f"output={output}")
     return 0
 
@@ -750,6 +1032,58 @@ def _projection_comparison_report(summary: dict[str, object]) -> str:
 
 {summary['interpretation_guard']}
 """
+
+
+def _spatial_report(diagnostics: dict[str, object]) -> str:
+    lines = [
+        "# Cross-embedding spatial prompt coverage",
+        "",
+        f"- Candidates: {diagnostics['candidate_count']}",
+        f"- Jointly accepted by validators: {diagnostics['jointly_accepted_candidate_count']}",
+        f"- Selected: {diagnostics['selected_count']}",
+        f"- Mean target distance: {_metric_text(diagnostics['mean_target_distance'])}",
+        f"- Maximum target distance: {_metric_text(diagnostics['maximum_target_distance'])}",
+        f"- Mean cross-embedding disagreement: {_metric_text(diagnostics['mean_cross_embedding_disagreement'])}",
+        f"- Next-round cells: {diagnostics['next_round_task_count']}",
+        f"- Overall spacing gate: {'PASS' if diagnostics['all_keywords_pass_spacing_gate'] else 'REFINE'}",
+        "",
+    ]
+    for keyword_id, item in diagnostics["keywords"].items():
+        lines.extend(
+            [
+                f"## {keyword_id}",
+                "",
+                f"- Selected: {item['selected_count']}",
+                f"- Within tolerance: {item['within_distance_tolerance_fraction']:.2%}",
+                f"- Axis 1 span: {item['axis_1_span']:.4f}",
+                f"- Axis 2 span: {item['axis_2_span']:.4f}",
+                f"- Median nearest-neighbor distance: {item['median_nearest_neighbor_distance']:.4f}",
+                f"- Occupied grid bins: {item['occupied_grid_bin_count']}/{item['target_count']}",
+                "",
+            ]
+        )
+        lines.extend(
+            f"- [{'x' if passed else ' '}] {name}"
+            for name, passed in item["gate_checks"].items()
+        )
+        lines.append("")
+    lines.extend(
+        [
+            "The grid is a diagnostic over prompt embeddings. It does not define B.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _normalize_coordinate(value: float, low: float, high: float) -> float:
+    if high <= low:
+        raise ValueError("coordinate bounds must have positive width")
+    return float((float(value) - low) / (high - low))
+
+
+def _metric_text(value) -> str:
+    return "not available" if value is None else f"{float(value):.4f}"
 
 
 def _csv(value: str) -> tuple[str, ...]:

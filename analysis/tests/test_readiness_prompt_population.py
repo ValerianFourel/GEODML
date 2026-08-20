@@ -17,6 +17,7 @@ from analysis.interpretability.pipeline.readiness_embedding_map import (
 from analysis.interpretability.pipeline.readiness_prompt_population import (
     FakeReadinessQuestionGenerator,
     LocalReadinessQuestionGenerator,
+    LocalSearchQuestionValidator,
     ReadinessQuestionCandidate,
     ReadinessSubspaceBounds,
     build_generation_tasks,
@@ -25,8 +26,10 @@ from analysis.interpretability.pipeline.readiness_prompt_population import (
     fit_reference_bounds,
     generate_question_candidates,
     parse_generated_question,
+    parse_search_question_review,
     project_questions,
     select_diverse_questions,
+    select_spatially_matched_questions,
     validate_generated_question,
 )
 from analysis.interpretability.pipeline.readiness_hf_dataset import (
@@ -36,6 +39,7 @@ from analysis.interpretability.pipeline.readiness_hf_dataset import (
 )
 from analysis.scripts.build_readiness_prompt_population import (
     _compare_projections,
+    _spatial_select,
 )
 
 
@@ -218,6 +222,101 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                 "abandoned cart recovery",
             )
 
+    def test_independent_search_validator_enforces_semantic_contract_and_cache(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        ranker = _StaticRanker(
+            [
+                '{"topic_relevant":true,"search_intent":true,'
+                '"web_answerable":true,"standalone":true,'
+                '"natural_language":true,"relevance_score_1_5":5,'
+                '"concise_reason":"A direct, answerable search question."}'
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            validator = LocalSearchQuestionValidator(
+                ranker,
+                judge_id="independent-judge",
+                model_name="model/judge",
+                cache_directory=temporary,
+            )
+            first = validator.review(candidate)
+            second = validator.review(candidate)
+        self.assertTrue(first.accepted)
+        self.assertEqual(first, second)
+        self.assertEqual(ranker.call_count, 1)
+
+        rejected = parse_search_question_review(
+            '{"topic_relevant":true,"search_intent":false,'
+            '"web_answerable":true,"standalone":true,'
+            '"natural_language":true,"relevance_score_1_5":3,'
+            '"concise_reason":"Not a genuine search request."}',
+            candidate,
+            judge_id="independent-judge",
+            judge_model="model/judge",
+        )
+        self.assertFalse(rejected.accepted)
+
+    def test_global_spatial_matching_can_reassign_candidates_to_better_cells(self) -> None:
+        targets = build_target_grid(self.bounds)[:2]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake-a", "fake-b"),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator(task.generator_id)
+            )[0]
+            for task in tasks
+        )
+        coordinates = {
+            candidates[0].candidate_id: {
+                "reference_normalized_axis_1": targets[1].normalized_axis_1,
+                "reference_normalized_axis_2": targets[1].normalized_axis_2,
+                "candidate_aligned_normalized_axis_1": targets[1].normalized_axis_1,
+                "candidate_aligned_normalized_axis_2": targets[1].normalized_axis_2,
+                "consensus_normalized_axis_1": targets[1].normalized_axis_1,
+                "consensus_normalized_axis_2": targets[1].normalized_axis_2,
+                "cross_embedding_disagreement": 0.0,
+            },
+            candidates[1].candidate_id: {
+                "reference_normalized_axis_1": targets[0].normalized_axis_1,
+                "reference_normalized_axis_2": targets[0].normalized_axis_2,
+                "candidate_aligned_normalized_axis_1": targets[0].normalized_axis_1,
+                "candidate_aligned_normalized_axis_2": targets[0].normalized_axis_2,
+                "consensus_normalized_axis_1": targets[0].normalized_axis_1,
+                "consensus_normalized_axis_2": targets[0].normalized_axis_2,
+                "cross_embedding_disagreement": 0.0,
+            },
+        }
+        selected, diagnostics = select_spatially_matched_questions(
+            candidates,
+            targets,
+            coordinates,
+            accepted_candidate_ids={row.candidate_id for row in candidates},
+            disagreement_weight=0.0,
+        )
+        selected_by_target = {row.target_id: row for row in selected}
+        self.assertEqual(
+            selected_by_target[targets[0].target_id].candidate_id,
+            candidates[1].candidate_id,
+        )
+        self.assertEqual(
+            selected_by_target[targets[1].target_id].candidate_id,
+            candidates[0].candidate_id,
+        )
+        self.assertAlmostEqual(diagnostics["mean_target_distance"], 0.0)
+
     def test_generated_question_projections_compare_with_frozen_alignment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -281,6 +380,119 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             self.assertAlmostEqual(summary["axis_1"]["spearman"], 1.0)
             self.assertAlmostEqual(summary["axis_2"]["spearman"], 1.0)
             self.assertTrue((output / "comparison_manifest.json").is_file())
+
+    def test_spatial_select_stage_uses_validation_and_global_alignment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            plan = root / "plan"
+            reference = root / "reference"
+            candidate_root = root / "candidate"
+            battery = root / "battery"
+            for directory in (plan, reference, candidate_root, battery):
+                directory.mkdir()
+            targets = tuple(build_target_grid(self.bounds)[index] for index in (0, 5, 10))
+            tasks = build_generation_tasks(
+                (("keyword:one", "abandoned cart recovery"),),
+                targets,
+                ("fake",),
+                requested_candidate_count=1,
+            )
+            candidates = tuple(
+                generate_question_candidates(
+                    (task,), FakeReadinessQuestionGenerator("fake")
+                )[0]
+                for task in tasks
+            )
+            candidate_file = root / "candidates.jsonl"
+            atomic_jsonl(
+                candidate_file,
+                (
+                    {
+                        field: getattr(candidate, field)
+                        for field in candidate.__dataclass_fields__
+                    }
+                    for candidate in candidates
+                ),
+            )
+            atomic_json(plan / "subspace_bounds.json", {
+                field: getattr(self.bounds, field)
+                for field in self.bounds.__dataclass_fields__
+            })
+            atomic_jsonl(
+                plan / "target_grid.jsonl",
+                (
+                    {field: getattr(target, field) for field in target.__dataclass_fields__}
+                    for target in targets
+                ),
+            )
+            atomic_json(plan / "plan_manifest.json", {"map_id": "qwen-map"})
+            atomic_json(reference / "projection_manifest.json", {"map_id": "qwen-map"})
+            atomic_json(candidate_root / "projection_manifest.json", {"map_id": "mistral-map"})
+            atomic_json(
+                battery / "battery_manifest.json",
+                {"reference_map_id": "qwen-map", "candidate_map_id": "mistral-map"},
+            )
+            atomic_json(
+                battery / "readiness_robustness_battery.json",
+                {
+                    "cross_embedding_alignment": {
+                        "reference_development_mean": [0.0, 0.0],
+                        "reference_development_scale": [1.0, 1.0],
+                        "candidate_development_mean": [0.0, 0.0],
+                        "candidate_development_scale": [1.0, 1.0],
+                        "orthogonal_rotation": [[1.0, 0.0], [0.0, 1.0]],
+                    }
+                },
+            )
+            projected_rows = []
+            for index, (candidate, target) in enumerate(
+                zip(candidates, (targets[2], targets[0], targets[1]))
+            ):
+                projection = {
+                    "item_id": candidate.candidate_id,
+                    "text_sha256": candidate.question_sha256,
+                    "raw_axis_1": target.raw_axis_1,
+                    "raw_axis_2": target.raw_axis_2,
+                    "normalized_axis_1": target.normalized_axis_1,
+                    "normalized_axis_2": target.normalized_axis_2,
+                    "predicted_scalar_readiness_0_1": index / 2,
+                }
+                projected_rows.append(
+                    {"candidate_id": candidate.candidate_id, "projection": projection}
+                )
+            atomic_jsonl(reference / "question_projections.jsonl", projected_rows)
+            atomic_jsonl(candidate_root / "question_projections.jsonl", projected_rows)
+            validation = root / "validation.jsonl"
+            atomic_jsonl(
+                validation,
+                (
+                    {"candidate_id": candidate.candidate_id, "accepted": True}
+                    for candidate in candidates
+                ),
+            )
+
+            output = root / "spatial"
+            _spatial_select(
+                SimpleNamespace(
+                    plan_dir=str(plan),
+                    candidates=[str(candidate_file)],
+                    reference_projections=str(reference),
+                    candidate_projections=str(candidate_root),
+                    robustness_battery=str(battery),
+                    validations=[str(validation)],
+                    generator_ids="fake",
+                    next_round_index=1,
+                    distance_tolerance=0.22,
+                    disagreement_weight=0.10,
+                    candidates_per_task=1,
+                    master_seed=20260820,
+                    output_dir=str(output),
+                )
+            )
+            diagnostics = read_json(output / "spatial_coverage_diagnostics.json")
+            self.assertEqual(diagnostics["selected_count"], 3)
+            self.assertAlmostEqual(diagnostics["mean_target_distance"], 0.0)
+            self.assertTrue((output / "run_manifest.json").is_file())
 
 
 def _map() -> ReadinessEmbeddingMap:

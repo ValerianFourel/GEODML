@@ -24,13 +24,23 @@ without defining the coordinates. Each question must retain the exact keyword,
 be a single unanswered natural question, and contain no axis or source-policy
 language.
 
-After generation, the model is unloaded. A separate job then:
+After generation, the model is unloaded. Separate jobs then:
 
-1. embeds all candidate questions with the same frozen LLM2Vec view;
-2. applies the frozen supervised map;
-3. chooses one candidate per cell using target distance, embedding novelty, and
-   generator-balance penalties;
-4. emits new tasks only for cells outside the configured distance tolerance.
+1. use an independent LLM to verify topic fidelity, online-search intent,
+   web answerability, standalone wording, and natural language;
+2. embed identical candidate text through both frozen LLM2Vec views;
+3. align Mistral coordinates to Qwen using development data only;
+4. globally match validated candidates to the entire 6 by 5 grid using the
+   average aligned coordinate and a cross-view disagreement penalty;
+5. report axis spans, nearest-neighbor spacing, occupied grid bins, and target
+   error;
+6. emit new tasks only for cells outside the configured distance tolerance.
+
+Global matching is important. A candidate generated for one intended cell may
+actually land closer to another cell. Restricting selection to its requested
+cell needlessly preserves bad assignments. The Hungarian assignment used by
+`spatial-select` finds the minimum-cost one-to-one matching over the whole
+candidate pool for each keyword.
 
 Round 1 is scored together with round 0. This repeats until coverage is adequate
 or a preregistered maximum round count is reached.
@@ -80,7 +90,7 @@ python analysis/scripts/build_readiness_prompt_population.py plan \
   --keywords "$KEYWORDS_JSONL" \
   --map "$MAP_ROOT/readiness_embedding_map.json" \
   --reference-coordinates "$MAP_ROOT/readiness_supervised_subspace_coordinates.jsonl" \
-  --generator-ids gemma4-31b,qwen3-32b,ministral3-8b \
+  --generator-ids gemma4-31b,qwen3-32b \
   --candidates-per-task 2 \
   --output-dir "$POPULATION_ROOT/plan"
 ```
@@ -107,6 +117,34 @@ Repeat with the other generator IDs and model snapshots. Tasks and cache keys
 are deterministic, so interrupted jobs can resume safely. `--start-index` and
 `--limit` support Slurm arrays or short wall-time slices.
 
+The current `Ministral-3-8B-Instruct-2512-BF16` snapshot has a multimodal
+`Mistral3Config` and is not a compatible text-only generator for the repository
+`AutoModelForCausalLM` ranker. It remains valid as a judge-panel model in its
+specialized runner. Use Qwen, Gemma, Llama, or another verified text-only model
+for this generation stage.
+
+## Independent search-question validation
+
+Use a model that did not generate the candidate bank, such as the frozen Llama
+snapshot, and cache every decision:
+
+```bash
+python analysis/scripts/build_readiness_prompt_population.py validate-candidates \
+  --candidates "$POPULATION_ROOT"/candidates/*-round-00.jsonl \
+  --judge-id llama3.3-70b-search-validator \
+  --model "$LLAMA_MODEL" \
+  --backend local \
+  --precision full \
+  --cache-dir "$POPULATION_ROOT/cache/search-validator" \
+  --output "$POPULATION_ROOT/validation/llama3.3-70b.jsonl" \
+  --resume
+```
+
+Acceptance requires the exact keyword, exactly one question, all five semantic
+checks, and a relevance score of at least four out of five. Multiple validation
+files can be supplied to `spatial-select`; a candidate must pass every supplied
+validator.
+
 ## Frozen LLM2Vec scoring and selection
 
 Use a one-GPU job with the exact Qwen LLM2Vec base, MNTP adapter, and SimCSE
@@ -119,7 +157,6 @@ python analysis/scripts/build_readiness_prompt_population.py score-select \
   --candidates \
     "$POPULATION_ROOT/candidates/gemma4-31b-round-00.jsonl" \
     "$POPULATION_ROOT/candidates/qwen3-32b-round-00.jsonl" \
-    "$POPULATION_ROOT/candidates/ministral3-8b-round-00.jsonl" \
   --embedding-model "$QWEN3_8B_SNAPSHOT" \
   --mntp-model "$LLM2VEC_MNTP_SNAPSHOT" \
   --peft-model "$LLM2VEC_UNSUP_SNAPSHOT" \
@@ -137,6 +174,30 @@ The result contains:
 - `selection_diagnostics.json`: coverage and generator summaries;
 - `generation_tasks_round_01.jsonl`: only cells requiring refinement;
 - `run_manifest.json`: code, map, inputs, and scientific safeguards.
+
+The single-view `score-select` result is useful as an initial diagnostic. Final
+pilot selection should use both projection directories and the frozen battery:
+
+```bash
+python analysis/scripts/build_readiness_prompt_population.py spatial-select \
+  --plan-dir "$POPULATION_ROOT/plan" \
+  --candidates "$POPULATION_ROOT"/candidates/*-round-00.jsonl \
+  --reference-projections "$POPULATION_ROOT/projections/qwen" \
+  --candidate-projections "$POPULATION_ROOT/projections/mistral" \
+  --robustness-battery "$BATTERY_ROOT" \
+  --validations "$POPULATION_ROOT/validation/llama3.3-70b.jsonl" \
+  --generator-ids gemma4-31b,qwen3-32b \
+  --distance-tolerance 0.22 \
+  --disagreement-weight 0.10 \
+  --next-round-index 1 \
+  --output-dir "$POPULATION_ROOT/spatial-selection-round-00"
+```
+
+The spacing gate requires all 30 cells, mean target distance at most 0.25, at
+least 80% of cells within tolerance, at least 0.70 observed span on each axis,
+median nearest-neighbor distance at least 0.08, and at least 18 occupied bins.
+These thresholds are fixed diagnostics for prompt-population construction, not
+scientific findings and not definitions of `B`.
 
 ## Refinement
 
