@@ -12,7 +12,7 @@ TRANSFORMERS_VERSION="4.40.2"
 PEFT_VERSION="0.10.0"
 HUGGINGFACE_HUB_VERSION="0.23.2"
 TOKENIZERS_VERSION="0.19.1"
-SAFETENSORS_VERSION="0.4.3"
+SAFETENSORS_VERSION="0.8.0"
 ACCELERATE_VERSION="0.30.1"
 TQDM_VERSION="4.66.4"
 PYYAML_VERSION="6.0.2"
@@ -24,6 +24,9 @@ fi
 
 VENV_SITE_PACKAGES="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
 export PYTHONPATH="${VENV_SITE_PACKAGES}${PYTHONPATH:+:${PYTHONPATH}}"
+# tokenizers 0.19.1 predates CPython 3.13 wheels. Its PyO3 0.21 build can use
+# the stable ABI on Python 3.13 when this forward-compatibility guard is set.
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
 python3 -m pip install \
     --no-deps \

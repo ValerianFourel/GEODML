@@ -150,6 +150,8 @@ class CandidatePopulationTests(unittest.TestCase):
         self.assertIn('TRANSFORMERS_VERSION="4.40.2"', script)
         self.assertIn('PEFT_VERSION="0.10.0"', script)
         self.assertIn('TOKENIZERS_VERSION="0.19.1"', script)
+        self.assertIn('SAFETENSORS_VERSION="0.8.0"', script)
+        self.assertIn("PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1", script)
         self.assertIn("bidirectional_mistral", script)
         self.assertGreaterEqual(script.count("--no-deps"), 2)
         self.assertIn("--force-reinstall", script)
