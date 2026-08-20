@@ -128,6 +128,7 @@ class CandidatePopulationTests(unittest.TestCase):
         self.assertIn('SAFETENSORS_VERSION="0.8.0"', script)
         self.assertIn('ACCELERATE_VERSION="1.14.0"', script)
         self.assertIn('TQDM_VERSION="4.70.0"', script)
+        self.assertIn('PYYAML_VERSION="6.0.3"', script)
         self.assertIn('"regex==${REGEX_VERSION}"', script)
         self.assertIn('"transformers==${TRANSFORMERS_VERSION}"', script)
         self.assertIn('"peft==${PEFT_VERSION}"', script)

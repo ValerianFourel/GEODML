@@ -16,6 +16,7 @@ TOKENIZERS_VERSION="0.22.2"
 SAFETENSORS_VERSION="0.8.0"
 ACCELERATE_VERSION="1.14.0"
 TQDM_VERSION="4.70.0"
+PYYAML_VERSION="6.0.3"
 
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     echo "Activate the intended Python virtual environment first." >&2
@@ -33,6 +34,7 @@ python3 -m pip install \
     "safetensors==${SAFETENSORS_VERSION}" \
     "accelerate==${ACCELERATE_VERSION}" \
     "tqdm==${TQDM_VERSION}" \
+    "PyYAML==${PYYAML_VERSION}" \
     "transformers==${TRANSFORMERS_VERSION}" \
     "peft==${PEFT_VERSION}"
 
