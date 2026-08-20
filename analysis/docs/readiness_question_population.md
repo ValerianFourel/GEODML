@@ -48,6 +48,12 @@ JSONL row per proposal with `task_id`, `question`, and optional
 normal `score-select` stage re-embeds it with frozen LLM2Vec. No decoded proposal
 is accepted based on its decoder coordinate.
 
+Before a large generation run, execute the two-embedding robustness battery in
+`analysis/docs/readiness_subspace_robustness_battery.md`. For a small pilot,
+project the same candidate JSONL independently through Qwen and Mistral with
+`project-candidates`, then use `compare-projections`. The alignment is learned
+from the original development corpus and remains frozen for generated questions.
+
 ## Inputs
 
 Keywords can be a text file with one keyword per line or JSONL:

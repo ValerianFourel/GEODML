@@ -94,6 +94,17 @@ class ProjectedReadinessQuestion:
 
 
 @dataclass(frozen=True, slots=True)
+class ReadinessTextProjection:
+    item_id: str
+    text_sha256: str
+    raw_axis_1: float
+    raw_axis_2: float
+    normalized_axis_1: float
+    normalized_axis_2: float
+    predicted_scalar_readiness_0_1: float
+
+
+@dataclass(frozen=True, slots=True)
 class SelectedReadinessQuestion:
     selection_id: str
     keyword_id: str
@@ -510,9 +521,54 @@ def project_questions(
     candidates: Sequence[ReadinessQuestionCandidate],
     embeddings: np.ndarray,
 ) -> tuple[ProjectedReadinessQuestion, ...]:
+    generic = project_text_embeddings(
+        fitted,
+        bounds,
+        item_ids=[candidate.candidate_id for candidate in candidates],
+        text_sha256s=[candidate.question_sha256 for candidate in candidates],
+        embeddings=embeddings,
+    )
+    rows = []
+    for candidate, projected in zip(candidates, generic):
+        distance = float(
+            np.hypot(
+                projected.normalized_axis_1
+                - candidate.target_normalized_axis_1,
+                projected.normalized_axis_2
+                - candidate.target_normalized_axis_2,
+            )
+        )
+        rows.append(
+            ProjectedReadinessQuestion(
+                candidate_id=candidate.candidate_id,
+                raw_axis_1=projected.raw_axis_1,
+                raw_axis_2=projected.raw_axis_2,
+                normalized_axis_1=projected.normalized_axis_1,
+                normalized_axis_2=projected.normalized_axis_2,
+                predicted_scalar_readiness_0_1=(
+                    projected.predicted_scalar_readiness_0_1
+                ),
+                target_distance=distance,
+            )
+        )
+    return tuple(rows)
+
+
+def project_text_embeddings(
+    fitted: ReadinessEmbeddingMap,
+    bounds: ReadinessSubspaceBounds,
+    *,
+    item_ids: Sequence[str],
+    text_sha256s: Sequence[str],
+    embeddings: np.ndarray,
+) -> tuple[ReadinessTextProjection, ...]:
+    """Project arbitrary text embeddings without assigning them to target cells."""
+
+    if len(item_ids) != len(text_sha256s) or len(set(item_ids)) != len(item_ids):
+        raise ValueError("projection item ids must be aligned and unique")
     matrix = np.asarray(embeddings, dtype=np.float64)
-    if matrix.ndim != 2 or matrix.shape != (len(candidates), fitted.dimension):
-        raise ValueError("candidate embeddings do not match candidate count/map dimension")
+    if matrix.ndim != 2 or matrix.shape != (len(item_ids), fitted.dimension):
+        raise ValueError("text embeddings do not match item count/map dimension")
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     if np.any(norms <= 1e-12) or not np.isfinite(matrix).all():
         raise ValueError("candidate embeddings must be finite and nonzero")
@@ -526,24 +582,20 @@ def project_questions(
         fitted.scalar_direction, dtype=np.float64
     )
     rows = []
-    for candidate, values, scalar_value in zip(candidates, raw, scalar):
+    for item_id, text_sha256, values, scalar_value in zip(
+        item_ids, text_sha256s, raw, scalar
+    ):
         normalized_axis_1 = _normalize(values[0], bounds.axis_1_low, bounds.axis_1_high)
         normalized_axis_2 = _normalize(values[1], bounds.axis_2_low, bounds.axis_2_high)
-        distance = float(
-            np.hypot(
-                normalized_axis_1 - candidate.target_normalized_axis_1,
-                normalized_axis_2 - candidate.target_normalized_axis_2,
-            )
-        )
         rows.append(
-            ProjectedReadinessQuestion(
-                candidate_id=candidate.candidate_id,
+            ReadinessTextProjection(
+                item_id=item_id,
+                text_sha256=text_sha256,
                 raw_axis_1=float(values[0]),
                 raw_axis_2=float(values[1]),
                 normalized_axis_1=normalized_axis_1,
                 normalized_axis_2=normalized_axis_2,
                 predicted_scalar_readiness_0_1=float(scalar_value),
-                target_distance=distance,
             )
         )
     return tuple(rows)

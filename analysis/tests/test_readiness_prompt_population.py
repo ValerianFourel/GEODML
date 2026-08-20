@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 import numpy as np
@@ -27,6 +28,14 @@ from analysis.interpretability.pipeline.readiness_prompt_population import (
     project_questions,
     select_diverse_questions,
     validate_generated_question,
+)
+from analysis.interpretability.pipeline.readiness_hf_dataset import (
+    atomic_json,
+    atomic_jsonl,
+    read_json,
+)
+from analysis.scripts.build_readiness_prompt_population import (
+    _compare_projections,
 )
 
 
@@ -208,6 +217,70 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                 "How can a team understand cart recovery before choosing a practical approach?",
                 "abandoned cart recovery",
             )
+
+    def test_generated_question_projections_compare_with_frozen_alignment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            reference = root / "reference"
+            candidate = root / "candidate"
+            battery = root / "battery"
+            for directory in (reference, candidate, battery):
+                directory.mkdir()
+            atomic_json(reference / "projection_manifest.json", {"map_id": "qwen-map"})
+            atomic_json(candidate / "projection_manifest.json", {"map_id": "mistral-map"})
+            atomic_json(
+                battery / "battery_manifest.json",
+                {
+                    "reference_map_id": "qwen-map",
+                    "candidate_map_id": "mistral-map",
+                },
+            )
+            atomic_json(
+                battery / "readiness_robustness_battery.json",
+                {
+                    "cross_embedding_alignment": {
+                        "reference_development_mean": [0.0, 0.0],
+                        "reference_development_scale": [1.0, 1.0],
+                        "candidate_development_mean": [0.0, 0.0],
+                        "candidate_development_scale": [1.0, 1.0],
+                        "orthogonal_rotation": [[1.0, 0.0], [0.0, 1.0]],
+                    }
+                },
+            )
+            rows = []
+            for index in range(3):
+                projection = {
+                    "item_id": f"candidate:{index}",
+                    "text_sha256": f"hash:{index}",
+                    "raw_axis_1": float(index),
+                    "raw_axis_2": float(2 - index),
+                    "normalized_axis_1": float(index / 2),
+                    "normalized_axis_2": float(1 - index / 2),
+                    "predicted_scalar_readiness_0_1": float(index / 2),
+                }
+                rows.append(
+                    {
+                        "candidate_id": f"candidate:{index}",
+                        "projection": projection,
+                    }
+                )
+            atomic_jsonl(reference / "question_projections.jsonl", rows)
+            atomic_jsonl(candidate / "question_projections.jsonl", rows)
+
+            output = root / "comparison"
+            _compare_projections(
+                SimpleNamespace(
+                    reference_projections=str(reference),
+                    candidate_projections=str(candidate),
+                    robustness_battery=str(battery),
+                    output_dir=str(output),
+                )
+            )
+
+            summary = read_json(output / "projection_comparison.json")
+            self.assertAlmostEqual(summary["axis_1"]["spearman"], 1.0)
+            self.assertAlmostEqual(summary["axis_2"]["spearman"], 1.0)
+            self.assertTrue((output / "comparison_manifest.json").is_file())
 
 
 def _map() -> ReadinessEmbeddingMap:

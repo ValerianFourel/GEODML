@@ -35,6 +35,9 @@ from interpretability.pipeline.readiness_hf_subspace import (  # noqa: E402
 from interpretability.pipeline.readiness_hf_subspace_comparison import (  # noqa: E402
     compare_readiness_hf_subspaces,
 )
+from interpretability.pipeline.readiness_subspace_battery import (  # noqa: E402
+    run_readiness_subspace_robustness_battery,
+)
 from interpretability.pipeline.two_axis_prompt_population import (  # noqa: E402
     LLM2VecGenPromptEmbedder,
     LLM2VecPromptEmbedder,
@@ -109,6 +112,16 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--output-dir", required=True)
     compare.add_argument("--git-commit-sha")
 
+    battery = commands.add_parser("robustness-battery")
+    battery.add_argument("--reference-dir", required=True)
+    battery.add_argument("--candidate-dir", required=True)
+    battery.add_argument("--output-dir", required=True)
+    battery.add_argument("--bootstrap-replicates", type=int, default=1000)
+    battery.add_argument("--permutation-replicates", type=int, default=200)
+    battery.add_argument("--random-seed", type=int, default=20260820)
+    battery.add_argument("--minimum-source-items-per-split", type=int, default=50)
+    battery.add_argument("--git-commit-sha")
+
     finalize = commands.add_parser("finalize")
     finalize.add_argument("--bundle-root", required=True)
     finalize.add_argument("--embedding-dir", action="append", default=[])
@@ -138,6 +151,8 @@ def main() -> int:
         return _fit_subspace(args)
     if args.command == "compare-subspaces":
         return _compare_subspaces(args)
+    if args.command == "robustness-battery":
+        return _robustness_battery(args)
     if args.command == "finalize":
         return _finalize(args)
     if args.command == "verify":
@@ -281,6 +296,28 @@ def _compare_subspaces(args) -> int:
     print(f"reference_map_id={manifest['reference_map_id']}")
     print(f"candidate_map_id={manifest['candidate_map_id']}")
     print("READINESS SUBSPACE COMPARISON: PASS")
+    return 0
+
+
+def _robustness_battery(args) -> int:
+    manifest = run_readiness_subspace_robustness_battery(
+        reference_dir=args.reference_dir,
+        candidate_dir=args.candidate_dir,
+        output_dir=args.output_dir,
+        git_commit_sha=args.git_commit_sha or _git_commit_sha(),
+        bootstrap_replicates=args.bootstrap_replicates,
+        permutation_replicates=args.permutation_replicates,
+        random_seed=args.random_seed,
+        minimum_source_items_per_split=args.minimum_source_items_per_split,
+    )
+    assessment = manifest["assessment"]
+    print(f"output: {Path(args.output_dir).resolve()}")
+    print(
+        f"assessment={assessment['status']} "
+        f"checks={assessment['passed_check_count']}/"
+        f"{assessment['total_check_count']}"
+    )
+    print("READINESS ROBUSTNESS BATTERY: COMPLETE")
     return 0
 
 

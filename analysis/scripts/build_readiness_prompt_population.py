@@ -41,6 +41,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     generate_question_candidates,
     load_readiness_embedding_map,
     project_questions,
+    project_text_embeddings,
     select_diverse_questions,
     validate_generated_question,
 )
@@ -122,6 +123,29 @@ def _parser() -> argparse.ArgumentParser:
     score.add_argument("--generator-balance-weight", type=float, default=0.02)
     score.add_argument("--candidates-per-task", type=int, default=3)
     score.add_argument("--master-seed", type=int, default=20260820)
+
+    project = stages.add_parser(
+        "project-candidates",
+        help="project the same candidate texts through one frozen embedding map",
+    )
+    project.add_argument("--candidates", nargs="+", required=True)
+    project.add_argument("--map", required=True)
+    project.add_argument("--reference-coordinates", required=True)
+    project.add_argument("--embedding-model", required=True)
+    project.add_argument("--mntp-model")
+    project.add_argument("--peft-model")
+    project.add_argument("--embedding-batch-size", type=int, default=8)
+    project.add_argument("--embedding-max-length", type=int, default=512)
+    project.add_argument("--output-dir", required=True)
+
+    compare = stages.add_parser(
+        "compare-projections",
+        help="align and compare Qwen/Mistral projections of identical questions",
+    )
+    compare.add_argument("--reference-projections", required=True)
+    compare.add_argument("--candidate-projections", required=True)
+    compare.add_argument("--robustness-battery", required=True)
+    compare.add_argument("--output-dir", required=True)
     return parser
 
 
@@ -135,6 +159,10 @@ def main() -> int:
         return _import_proposals(args)
     if args.stage == "score-select":
         return _score_select(args)
+    if args.stage == "project-candidates":
+        return _project_candidates(args)
+    if args.stage == "compare-projections":
+        return _compare_projections(args)
     raise AssertionError(args.stage)
 
 
@@ -447,6 +475,187 @@ def _score_select(args) -> int:
     return 0
 
 
+def _project_candidates(args) -> int:
+    output = Path(args.output_dir).resolve()
+    if output.exists():
+        raise ValueError(f"refusing to overwrite projection directory: {output}")
+    output.mkdir(parents=True)
+    fitted = load_readiness_embedding_map(args.map)
+    _validate_embedding_model_revision(fitted, args.embedding_model)
+    bounds = fit_reference_bounds(read_jsonl(args.reference_coordinates))
+    candidates = tuple(
+        ReadinessQuestionCandidate(**row)
+        for path in args.candidates
+        for row in read_jsonl(path)
+    )
+    if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
+        raise ValueError("projection candidates must be nonempty and uniquely identified")
+    embedder = LLM2VecPromptEmbedder(
+        args.embedding_model,
+        mntp_model_name_or_path=args.mntp_model,
+        peft_model_name_or_path=args.peft_model,
+        batch_size=args.embedding_batch_size,
+        max_length=args.embedding_max_length,
+    )
+    embeddings = embedder.embed([row.question for row in candidates])
+    projections = project_text_embeddings(
+        fitted,
+        bounds,
+        item_ids=[row.candidate_id for row in candidates],
+        text_sha256s=[row.question_sha256 for row in candidates],
+        embeddings=embeddings,
+    )
+    projection_by_id = {row.item_id: row for row in projections}
+    atomic_jsonl(
+        output / "question_projections.jsonl",
+        (
+            {
+                **asdict(candidate),
+                "projection": asdict(projection_by_id[candidate.candidate_id]),
+            }
+            for candidate in candidates
+        ),
+    )
+    atomic_npz(
+        output / "question_embeddings.restricted-local.npz",
+        candidate_ids=np.asarray([row.candidate_id for row in candidates]),
+        embeddings=np.asarray(embeddings, dtype=np.float32),
+    )
+    atomic_json(
+        output / "projection_manifest.json",
+        {
+            "format_version": READINESS_PROMPT_POPULATION_VERSION,
+            "created_at": _now(),
+            "git_commit_sha": _git_sha(),
+            "slurm": _slurm_environment(),
+            "map_id": fitted.map_id,
+            "map": _file_identity(args.map),
+            "reference_coordinates": _file_identity(args.reference_coordinates),
+            "candidate_files": [_file_identity(path) for path in args.candidates],
+            "candidate_count": len(candidates),
+            "embedding": {
+                "model": str(Path(args.embedding_model).resolve()),
+                "mntp_model": str(Path(args.mntp_model).resolve()) if args.mntp_model else None,
+                "peft_model": str(Path(args.peft_model).resolve()) if args.peft_model else None,
+                "batch_size": args.embedding_batch_size,
+                "max_length": args.embedding_max_length,
+            },
+        },
+    )
+    print(f"map_id={fitted.map_id} candidates={len(candidates)}")
+    print(f"output={output}")
+    return 0
+
+
+def _compare_projections(args) -> int:
+    output = Path(args.output_dir).resolve()
+    if output.exists():
+        raise ValueError(f"refusing to overwrite comparison directory: {output}")
+    reference_root = Path(args.reference_projections).resolve()
+    candidate_root = Path(args.candidate_projections).resolve()
+    battery_root = Path(args.robustness_battery).resolve()
+    reference_manifest = read_json(reference_root / "projection_manifest.json")
+    candidate_manifest = read_json(candidate_root / "projection_manifest.json")
+    battery_manifest = read_json(battery_root / "battery_manifest.json")
+    if reference_manifest["map_id"] != battery_manifest["reference_map_id"]:
+        raise ValueError("reference projection map does not match battery")
+    if candidate_manifest["map_id"] != battery_manifest["candidate_map_id"]:
+        raise ValueError("candidate projection map does not match battery")
+    battery = read_json(battery_root / "readiness_robustness_battery.json")
+    alignment = battery["cross_embedding_alignment"]
+    reference = _projection_index(reference_root / "question_projections.jsonl")
+    candidate = _projection_index(candidate_root / "question_projections.jsonl")
+    if set(reference) != set(candidate):
+        raise ValueError("projection candidate identities differ")
+    rotation = np.asarray(alignment["orthogonal_rotation"], dtype=np.float64)
+    reference_mean = np.asarray(alignment["reference_development_mean"])
+    reference_scale = np.asarray(alignment["reference_development_scale"])
+    candidate_mean = np.asarray(alignment["candidate_development_mean"])
+    candidate_scale = np.asarray(alignment["candidate_development_scale"])
+    rows = []
+    reference_z_rows = []
+    candidate_z_rows = []
+    reference_scalar = []
+    candidate_scalar = []
+    for candidate_id in sorted(reference):
+        left = reference[candidate_id]
+        right = candidate[candidate_id]
+        if left["text_sha256"] != right["text_sha256"]:
+            raise ValueError(f"projection text hash differs: {candidate_id}")
+        left_raw = np.asarray([left["raw_axis_1"], left["raw_axis_2"]])
+        right_raw = np.asarray([right["raw_axis_1"], right["raw_axis_2"]])
+        left_z = (left_raw - reference_mean) / reference_scale
+        right_z = ((right_raw - candidate_mean) / candidate_scale) @ rotation
+        reference_z_rows.append(left_z)
+        candidate_z_rows.append(right_z)
+        reference_scalar.append(left["predicted_scalar_readiness_0_1"])
+        candidate_scalar.append(right["predicted_scalar_readiness_0_1"])
+        rows.append(
+            {
+                "candidate_id": candidate_id,
+                "text_sha256": left["text_sha256"],
+                "reference_axis_1_z": float(left_z[0]),
+                "reference_axis_2_z": float(left_z[1]),
+                "candidate_aligned_axis_1_z": float(right_z[0]),
+                "candidate_aligned_axis_2_z": float(right_z[1]),
+                "axis_1_absolute_difference": float(abs(left_z[0] - right_z[0])),
+                "axis_2_absolute_difference": float(abs(left_z[1] - right_z[1])),
+                "reference_scalar_readiness": float(reference_scalar[-1]),
+                "candidate_scalar_readiness": float(candidate_scalar[-1]),
+            }
+        )
+    reference_z = np.asarray(reference_z_rows)
+    candidate_z = np.asarray(candidate_z_rows)
+    summary = {
+        "format_version": READINESS_PROMPT_POPULATION_VERSION,
+        "candidate_count": len(rows),
+        "reference_map_id": reference_manifest["map_id"],
+        "candidate_map_id": candidate_manifest["map_id"],
+        "axis_1": _vector_agreement(reference_z[:, 0], candidate_z[:, 0]),
+        "axis_2": _vector_agreement(reference_z[:, 1], candidate_z[:, 1]),
+        "scalar_readiness": _vector_agreement(
+            np.asarray(reference_scalar), np.asarray(candidate_scalar)
+        ),
+        "interpretation_guard": (
+            "Alignment was learned only from the original development corpus; "
+            "these generated questions were not used to fit it."
+        ),
+    }
+    output.mkdir(parents=True)
+    atomic_jsonl(output / "aligned_question_projections.jsonl", rows)
+    atomic_json(output / "projection_comparison.json", summary)
+    atomic_text(
+        output / "projection_comparison_report.md",
+        _projection_comparison_report(summary),
+    )
+    atomic_json(
+        output / "comparison_manifest.json",
+        {
+            "format_version": READINESS_PROMPT_POPULATION_VERSION,
+            "created_at": _now(),
+            "git_commit_sha": _git_sha(),
+            "slurm": _slurm_environment(),
+            "reference_projection_manifest": _file_identity(
+                reference_root / "projection_manifest.json"
+            ),
+            "candidate_projection_manifest": _file_identity(
+                candidate_root / "projection_manifest.json"
+            ),
+            "robustness_battery_manifest": _file_identity(
+                battery_root / "battery_manifest.json"
+            ),
+            "candidate_count": len(rows),
+        },
+    )
+    print(
+        f"axis_1_spearman={summary['axis_1']['spearman']:.4f} "
+        f"axis_2_spearman={summary['axis_2']['spearman']:.4f} "
+        f"scalar_spearman={summary['scalar_readiness']['spearman']:.4f}"
+    )
+    print(f"output={output}")
+    return 0
+
+
 def _read_keywords(path: str | Path) -> tuple[tuple[str, str], ...]:
     path = Path(path)
     if path.suffix == ".jsonl":
@@ -495,6 +704,51 @@ Generator models propose text; the frozen LLM2Vec map measures the result.  The
 coordinates describe question semantics and do not define the experimental
 policy variable B.  LLM2Vec-Gen output, when supplied, is only a proposal source:
 decoded text must be re-embedded and pass the same selection contract.
+"""
+
+
+def _projection_index(path: str | Path) -> dict[str, dict[str, object]]:
+    indexed = {}
+    for row in read_jsonl(path):
+        candidate_id = str(row["candidate_id"])
+        if candidate_id in indexed:
+            raise ValueError(f"duplicate projection candidate: {candidate_id}")
+        projection = dict(row["projection"])
+        if projection.get("item_id") != candidate_id:
+            raise ValueError(f"nested projection identity differs: {candidate_id}")
+        indexed[candidate_id] = projection
+    return indexed
+
+
+def _vector_agreement(left: np.ndarray, right: np.ndarray) -> dict[str, float | int]:
+    from interpretability.pipeline.readiness_embedding_map import _ranks
+
+    if left.shape != right.shape or left.ndim != 1 or len(left) < 3:
+        raise ValueError("projection agreement needs at least three aligned values")
+    if np.std(left) <= 1e-12 or np.std(right) <= 1e-12:
+        raise ValueError("projection agreement values must vary")
+    return {
+        "item_count": len(left),
+        "pearson": float(np.corrcoef(left, right)[0, 1]),
+        "spearman": float(np.corrcoef(_ranks(left), _ranks(right))[0, 1]),
+        "mean_absolute_difference": float(np.mean(np.abs(left - right))),
+    }
+
+
+def _projection_comparison_report(summary: dict[str, object]) -> str:
+    axis_1 = summary["axis_1"]
+    axis_2 = summary["axis_2"]
+    scalar = summary["scalar_readiness"]
+    return f"""# Cross-embedding generated-question projections
+
+- Questions: {summary['candidate_count']}
+- Aligned axis 1 Spearman: {axis_1['spearman']:.4f}
+- Aligned axis 2 Spearman: {axis_2['spearman']:.4f}
+- Scalar-readiness Spearman: {scalar['spearman']:.4f}
+- Axis 1 mean absolute z-coordinate difference: {axis_1['mean_absolute_difference']:.4f}
+- Axis 2 mean absolute z-coordinate difference: {axis_2['mean_absolute_difference']:.4f}
+
+{summary['interpretation_guard']}
 """
 
 
