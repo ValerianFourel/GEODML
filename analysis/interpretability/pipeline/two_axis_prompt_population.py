@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
+import importlib
 import json
 import math
 from pathlib import Path
@@ -1532,6 +1533,22 @@ class LLM2VecGenPromptEmbedder:
         return np.concatenate(batches, axis=0)
 
 
+def _register_optional_llm2vec_mistral_model() -> bool:
+    """Repair upstream's optional Mistral registration when it is importable."""
+
+    try:
+        implementation = importlib.import_module("llm2vec.llm2vec")
+        mistral_models = importlib.import_module(
+            "llm2vec.models.bidirectional_mistral"
+        )
+        mistral_model = mistral_models.MistralBiModel
+    except (AttributeError, ImportError):
+        return False
+    if not hasattr(implementation, "MistralBiModel"):
+        implementation.MistralBiModel = mistral_model
+    return True
+
+
 class LLM2VecPromptEmbedder:
     """Primary frozen input-text representation using official LLM2Vec."""
 
@@ -1553,6 +1570,7 @@ class LLM2VecPromptEmbedder:
             raise RuntimeError("LLM2Vec prompt embedding requires exactly one visible GPU")
         if batch_size <= 0 or max_length <= 0:
             raise ValueError("batch_size and max_length must be positive")
+        _register_optional_llm2vec_mistral_model()
         model_parts = [model_name]
         if mntp_model_name_or_path is not None:
             model_parts.append(f"mntp:{mntp_model_name_or_path}")

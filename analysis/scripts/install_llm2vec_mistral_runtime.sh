@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The frozen Mistral LLM2Vec checkpoints use the pre-attention-refactor
-# Mistral encoder classes. Keep this runtime separate from the newer
-# Qwen2/Qwen3 environment and install without replacing HoreKa's CUDA PyTorch.
+# The frozen Mistral LLM2Vec checkpoints require the Mistral attention classes
+# retained through Transformers 4.47.1. Keep this runtime separate from the
+# Qwen2/Qwen3 environment and do not replace HoreKa's CUDA PyTorch.
 
-LLM2VEC_GIT_REVISION="68dc1d3244cc710942a5bbbf11d9677de9f8f68a"
+LLM2VEC_GIT_REVISION="0fbcf3304139099bda75c3d6b5d8e835d4894563"
 LLM2VEC_GIT_URL="https://github.com/McGill-NLP/llm2vec.git"
 REGEX_VERSION="2025.11.3"
-TRANSFORMERS_VERSION="4.40.2"
-PEFT_VERSION="0.10.0"
-HUGGINGFACE_HUB_VERSION="0.23.2"
-TOKENIZERS_VERSION="0.19.1"
+TRANSFORMERS_VERSION="4.47.1"
+PEFT_VERSION="0.14.0"
+HUGGINGFACE_HUB_VERSION="0.36.2"
+TOKENIZERS_VERSION="0.21.4"
 SAFETENSORS_VERSION="0.8.0"
-ACCELERATE_VERSION="0.30.1"
-TQDM_VERSION="4.66.4"
+ACCELERATE_VERSION="1.2.1"
+TQDM_VERSION="4.67.1"
 PYYAML_VERSION="6.0.2"
 
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
@@ -24,9 +24,6 @@ fi
 
 VENV_SITE_PACKAGES="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
 export PYTHONPATH="${VENV_SITE_PACKAGES}${PYTHONPATH:+:${PYTHONPATH}}"
-# tokenizers 0.19.1 predates CPython 3.13 wheels. Its PyO3 0.21 build can use
-# the stable ABI on Python 3.13 when this forward-compatibility guard is set.
-export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
 python3 -m pip install \
     --no-deps \

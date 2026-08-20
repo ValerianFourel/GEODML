@@ -22,6 +22,7 @@ from analysis.interpretability.pipeline.two_axis_prompt_population import (
     LocalLLMPairwiseJudge,
     LocalLLMTwoAxisCandidateGenerator,
     LLM2VecPromptEmbedder,
+    _register_optional_llm2vec_mistral_model,
     PairwiseComparisonRequest,
     PairwiseJudgment,
     TwoAxisCandidateRequest,
@@ -146,15 +147,35 @@ class CandidatePopulationTests(unittest.TestCase):
             / "scripts"
             / "install_llm2vec_mistral_runtime.sh"
         ).read_text(encoding="utf-8")
-        self.assertIn("68dc1d3244cc710942a5bbbf11d9677de9f8f68a", script)
-        self.assertIn('TRANSFORMERS_VERSION="4.40.2"', script)
-        self.assertIn('PEFT_VERSION="0.10.0"', script)
-        self.assertIn('TOKENIZERS_VERSION="0.19.1"', script)
+        self.assertIn("0fbcf3304139099bda75c3d6b5d8e835d4894563", script)
+        self.assertIn('TRANSFORMERS_VERSION="4.47.1"', script)
+        self.assertIn('PEFT_VERSION="0.14.0"', script)
+        self.assertIn('TOKENIZERS_VERSION="0.21.4"', script)
         self.assertIn('SAFETENSORS_VERSION="0.8.0"', script)
-        self.assertIn("PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1", script)
         self.assertIn("bidirectional_mistral", script)
         self.assertGreaterEqual(script.count("--no-deps"), 2)
         self.assertIn("--force-reinstall", script)
+
+    def test_llm2vec_mistral_registration_repairs_missing_upstream_symbol(self) -> None:
+        implementation = types.SimpleNamespace()
+        mistral_model = object()
+        mistral_models = types.SimpleNamespace(MistralBiModel=mistral_model)
+
+        def import_module(name):
+            if name == "llm2vec.llm2vec":
+                return implementation
+            if name == "llm2vec.models.bidirectional_mistral":
+                return mistral_models
+            raise AssertionError(name)
+
+        with patch(
+            "analysis.interpretability.pipeline.two_axis_prompt_population."
+            "importlib.import_module",
+            side_effect=import_module,
+        ):
+            self.assertTrue(_register_optional_llm2vec_mistral_model())
+
+        self.assertIs(implementation.MistralBiModel, mistral_model)
 
     def test_llm2vec_loader_merges_mntp_before_loading_simcse(self) -> None:
         calls = []
