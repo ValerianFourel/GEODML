@@ -8,11 +8,15 @@ set -euo pipefail
 
 LLM2VEC_GIT_REVISION="0fbcf3304139099bda75c3d6b5d8e835d4894563"
 LLM2VEC_GIT_URL="https://github.com/McGill-NLP/llm2vec.git"
+REGEX_VERSION="2025.11.3"
 
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     echo "Activate the intended Python virtual environment first." >&2
     exit 2
 fi
+
+python3 -m pip install \
+    "regex==${REGEX_VERSION}"
 
 python3 -m pip install \
     --no-deps \

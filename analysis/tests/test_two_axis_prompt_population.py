@@ -120,6 +120,8 @@ class CandidatePopulationTests(unittest.TestCase):
             Path(__file__).parents[1] / "scripts" / "install_llm2vec_runtime.sh"
         ).read_text(encoding="utf-8")
         self.assertIn("0fbcf3304139099bda75c3d6b5d8e835d4894563", script)
+        self.assertIn('REGEX_VERSION="2025.11.3"', script)
+        self.assertIn('"regex==${REGEX_VERSION}"', script)
         self.assertIn("--no-deps", script)
         self.assertIn("--force-reinstall", script)
         self.assertIn("bidirectional_qwen2", script)
