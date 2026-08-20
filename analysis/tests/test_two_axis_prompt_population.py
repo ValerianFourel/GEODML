@@ -140,6 +140,20 @@ class CandidatePopulationTests(unittest.TestCase):
         self.assertIn("bidirectional_qwen3", script)
         self.assertNotIn("llm2vec==0.2.3", script)
 
+    def test_llm2vec_mistral_installer_pins_compatible_runtime(self) -> None:
+        script = (
+            Path(__file__).parents[1]
+            / "scripts"
+            / "install_llm2vec_mistral_runtime.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("68dc1d3244cc710942a5bbbf11d9677de9f8f68a", script)
+        self.assertIn('TRANSFORMERS_VERSION="4.40.2"', script)
+        self.assertIn('PEFT_VERSION="0.10.0"', script)
+        self.assertIn('TOKENIZERS_VERSION="0.19.1"', script)
+        self.assertIn("bidirectional_mistral", script)
+        self.assertGreaterEqual(script.count("--no-deps"), 2)
+        self.assertIn("--force-reinstall", script)
+
     def test_llm2vec_loader_merges_mntp_before_loading_simcse(self) -> None:
         calls = []
 
