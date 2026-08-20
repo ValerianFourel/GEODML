@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>GEODML — The two axes of semantic readiness</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;700&display=swap");
+
+  :root {
+    --ink: #172038;
+    --ink-soft: #536078;
+    --paper: #f4f6fc;
+    --surface: #ffffff;
+    --line: #ccd3e3;
+    --grid: #dde2ef;
+    --violet: #635bce;
+    --violet-soft: #e6e3ff;
+    --coral: #ef6f61;
+    --coral-soft: #fee4df;
+    --mint: #20a486;
+    --mint-soft: #d9f4ec;
+    --gold: #c89420;
+    --shadow: 0 24px 70px rgba(31, 39, 78, .22);
+  }
+
+  * { box-sizing: border-box; }
+
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: #22283a;
+    color: var(--ink);
+    font-family: "Manrope", "Avenir Next", system-ui, sans-serif;
+  }
+
+  button { font: inherit; }
+
+  .deck {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 2.2vh 2vw 3.2vh;
+  }
+
+  .slide {
+    display: none;
+    position: relative;
+    width: min(94vw, 161.7778vh, 1510px);
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background:
+      linear-gradient(90deg, transparent calc(50% - .5px), rgba(99, 91, 206, .055) 50%, transparent calc(50% + .5px)),
+      linear-gradient(transparent calc(50% - .5px), rgba(99, 91, 206, .055) 50%, transparent calc(50% + .5px)),
+      var(--paper);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    padding: clamp(24px, 3.2vw, 54px) clamp(28px, 4vw, 68px) clamp(22px, 2.8vw, 46px);
+  }
+
+  .slide.active {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    animation: settle 260ms ease-out both;
+  }
+
+  @keyframes settle {
+    from { transform: translateY(8px) scale(.997); }
+    to { transform: translateY(0) scale(1); }
+  }
+
+  .slide::before,
+  .slide::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .slide::before {
+    width: 15px;
+    height: 15px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border: 1px solid rgba(99, 91, 206, .18);
+    border-radius: 50%;
+  }
+
+  .slide::after {
+    width: 5px;
+    height: 5px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(99, 91, 206, .28);
+    border-radius: 50%;
+  }
+
+  .slide-head,
+  .slide-body,
+  .slide-foot { position: relative; z-index: 1; }
+
+  .slide-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: clamp(10px, 1.5vh, 18px);
+  }
+
+  .eyebrow,
+  .kicker,
+  .axis-tag,
+  .metric-label,
+  .slide-number,
+  .micro {
+    font-family: "DM Mono", ui-monospace, monospace;
+    letter-spacing: .075em;
+    text-transform: uppercase;
+  }
+
+  .eyebrow {
+    color: var(--violet);
+    font-size: clamp(10px, .82vw, 14px);
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+
+  h1,
+  h2,
+  h3,
+  p { margin-top: 0; }
+
+  h1,
+  h2 {
+    max-width: 1100px;
+    margin-bottom: 0;
+    letter-spacing: -.045em;
+    line-height: 1.03;
+  }
+
+  h1 { font-size: clamp(40px, 5vw, 79px); }
+  h2 { font-size: clamp(31px, 3.5vw, 57px); }
+  h3 { font-size: clamp(19px, 1.65vw, 28px); line-height: 1.14; }
+
+  .slide-number {
+    color: var(--ink-soft);
+    font-size: clamp(10px, .82vw, 14px);
+    white-space: nowrap;
+    padding-top: 3px;
+  }
+
+  .slide-body {
+    min-height: 0;
+    display: grid;
+    align-items: center;
+    gap: clamp(18px, 2.5vw, 42px);
+  }
+
+  .cols-2 { grid-template-columns: minmax(0, 1.03fr) minmax(0, .97fr); }
+  .cols-wide { grid-template-columns: minmax(0, 1.28fr) minmax(300px, .72fr); }
+  .stack { display: grid; gap: clamp(14px, 1.6vw, 24px); }
+
+  .lede {
+    max-width: 940px;
+    color: var(--ink-soft);
+    font-size: clamp(17px, 1.55vw, 26px);
+    line-height: 1.48;
+  }
+
+  .hero-copy { align-self: center; }
+  .hero-copy .lede { max-width: 760px; margin: 26px 0 0; }
+
+  .slide:first-child .hero-copy {
+    align-self: start;
+    padding-top: clamp(12px, 1.6vh, 22px);
+  }
+
+  .hero-mark {
+    position: relative;
+    min-height: 470px;
+    display: grid;
+    place-items: center;
+  }
+
+  .hero-mark svg { width: 100%; max-height: 500px; }
+
+  .metric-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .metric {
+    padding: 15px 16px 13px;
+    border-top: 3px solid var(--violet);
+    background: rgba(255, 255, 255, .66);
+  }
+
+  .metric:nth-child(2) { border-color: var(--coral); }
+  .metric:nth-child(3) { border-color: var(--mint); }
+
+  .metric-value {
+    font-size: clamp(26px, 2.6vw, 43px);
+    font-weight: 700;
+    letter-spacing: -.04em;
+    line-height: 1;
+  }
+
+  .metric-label {
+    margin-top: 8px;
+    color: var(--ink-soft);
+    font-size: clamp(9px, .7vw, 12px);
+    line-height: 1.35;
+  }
+
+  .slide-foot {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    border-top: 1px solid var(--line);
+    padding-top: 11px;
+    color: var(--ink-soft);
+    font-size: clamp(10px, .78vw, 13px);
+  }
+
+  .foot-claim { max-width: 980px; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: fit-content;
+    padding: 6px 10px;
+    border-radius: 999px;
+    color: var(--ink);
+    background: var(--violet-soft);
+    font-family: "DM Mono", ui-monospace, monospace;
+    font-size: clamp(9px, .7vw, 12px);
+    text-transform: uppercase;
+    letter-spacing: .045em;
+  }
+
+  .chip.coral { background: var(--coral-soft); }
+  .chip.mint { background: var(--mint-soft); }
+
+  .chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--violet);
+  }
+
+  .chip.coral .chip-dot { background: var(--coral); }
+  .chip.mint .chip-dot { background: var(--mint); }
+
+  .pipeline {
+    display: grid;
+    grid-template-columns: 1fr auto 1.05fr auto 1.1fr auto 1.2fr;
+    align-items: center;
+    gap: clamp(8px, 1vw, 17px);
+  }
+
+  .pipeline-node {
+    min-height: 180px;
+    display: grid;
+    align-content: center;
+    gap: 12px;
+    padding: clamp(15px, 1.6vw, 24px);
+    background: rgba(255, 255, 255, .78);
+    border: 1px solid var(--line);
+    border-radius: 15px;
+  }
+
+  .pipeline-node strong {
+    font-size: clamp(17px, 1.4vw, 24px);
+    line-height: 1.12;
+  }
+
+  .pipeline-node span {
+    color: var(--ink-soft);
+    font-size: clamp(11px, .9vw, 15px);
+    line-height: 1.4;
+  }
+
+  .pipeline-arrow {
+    color: var(--violet);
+    font-size: clamp(20px, 2.2vw, 36px);
+  }
+
+  .split-node {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+
+  .split-node b {
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--violet-soft);
+    font-size: clamp(11px, .9vw, 15px);
+    text-align: center;
+  }
+
+  .split-node b:last-child { background: var(--coral-soft); }
+
+  .answer-panel {
+    display: grid;
+    grid-template-columns: .72fr 1.28fr;
+    gap: clamp(18px, 2.5vw, 42px);
+    align-items: stretch;
+  }
+
+  .big-answer {
+    display: grid;
+    align-content: center;
+    justify-items: start;
+    padding: clamp(24px, 3vw, 48px);
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 18px;
+  }
+
+  .big-answer strong {
+    font-size: clamp(70px, 10vw, 160px);
+    letter-spacing: -.08em;
+    line-height: .8;
+  }
+
+  .big-answer span {
+    margin-top: 18px;
+    font-size: clamp(17px, 1.5vw, 25px);
+    line-height: 1.35;
+  }
+
+  .axis-cards { display: grid; grid-template-rows: 1fr 1fr; gap: 14px; }
+
+  .axis-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 18px;
+    padding: clamp(18px, 2vw, 30px);
+    background: rgba(255, 255, 255, .78);
+    border: 1px solid var(--line);
+    border-radius: 15px;
+  }
+
+  .axis-card::before {
+    content: "";
+    width: 10px;
+    align-self: stretch;
+    border-radius: 9px;
+    background: var(--violet);
+  }
+
+  .axis-card.secondary::before { background: var(--coral); }
+
+  .axis-card p {
+    margin: 6px 0 0;
+    color: var(--ink-soft);
+    font-size: clamp(13px, 1.05vw, 17px);
+    line-height: 1.42;
+  }
+
+  .axis-figure {
+    min-height: 260px;
+    display: grid;
+    place-items: center;
+    padding: clamp(4px, 1vw, 16px);
+  }
+
+  .axis-figure svg { width: 100%; max-height: 300px; overflow: visible; }
+
+  .slide:nth-child(4) .slide-body { align-content: center; }
+
+  .prompt-rungs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .prompt-rung {
+    position: relative;
+    padding: 13px 12px;
+    background: rgba(255, 255, 255, .78);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--ink-soft);
+    font-size: clamp(10px, .82vw, 14px);
+    line-height: 1.4;
+  }
+
+  .prompt-rung strong {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--ink);
+    font-size: 1.08em;
+  }
+
+  .plane-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1.28fr) minmax(280px, .72fr);
+    gap: clamp(20px, 3vw, 48px);
+    align-items: center;
+  }
+
+  .plane {
+    min-height: 400px;
+    display: grid;
+    place-items: center;
+  }
+
+  .plane svg { width: 100%; max-height: 440px; overflow: visible; }
+
+  .reading-list {
+    display: grid;
+    gap: 13px;
+  }
+
+  .reading-item {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 12px;
+    align-items: start;
+    color: var(--ink-soft);
+    font-size: clamp(12px, 1vw, 17px);
+    line-height: 1.45;
+  }
+
+  .reading-item::before {
+    content: "";
+    width: 12px;
+    height: 12px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: var(--violet);
+  }
+
+  .reading-item:nth-child(2)::before { background: var(--coral); }
+  .reading-item:nth-child(3)::before { background: var(--mint); }
+
+  .model-compare {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: clamp(16px, 2vw, 34px);
+    align-items: center;
+  }
+
+  .slide:nth-child(6) .slide-body { align-content: center; }
+
+  .model-plane {
+    align-self: center;
+    padding: clamp(12px, 1.1vw, 18px);
+    background: rgba(255, 255, 255, .76);
+    border: 1px solid var(--line);
+    border-radius: 15px;
+  }
+
+  .model-plane h3 { margin-bottom: 2px; }
+  .model-plane p { color: var(--ink-soft); font-size: clamp(11px, .9vw, 15px); }
+  .model-plane svg { width: 100%; max-height: 210px; }
+
+  .alignment {
+    display: grid;
+    justify-items: center;
+    gap: 9px;
+    color: var(--violet);
+    text-align: center;
+  }
+
+  .alignment-arrow {
+    font-size: clamp(32px, 4vw, 64px);
+    line-height: 1;
+  }
+
+  .alignment span {
+    max-width: 120px;
+    color: var(--ink-soft);
+    font-family: "DM Mono", ui-monospace, monospace;
+    font-size: clamp(9px, .7vw, 12px);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+
+  .replication-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 17px;
+  }
+
+  .replication-metric {
+    padding: 9px 13px;
+    border-left: 4px solid var(--violet);
+    background: rgba(255, 255, 255, .68);
+  }
+
+  .replication-metric:nth-child(2) { border-color: var(--mint); }
+  .replication-metric:nth-child(3) { border-color: var(--coral); }
+
+  .replication-metric strong {
+    display: block;
+    font-size: clamp(20px, 2vw, 33px);
+    letter-spacing: -.04em;
+  }
+
+  .replication-metric span {
+    color: var(--ink-soft);
+    font-size: clamp(10px, .76vw, 13px);
+    line-height: 1.35;
+  }
+
+  .bars {
+    display: grid;
+    gap: clamp(18px, 2.2vh, 28px);
+  }
+
+  .bar-group { display: grid; gap: 7px; }
+
+  .bar-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: clamp(12px, 1vw, 17px);
+  }
+
+  .bar-title span:last-child {
+    color: var(--ink-soft);
+    font-family: "DM Mono", ui-monospace, monospace;
+    font-size: .86em;
+  }
+
+  .bar-track {
+    height: clamp(15px, 1.5vw, 23px);
+    position: relative;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--grid);
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--violet);
+  }
+
+  .bar-fill.mistral { background: var(--coral); }
+
+  .bar-pair {
+    display: grid;
+    grid-template-columns: 70px 1fr 58px;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink-soft);
+    font-family: "DM Mono", ui-monospace, monospace;
+    font-size: clamp(10px, .72vw, 12px);
+  }
+
+  .check-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 18px;
+  }
+
+  .check {
+    display: grid;
+    grid-template-columns: 23px 1fr;
+    gap: 10px;
+    align-items: start;
+    color: var(--ink-soft);
+    font-size: clamp(11px, .9vw, 15px);
+    line-height: 1.35;
+  }
+
+  .check::before {
+    content: "✓";
+    display: grid;
+    place-items: center;
+    width: 21px;
+    height: 21px;
+    border-radius: 50%;
+    color: white;
+    background: var(--mint);
+    font-weight: 700;
+  }
+
+  .next-grid {
+    display: grid;
+    grid-template-columns: .75fr 1.25fr;
+    gap: clamp(20px, 3vw, 48px);
+    align-items: center;
+  }
+
+  .funnel {
+    display: grid;
+    gap: 9px;
+    align-content: center;
+  }
+
+  .funnel-step {
+    justify-self: center;
+    display: grid;
+    place-items: center;
+    min-height: 70px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    color: var(--ink);
+    background: var(--violet-soft);
+    text-align: center;
+  }
+
+  .funnel-step:nth-child(1) { width: 100%; }
+  .funnel-step:nth-child(2) { width: 83%; background: #ece9ff; }
+  .funnel-step:nth-child(3) { width: 65%; background: var(--coral-soft); }
+
+  .funnel-step strong { display: block; font-size: clamp(18px, 1.7vw, 28px); }
+  .funnel-step span { color: var(--ink-soft); font-size: clamp(10px, .78vw, 13px); }
+
+  .surface-figure {
+    min-height: 430px;
+    display: grid;
+    place-items: center;
+  }
+
+  .surface-figure svg { width: 100%; max-height: 470px; overflow: visible; }
+
+  .claim-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 0;
+  }
+
+  .claim-box {
+    padding: 10px 13px;
+    background: var(--mint-soft);
+    border-radius: 10px;
+    font-size: clamp(10px, .78vw, 13px);
+    line-height: 1.34;
+  }
+
+  .claim-box.no { background: var(--coral-soft); }
+  .claim-box strong { display: block; margin-bottom: 5px; }
+
+  .controls {
+    position: fixed;
+    z-index: 10;
+    left: 50%;
+    bottom: 1.1vh;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .controls button {
+    min-width: 40px;
+    min-height: 34px;
+    border: 1px solid rgba(255, 255, 255, .25);
+    border-radius: 999px;
+    color: white;
+    background: rgba(23, 32, 56, .8);
+    cursor: pointer;
+  }
+
+  .controls button:hover { background: rgba(99, 91, 206, .95); }
+  .controls button:focus-visible { outline: 3px solid #b9b4ff; outline-offset: 2px; }
+  .controls button:disabled { opacity: .35; cursor: default; }
+
+  .progress {
+    width: min(160px, 28vw);
+    height: 4px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .22);
+  }
+
+  .progress-bar {
+    width: 12.5%;
+    height: 100%;
+    background: #b9b4ff;
+    transition: width 180ms ease;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  svg text { font-family: "Manrope", "Avenir Next", system-ui, sans-serif; fill: var(--ink); }
+  svg .mono { font-family: "DM Mono", ui-monospace, monospace; fill: var(--ink-soft); }
+  svg .axis { stroke: var(--ink); stroke-width: 2; }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; }
+  svg .violet { fill: var(--violet); stroke: var(--violet); }
+  svg .coral { fill: var(--coral); stroke: var(--coral); }
+  svg .mint { fill: var(--mint); stroke: var(--mint); }
+  svg .soft-violet { fill: var(--violet-soft); stroke: var(--violet); }
+  svg .soft-coral { fill: var(--coral-soft); stroke: var(--coral); }
+  svg .soft-mint { fill: var(--mint-soft); stroke: var(--mint); }
+
+  @media (max-width: 900px) {
+    .slide { width: min(96vw, 161.7778vh); padding: 24px; border-radius: 14px; }
+    .slide-head { padding-bottom: 8px; }
+    .hero-mark { min-height: 310px; }
+    .pipeline-node { min-height: 135px; }
+    .model-plane svg { max-height: 240px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slide.active { animation: none; }
+    .progress-bar { transition: none; }
+  }
+
+  @media print {
+    @page { size: 16in 9in; margin: 0; }
+    html, body { overflow: visible; background: white; }
+    .deck { position: static; display: block; padding: 0; }
+    .slide,
+    .slide.active {
+      display: grid;
+      width: 16in;
+      height: 9in;
+      max-height: none;
+      border-radius: 0;
+      box-shadow: none;
+      page-break-after: always;
+      animation: none;
+    }
+    .controls { display: none; }
+  }
+</style>
+</head>
+<body>
+<main class="deck" aria-label="Semantic readiness findings slide deck">
+
+  <article class="slide active" data-title="Two axes" aria-hidden="false">
+    <header class="slide-head">
+      <div>
+        <div class="eyebrow">GEODML · semantic readiness</div>
+        <h1>We found a two-axis map of readiness</h1>
+      </div>
+      <div class="slide-number">01 / 08</div>
+    </header>
+    <div class="slide-body cols-wide">
+      <div class="hero-copy">
+        <p class="lede">The fitted geometry is better read as more than a single “ready / not ready” line. A dominant action-readiness direction is crossed by a second direction that separates <strong>deliberation</strong> from <strong>implementation</strong>.</p>
+        <div class="metric-row" style="margin-top: 34px;">
+          <div class="metric"><div class="metric-value">2D</div><div class="metric-label">supervised subspace</div></div>
+          <div class="metric"><div class="metric-value">0.85</div><div class="metric-label">Qwen–Mistral prediction agreement</div></div>
+          <div class="metric"><div class="metric-value">6/6</div><div class="metric-label">frozen evidence checks</div></div>
+        </div>
+      </div>
+      <div class="hero-mark" aria-label="Two-axis coordinate drawing">
+        <svg viewBox="0 0 600 520" role="img" aria-labelledby="hero-title hero-desc">
+          <title id="hero-title">Two semantic readiness axes</title>
+          <desc id="hero-desc">A vertical action readiness axis and horizontal deliberation to implementation axis crossing through a cloud of prompts.</desc>
+          <defs>
+            <radialGradient id="cloud" cx="50%" cy="50%" r="50%">
+              <stop offset="0" stop-color="#635bce" stop-opacity=".20"/>
+              <stop offset="1" stop-color="#635bce" stop-opacity="0"/>
+            </radialGradient>
+            <marker id="arrow-v" markerWidth="8" markerHeight="8" refX="5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#635bce"/></marker>
+            <marker id="arrow-c" markerWidth="8" markerHeight="8" refX="5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ef6f61"/></marker>
+          </defs>
+          <circle cx="300" cy="270" r="218" fill="url(#cloud)"/>
+          <g opacity=".82">
+            <circle cx="190" cy="355" r="8" class="violet"/><circle cx="227" cy="330" r="6" class="violet"/><circle cx="253" cy="286" r="7" class="violet"/>
+            <circle cx="277" cy="244" r="7" class="coral"/><circle cx="320" cy="222" r="8" class="coral"/><circle cx="352" cy="183" r="6" class="mint"/>
+            <circle cx="389" cy="146" r="9" class="mint"/><circle cx="420" cy="112" r="6" class="mint"/><circle cx="363" cy="307" r="5" class="coral"/>
+            <circle cx="233" cy="196" r="5" class="violet"/><circle cx="422" cy="255" r="6" class="mint"/><circle cx="156" cy="269" r="5" class="violet"/>
+          </g>
+          <line x1="82" y1="270" x2="526" y2="270" stroke="#ef6f61" stroke-width="4" marker-end="url(#arrow-c)"/>
+          <line x1="300" y1="446" x2="300" y2="68" stroke="#635bce" stroke-width="4" marker-end="url(#arrow-v)"/>
+          <text x="307" y="88" font-size="18" font-weight="700">ACT NOW</text>
+          <text x="307" y="111" class="mono" font-size="12">axis 1 · readiness</text>
+          <text x="86" y="297" class="mono" font-size="12">deliberate</text>
+          <text x="435" y="297" class="mono" font-size="12">implement</text>
+          <text x="390" y="332" font-size="17" font-weight="700">AXIS 2</text>
+          <text x="300" y="477" text-anchor="middle" font-size="15" fill="#536078">abstract information seeking</text>
+        </svg>
+      </div>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">Answer in one sentence: <strong>yes—one dominant readiness axis and one reproducible secondary mode.</strong></span><span>held-out confirmation</span></footer>
+  </article>
+
+  <article class="slide" data-title="Measurement" aria-hidden="true">
+    <header class="slide-head">
+      <div><div class="eyebrow">How the map was measured</div><h2>Meaning first, geometry second</h2></div>
+      <div class="slide-number">02 / 08</div>
+    </header>
+    <div class="slide-body stack">
+      <div class="pipeline" aria-label="Measurement pipeline">
+        <div class="pipeline-node"><div class="chip"><span class="chip-dot"></span>corpus</div><strong>21,458 prompts</strong><span>Natural requests from multiple dialogue and task sources</span></div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node"><div class="chip coral"><span class="chip-dot"></span>labels</div><strong>Three frozen judges</strong><span>Gemma, Qwen and Ministral independently rated readiness rubrics</span></div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node"><div class="chip mint"><span class="chip-dot"></span>target</div><strong>8,089 usable consensuses</strong><span>At least two numeric ratings with confidence and disagreement controls</span></div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node"><div class="chip"><span class="chip-dot"></span>geometry</div><div class="split-node"><b>Qwen3 LLM2Vec</b><b>Mistral LLM2Vec</b></div><span>The same labels and split were mapped independently in two representation families</span></div>
+      </div>
+      <p class="lede" style="text-align:center; margin: 0 auto;">The annotations define what “readiness” means. Embeddings only reveal whether that meaning has a stable geometric organization.</p>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">The embedding never defines the experimental policy variable <strong>B</strong>.</span><span>frozen target · frozen split</span></footer>
+  </article>
+
+  <article class="slide" data-title="Why two" aria-hidden="true">
+    <header class="slide-head">
+      <div><div class="eyebrow">Dimensionality</div><h2>Why call it two axes?</h2></div>
+      <div class="slide-number">03 / 08</div>
+    </header>
+    <div class="slide-body answer-panel">
+      <div class="big-answer"><strong>2</strong><span>coordinates summarize different semantic changes</span></div>
+      <div class="axis-cards">
+        <div class="axis-card">
+          <div></div>
+          <div><div class="axis-tag" style="color:var(--violet);">Axis 1 · dominant</div><h3 style="margin:6px 0 0;">How close is the request to action?</h3><p>It carries almost all of the scalar readiness direction: abstract inquiry → evaluation → commitment → action.</p></div>
+        </div>
+        <div class="axis-card secondary">
+          <div></div>
+          <div><div class="axis-tag" style="color:var(--coral);">Axis 2 · secondary</div><h3 style="margin:6px 0 0;">What kind of readiness is it?</h3><p>It is nearly orthogonal to the scalar score: comparing or selecting → executing or implementing.</p></div>
+        </div>
+      </div>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">“Two axes” means a useful, reproducible 2D supervised summary—not proof that human intent has exactly two dimensions.</span><span>rubric component share · 0.71–0.75</span></footer>
+  </article>
+
+  <article class="slide" data-title="Axis one" aria-hidden="true">
+    <header class="slide-head">
+      <div><div class="eyebrow">Axis 1 · readiness</div><h2>From understanding to doing</h2></div>
+      <div class="slide-number">04 / 08</div>
+    </header>
+    <div class="slide-body stack">
+      <div class="axis-figure">
+        <svg viewBox="0 0 1200 430" role="img" aria-labelledby="a1-title a1-desc">
+          <title id="a1-title">Axis one from information seeking to action</title>
+          <desc id="a1-desc">A rising diagonal path passes from abstract inquiry through evaluation and selection to immediate action.</desc>
+          <defs><marker id="a1-arrow" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#635bce"/></marker></defs>
+          <line x1="95" y1="348" x2="1095" y2="78" stroke="#635bce" stroke-width="7" marker-end="url(#a1-arrow)"/>
+          <path d="M95 348 C325 292 420 325 602 219 S872 171 1095 78" fill="none" stroke="#b9b4ff" stroke-width="38" stroke-linecap="round" opacity=".35"/>
+          <g>
+            <circle cx="143" cy="335" r="23" class="soft-violet" stroke-width="3"/><circle cx="441" cy="272" r="23" class="soft-violet" stroke-width="3"/><circle cx="723" cy="188" r="23" class="soft-coral" stroke-width="3"/><circle cx="1016" cy="104" r="23" class="soft-mint" stroke-width="3"/>
+            <text x="143" y="340" text-anchor="middle" font-size="16" font-weight="700">?</text><text x="441" y="277" text-anchor="middle" font-size="16" font-weight="700">≋</text><text x="723" y="193" text-anchor="middle" font-size="16" font-weight="700">✓</text><text x="1016" y="109" text-anchor="middle" font-size="16" font-weight="700">→</text>
+          </g>
+          <text x="105" y="402" class="mono" font-size="13">LOW READINESS</text>
+          <text x="930" y="53" class="mono" font-size="13">HIGH READINESS</text>
+        </svg>
+      </div>
+      <div class="prompt-rungs">
+        <div class="prompt-rung"><strong>Understand</strong>“Explain the general idea.”</div>
+        <div class="prompt-rung"><strong>Evaluate</strong>“What should I consider?”</div>
+        <div class="prompt-rung"><strong>Commit</strong>“Help me choose one.”</div>
+        <div class="prompt-rung"><strong>Act</strong>“Arrange or execute it now.”</div>
+      </div>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">Qwen axis 1 aligns with scalar readiness at cosine <strong>0.914</strong> and with the ordinal direction at <strong>0.885</strong>.</span><span>axis signs are arbitrary</span></footer>
+  </article>
+
+  <article class="slide" data-title="Axis two" aria-hidden="true">
+    <header class="slide-head">
+      <div><div class="eyebrow">Axis 2 · mode</div><h2>Deliberating and implementing are different</h2></div>
+      <div class="slide-number">05 / 08</div>
+    </header>
+    <div class="slide-body plane-wrap">
+      <div class="plane">
+        <svg viewBox="0 0 760 520" role="img" aria-labelledby="a2-title a2-desc">
+          <title id="a2-title">Axis two contrasts deliberation with implementation</title>
+          <desc id="a2-desc">At a similar mid-to-high readiness level, selection prompts lie left and implementation prompts lie right.</desc>
+          <defs><marker id="a2-arrow" markerWidth="8" markerHeight="8" refX="5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ef6f61"/></marker></defs>
+          <g opacity=".9">
+            <line x1="110" y1="420" x2="690" y2="420" class="axis"/><line x1="110" y1="420" x2="110" y2="70" class="axis"/>
+            <line x1="110" y1="330" x2="690" y2="330" class="gridline"/><line x1="110" y1="240" x2="690" y2="240" class="gridline"/><line x1="110" y1="150" x2="690" y2="150" class="gridline"/>
+            <line x1="255" y1="70" x2="255" y2="420" class="gridline"/><line x1="400" y1="70" x2="400" y2="420" class="gridline"/><line x1="545" y1="70" x2="545" y2="420" class="gridline"/>
+          </g>
+          <ellipse cx="260" cy="218" rx="120" ry="76" fill="#fee4df" opacity=".9"/>
+          <ellipse cx="559" cy="198" rx="116" ry="80" fill="#d9f4ec" opacity=".9"/>
+          <g class="coral"><circle cx="207" cy="238" r="9"/><circle cx="246" cy="194" r="8"/><circle cx="282" cy="224" r="10"/><circle cx="317" cy="181" r="7"/></g>
+          <g class="mint"><circle cx="498" cy="222" r="8"/><circle cx="542" cy="184" r="10"/><circle cx="579" cy="217" r="7"/><circle cx="619" cy="170" r="9"/></g>
+          <line x1="260" y1="322" x2="558" y2="322" stroke="#ef6f61" stroke-width="4" marker-end="url(#a2-arrow)"/>
+          <text x="257" y="117" text-anchor="middle" font-size="20" font-weight="700">COMPARE / SELECT</text>
+          <text x="557" y="107" text-anchor="middle" font-size="20" font-weight="700">IMPLEMENT</text>
+          <text x="257" y="143" text-anchor="middle" class="mono" font-size="12">“which option?”</text>
+          <text x="557" y="133" text-anchor="middle" class="mono" font-size="12">“how do I do it?”</text>
+          <text x="400" y="488" text-anchor="middle" class="mono" font-size="13">AXIS 2 · MODE OF READINESS</text>
+          <text x="40" y="245" transform="rotate(-90 40 245)" text-anchor="middle" class="mono" font-size="13">AXIS 1 · READINESS</text>
+        </svg>
+      </div>
+      <div class="stack">
+        <div class="chip coral"><span class="chip-dot"></span>not “more ready”</div>
+        <p class="lede" style="font-size:clamp(16px,1.35vw,22px);">Axis 2 changes the <strong>mode</strong> of a request while adding almost no scalar-readiness signal.</p>
+        <div class="reading-list">
+          <div class="reading-item">Negative side: evaluation and selection load strongly.</div>
+          <div class="reading-item">Positive side: action implementation loads strongly.</div>
+          <div class="reading-item">Qwen scalar-readiness cosine is only <strong>0.009</strong>.</div>
+        </div>
+      </div>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">This secondary direction prevents two equally “ready” prompts from being treated as semantically identical.</span><span>selection ↔ implementation</span></footer>
+  </article>
+
+  <article class="slide" data-title="Replication" aria-hidden="true">
+    <header class="slide-head">
+      <div><div class="eyebrow">Cross-representation confirmation</div><h2>The geometry survives a model-family change</h2></div>
+      <div class="slide-number">06 / 08</div>
+    </header>
+    <div class="slide-body stack">
+      <div class="model-compare">
+        <div class="model-plane">
+          <h3>Qwen3-8B LLM2Vec</h3><p>Reference geometry · frozen development fit</p>
+          <svg viewBox="0 0 430 300" role="img" aria-label="Qwen two-axis prompt cloud">
+            <line x1="45" y1="246" x2="390" y2="246" class="axis"/><line x1="45" y1="246" x2="45" y2="35" class="axis"/>
+            <g class="violet" opacity=".82"><circle cx="104" cy="215" r="7"/><circle cx="132" cy="184" r="6"/><circle cx="169" cy="167" r="8"/><circle cx="208" cy="128" r="7"/><circle cx="250" cy="105" r="8"/><circle cx="297" cy="80" r="7"/></g>
+            <g class="coral" opacity=".75"><circle cx="134" cy="103" r="6"/><circle cx="185" cy="89" r="7"/><circle cx="304" cy="150" r="6"/><circle cx="348" cy="124" r="8"/></g>
+            <text x="218" y="281" text-anchor="middle" class="mono" font-size="11">axis 2</text><text x="15" y="145" transform="rotate(-90 15 145)" text-anchor="middle" class="mono" font-size="11">axis 1</text>
+          </svg>
+        </div>
+        <div class="alignment"><div class="alignment-arrow">⇄</div><span>alignment learned on development only</span></div>
+        <div class="model-plane">
+          <h3>Mistral-7B LLM2Vec</h3><p>Independent embedding family · held-out test</p>
+          <svg viewBox="0 0 430 300" role="img" aria-label="Mistral two-axis prompt cloud">
+            <line x1="45" y1="246" x2="390" y2="246" class="axis"/><line x1="45" y1="246" x2="45" y2="35" class="axis"/>
+            <g class="mint" opacity=".82"><circle cx="108" cy="211" r="7"/><circle cx="138" cy="187" r="6"/><circle cx="176" cy="160" r="8"/><circle cx="213" cy="132" r="7"/><circle cx="256" cy="102" r="8"/><circle cx="301" cy="76" r="7"/></g>
+            <g class="coral" opacity=".75"><circle cx="142" cy="108" r="6"/><circle cx="191" cy="92" r="7"/><circle cx="312" cy="147" r="6"/><circle cx="351" cy="120" r="8"/></g>
+            <text x="218" y="281" text-anchor="middle" class="mono" font-size="11">aligned axis 2</text><text x="15" y="145" transform="rotate(-90 15 145)" text-anchor="middle" class="mono" font-size="11">aligned axis 1</text>
+          </svg>
+        </div>
+      </div>
+      <div class="replication-metrics">
+        <div class="replication-metric"><strong>0.852</strong><span>scalar-prediction Spearman</span></div>
+        <div class="replication-metric"><strong>0.785</strong><span>aligned axis 1 Spearman</span></div>
+        <div class="replication-metric"><strong>0.628</strong><span>aligned axis 2 Spearman</span></div>
+      </div>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">The same prompts and labels produce comparable coordinates in two independently trained representation families.</span><span>confirmation n = 3,570</span></footer>
+  </article>
+
+  <article class="slide" data-title="Evidence" aria-hidden="true">
+    <header class="slide-head">
+      <div><div class="eyebrow">Held-out evidence</div><h2>Mistral confirms—and slightly strengthens—the result</h2></div>
+      <div class="slide-number">07 / 08</div>
+    </header>
+    <div class="slide-body cols-2">
+      <div class="bars" aria-label="Qwen and Mistral confirmation metric comparison">
+        <div class="bar-group">
+          <div class="bar-title"><strong>Scalar Spearman</strong><span>higher is better</span></div>
+          <div class="bar-pair"><span>Qwen</span><div class="bar-track"><div class="bar-fill" style="width:68.03%"></div></div><b>0.680</b></div>
+          <div class="bar-pair"><span>Mistral</span><div class="bar-track"><div class="bar-fill mistral" style="width:73.20%"></div></div><b>0.732</b></div>
+        </div>
+        <div class="bar-group">
+          <div class="bar-title"><strong>R²</strong><span>held-out variance explained</span></div>
+          <div class="bar-pair"><span>Qwen</span><div class="bar-track"><div class="bar-fill" style="width:48.16%"></div></div><b>0.482</b></div>
+          <div class="bar-pair"><span>Mistral</span><div class="bar-track"><div class="bar-fill mistral" style="width:53.69%"></div></div><b>0.537</b></div>
+        </div>
+        <div class="bar-group">
+          <div class="bar-title"><strong>MAE improvement</strong><span>over development-mean baseline</span></div>
+          <div class="bar-pair"><span>Qwen</span><div class="bar-track"><div class="bar-fill" style="width:80.34%"></div></div><b>40.2%</b></div>
+          <div class="bar-pair"><span>Mistral</span><div class="bar-track"><div class="bar-fill mistral" style="width:88.42%"></div></div><b>44.2%</b></div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="chip mint"><span class="chip-dot"></span>supportive · 6/6</div>
+        <div class="check-grid">
+          <div class="check">Confirmation sample ≥ 500</div><div class="check">Spearman interval above zero</div>
+          <div class="check">MAE gain interval above zero</div><div class="check">Ridge / ordinal cosine ≥ 0.5</div>
+          <div class="check">Rubric component share ≥ 0.5</div><div class="check">Positive result across ≥ 70% of sources</div>
+        </div>
+        <p class="lede" style="font-size:clamp(15px,1.25vw,21px); margin-bottom:0;">Mistral Spearman 95% interval: <strong>[0.7166, 0.7465]</strong>. The evidence is not carried by one source or one representation.</p>
+      </div>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">The replication improves confidence in the semantic structure, not in a causal interpretation.</span><span>same labels · same split</span></footer>
+  </article>
+
+  <article class="slide" data-title="Next" aria-hidden="true">
+    <header class="slide-head">
+      <div><div class="eyebrow">What comes next</div><h2>Turn the map into a readiness surface</h2></div>
+      <div class="slide-number">08 / 08</div>
+    </header>
+    <div class="slide-body next-grid">
+      <div class="stack">
+        <div class="funnel" aria-label="Prompt eligibility funnel">
+          <div class="funnel-step"><div><strong>21,458</strong><span>all prompts</span></div></div>
+          <div class="funnel-step"><div><strong>16,175</strong><span>at least one numeric rating</span></div></div>
+          <div class="funnel-step"><div><strong>8,089 · 37.7%</strong><span>strict usable consensus</span></div></div>
+        </div>
+        <div class="claim-split">
+          <div class="claim-box"><strong>Supported</strong>A stable two-coordinate semantic summary across Qwen and Mistral.</div>
+          <div class="claim-box no"><strong>Not supported</strong>A causal claim, or a claim that embeddings define policy variable B.</div>
+        </div>
+      </div>
+      <div class="surface-figure">
+        <svg viewBox="0 0 760 520" role="img" aria-labelledby="surface-title surface-desc">
+          <title id="surface-title">Proposed nonlinear readiness surface</title>
+          <desc id="surface-desc">A curved mesh over axis one and axis two represents a future spline fit evaluated on held-out data.</desc>
+          <defs>
+            <linearGradient id="surface-gradient" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#635bce" stop-opacity=".22"/><stop offset=".58" stop-color="#ef6f61" stop-opacity=".28"/><stop offset="1" stop-color="#20a486" stop-opacity=".50"/></linearGradient>
+            <marker id="surface-arrow" markerWidth="8" markerHeight="8" refX="5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#172038"/></marker>
+          </defs>
+          <path d="M112 405 C220 337 325 363 418 290 S589 186 677 84 L677 326 C579 381 509 368 413 424 S222 470 112 486 Z" fill="url(#surface-gradient)" stroke="#635bce" stroke-width="2"/>
+          <g fill="none" stroke="#ffffff" stroke-opacity=".72" stroke-width="1.4">
+            <path d="M112 405 C220 337 325 363 418 290 S589 186 677 84"/><path d="M112 432 C220 367 325 390 418 322 S589 220 677 126"/><path d="M112 459 C220 398 325 418 418 354 S589 254 677 168"/><path d="M112 486 C220 429 325 446 418 386 S589 288 677 210"/>
+            <path d="M112 405 L112 486"/><path d="M222 354 C230 382 227 417 222 470"/><path d="M335 352 C340 379 338 406 335 449"/><path d="M448 268 C454 305 452 350 448 408"/><path d="M562 200 C568 252 565 306 562 366"/><path d="M677 84 L677 326"/>
+          </g>
+          <line x1="80" y1="488" x2="680" y2="488" class="axis" marker-end="url(#surface-arrow)"/><line x1="80" y1="488" x2="80" y2="72" class="axis" marker-end="url(#surface-arrow)"/>
+          <text x="382" y="516" text-anchor="middle" class="mono" font-size="13">AXIS 2 · deliberation → implementation</text>
+          <text x="31" y="280" transform="rotate(-90 31 280)" text-anchor="middle" class="mono" font-size="13">AXIS 1 · readiness</text>
+          <text x="523" y="104" font-size="20" font-weight="700">conditional readiness</text>
+          <text x="523" y="130" class="mono" font-size="12">spline surface · next test</text>
+        </svg>
+      </div>
+    </div>
+    <footer class="slide-foot"><span class="foot-claim">Next model: applicability first, then a development-fit spline over aligned coordinates with one frozen confirmation evaluation.</span><span>no further GPU required for first fit</span></footer>
+  </article>
+
+</main>
+
+<nav class="controls" aria-label="Slide controls">
+  <button id="previous" type="button" aria-label="Previous slide">←</button>
+  <div class="progress" aria-hidden="true"><div class="progress-bar" id="progress-bar"></div></div>
+  <button id="next" type="button" aria-label="Next slide">→</button>
+</nav>
+<div id="announcement" class="sr-only" aria-live="polite"></div>
+
+<script>
+  (() => {
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const previous = document.getElementById("previous");
+    const next = document.getElementById("next");
+    const progress = document.getElementById("progress-bar");
+    const announcement = document.getElementById("announcement");
+    let index = 0;
+
+    const requested = Number.parseInt(window.location.hash.slice(1), 10);
+    if (Number.isInteger(requested) && requested >= 1 && requested <= slides.length) {
+      index = requested - 1;
+    }
+
+    function render() {
+      slides.forEach((slide, slideIndex) => {
+        const active = slideIndex === index;
+        slide.classList.toggle("active", active);
+        slide.setAttribute("aria-hidden", active ? "false" : "true");
+      });
+      previous.disabled = index === 0;
+      next.disabled = index === slides.length - 1;
+      progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+      window.history.replaceState(null, "", `#${index + 1}`);
+      announcement.textContent = `Slide ${index + 1} of ${slides.length}: ${slides[index].dataset.title}`;
+    }
+
+    function move(delta) {
+      const target = Math.max(0, Math.min(slides.length - 1, index + delta));
+      if (target !== index) {
+        index = target;
+        render();
+      }
+    }
+
+    previous.addEventListener("click", () => move(-1));
+    next.addEventListener("click", () => move(1));
+    document.addEventListener("keydown", (event) => {
+      if (["ArrowRight", "PageDown", " "].includes(event.key)) {
+        event.preventDefault();
+        move(1);
+      }
+      if (["ArrowLeft", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        move(-1);
+      }
+      if (event.key === "Home") { index = 0; render(); }
+      if (event.key === "End") { index = slides.length - 1; render(); }
+    });
+
+    render();
+  })();
+</script>
+</body>
+</html>
