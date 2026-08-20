@@ -402,10 +402,35 @@ class LocalSearchQuestionValidator:
                 {"identity": identity, "review": asdict(review), "failures": failures},
             )
             return review
-        raise RuntimeError(
-            f"search validation failed for {candidate.candidate_id}: "
-            f"{failures[-1]['error'] if failures else 'unknown error'}"
+        review = SearchQuestionReview(
+            candidate_id=candidate.candidate_id,
+            judge_id=self.judge_id,
+            judge_model=self.model_name,
+            exact_keyword_present=candidate.keyword in candidate.question,
+            single_question=(
+                candidate.question.endswith("?") and candidate.question.count("?") == 1
+            ),
+            topic_relevant=False,
+            search_intent=False,
+            web_answerable=False,
+            standalone=False,
+            natural_language=False,
+            relevance_score_1_5=1,
+            accepted=False,
+            concise_reason=(
+                f"Validator output remained invalid after {self.maximum_attempts} attempts."
+            ),
         )
+        _atomic_json(
+            cache_path,
+            {
+                "identity": identity,
+                "review": asdict(review),
+                "failures": failures,
+                "terminal_parse_failure": True,
+            },
+        )
+        return review
 
 
 def load_readiness_embedding_map(path: str | Path) -> ReadinessEmbeddingMap:
@@ -646,10 +671,20 @@ def parse_search_question_review(
     )
     if payload is None or any(type(payload.get(name)) is not bool for name in required_booleans):
         raise ValueError("validator output lacks required boolean fields")
-    score = payload.get("relevance_score_1_5")
+    score_value = payload.get("relevance_score_1_5")
+    score = None
+    if type(score_value) is int:
+        score = score_value
+    elif type(score_value) is float and score_value.is_integer():
+        score = int(score_value)
+    elif isinstance(score_value, str):
+        match = re.fullmatch(r"\s*([1-5])(?:\s*/\s*5)?\s*", score_value)
+        if match:
+            score = int(match.group(1))
     reason = " ".join(str(payload.get("concise_reason", "")).split())
-    if type(score) is not int or not 1 <= score <= 5 or not reason or len(reason) > 240:
+    if score is None or not 1 <= score <= 5 or not reason:
         raise ValueError("validator output has invalid score or concise reason")
+    reason = reason[:240].rstrip()
     exact_keyword = candidate.keyword in candidate.question
     single_question = candidate.question.endswith("?") and candidate.question.count("?") == 1
     accepted = (

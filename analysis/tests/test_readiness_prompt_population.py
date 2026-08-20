@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -264,6 +265,61 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             judge_model="model/judge",
         )
         self.assertFalse(rejected.accepted)
+
+    def test_search_validator_normalizes_integer_equivalent_scores(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        for score in ("5/5", 5.0):
+            review = parse_search_question_review(
+                '{"topic_relevant":true,"search_intent":true,'
+                '"web_answerable":true,"standalone":true,'
+                '"natural_language":true,'
+                f'"relevance_score_1_5":{json.dumps(score)},'
+                f'"concise_reason":{json.dumps("valid " * 100)}}}',
+                candidate,
+                judge_id="independent-judge",
+                judge_model="model/judge",
+            )
+            self.assertTrue(review.accepted)
+            self.assertEqual(review.relevance_score_1_5, 5)
+            self.assertLessEqual(len(review.concise_reason), 240)
+
+    def test_search_validator_caches_exhausted_parse_failure_as_rejection(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        ranker = _StaticRanker(["not json", "still not json"])
+        with tempfile.TemporaryDirectory() as temporary:
+            validator = LocalSearchQuestionValidator(
+                ranker,
+                judge_id="independent-judge",
+                model_name="model/judge",
+                cache_directory=temporary,
+                maximum_attempts=2,
+            )
+            first = validator.review(candidate)
+            second = validator.review(candidate)
+            cache_payload = json.loads(next(Path(temporary).glob("*.json")).read_text())
+        self.assertFalse(first.accepted)
+        self.assertEqual(first, second)
+        self.assertEqual(ranker.call_count, 2)
+        self.assertTrue(cache_payload["terminal_parse_failure"])
+        self.assertEqual(len(cache_payload["failures"]), 2)
 
     def test_global_spatial_matching_can_reassign_candidates_to_better_cells(self) -> None:
         targets = build_target_grid(self.bounds)[:2]
