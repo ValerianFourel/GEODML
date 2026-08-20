@@ -937,13 +937,14 @@ def _render_subspace_report(fitted, diagnostics: Mapping[str, object]) -> str:
     )
     lines.extend(["", "## Three-judge agreement", ""])
     for row in panel["pairwise_judge_agreement"]:
-        spearman = row["overall_rating_spearman"]
         lines.append(
             f"- {row['left_judge_slot']} vs {row['right_judge_slot']}: "
-            f"answer-type agreement={row['answer_type_exact_agreement']:.4f}, "
-            f"rating Spearman={spearman:.4f}, "
+            "answer-type agreement="
+            f"{_format_metric(row['answer_type_exact_agreement'], 4)}, "
+            "rating Spearman="
+            f"{_format_metric(row['overall_rating_spearman'], 4)}, "
             "rating MAE="
-            f"{row['overall_rating_mean_absolute_difference']:.2f}, "
+            f"{_format_metric(row['overall_rating_mean_absolute_difference'], 2)}, "
             f"paired ratings={row['shared_numeric_rating_count']}"
         )
     lines.extend(["", "## Confirmation performance by source", ""])
@@ -969,6 +970,10 @@ def _render_subspace_report(fitted, diagnostics: Mapping[str, object]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _format_metric(value: object, digits: int) -> str:
+    return "not-available" if value is None else f"{float(value):.{digits}f}"
 
 
 def _file_identity(path: Path) -> dict[str, object]:
