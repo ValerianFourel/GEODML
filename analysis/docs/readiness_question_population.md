@@ -45,6 +45,52 @@ candidate pool for each keyword.
 Round 1 is scored together with round 0. This repeats until coverage is adequate
 or a preregistered maximum round count is reached.
 
+## Support-aware design for 30,000 selected questions
+
+The rectangular 6 by 5 grid remains available for the historical pilot. Large
+population construction should use `--target-design support-aware-random`.
+This mode:
+
+- uses usable development coordinates only;
+- divides normalized two-axis space into support cells;
+- excludes empty and low-count cells rather than targeting unsupported corners;
+- balances pooled target counts over eligible cells, rather than reproducing
+  the density of the original prompt corpus;
+- samples a deterministic within-cell interpolation for every keyword target;
+- assigns a different seeded target set to each keyword; and
+- records the seed and allocation diagnostics in `support_design.json`.
+
+Support-aware generation passes the exact normalized destination to the model as
+a graded blend between adjacent semantic anchors. It also deterministically
+rotates surface realization—such as direct wording versus a context-first
+question—across candidate slots. The surface instruction changes expression,
+not the requested information need. The historical rectangular pilot keeps its
+original categorical generator prompt and cache identity.
+
+For 1,000 keywords and 30 targets per keyword, the frozen plan contains exactly
+30,000 target questions. `--candidates-per-task 4` requests up to 120,000
+proposals before validation and spatial matching. Generating more proposals
+does not increase the final target count; it gives the assignment step more
+choices and can improve realized coverage.
+
+To retain more than 30 selected questions per keyword, increase
+`--targets-per-keyword`. Once every eligible support cell has been used for a
+keyword, the planner starts another balanced pass and samples a new within-cell
+coordinate. This keeps the pooled allocation balanced even when the requested
+target count exceeds the number of eligible support cells.
+
+Uniformity means approximately equal pooled target allocation over the
+**eligible empirical support area**. It does not mean uniform coverage of the
+entire bounding rectangle. That distinction avoids impossible targets in sparse
+or empty regions. The allocation is deterministic for a fixed keyword file,
+coordinate artifact, configuration, and master seed.
+
+The re-embedded selected bank is audited separately. Passing the large-scale
+gate requires pooled target coverage, axis-span retention, at least 80% of
+questions within the target tolerance, and a bounded 10 by 10 target-versus-
+observed histogram total-variation distance. Thus a uniform target plan cannot
+be mistaken for a uniform realized prompt bank.
+
 ## Why LLM2Vec-Gen is only a proposal source
 
 The frozen readiness axes live in pooled LLM2Vec input-embedding space.
@@ -97,6 +143,45 @@ python analysis/scripts/build_readiness_prompt_population.py plan \
 
 For 1,000 keywords this freezes 30,000 cells. With two proposals per cell, round
 0 produces at most 60,000 candidate questions and selects 30,000.
+
+For the support-aware large-population design, use:
+
+```bash
+python analysis/scripts/build_readiness_prompt_population.py plan \
+  --keywords "$KEYWORDS_JSONL" \
+  --map "$MAP_ROOT/readiness_embedding_map.json" \
+  --reference-coordinates "$MAP_ROOT/readiness_supervised_subspace_coordinates.jsonl" \
+  --generator-ids gemma4-31b,qwen3-32b \
+  --target-design support-aware-random \
+  --targets-per-keyword 30 \
+  --support-grid-resolution 20 \
+  --minimum-support-bin-count 3 \
+  --candidates-per-task 4 \
+  --master-seed 20260820 \
+  --output-dir "$POPULATION_ROOT/plan-support-aware"
+```
+
+Before GPU generation, verify the frozen CPU plan:
+
+```bash
+wc -l \
+  "$POPULATION_ROOT/plan-support-aware/keyword_target_grid.jsonl" \
+  "$POPULATION_ROOT/plan-support-aware/generation_tasks_round_00.jsonl"
+
+python -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(json.dumps(d, indent=2))
+assert d["pooled_target_count"] == 30000
+assert d["target_bin_count_range"] <= 1
+' "$POPULATION_ROOT/plan-support-aware/support_design.json"
+```
+
+The first count is the selected-bank target size, not the proposal count. Each
+task carries `requested_candidate_count`, so four proposals per target produce
+up to 120,000 generated candidates. Run a smaller frozen subset first and do
+not launch the full generation until both embedding projections and the pooled
+spatial audit pass for that subset.
 
 Run each generator in its own Slurm job or allocation. The same tasks file is
 used, but each command executes only the matching `generator-id`:

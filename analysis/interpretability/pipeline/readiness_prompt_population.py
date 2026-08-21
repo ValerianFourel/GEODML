@@ -509,9 +509,154 @@ def build_target_grid(
     return tuple(rows)
 
 
+def build_support_aware_keyword_targets(
+    coordinate_rows: Sequence[Mapping[str, object]],
+    bounds: ReadinessSubspaceBounds,
+    keywords: Sequence[tuple[str, str]],
+    *,
+    targets_per_keyword: int = 30,
+    support_grid_resolution: int = 20,
+    minimum_support_bin_count: int = 3,
+    master_seed: int = 20260820,
+    require_usable_for_axis: bool = True,
+) -> tuple[
+    dict[str, tuple[ReadinessPromptTarget, ...]],
+    dict[str, object],
+]:
+    """Build deterministic area-balanced targets over empirical development support.
+
+    Targets are balanced over occupied support cells rather than the empirical
+    prompt density.  Coordinates are interpolated only between development
+    points in the same cell, so seeded variation remains locally supported.
+    """
+
+    if not keywords or targets_per_keyword <= 0:
+        raise ValueError("keywords and targets_per_keyword must be nonempty")
+    if support_grid_resolution < 2 or minimum_support_bin_count <= 0:
+        raise ValueError("invalid support-grid configuration")
+    keyword_ids = [keyword_id for keyword_id, _ in keywords]
+    if len(set(keyword_ids)) != len(keyword_ids):
+        raise ValueError("support-aware keyword ids must be unique")
+
+    support_rows = []
+    for row in coordinate_rows:
+        if row.get("split") != bounds.reference_split:
+            continue
+        if require_usable_for_axis and not bool(row.get("usable_for_axis", False)):
+            continue
+        values = np.asarray(
+            [
+                _normalize(float(row["axis_1"]), bounds.axis_1_low, bounds.axis_1_high),
+                _normalize(float(row["axis_2"]), bounds.axis_2_low, bounds.axis_2_high),
+            ],
+            dtype=np.float64,
+        )
+        if np.isfinite(values).all() and np.all((values >= 0.0) & (values <= 1.0)):
+            support_rows.append(values)
+    if len(support_rows) < max(10, targets_per_keyword):
+        raise ValueError("insufficient in-bounds development support coordinates")
+    support = np.asarray(support_rows, dtype=np.float64)
+
+    bin_members: dict[tuple[int, int], list[int]] = {}
+    for index, values in enumerate(support):
+        cell = tuple(
+            int(np.clip(np.floor(value * support_grid_resolution), 0, support_grid_resolution - 1))
+            for value in values
+        )
+        bin_members.setdefault(cell, []).append(index)
+    eligible_cells = tuple(
+        sorted(
+            cell
+            for cell, members in bin_members.items()
+            if len(members) >= minimum_support_bin_count
+        )
+    )
+    if not eligible_cells:
+        raise ValueError("support design has no eligible support cells")
+
+    rng = np.random.default_rng(master_seed)
+    allocation_counts = np.zeros(len(eligible_cells), dtype=np.int64)
+    targets_by_keyword: dict[str, tuple[ReadinessPromptTarget, ...]] = {}
+    pooled_coordinates = []
+    for keyword_id, keyword in keywords:
+        if not keyword_id.strip() or not _single_line(keyword):
+            raise ValueError("keyword ids and text must be nonempty")
+        chosen_indices = []
+        available = set(range(len(eligible_cells)))
+        while len(chosen_indices) < targets_per_keyword:
+            if not available:
+                available = set(range(len(eligible_cells)))
+            minimum_allocation = min(allocation_counts[index] for index in available)
+            least_used = sorted(
+                index
+                for index in available
+                if allocation_counts[index] == minimum_allocation
+            )
+            cell_index = int(rng.choice(least_used))
+            chosen_indices.append(cell_index)
+            available.remove(cell_index)
+            allocation_counts[cell_index] += 1
+        keyword_targets = []
+        for target_index, cell_index in enumerate(chosen_indices):
+            cell = eligible_cells[cell_index]
+            member_indices = bin_members[cell]
+            left_index, right_index = rng.choice(member_indices, size=2, replace=True)
+            interpolation = float(rng.random())
+            normalized = (
+                interpolation * support[left_index]
+                + (1.0 - interpolation) * support[right_index]
+            )
+            pooled_coordinates.append(normalized)
+            keyword_targets.append(
+                ReadinessPromptTarget(
+                    target_id=f"readiness-support-target:{target_index:03d}",
+                    target_index=target_index,
+                    axis_1_index=cell[0],
+                    axis_2_index=cell[1],
+                    normalized_axis_1=float(normalized[0]),
+                    normalized_axis_2=float(normalized[1]),
+                    raw_axis_1=_denormalize(
+                        float(normalized[0]), bounds.axis_1_low, bounds.axis_1_high
+                    ),
+                    raw_axis_2=_denormalize(
+                        float(normalized[1]), bounds.axis_2_low, bounds.axis_2_high
+                    ),
+                )
+            )
+        targets_by_keyword[keyword_id] = tuple(keyword_targets)
+
+    pooled = np.asarray(pooled_coordinates, dtype=np.float64)
+    diagnostics = {
+        "target_design": "support-aware-random",
+        "master_seed": master_seed,
+        "reference_split": bounds.reference_split,
+        "require_usable_for_axis": require_usable_for_axis,
+        "support_grid_resolution": support_grid_resolution,
+        "minimum_support_bin_count": minimum_support_bin_count,
+        "support_coordinate_count": len(support),
+        "eligible_support_bin_count": len(eligible_cells),
+        "keyword_count": len(keywords),
+        "targets_per_keyword": targets_per_keyword,
+        "pooled_target_count": len(pooled),
+        "minimum_targets_per_eligible_bin": int(allocation_counts.min()),
+        "maximum_targets_per_eligible_bin": int(allocation_counts.max()),
+        "target_bin_count_range": int(allocation_counts.max() - allocation_counts.min()),
+        "pooled_axis_1_range": [float(pooled[:, 0].min()), float(pooled[:, 0].max())],
+        "pooled_axis_2_range": [float(pooled[:, 1].min()), float(pooled[:, 1].max())],
+        "scientific_guard": (
+            "Targets use development prompt geometry only. They describe generated "
+            "question semantics and do not define the randomized policy variable B."
+        ),
+    }
+    return targets_by_keyword, diagnostics
+
+
 def build_generation_tasks(
     keywords: Sequence[tuple[str, str]],
-    targets: Sequence[ReadinessPromptTarget],
+    targets: (
+        Sequence[ReadinessPromptTarget]
+        | Mapping[str, Sequence[ReadinessPromptTarget]]
+    ),
     generator_ids: Sequence[str],
     *,
     round_index: int = 0,
@@ -527,11 +672,12 @@ def build_generation_tasks(
         raise ValueError("invalid round or candidate count")
     feedback_by_keyword_target = feedback_by_keyword_target or {}
     rows = []
+    targets_by_keyword = _targets_by_keyword(keywords, targets)
     for keyword_index, (keyword_id, keyword) in enumerate(keywords):
         keyword = _single_line(keyword)
         if not keyword_id.strip() or not keyword:
             raise ValueError("keyword ids and text must be nonempty")
-        for target in targets:
+        for target in targets_by_keyword[keyword_id]:
             generator_id = generator_ids[
                 (keyword_index + target.target_index + round_index) % len(generator_ids)
             ]
@@ -544,6 +690,8 @@ def build_generation_tasks(
                 "generator_id": generator_id,
                 "master_seed": master_seed,
             }
+            if target.target_id.startswith("readiness-support-target:"):
+                identity["support_target"] = asdict(target)
             digest = _stable_hash(identity)
             rows.append(
                 ReadinessGenerationTask(
@@ -563,11 +711,68 @@ def build_generation_tasks(
     return tuple(rows)
 
 
+def _targets_by_keyword(
+    keywords: Sequence[tuple[str, str]],
+    targets: (
+        Sequence[ReadinessPromptTarget]
+        | Mapping[str, Sequence[ReadinessPromptTarget]]
+    ),
+) -> dict[str, tuple[ReadinessPromptTarget, ...]]:
+    keyword_ids = [keyword_id for keyword_id, _ in keywords]
+    if isinstance(targets, Mapping):
+        if set(targets) != set(keyword_ids):
+            raise ValueError("keyword-target mapping does not cover the exact keyword set")
+        resolved = {
+            keyword_id: tuple(targets[keyword_id]) for keyword_id in keyword_ids
+        }
+    else:
+        shared = tuple(targets)
+        resolved = {keyword_id: shared for keyword_id in keyword_ids}
+    for keyword_id, keyword_targets in resolved.items():
+        if not keyword_targets:
+            raise ValueError(f"keyword has no targets: {keyword_id}")
+        if len({target.target_id for target in keyword_targets}) != len(keyword_targets):
+            raise ValueError(f"keyword target ids are not unique: {keyword_id}")
+    return resolved
+
+
 def render_generation_request(
     task: ReadinessGenerationTask, *, candidate_slot: int
 ) -> str:
-    a1 = _axis_1_instruction(task.target.normalized_axis_1)
-    a2 = _axis_2_instruction(task.target.normalized_axis_2)
+    support_aware = task.target.target_id.startswith("readiness-support-target:")
+    if support_aware:
+        a1 = _continuous_axis_instruction(
+            task.target.normalized_axis_1,
+            (
+                "purely understand or explain the topic",
+                "investigate evidence, mechanisms, or implications",
+                "evaluate concrete options or trade-offs",
+                "prepare a decision, commitment, or practical plan",
+                "request an immediate, concrete action or execution step",
+            ),
+        )
+        a2 = _continuous_axis_instruction(
+            task.target.normalized_axis_2,
+            (
+                "compare alternatives and decide which approach fits",
+                "select an approach using explicit criteria",
+                "translate a chosen approach into a practical procedure",
+                "implement, configure, troubleshoot, or execute a chosen approach",
+            ),
+        )
+        continuous_control = (
+            "Treat each percentage as a graded semantic mixture, not a category. "
+            "Preserve the difference between nearby targets through the question's "
+            "actual information need."
+        )
+        surface_control = _surface_realization_instruction(
+            task.generation_seed + candidate_slot * 1009
+        )
+    else:
+        a1 = _axis_1_instruction(task.target.normalized_axis_1)
+        a2 = _axis_2_instruction(task.target.normalized_axis_2)
+        continuous_control = "Use the requested semantic destination."
+        surface_control = "Make the wording natural and distinct."
     return f"""Write one standalone, natural search question about the exact keyword phrase below.
 
 Exact keyword phrase (must appear verbatim): {task.keyword}
@@ -575,6 +780,8 @@ Exact keyword phrase (must appear verbatim): {task.keyword}
 Semantic destination:
 - Readiness stage: {a1}
 - Decision mode: {a2}
+- Control rule: {continuous_control}
+- Surface realization: {surface_control}
 
 Iteration feedback: {task.feedback}
 Candidate slot: {candidate_slot}
@@ -590,6 +797,33 @@ Hard constraints:
 - Make this candidate materially different from obvious generic phrasings.
 
 Return only JSON: {{"question":"..."}}"""
+
+
+def _continuous_axis_instruction(value: float, anchors: Sequence[str]) -> str:
+    if not 0.0 <= value <= 1.0 or len(anchors) < 2:
+        raise ValueError("continuous semantic control requires [0, 1] and two anchors")
+    scaled = value * (len(anchors) - 1)
+    lower = min(int(np.floor(scaled)), len(anchors) - 2)
+    upper = lower + 1
+    upper_weight = scaled - lower
+    lower_weight = 1.0 - upper_weight
+    return (
+        f"{value:.3f} on a 0-to-1 continuum: "
+        f"{lower_weight:.0%} '{anchors[lower]}' and "
+        f"{upper_weight:.0%} '{anchors[upper]}'"
+    )
+
+
+def _surface_realization_instruction(seed: int) -> str:
+    variants = (
+        "use a concise direct interrogative with ordinary wording",
+        "place a short context clause before the main interrogative",
+        "state the main information need first and its qualifier near the end",
+        "use neutral professional wording without unnecessary jargon",
+        "use a natural first-person search question without inventing personal facts",
+        "use an impersonal search question with a concrete but generic scope",
+    )
+    return variants[seed % len(variants)]
 
 
 def parse_generated_question(raw: str) -> str:
@@ -962,19 +1196,23 @@ def select_diverse_questions(
 
 def select_spatially_matched_questions(
     candidates: Sequence[ReadinessQuestionCandidate],
-    targets: Sequence[ReadinessPromptTarget],
+    targets: (
+        Sequence[ReadinessPromptTarget]
+        | Mapping[str, Sequence[ReadinessPromptTarget]]
+    ),
     coordinates_by_candidate: Mapping[str, Mapping[str, float]],
     *,
     accepted_candidate_ids: set[str],
     disagreement_weight: float = 0.10,
     distance_tolerance: float = 0.22,
+    target_design: str = "rectangular-grid",
 ) -> tuple[tuple[SpatiallySelectedReadinessQuestion, ...], dict[str, object]]:
-    """Globally match validated candidates to the grid using two-view coordinates."""
+    """Globally match validated candidates to planned two-view coordinates."""
 
     if not targets or disagreement_weight < 0 or distance_tolerance < 0:
         raise ValueError("invalid spatial matching configuration")
-    if len({target.target_id for target in targets}) != len(targets):
-        raise ValueError("spatial matching targets must be unique")
+    if target_design not in {"rectangular-grid", "support-aware-random"}:
+        raise ValueError(f"unsupported target design: {target_design}")
     grouped: dict[str, list[ReadinessQuestionCandidate]] = {}
     for candidate in candidates:
         grouped.setdefault(candidate.keyword_id, [])
@@ -996,22 +1234,32 @@ def select_spatially_matched_questions(
         grouped[candidate.keyword_id].append(candidate)
     if not grouped:
         raise ValueError("no candidates are available for spatial matching")
+    keyword_text = {
+        candidate.keyword_id: candidate.keyword for candidate in candidates
+    }
+    keyword_targets = _targets_by_keyword(
+        sorted(keyword_text.items()), targets
+    )
 
     from scipy.optimize import linear_sum_assignment
 
     selected = []
     keyword_diagnostics = {}
-    target_matrix = np.asarray(
-        [
-            [target.normalized_axis_1, target.normalized_axis_2]
-            for target in targets
-        ],
-        dtype=np.float64,
-    )
     for keyword_id, pool in sorted(grouped.items()):
+        planned_targets = keyword_targets[keyword_id]
+        target_matrix = np.asarray(
+            [
+                [target.normalized_axis_1, target.normalized_axis_2]
+                for target in planned_targets
+            ],
+            dtype=np.float64,
+        )
         if not pool:
             keyword_diagnostics[keyword_id] = _spatial_coverage_diagnostics(
-                (), target_count=len(targets), distance_tolerance=distance_tolerance
+                (),
+                targets=planned_targets,
+                distance_tolerance=distance_tolerance,
+                target_design=target_design,
             )
             continue
         pool = sorted(pool, key=lambda row: row.candidate_id)
@@ -1039,7 +1287,7 @@ def select_spatially_matched_questions(
         target_indices, candidate_indices = linear_sum_assignment(costs)
         rows = []
         for target_index, candidate_index in zip(target_indices, candidate_indices):
-            target = targets[int(target_index)]
+            target = planned_targets[int(target_index)]
             candidate = pool[int(candidate_index)]
             coordinate = coordinates_by_candidate[candidate.candidate_id]
             row = SpatiallySelectedReadinessQuestion(
@@ -1071,43 +1319,98 @@ def select_spatially_matched_questions(
             selected.append(row)
         keyword_diagnostics[keyword_id] = _spatial_coverage_diagnostics(
             rows,
-            target_count=len(targets),
+            targets=planned_targets,
             distance_tolerance=distance_tolerance,
+            target_design=target_design,
         )
 
     all_distances = [row.target_distance for row in selected]
     all_disagreement = [row.cross_embedding_disagreement for row in selected]
+    target_counts = {
+        keyword_id: len(keyword_targets[keyword_id]) for keyword_id in grouped
+    }
+    unique_target_counts = set(target_counts.values())
+    keyword_pass_fraction = float(
+        np.mean(
+            [
+                item["spacing_gate_passed"]
+                for item in keyword_diagnostics.values()
+            ]
+        )
+    )
+    pooled_coverage = _pooled_spatial_coverage(
+        selected,
+        keyword_targets,
+        distance_tolerance=distance_tolerance,
+    )
+    all_keywords_pass = all(
+        item["spacing_gate_passed"] for item in keyword_diagnostics.values()
+    )
+    overall_gate = (
+        pooled_coverage["spacing_gate_passed"]
+        and keyword_pass_fraction >= 0.80
+        if target_design == "support-aware-random"
+        else all_keywords_pass
+    )
     diagnostics = {
         "format_version": READINESS_PROMPT_POPULATION_VERSION,
         "candidate_count": len(candidates),
         "accepted_candidate_count": len(accepted_candidate_ids),
         "selected_count": len(selected),
         "keyword_count": len(grouped),
-        "target_count_per_keyword": len(targets),
+        "target_count_per_keyword": (
+            next(iter(unique_target_counts)) if len(unique_target_counts) == 1 else target_counts
+        ),
+        "target_design": target_design,
         "mean_target_distance": float(np.mean(all_distances)) if all_distances else None,
         "maximum_target_distance": float(np.max(all_distances)) if all_distances else None,
         "mean_cross_embedding_disagreement": (
             float(np.mean(all_disagreement)) if all_disagreement else None
         ),
         "keywords": keyword_diagnostics,
-        "all_keywords_pass_spacing_gate": all(
-            item["spacing_gate_passed"] for item in keyword_diagnostics.values()
-        ),
+        "keyword_spacing_gate_pass_fraction": keyword_pass_fraction,
+        "all_keywords_pass_spacing_gate": all_keywords_pass,
+        "pooled_support_coverage": pooled_coverage,
+        "overall_spacing_gate_passed": overall_gate,
         "selection_method": "global-linear-assignment-on-aligned-two-view-consensus",
     }
     return tuple(sorted(selected, key=lambda row: (row.keyword_id, row.target_index))), diagnostics
 
 
-def _spatial_coverage_diagnostics(rows, *, target_count: int, distance_tolerance: float):
+def _spatial_coverage_diagnostics(
+    rows,
+    *,
+    targets: Sequence[ReadinessPromptTarget],
+    distance_tolerance: float,
+    target_design: str,
+):
+    target_count = len(targets)
+    target_coordinates = np.asarray(
+        [
+            [target.normalized_axis_1, target.normalized_axis_2]
+            for target in targets
+        ],
+        dtype=np.float64,
+    )
+    target_axis_spans = np.ptp(target_coordinates, axis=0)
+    if target_count > 1:
+        target_pairwise = np.linalg.norm(
+            target_coordinates[:, None, :] - target_coordinates[None, :, :],
+            axis=2,
+        )
+        np.fill_diagonal(target_pairwise, np.inf)
+        target_nearest = target_pairwise.min(axis=1)
+    else:
+        target_nearest = np.asarray([0.0])
+    target_occupied = {
+        (
+            int(np.clip(np.rint(value[0] * 5), 0, 5)),
+            int(np.clip(np.rint(value[1] * 4), 0, 4)),
+        )
+        for value in target_coordinates
+    }
     if not rows:
-        gate_checks = {
-            "complete_target_count": False,
-            "mean_target_distance_at_most_0_25": False,
-            "at_least_80_percent_within_tolerance": False,
-            "both_axis_spans_at_least_0_70": False,
-            "median_nearest_neighbor_at_least_0_08": False,
-            "at_least_60_percent_grid_bins_occupied": False,
-        }
+        gate_checks = _empty_spatial_gate_checks(target_design)
         return {
             "target_count": target_count,
             "selected_count": 0,
@@ -1118,6 +1421,12 @@ def _spatial_coverage_diagnostics(rows, *, target_count: int, distance_tolerance
             "axis_2_span": 0.0,
             "median_nearest_neighbor_distance": 0.0,
             "occupied_grid_bin_count": 0,
+            "target_axis_1_span": float(target_axis_spans[0]),
+            "target_axis_2_span": float(target_axis_spans[1]),
+            "target_median_nearest_neighbor_distance": float(
+                np.median(target_nearest)
+            ),
+            "target_occupied_grid_bin_count": len(target_occupied),
             "gate_checks": gate_checks,
         }
     coordinates = np.asarray(
@@ -1145,14 +1454,34 @@ def _spatial_coverage_diagnostics(rows, *, target_count: int, distance_tolerance
         for value in coordinates
     }
     within = int(np.sum(distances <= distance_tolerance))
-    gate_checks = {
-        "complete_target_count": len(rows) == target_count,
-        "mean_target_distance_at_most_0_25": float(np.mean(distances)) <= 0.25,
-        "at_least_80_percent_within_tolerance": within >= int(np.ceil(0.80 * target_count)),
-        "both_axis_spans_at_least_0_70": bool(np.all(axis_spans >= 0.70)),
-        "median_nearest_neighbor_at_least_0_08": float(np.median(nearest)) >= 0.08,
-        "at_least_60_percent_grid_bins_occupied": len(occupied) >= int(np.ceil(0.60 * target_count)),
-    }
+    if target_design == "support-aware-random":
+        gate_checks = {
+            "complete_target_count": len(rows) == target_count,
+            "mean_target_distance_at_most_0_25": float(np.mean(distances)) <= 0.25,
+            "at_least_80_percent_within_tolerance": within
+            >= int(np.ceil(0.80 * target_count)),
+            "both_axis_spans_cover_80_percent_of_target": bool(
+                np.all(axis_spans >= 0.80 * target_axis_spans)
+            ),
+            "median_spacing_at_least_60_percent_of_target": float(
+                np.median(nearest)
+            )
+            >= 0.60 * float(np.median(target_nearest)),
+            "at_least_80_percent_target_grid_bins_occupied": len(occupied)
+            >= int(np.ceil(0.80 * len(target_occupied))),
+        }
+    else:
+        gate_checks = {
+            "complete_target_count": len(rows) == target_count,
+            "mean_target_distance_at_most_0_25": float(np.mean(distances)) <= 0.25,
+            "at_least_80_percent_within_tolerance": within
+            >= int(np.ceil(0.80 * target_count)),
+            "both_axis_spans_at_least_0_70": bool(np.all(axis_spans >= 0.70)),
+            "median_nearest_neighbor_at_least_0_08": float(np.median(nearest))
+            >= 0.08,
+            "at_least_60_percent_grid_bins_occupied": len(occupied)
+            >= int(np.ceil(0.60 * target_count)),
+        }
     return {
         "target_count": target_count,
         "selected_count": len(rows),
@@ -1166,6 +1495,122 @@ def _spatial_coverage_diagnostics(rows, *, target_count: int, distance_tolerance
         "minimum_nearest_neighbor_distance": float(np.min(nearest)),
         "median_nearest_neighbor_distance": float(np.median(nearest)),
         "occupied_grid_bin_count": len(occupied),
+        "target_axis_1_span": float(target_axis_spans[0]),
+        "target_axis_2_span": float(target_axis_spans[1]),
+        "target_median_nearest_neighbor_distance": float(np.median(target_nearest)),
+        "target_occupied_grid_bin_count": len(target_occupied),
+        "gate_checks": gate_checks,
+        "spacing_gate_passed": all(gate_checks.values()),
+    }
+
+
+def _empty_spatial_gate_checks(target_design: str) -> dict[str, bool]:
+    if target_design == "support-aware-random":
+        return {
+            "complete_target_count": False,
+            "mean_target_distance_at_most_0_25": False,
+            "at_least_80_percent_within_tolerance": False,
+            "both_axis_spans_cover_80_percent_of_target": False,
+            "median_spacing_at_least_60_percent_of_target": False,
+            "at_least_80_percent_target_grid_bins_occupied": False,
+        }
+    return {
+        "complete_target_count": False,
+        "mean_target_distance_at_most_0_25": False,
+        "at_least_80_percent_within_tolerance": False,
+        "both_axis_spans_at_least_0_70": False,
+        "median_nearest_neighbor_at_least_0_08": False,
+        "at_least_60_percent_grid_bins_occupied": False,
+    }
+
+
+def _pooled_spatial_coverage(
+    selected: Sequence[SpatiallySelectedReadinessQuestion],
+    targets_by_keyword: Mapping[str, Sequence[ReadinessPromptTarget]],
+    *,
+    distance_tolerance: float,
+    grid_resolution: int = 10,
+) -> dict[str, object]:
+    targets = [
+        target
+        for keyword_targets in targets_by_keyword.values()
+        for target in keyword_targets
+    ]
+    target_coordinates = np.asarray(
+        [
+            [target.normalized_axis_1, target.normalized_axis_2]
+            for target in targets
+        ],
+        dtype=np.float64,
+    )
+    observed_coordinates = np.asarray(
+        [
+            [row.consensus_normalized_axis_1, row.consensus_normalized_axis_2]
+            for row in selected
+        ],
+        dtype=np.float64,
+    ).reshape((-1, 2))
+
+    def histogram(values: np.ndarray) -> np.ndarray:
+        counts = np.zeros((grid_resolution, grid_resolution), dtype=np.float64)
+        for coordinate in values:
+            indices = tuple(
+                int(np.clip(np.floor(value * grid_resolution), 0, grid_resolution - 1))
+                for value in coordinate
+            )
+            counts[indices] += 1
+        return counts
+
+    target_histogram = histogram(target_coordinates)
+    observed_histogram = histogram(observed_coordinates)
+    target_probability = target_histogram / target_histogram.sum()
+    observed_probability = (
+        observed_histogram / observed_histogram.sum()
+        if len(observed_coordinates)
+        else observed_histogram
+    )
+    total_variation = float(
+        0.5 * np.sum(np.abs(target_probability - observed_probability))
+    )
+    target_occupied = int(np.count_nonzero(target_histogram))
+    observed_on_target = int(
+        np.count_nonzero((target_histogram > 0) & (observed_histogram > 0))
+    )
+    target_spans = np.ptp(target_coordinates, axis=0)
+    observed_spans = (
+        np.ptp(observed_coordinates, axis=0)
+        if len(observed_coordinates)
+        else np.zeros(2)
+    )
+    distances = np.asarray([row.target_distance for row in selected])
+    within_fraction = (
+        float(np.mean(distances <= distance_tolerance)) if len(distances) else 0.0
+    )
+    gate_checks = {
+        "complete_pooled_target_count": len(selected) == len(targets),
+        "pooled_mean_target_distance_at_most_0_25": bool(
+            len(distances) and float(np.mean(distances)) <= 0.25
+        ),
+        "pooled_at_least_80_percent_within_tolerance": within_fraction >= 0.80,
+        "pooled_axis_spans_cover_80_percent_of_target": bool(
+            np.all(observed_spans >= 0.80 * target_spans)
+        ),
+        "pooled_at_least_80_percent_target_bins_occupied": observed_on_target
+        >= int(np.ceil(0.80 * target_occupied)),
+        "pooled_histogram_total_variation_at_most_0_25": total_variation <= 0.25,
+    }
+    return {
+        "target_count": len(targets),
+        "selected_count": len(selected),
+        "grid_resolution": grid_resolution,
+        "within_distance_tolerance_fraction": within_fraction,
+        "target_axis_1_span": float(target_spans[0]),
+        "target_axis_2_span": float(target_spans[1]),
+        "observed_axis_1_span": float(observed_spans[0]),
+        "observed_axis_2_span": float(observed_spans[1]),
+        "target_occupied_grid_bin_count": target_occupied,
+        "observed_target_grid_bin_count": observed_on_target,
+        "histogram_total_variation": total_variation,
         "gate_checks": gate_checks,
         "spacing_gate_passed": all(gate_checks.values()),
     }
@@ -1173,7 +1618,10 @@ def _spatial_coverage_diagnostics(rows, *, target_count: int, distance_tolerance
 
 def build_refinement_tasks(
     selected: Sequence[SelectedReadinessQuestion],
-    targets: Sequence[ReadinessPromptTarget],
+    targets: (
+        Sequence[ReadinessPromptTarget]
+        | Mapping[str, Sequence[ReadinessPromptTarget]]
+    ),
     generator_ids: Sequence[str],
     *,
     next_round_index: int,
@@ -1184,11 +1632,12 @@ def build_refinement_tasks(
     if distance_tolerance < 0:
         raise ValueError("distance_tolerance must be nonnegative")
     keywords = sorted({(row.keyword_id, row.keyword) for row in selected})
+    targets_by_keyword = _targets_by_keyword(keywords, targets)
     selected_by_key = {(row.keyword_id, row.target_id): row for row in selected}
     feedback = {}
     selected_targets = []
     for keyword_id, _ in keywords:
-        for target in targets:
+        for target in targets_by_keyword[keyword_id]:
             row = selected_by_key.get((keyword_id, target.target_id))
             if row is not None and row.target_distance <= distance_tolerance:
                 continue
@@ -1220,7 +1669,9 @@ def _refinement_feedback(
     return (
         f"The closest earlier question landed {abs(delta_1):.3f} away on the readiness "
         f"dimension and {abs(delta_2):.3f} away on the decision-mode dimension. "
-        f"Make the new question {direction_1} and {direction_2}."
+        f"Make the new question {direction_1} and {direction_2}. Rewrite the closest "
+        f"question with the smallest semantic change while preserving the exact "
+        f"keyword: {selected.question}"
     )
 
 

@@ -483,7 +483,12 @@ continuity = {
     },
 }
 
-scale_gate = bool(diagnostics["all_keywords_pass_spacing_gate"])
+scale_gate = bool(
+    diagnostics.get(
+        "overall_spacing_gate_passed",
+        diagnostics["all_keywords_pass_spacing_gate"],
+    )
+)
 audit = {
     "format_version": "readiness-prompt-round1-audit-v1",
     "status": "pass" if scale_gate else "refine",

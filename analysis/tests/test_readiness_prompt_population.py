@@ -23,12 +23,14 @@ from analysis.interpretability.pipeline.readiness_prompt_population import (
     ReadinessSubspaceBounds,
     build_generation_tasks,
     build_refinement_tasks,
+    build_support_aware_keyword_targets,
     build_target_grid,
     fit_reference_bounds,
     generate_question_candidates,
     parse_generated_question,
     parse_search_question_review,
     project_questions,
+    render_generation_request,
     select_diverse_questions,
     select_spatially_matched_questions,
     validate_generated_question,
@@ -40,6 +42,7 @@ from analysis.interpretability.pipeline.readiness_hf_dataset import (
 )
 from analysis.scripts.build_readiness_prompt_population import (
     _compare_projections,
+    _plan,
     _spatial_select,
 )
 
@@ -106,6 +109,258 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertEqual(round_zero[0].generator_id, "gemma")
         self.assertEqual(round_one[0].generator_id, "qwen")
         self.assertNotEqual(round_zero[0].task_id, round_one[0].task_id)
+
+    def test_support_targets_are_seeded_balanced_and_keyword_specific(self) -> None:
+        coordinate_rows = []
+        for axis_1_index in range(5):
+            for axis_2_index in range(5):
+                for repeat in range(3):
+                    coordinate_rows.append(
+                        {
+                            "split": "development",
+                            "usable_for_axis": True,
+                            "axis_1": -0.8 + 0.4 * axis_1_index + repeat * 0.001,
+                            "axis_2": -0.8 + 0.4 * axis_2_index + repeat * 0.001,
+                        }
+                    )
+        coordinate_rows.extend(
+            [
+                {
+                    "split": "confirmation",
+                    "usable_for_axis": True,
+                    "axis_1": 1e6,
+                    "axis_2": 1e6,
+                },
+                {
+                    "split": "development",
+                    "usable_for_axis": False,
+                    "axis_1": 0.99,
+                    "axis_2": 0.99,
+                },
+            ]
+        )
+        keywords = tuple(
+            (f"keyword:{index}", f"topic phrase {index}") for index in range(4)
+        )
+        first, diagnostics = build_support_aware_keyword_targets(
+            coordinate_rows,
+            self.bounds,
+            keywords,
+            targets_per_keyword=6,
+            support_grid_resolution=5,
+            minimum_support_bin_count=3,
+            master_seed=17,
+        )
+        second, repeated_diagnostics = build_support_aware_keyword_targets(
+            coordinate_rows,
+            self.bounds,
+            keywords,
+            targets_per_keyword=6,
+            support_grid_resolution=5,
+            minimum_support_bin_count=3,
+            master_seed=17,
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(diagnostics, repeated_diagnostics)
+        self.assertEqual(diagnostics["pooled_target_count"], 24)
+        self.assertLessEqual(diagnostics["target_bin_count_range"], 1)
+        self.assertEqual({len(values) for values in first.values()}, {6})
+        self.assertTrue(
+            all(
+                len({(target.axis_1_index, target.axis_2_index) for target in values})
+                == 6
+                for values in first.values()
+            )
+        )
+        self.assertNotEqual(first["keyword:0"], first["keyword:1"])
+        self.assertTrue(
+            all(
+                0.0 <= coordinate <= 1.0
+                for values in first.values()
+                for target in values
+                for coordinate in (
+                    target.normalized_axis_1,
+                    target.normalized_axis_2,
+                )
+            )
+        )
+        tasks = build_generation_tasks(
+            keywords,
+            first,
+            ("qwen", "gemma"),
+            requested_candidate_count=2,
+        )
+        self.assertEqual(len(tasks), 24)
+        self.assertEqual(
+            tasks[0].target,
+            first[tasks[0].keyword_id][tasks[0].target.target_index],
+        )
+
+    def test_support_generation_request_exposes_continuous_control(self) -> None:
+        target = replace(
+            build_target_grid(self.bounds)[0],
+            target_id="readiness-support-target:000",
+            normalized_axis_1=0.37,
+            normalized_axis_2=0.62,
+        )
+        task = build_generation_tasks(
+            (("keyword:one", "enterprise password manager"),),
+            (target,),
+            ("qwen",),
+        )[0]
+        first = render_generation_request(task, candidate_slot=0)
+        second = render_generation_request(task, candidate_slot=1)
+        self.assertIn("0.370 on a 0-to-1 continuum", first)
+        self.assertIn("0.620 on a 0-to-1 continuum", first)
+        self.assertIn("graded semantic mixture", first)
+        self.assertNotEqual(first, second)
+
+        shifted_task = build_generation_tasks(
+            (("keyword:one", "enterprise password manager"),),
+            (replace(target, normalized_axis_1=0.38),),
+            ("qwen",),
+        )[0]
+        self.assertNotEqual(task.task_id, shifted_task.task_id)
+
+        legacy_target = replace(target, target_id="readiness-cell:00-00")
+        legacy_task = replace(task, target=legacy_target)
+        legacy = render_generation_request(legacy_task, candidate_slot=0)
+        self.assertNotIn("0.370 on a 0-to-1 continuum", legacy)
+
+    def test_support_design_scales_to_thirty_thousand_uniform_targets(self) -> None:
+        coordinate_rows = [
+            {
+                "split": "development",
+                "usable_for_axis": True,
+                "axis_1": -0.95 + 0.10 * axis_1_index + repeat * 0.0001,
+                "axis_2": -0.95 + 0.10 * axis_2_index + repeat * 0.0001,
+            }
+            for axis_1_index in range(20)
+            for axis_2_index in range(20)
+            for repeat in range(3)
+        ]
+        keywords = tuple(
+            (f"keyword:{index:04d}", f"topic phrase {index:04d}")
+            for index in range(1_000)
+        )
+        targets, diagnostics = build_support_aware_keyword_targets(
+            coordinate_rows,
+            self.bounds,
+            keywords,
+            targets_per_keyword=30,
+            support_grid_resolution=20,
+            minimum_support_bin_count=3,
+            master_seed=20260820,
+        )
+        self.assertEqual(len(targets), 1_000)
+        self.assertEqual(sum(map(len, targets.values())), 30_000)
+        self.assertEqual(diagnostics["pooled_target_count"], 30_000)
+        self.assertEqual(diagnostics["eligible_support_bin_count"], 400)
+        self.assertEqual(diagnostics["minimum_targets_per_eligible_bin"], 75)
+        self.assertEqual(diagnostics["maximum_targets_per_eligible_bin"], 75)
+        self.assertEqual(diagnostics["target_bin_count_range"], 0)
+
+    def test_support_design_can_request_more_targets_than_support_bins(self) -> None:
+        coordinate_rows = [
+            {
+                "split": "development",
+                "usable_for_axis": True,
+                "axis_1": -0.75 + 0.5 * axis_1_index + repeat * 0.001,
+                "axis_2": -0.75 + 0.5 * axis_2_index + repeat * 0.001,
+            }
+            for axis_1_index in range(4)
+            for axis_2_index in range(4)
+            for repeat in range(3)
+        ]
+        targets, diagnostics = build_support_aware_keyword_targets(
+            coordinate_rows,
+            self.bounds,
+            (("keyword:one", "topic phrase one"),),
+            targets_per_keyword=40,
+            support_grid_resolution=4,
+            minimum_support_bin_count=3,
+            master_seed=11,
+        )
+        cell_counts = {}
+        for target in targets["keyword:one"]:
+            cell = (target.axis_1_index, target.axis_2_index)
+            cell_counts[cell] = cell_counts.get(cell, 0) + 1
+        self.assertEqual(len(targets["keyword:one"]), 40)
+        self.assertEqual(len(cell_counts), 16)
+        self.assertLessEqual(max(cell_counts.values()) - min(cell_counts.values()), 1)
+        self.assertLessEqual(diagnostics["target_bin_count_range"], 1)
+
+    def test_support_aware_plan_writes_per_keyword_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            keywords_path = root / "keywords.txt"
+            keywords_path.write_text("topic alpha\ntopic beta\n", encoding="utf-8")
+            map_path = root / "map.json"
+            atomic_json(
+                map_path,
+                {
+                    field: getattr(_map(), field)
+                    for field in _map().__dataclass_fields__
+                },
+            )
+            coordinate_path = root / "coordinates.jsonl"
+            atomic_jsonl(
+                coordinate_path,
+                (
+                    {
+                        "split": "development",
+                        "usable_for_axis": True,
+                        "axis_1": -0.9 + axis_1_index * 0.2 + repeat * 0.001,
+                        "axis_2": -0.9 + axis_2_index * 0.2 + repeat * 0.001,
+                    }
+                    for axis_1_index in range(10)
+                    for axis_2_index in range(10)
+                    for repeat in range(3)
+                ),
+            )
+            output = root / "plan"
+            _plan(
+                SimpleNamespace(
+                    keywords=str(keywords_path),
+                    map=str(map_path),
+                    reference_coordinates=str(coordinate_path),
+                    generator_ids="qwen,gemma",
+                    output_dir=str(output),
+                    axis_1_points=6,
+                    axis_2_points=5,
+                    target_design="support-aware-random",
+                    targets_per_keyword=30,
+                    support_grid_resolution=10,
+                    minimum_support_bin_count=3,
+                    support_include_unusable=False,
+                    lower_quantile=0.0,
+                    upper_quantile=1.0,
+                    reference_split="development",
+                    round_index=0,
+                    candidates_per_task=2,
+                    master_seed=20260820,
+                )
+            )
+            manifest = read_json(output / "plan_manifest.json")
+            diagnostics = read_json(output / "support_design.json")
+            self.assertEqual(manifest["target_design"], "support-aware-random")
+            self.assertEqual(manifest["task_count"], 60)
+            self.assertEqual(manifest["requested_candidates_per_task"], 2)
+            self.assertEqual(manifest["maximum_planned_candidate_count"], 120)
+            self.assertEqual(
+                len((output / "keyword_target_grid.jsonl").read_text().splitlines()),
+                60,
+            )
+            self.assertEqual(
+                len(
+                    (output / "generation_tasks_round_00.jsonl")
+                    .read_text()
+                    .splitlines()
+                ),
+                60,
+            )
+            self.assertLessEqual(diagnostics["target_bin_count_range"], 1)
+            self.assertFalse((output / "target_grid.jsonl").exists())
 
     def test_fake_generation_retains_exact_keyword_and_task_identity(self) -> None:
         target = build_target_grid(self.bounds)[0]
@@ -211,6 +466,67 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertEqual(len(refinement), 1)
         self.assertEqual(refinement[0].target.target_id, deliberately_bad.target_id)
         self.assertIn("closest earlier question", refinement[0].feedback)
+
+    def test_spatial_matching_accepts_keyword_specific_targets(self) -> None:
+        base_targets = build_target_grid(self.bounds)
+        targets_by_keyword = {
+            "keyword:one": (base_targets[0], base_targets[1]),
+            "keyword:two": (
+                replace(
+                    base_targets[2],
+                    target_id=base_targets[0].target_id,
+                    target_index=0,
+                ),
+                replace(
+                    base_targets[3],
+                    target_id=base_targets[1].target_id,
+                    target_index=1,
+                ),
+            ),
+        }
+        keywords = (
+            ("keyword:one", "topic phrase one"),
+            ("keyword:two", "topic phrase two"),
+        )
+        tasks = build_generation_tasks(
+            keywords,
+            targets_by_keyword,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+        coordinates = {}
+        for candidate in candidates:
+            target = targets_by_keyword[candidate.keyword_id][candidate.target_index]
+            coordinates[candidate.candidate_id] = {
+                "reference_normalized_axis_1": target.normalized_axis_1,
+                "reference_normalized_axis_2": target.normalized_axis_2,
+                "candidate_aligned_normalized_axis_1": target.normalized_axis_1,
+                "candidate_aligned_normalized_axis_2": target.normalized_axis_2,
+                "consensus_normalized_axis_1": target.normalized_axis_1,
+                "consensus_normalized_axis_2": target.normalized_axis_2,
+                "cross_embedding_disagreement": 0.0,
+            }
+        selected, diagnostics = select_spatially_matched_questions(
+            candidates,
+            targets_by_keyword,
+            coordinates,
+            accepted_candidate_ids={row.candidate_id for row in candidates},
+            target_design="support-aware-random",
+        )
+        self.assertEqual(len(selected), 4)
+        self.assertEqual(diagnostics["target_design"], "support-aware-random")
+        self.assertEqual(diagnostics["target_count_per_keyword"], 2)
+        self.assertTrue(all(row.target_distance == 0.0 for row in selected))
+        self.assertTrue(
+            diagnostics["pooled_support_coverage"]["spacing_gate_passed"]
+        )
+        self.assertTrue(diagnostics["overall_spacing_gate_passed"])
 
     def test_external_decoded_text_cannot_bypass_question_contract(self) -> None:
         raw = 'prefix {"question":"What is abandoned cart recovery?"} suffix'

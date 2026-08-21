@@ -37,6 +37,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     ReadinessSubspaceBounds,
     build_generation_tasks,
     build_refinement_tasks,
+    build_support_aware_keyword_targets,
     build_target_grid,
     fit_reference_bounds,
     generate_question_candidates,
@@ -66,6 +67,19 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--output-dir", required=True)
     plan.add_argument("--axis-1-points", type=int, default=6)
     plan.add_argument("--axis-2-points", type=int, default=5)
+    plan.add_argument(
+        "--target-design",
+        choices=("rectangular-grid", "support-aware-random"),
+        default="rectangular-grid",
+    )
+    plan.add_argument("--targets-per-keyword", type=int, default=30)
+    plan.add_argument("--support-grid-resolution", type=int, default=20)
+    plan.add_argument("--minimum-support-bin-count", type=int, default=3)
+    plan.add_argument(
+        "--support-include-unusable",
+        action="store_true",
+        help="include development rows that were not usable for axis labels",
+    )
     plan.add_argument("--lower-quantile", type=float, default=0.05)
     plan.add_argument("--upper-quantile", type=float, default=0.95)
     plan.add_argument("--reference-split", default="development")
@@ -218,13 +232,28 @@ def _plan(args) -> int:
         upper_quantile=args.upper_quantile,
         reference_split=args.reference_split,
     )
-    targets = build_target_grid(
-        bounds,
-        axis_1_points=args.axis_1_points,
-        axis_2_points=args.axis_2_points,
-    )
     keywords = _read_keywords(args.keywords)
     generator_ids = _csv(args.generator_ids)
+    support_diagnostics = None
+    if args.target_design == "support-aware-random":
+        targets, support_diagnostics = build_support_aware_keyword_targets(
+            coordinate_rows,
+            bounds,
+            keywords,
+            targets_per_keyword=args.targets_per_keyword,
+            support_grid_resolution=args.support_grid_resolution,
+            minimum_support_bin_count=args.minimum_support_bin_count,
+            master_seed=args.master_seed,
+            require_usable_for_axis=not args.support_include_unusable,
+        )
+        target_count_per_keyword = args.targets_per_keyword
+    else:
+        targets = build_target_grid(
+            bounds,
+            axis_1_points=args.axis_1_points,
+            axis_2_points=args.axis_2_points,
+        )
+        target_count_per_keyword = len(targets)
     tasks = build_generation_tasks(
         keywords,
         targets,
@@ -235,7 +264,23 @@ def _plan(args) -> int:
     )
     output.mkdir(parents=True)
     atomic_json(output / "subspace_bounds.json", asdict(bounds))
-    atomic_jsonl(output / "target_grid.jsonl", (asdict(row) for row in targets))
+    if isinstance(targets, dict):
+        keyword_text = dict(keywords)
+        atomic_jsonl(
+            output / "keyword_target_grid.jsonl",
+            (
+                {
+                    "keyword_id": keyword_id,
+                    "keyword": keyword_text[keyword_id],
+                    "target": asdict(target),
+                }
+                for keyword_id in keyword_text
+                for target in targets[keyword_id]
+            ),
+        )
+        atomic_json(output / "support_design.json", support_diagnostics)
+    else:
+        atomic_jsonl(output / "target_grid.jsonl", (asdict(row) for row in targets))
     atomic_jsonl(output / f"generation_tasks_round_{args.round_index:02d}.jsonl", (_task_row(row) for row in tasks))
     atomic_json(
         output / "plan_manifest.json",
@@ -254,17 +299,30 @@ def _plan(args) -> int:
                 ),
             },
             "keyword_count": len(keywords),
-            "target_count_per_keyword": len(targets),
+            "target_design": args.target_design,
+            "generation_control": (
+                "continuous-adjacent-anchor-blend-v1"
+                if args.target_design == "support-aware-random"
+                else "legacy-categorical-v1"
+            ),
+            "target_count_per_keyword": target_count_per_keyword,
             "task_count": len(tasks),
+            "requested_candidates_per_task": args.candidates_per_task,
+            "maximum_planned_candidate_count": len(tasks)
+            * args.candidates_per_task,
             "generator_ids": list(generator_ids),
             "round_index": args.round_index,
             "master_seed": args.master_seed,
             "scientific_guard": (
-                "The grid describes prompt embeddings. It does not define or replace B."
+                "The target design describes prompt embeddings. It does not define "
+                "or replace B."
             ),
         },
     )
-    print(f"keywords={len(keywords)} targets_per_keyword={len(targets)} tasks={len(tasks)}")
+    print(
+        f"keywords={len(keywords)} "
+        f"targets_per_keyword={target_count_per_keyword} tasks={len(tasks)}"
+    )
     print(f"output={output}")
     return 0
 
@@ -460,10 +518,6 @@ def _score_select(args) -> int:
     plan = Path(args.plan_dir).resolve()
     plan_manifest = read_json(plan / "plan_manifest.json")
     bounds = ReadinessSubspaceBounds(**read_json(plan / "subspace_bounds.json"))
-    targets = tuple(
-        ReadinessPromptTarget(**row)
-        for row in read_jsonl(plan / "target_grid.jsonl")
-    )
     fitted = load_readiness_embedding_map(args.map)
     if plan_manifest.get("map_id") != fitted.map_id:
         raise ValueError("plan and scoring map ids differ")
@@ -477,9 +531,22 @@ def _score_select(args) -> int:
         raise ValueError("no candidates to score")
     if len({row.candidate_id for row in candidates}) != len(candidates):
         raise ValueError("candidate files contain duplicate candidate ids")
-    targets_by_id = {row.target_id: row for row in targets}
+    keywords = sorted({(row.keyword_id, row.keyword) for row in candidates})
+    targets, _ = _read_plan_targets(plan, keywords)
+    if isinstance(targets, dict):
+        targets_by_key = {
+            (keyword_id, target.target_id): target
+            for keyword_id, keyword_targets in targets.items()
+            for target in keyword_targets
+        }
+    else:
+        targets_by_key = {
+            (keyword_id, target.target_id): target
+            for keyword_id, _ in keywords
+            for target in targets
+        }
     for candidate in candidates:
-        target = targets_by_id.get(candidate.target_id)
+        target = targets_by_key.get((candidate.keyword_id, candidate.target_id))
         if target is None or (
             candidate.target_normalized_axis_1 != target.normalized_axis_1
             or candidate.target_normalized_axis_2 != target.normalized_axis_2
@@ -783,9 +850,6 @@ def _spatial_select(args) -> int:
         raise ValueError(f"refusing to overwrite spatial selection directory: {output}")
     plan = Path(args.plan_dir).resolve()
     bounds = ReadinessSubspaceBounds(**read_json(plan / "subspace_bounds.json"))
-    targets = tuple(
-        ReadinessPromptTarget(**row) for row in read_jsonl(plan / "target_grid.jsonl")
-    )
     candidates = tuple(
         ReadinessQuestionCandidate(**row)
         for path in args.candidates
@@ -793,6 +857,8 @@ def _spatial_select(args) -> int:
     )
     if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
         raise ValueError("spatial selection candidates must be nonempty and unique")
+    keywords = sorted({(row.keyword_id, row.keyword) for row in candidates})
+    targets, target_design = _read_plan_targets(plan, keywords)
 
     aligned_rows, identities, agreement = _aligned_projection_rows(
         Path(args.reference_projections).resolve(),
@@ -852,14 +918,19 @@ def _spatial_select(args) -> int:
         accepted_candidate_ids=accepted,
         disagreement_weight=args.disagreement_weight,
         distance_tolerance=args.distance_tolerance,
+        target_design=target_design,
     )
     generators = _csv(args.generator_ids)
-    keywords = sorted({(row.keyword_id, row.keyword) for row in candidates})
+    targets_by_keyword = (
+        targets
+        if isinstance(targets, dict)
+        else {keyword_id: targets for keyword_id, _ in keywords}
+    )
     selected_by_key = {(row.keyword_id, row.target_id): row for row in selected}
     bad_pairs = set()
     feedback = {}
     for keyword_id, _ in keywords:
-        for target in targets:
+        for target in targets_by_keyword[keyword_id]:
             row = selected_by_key.get((keyword_id, target.target_id))
             if row is None or row.target_distance > args.distance_tolerance:
                 bad_pairs.add((keyword_id, target.target_id))
@@ -874,7 +945,9 @@ def _spatial_select(args) -> int:
                         f"The closest validated question landed at "
                         f"({row.consensus_normalized_axis_1:.3f}, "
                         f"{row.consensus_normalized_axis_2:.3f}); shift axis 1 by "
-                        f"{delta_1:+.3f} and axis 2 by {delta_2:+.3f}."
+                        f"{delta_1:+.3f} and axis 2 by {delta_2:+.3f}. "
+                        f"Rewrite this closest question with the smallest semantic "
+                        f"change while preserving the exact keyword: {row.question}"
                     )
     all_next_tasks = build_generation_tasks(
         keywords,
@@ -933,7 +1006,7 @@ def _spatial_select(args) -> int:
         f"accepted={len(accepted)}/{len(candidates)} selected={len(selected)} "
         f"next_round_tasks={len(next_tasks)}"
     )
-    print(f"spacing_gate_passed={diagnostics['all_keywords_pass_spacing_gate']}")
+    print(f"spacing_gate_passed={diagnostics['overall_spacing_gate_passed']}")
     print(f"output={output}")
     return 0
 
@@ -966,6 +1039,41 @@ def _read_tasks(path: str | Path) -> tuple[ReadinessGenerationTask, ...]:
         payload["target"] = ReadinessPromptTarget(**payload["target"])
         rows.append(ReadinessGenerationTask(**payload))
     return tuple(rows)
+
+
+def _read_plan_targets(
+    plan: Path,
+    keywords: Sequence[tuple[str, str]],
+) -> tuple[
+    tuple[ReadinessPromptTarget, ...]
+    | dict[str, tuple[ReadinessPromptTarget, ...]],
+    str,
+]:
+    manifest = read_json(plan / "plan_manifest.json")
+    target_design = str(manifest.get("target_design", "rectangular-grid"))
+    keyword_path = plan / "keyword_target_grid.jsonl"
+    if keyword_path.is_file():
+        expected_keywords = dict(keywords)
+        grouped: dict[str, list[ReadinessPromptTarget]] = {
+            keyword_id: [] for keyword_id in expected_keywords
+        }
+        for row in read_jsonl(keyword_path):
+            keyword_id = str(row["keyword_id"])
+            if keyword_id not in grouped or row["keyword"] != expected_keywords[keyword_id]:
+                raise ValueError("keyword target plan does not match candidate keywords")
+            grouped[keyword_id].append(ReadinessPromptTarget(**row["target"]))
+        resolved = {
+            keyword_id: tuple(keyword_targets)
+            for keyword_id, keyword_targets in grouped.items()
+        }
+        expected_count = int(manifest["target_count_per_keyword"])
+        if any(len(values) != expected_count for values in resolved.values()):
+            raise ValueError("keyword target plan has an inconsistent target count")
+        return resolved, target_design
+    targets = tuple(
+        ReadinessPromptTarget(**row) for row in read_jsonl(plan / "target_grid.jsonl")
+    )
+    return targets, target_design
 
 
 def _task_row(task: ReadinessGenerationTask) -> dict[str, object]:
@@ -1045,9 +1153,30 @@ def _spatial_report(diagnostics: dict[str, object]) -> str:
         f"- Maximum target distance: {_metric_text(diagnostics['maximum_target_distance'])}",
         f"- Mean cross-embedding disagreement: {_metric_text(diagnostics['mean_cross_embedding_disagreement'])}",
         f"- Next-round cells: {diagnostics['next_round_task_count']}",
-        f"- Overall spacing gate: {'PASS' if diagnostics['all_keywords_pass_spacing_gate'] else 'REFINE'}",
+        f"- Target design: {diagnostics.get('target_design', 'rectangular-grid')}",
+        f"- Keyword spacing-gate pass fraction: {diagnostics['keyword_spacing_gate_pass_fraction']:.2%}",
+        f"- Overall spacing gate: {'PASS' if diagnostics['overall_spacing_gate_passed'] else 'REFINE'}",
         "",
     ]
+    pooled = diagnostics["pooled_support_coverage"]
+    lines.extend(
+        [
+            "## Pooled support coverage",
+            "",
+            f"- Targets/selected: {pooled['target_count']}/{pooled['selected_count']}",
+            f"- Within tolerance: {pooled['within_distance_tolerance_fraction']:.2%}",
+            f"- Target axis spans: ({pooled['target_axis_1_span']:.4f}, {pooled['target_axis_2_span']:.4f})",
+            f"- Observed axis spans: ({pooled['observed_axis_1_span']:.4f}, {pooled['observed_axis_2_span']:.4f})",
+            f"- Occupied target bins: {pooled['observed_target_grid_bin_count']}/{pooled['target_occupied_grid_bin_count']}",
+            f"- Target/observed histogram total variation: {pooled['histogram_total_variation']:.4f}",
+            "",
+        ]
+    )
+    lines.extend(
+        f"- [{'x' if passed else ' '}] {name}"
+        for name, passed in pooled["gate_checks"].items()
+    )
+    lines.append("")
     for keyword_id, item in diagnostics["keywords"].items():
         lines.extend(
             [
@@ -1059,6 +1188,9 @@ def _spatial_report(diagnostics: dict[str, object]) -> str:
                 f"- Axis 2 span: {item['axis_2_span']:.4f}",
                 f"- Median nearest-neighbor distance: {item['median_nearest_neighbor_distance']:.4f}",
                 f"- Occupied grid bins: {item['occupied_grid_bin_count']}/{item['target_count']}",
+                f"- Target axis spans: ({item['target_axis_1_span']:.4f}, {item['target_axis_2_span']:.4f})",
+                f"- Target median nearest-neighbor distance: {item['target_median_nearest_neighbor_distance']:.4f}",
+                f"- Target occupied diagnostic bins: {item['target_occupied_grid_bin_count']}",
                 "",
             ]
         )
@@ -1069,7 +1201,7 @@ def _spatial_report(diagnostics: dict[str, object]) -> str:
         lines.append("")
     lines.extend(
         [
-            "The grid is a diagnostic over prompt embeddings. It does not define B.",
+            "The target design is a diagnostic over prompt embeddings. It does not define B.",
             "",
         ]
     )
