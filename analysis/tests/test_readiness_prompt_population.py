@@ -635,6 +635,54 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         )
         self.assertFalse(rejected.accepted)
 
+    def test_generator_atomically_resumes_after_each_accepted_question(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "enterprise password manager"),),
+            (target,),
+            ("qwen",),
+            requested_candidate_count=2,
+        )[0]
+        first_question = (
+            "What evidence should a team examine about an enterprise password manager "
+            "before comparing approaches?"
+        )
+        second_question = (
+            "How can an enterprise password manager support a practical access-control "
+            "implementation plan?"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            interrupted = LocalReadinessQuestionGenerator(
+                _StaticRanker(
+                    [
+                        json.dumps({"question": first_question}),
+                        "invalid output",
+                    ]
+                ),
+                generator_id="qwen",
+                model_name="model/qwen",
+                cache_directory=temporary,
+                maximum_attempts=1,
+            )
+            with self.assertRaises(RuntimeError):
+                interrupted.generate(task)
+            partial = json.loads(next(Path(temporary).glob("*.json")).read_text())
+            self.assertEqual(partial["questions"], [first_question])
+            self.assertFalse(partial["complete"])
+
+            resumed_ranker = _StaticRanker([json.dumps({"question": second_question})])
+            resumed = LocalReadinessQuestionGenerator(
+                resumed_ranker,
+                generator_id="qwen",
+                model_name="model/qwen",
+                cache_directory=temporary,
+                maximum_attempts=1,
+            )
+            self.assertEqual(resumed.generate(task), (first_question, second_question))
+            self.assertEqual(resumed_ranker.call_count, 1)
+            complete = json.loads(next(Path(temporary).glob("*.json")).read_text())
+            self.assertTrue(complete["complete"])
+
     def test_search_validator_normalizes_integer_equivalent_scores(self) -> None:
         target = build_target_grid(self.bounds)[0]
         task = build_generation_tasks(

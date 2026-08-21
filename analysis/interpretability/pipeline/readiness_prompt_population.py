@@ -277,16 +277,24 @@ class LocalReadinessQuestionGenerator:
         }
         cache_key = _stable_hash(identity)
         cache_path = self.cache_directory / f"{cache_key}.json"
-        if cache_path.exists():
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
-            questions = tuple(str(value) for value in payload["questions"])
-            for question in questions:
-                validate_generated_question(question, task.keyword)
-            return questions
-
         accepted: list[str] = []
         failures: list[dict[str, object]] = []
-        for slot in range(task.requested_candidate_count):
+        if cache_path.exists():
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            if payload.get("identity") != identity:
+                raise ValueError(f"generation cache identity mismatch: {cache_path}")
+            accepted = [str(value) for value in payload.get("questions", [])]
+            failures = list(payload.get("failures", []))
+            if len(accepted) > task.requested_candidate_count:
+                raise ValueError(f"generation cache has too many questions: {cache_path}")
+            for question in accepted:
+                validate_generated_question(question, task.keyword)
+            if len(set(accepted)) != len(accepted):
+                raise ValueError(f"generation cache contains duplicate questions: {cache_path}")
+            if len(accepted) == task.requested_candidate_count:
+                return tuple(accepted)
+
+        for slot in range(len(accepted), task.requested_candidate_count):
             for attempt in range(self.maximum_attempts):
                 seed = task.generation_seed + slot * 1009 + attempt
                 request = render_generation_request(task, candidate_slot=slot)
@@ -313,6 +321,15 @@ class LocalReadinessQuestionGenerator:
                     )
                     continue
                 accepted.append(question)
+                _atomic_json(
+                    cache_path,
+                    {
+                        "identity": identity,
+                        "questions": accepted,
+                        "failures": failures,
+                        "complete": False,
+                    },
+                )
                 break
             else:
                 raise RuntimeError(
@@ -321,7 +338,12 @@ class LocalReadinessQuestionGenerator:
                 )
         _atomic_json(
             cache_path,
-            {"identity": identity, "questions": accepted, "failures": failures},
+            {
+                "identity": identity,
+                "questions": accepted,
+                "failures": failures,
+                "complete": True,
+            },
         )
         return tuple(accepted)
 

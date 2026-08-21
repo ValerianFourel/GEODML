@@ -272,7 +272,17 @@ python analysis/scripts/build_readiness_prompt_population.py generate \
 
 Repeat with the other generator IDs and model snapshots. Tasks and cache keys
 are deterministic, so interrupted jobs can resume safely. `--start-index` and
-`--limit` support Slurm arrays or short wall-time slices.
+`--limit` support Slurm arrays or short wall-time slices. `--shard-count` and
+`--shard-index` deterministically partition one generator across data-parallel
+GPU workers. `--maximum-runtime-seconds` stops cleanly between tasks. Each
+accepted question is atomically checkpointed in the task cache immediately,
+including partial multi-candidate tasks, before generation continues.
+
+For a four-GPU throughput pilot, use
+`analysis/scripts/slurm/jupiter/run_readiness_30k_four_gpu_pilot.sh` inside an
+approved four-GPU allocation. It runs two workers per generator, stops
+generation after 50 minutes by default, audits the combined candidate bank, and
+writes `throughput_summary.json` with projected full-run GPU-hours.
 
 Before validation or projection, audit a balanced generation slice for wording
 collapse.  This check removes each exact keyword phrase before comparing the

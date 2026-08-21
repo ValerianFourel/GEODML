@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import numpy as np
 
@@ -107,6 +109,13 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--maximum-attempts", type=int, default=5)
     generate.add_argument("--start-index", type=int, default=0)
     generate.add_argument("--limit", type=int)
+    generate.add_argument("--shard-index", type=int, default=0)
+    generate.add_argument("--shard-count", type=int, default=1)
+    generate.add_argument(
+        "--maximum-runtime-seconds",
+        type=float,
+        help="stop cleanly between tasks after this elapsed runtime",
+    )
     generate.add_argument("--resume", action="store_true")
 
     imported = stages.add_parser(
@@ -352,12 +361,23 @@ def _plan(args) -> int:
 
 
 def _generate(args) -> int:
+    started = time.monotonic()
     output = Path(args.output).resolve()
     if output.exists() and not args.resume:
         raise ValueError(f"refusing to overwrite candidate file: {output}")
     tasks = [task for task in _read_tasks(args.tasks) if task.generator_id == args.generator_id]
-    if args.start_index < 0 or (args.limit is not None and args.limit <= 0):
+    if (
+        args.start_index < 0
+        or (args.limit is not None and args.limit <= 0)
+        or args.shard_count <= 0
+        or not 0 <= args.shard_index < args.shard_count
+        or (
+            args.maximum_runtime_seconds is not None
+            and args.maximum_runtime_seconds <= 0
+        )
+    ):
         raise ValueError("invalid task slice")
+    tasks = tasks[args.shard_index :: args.shard_count]
     tasks = tasks[args.start_index : None if args.limit is None else args.start_index + args.limit]
     if not tasks:
         raise ValueError(f"no tasks assigned to generator {args.generator_id}")
@@ -375,12 +395,50 @@ def _generate(args) -> int:
             maximum_attempts=args.maximum_attempts,
         )
     )
-    rows = generate_question_candidates(tasks, generator)
-    if output.exists():
-        existing = tuple(ReadinessQuestionCandidate(**row) for row in read_jsonl(output))
-        by_id = {row.candidate_id: row for row in (*existing, *rows)}
-        rows = tuple(by_id[key] for key in sorted(by_id))
+    existing = tuple(
+        ReadinessQuestionCandidate(**row)
+        for row in (read_jsonl(output) if output.exists() else [])
+    )
+    expected_task_ids = {task.task_id for task in tasks}
+    if any(row.task_id not in expected_task_ids for row in existing):
+        raise ValueError("resume output contains candidates outside the requested slice")
+    by_id = {row.candidate_id: row for row in existing}
+    existing_counts = Counter(row.task_id for row in existing)
+    requested_counts = {
+        task.task_id: task.requested_candidate_count for task in tasks
+    }
+    if any(
+        count > requested_counts[task_id]
+        for task_id, count in existing_counts.items()
+    ):
+        raise ValueError("resume output contains too many candidates for a task")
+    completed_task_ids = {
+        task_id
+        for task_id, count in existing_counts.items()
+        if count == requested_counts[task_id]
+    }
+    generated_task_count = 0
+    for task in tasks:
+        if task.task_id in completed_task_ids:
+            continue
+        if (
+            args.maximum_runtime_seconds is not None
+            and time.monotonic() - started >= args.maximum_runtime_seconds
+        ):
+            break
+        new_rows = generate_question_candidates((task,), generator)
+        by_id.update((row.candidate_id, row) for row in new_rows)
+        completed_task_ids.add(task.task_id)
+        generated_task_count += 1
+        if generated_task_count % 10 == 0:
+            print(
+                f"generated_tasks={len(completed_task_ids)}/{len(tasks)} "
+                f"candidates={len(by_id)}"
+            )
+    rows = tuple(by_id[key] for key in sorted(by_id))
     atomic_jsonl(output, (asdict(row) for row in rows))
+    elapsed_seconds = time.monotonic() - started
+    slice_complete = len(completed_task_ids) == len(tasks)
     atomic_json(
         output.with_suffix(output.suffix + ".manifest.json"),
         {
@@ -395,14 +453,24 @@ def _generate(args) -> int:
             "generator_precision": args.precision,
             "task_start_index": args.start_index,
             "task_limit": args.limit,
-            "task_count": len(tasks),
+            "task_shard_index": args.shard_index,
+            "task_shard_count": args.shard_count,
+            "requested_task_count": len(tasks),
+            "completed_task_count": len(completed_task_ids),
+            "generated_task_count_this_invocation": generated_task_count,
+            "slice_complete": slice_complete,
             "candidate_count": len(rows),
+            "elapsed_seconds": elapsed_seconds,
+            "maximum_runtime_seconds": args.maximum_runtime_seconds,
             "temperature": args.temperature,
             "max_new_tokens": args.max_new_tokens,
             "maximum_attempts": args.maximum_attempts,
         },
     )
-    print(f"generator={args.generator_id} tasks={len(tasks)} candidates={len(rows)}")
+    print(
+        f"generator={args.generator_id} tasks={len(completed_task_ids)}/{len(tasks)} "
+        f"candidates={len(rows)} elapsed_seconds={elapsed_seconds:.1f}"
+    )
     print(f"output={output}")
     return 0
 
