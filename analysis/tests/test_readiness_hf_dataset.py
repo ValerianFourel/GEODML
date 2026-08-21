@@ -297,6 +297,47 @@ class ReadinessHfDatasetTests(unittest.TestCase):
             "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
         )
 
+    def test_source_catalog_preserves_multiple_licenses_per_source(self) -> None:
+        catalog = _source_catalog(
+            [
+                {
+                    "source_name": "stackexchange:askubuntu",
+                    "source_url": "https://askubuntu.com/questions/1/example",
+                    "license": "CC-BY-SA-3.0",
+                },
+                {
+                    "source_name": "stackexchange:askubuntu",
+                    "source_url": "https://askubuntu.com/questions/2/example",
+                    "license": "CC-BY-SA-4.0",
+                },
+                {
+                    "source_name": "stackexchange:askubuntu",
+                    "source_url": "https://askubuntu.com/questions/3/example",
+                    "license": "CC-BY-SA-4.0",
+                },
+            ]
+        )
+
+        self.assertEqual(
+            catalog,
+            [
+                {
+                    "split": "data",
+                    "source_name": "stackexchange:askubuntu",
+                    "license": "CC-BY-SA-3.0",
+                    "source_url": "https://askubuntu.com",
+                    "prompt_count": 1,
+                },
+                {
+                    "split": "data",
+                    "source_name": "stackexchange:askubuntu",
+                    "license": "CC-BY-SA-4.0",
+                    "source_url": "https://askubuntu.com",
+                    "prompt_count": 2,
+                },
+            ],
+        )
+
 
 def _item(suffix: str, text: str, source_name: str, license_name: str) -> SemanticReadinessItem:
     import hashlib

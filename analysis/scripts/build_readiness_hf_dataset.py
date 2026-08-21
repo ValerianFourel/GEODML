@@ -670,9 +670,6 @@ def _source_catalog(
     rows = []
     for source_name in sorted({str(row["source_name"]) for row in prompts}):
         source_rows = [row for row in prompts if row["source_name"] == source_name]
-        licenses = sorted({str(row["license"]) for row in source_rows})
-        if len(licenses) != 1:
-            raise SystemExit(f"source mixes licenses: {source_name}")
         urls = sorted(
             {
                 str(row["source_url"])
@@ -694,15 +691,19 @@ def _source_catalog(
             source_url = urls[0] if urls else None
         if not source_url:
             raise SystemExit(f"source lacks attribution URL: {source_name}")
-        rows.append(
-            {
-                "split": "data",
-                "source_name": source_name,
-                "license": licenses[0],
-                "source_url": source_url,
-                "prompt_count": len(source_rows),
-            }
-        )
+        licenses = sorted({str(row["license"]) for row in source_rows})
+        for license_name in licenses:
+            rows.append(
+                {
+                    "split": "data",
+                    "source_name": source_name,
+                    "license": license_name,
+                    "source_url": source_url,
+                    "prompt_count": sum(
+                        str(row["license"]) == license_name for row in source_rows
+                    ),
+                }
+            )
     return rows
 
 
