@@ -35,6 +35,9 @@ from interpretability.pipeline.readiness_hf_subspace import (  # noqa: E402
 from interpretability.pipeline.readiness_hf_subspace_comparison import (  # noqa: E402
     compare_readiness_hf_subspaces,
 )
+from interpretability.pipeline.readiness_factor_stress import (  # noqa: E402
+    run_readiness_factor_stress,
+)
 from interpretability.pipeline.readiness_subspace_battery import (  # noqa: E402
     run_readiness_subspace_robustness_battery,
 )
@@ -122,6 +125,16 @@ def _parser() -> argparse.ArgumentParser:
     battery.add_argument("--minimum-source-items-per-split", type=int, default=50)
     battery.add_argument("--git-commit-sha")
 
+    factor = commands.add_parser("factor-stress")
+    factor.add_argument("--dataset-dir", required=True)
+    factor.add_argument("--reference-dir", required=True)
+    factor.add_argument("--candidate-dir", required=True)
+    factor.add_argument("--output-dir", required=True)
+    factor.add_argument("--parallel-replicates", type=int, default=1000)
+    factor.add_argument("--bootstrap-replicates", type=int, default=1000)
+    factor.add_argument("--random-seed", type=int, default=20260822)
+    factor.add_argument("--git-commit-sha")
+
     finalize = commands.add_parser("finalize")
     finalize.add_argument("--bundle-root", required=True)
     finalize.add_argument("--embedding-dir", action="append", default=[])
@@ -153,6 +166,8 @@ def main() -> int:
         return _compare_subspaces(args)
     if args.command == "robustness-battery":
         return _robustness_battery(args)
+    if args.command == "factor-stress":
+        return _factor_stress(args)
     if args.command == "finalize":
         return _finalize(args)
     if args.command == "verify":
@@ -318,6 +333,28 @@ def _robustness_battery(args) -> int:
         f"{assessment['total_check_count']}"
     )
     print("READINESS ROBUSTNESS BATTERY: COMPLETE")
+    return 0
+
+
+def _factor_stress(args) -> int:
+    manifest = run_readiness_factor_stress(
+        dataset_dir=args.dataset_dir,
+        reference_dir=args.reference_dir,
+        candidate_dir=args.candidate_dir,
+        output_dir=args.output_dir,
+        git_commit_sha=args.git_commit_sha or _git_commit_sha(),
+        parallel_replicates=args.parallel_replicates,
+        bootstrap_replicates=args.bootstrap_replicates,
+        random_seed=args.random_seed,
+    )
+    assessment = manifest["assessment"]
+    print(f"output: {Path(args.output_dir).resolve()}")
+    print(
+        f"assessment={assessment['status']} "
+        f"checks={assessment['passed_check_count']}/"
+        f"{assessment['total_check_count']}"
+    )
+    print("READINESS FACTOR STRESS: COMPLETE")
     return 0
 
 
