@@ -104,6 +104,78 @@ JSONL row per proposal with `task_id`, `question`, and optional
 normal `score-select` stage re-embeds it with frozen LLM2Vec. No decoded proposal
 is accepted based on its decoder coordinate.
 
+### Latent-feedback proposal loop
+
+`analysis/scripts/generate_llm2vec_gen_feedback_proposals.py` implements the
+bounded bridge-and-feedback version of this proposal source. It does not assume
+that the two spaces are identical.
+
+1. Join development-only corpus text to the frozen supervised-subspace
+   coordinates and deterministically retain at most the configured calibration
+   count.
+2. Encode those texts as reconstruction tasks with LLM2Vec-Gen and fit a
+   ridge-regularized affine bridge from the two normalized readiness coordinates
+   to changes in the full reconstruction state.
+3. Start from an already valid, stochastically generated question. Re-embed the
+   question with the frozen LLM2Vec readiness map to measure its actual
+   coordinate.
+4. Move its reconstruction state along the two fitted directions. Each round
+   tries several bounded step scales while preserving the seed state's residual
+   content and surface realization.
+5. Decode each proposed state, deterministically attach the exact keyword if the
+   decoder omitted it, and apply the ordinary 8--60 word, one-line, one-question
+   contract.
+6. Ask an independent model to check topic relevance, genuine search intent,
+   web answerability, standalone wording, and natural language.
+7. Re-embed every surviving final question with the frozen map. Continue from
+   the closest valid result, stop inside the configured tolerance, or fail closed
+   after the bounded number of rounds.
+
+The bridge is a local proposal controller, not an inverse map. Exact equality to
+a continuous target is neither assumed nor required. By default, the script
+emits only independently valid questions inside the target tolerance;
+`--emit-best-effort` is an explicit diagnostic opt-in.
+
+The calibration can be supplied as one prepared JSONL or built directly from
+the existing corpus and frozen coordinate artifacts. A small pilot invocation
+has this form:
+
+```bash
+python analysis/scripts/generate_llm2vec_gen_feedback_proposals.py \
+  --tasks "$PLAN_ROOT/generation_tasks_round_00.jsonl" \
+  --initial-candidates "$ROUND_ROOT/qwen_candidates.jsonl" \
+  --calibration-corpus "$READINESS_CORPUS" \
+  --calibration-coordinates "$MAP_ROOT/readiness_supervised_subspace_coordinates.jsonl" \
+  --map "$MAP_ROOT/readiness_embedding_map.json" \
+  --bounds "$PLAN_ROOT/subspace_bounds.json" \
+  --embedding-model "$LLM2VEC_MODEL" \
+  --mntp-model "$LLM2VEC_MNTP_MODEL" \
+  --peft-model "$LLM2VEC_PEFT_MODEL" \
+  --llm2vec-gen-model "$LLM2VEC_GEN_MODEL" \
+  --judge-model "$INDEPENDENT_JUDGE_MODEL" \
+  --judge-backend api \
+  --judge-cache-dir "$CACHE_ROOT/latent-feedback-judge" \
+  --maximum-calibration-items 512 \
+  --maximum-rounds 3 \
+  --step-scales 0.5,1.0,1.5 \
+  --coordinate-step-limit 0.35 \
+  --distance-tolerance 0.12 \
+  --limit 10 \
+  --output-dir "$ROUND_ROOT/llm2vec-gen-feedback-pilot"
+```
+
+The output directory contains:
+
+- `feedback_proposals.jsonl`, compatible with `import-proposals`;
+- `feedback_results.jsonl`, one terminal result per seed question;
+- `feedback_trace.jsonl`, every latent step, raw decode, validation decision,
+  final measured coordinate, and distance;
+- `bridge_diagnostics.json`, without the high-dimensional bridge weights;
+- `bridge_state.restricted-local.npz`, the fitted coordinate mean, state mean,
+  and two full reconstruction-state directions; and
+- `run_manifest.json`, recording input hashes, model identities, Git SHA,
+  controller settings, Slurm metadata when present, and the scientific guard.
+
 Before a large generation run, execute the two-embedding robustness battery in
 `analysis/docs/readiness_subspace_robustness_battery.md`. For a small pilot,
 project the same candidate JSONL independently through Qwen and Mistral with
