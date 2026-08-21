@@ -9,6 +9,22 @@ umask 077
 : "${SLURM_JOB_ID:?Run inside an existing JUPITER Slurm allocation}"
 : "${GEODML_EXPECTED_COMMIT:?Set GEODML_EXPECTED_COMMIT to the exact pushed SHA}"
 
+clear_inherited_python_runtime() {
+    local inherited_venv_bin="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin}"
+    if [[ -n "$inherited_venv_bin" ]]; then
+        local cleaned_path="" path_entry
+        local path_entries=()
+        IFS=: read -r -a path_entries <<< "$PATH"
+        for path_entry in "${path_entries[@]}"; do
+            [[ "$path_entry" == "$inherited_venv_bin" ]] && continue
+            cleaned_path="${cleaned_path:+$cleaned_path:}$path_entry"
+        done
+        export PATH="$cleaned_path"
+    fi
+    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV VENV_SITE MODULE_PYTHONPATH
+    hash -r
+}
+
 load_jupiter_stack() {
     module --force purge
     module load Stages/2026
@@ -19,6 +35,7 @@ load_jupiter_stack() {
     jutil env activate -p "${JUPITER_PROJECT:-scifi}"
 }
 
+clear_inherited_python_runtime
 load_jupiter_stack
 
 export GEODML_PROJECT_ROOT="${GEODML_PROJECT_ROOT:-$PROJECT/$USER/geodml}"
@@ -180,8 +197,7 @@ require_absent_or_complete_projection() {
 
 activate_llm2vec_runtime() {
     local venv="$1"
-    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV VENV_SITE MODULE_PYTHONPATH
-    hash -r
+    clear_inherited_python_runtime
     load_jupiter_stack
     local module_pythonpath="${PYTHONPATH-}"
     # shellcheck disable=SC1090

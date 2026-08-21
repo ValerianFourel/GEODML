@@ -64,6 +64,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn("srun", script)
         self.assertIn("GEODML_EXPECTED_COMMIT", script)
         self.assertIn("clean exact-commit worktree", script)
+        self.assertIn("clear_inherited_python_runtime", script)
+        self.assertIn('[[ "$path_entry" == "$inherited_venv_bin" ]]', script)
         self.assertIn("partial or conflicting immutable projection directory", script)
         self.assertIn("QWEN PROJECTION: COMPLETE; SKIPPING", script)
         self.assertIn("MISTRAL PROJECTION: COMPLETE; SKIPPING", script)
