@@ -221,6 +221,14 @@ Stop when the next-round task file is empty, or at the preregistered maximum
 round. Do not tune distance thresholds after looking at downstream reranking
 outcomes.
 
+For the frozen Qwen/Mistral round-1 pilot, the JUPITER wrapper
+`analysis/scripts/slurm/jupiter/run_readiness_prompt_round1.sh` performs both
+projections, comparison, spatial selection, and a final continuity/artifact
+audit inside an existing allocation. Completed projection stages are verified
+and skipped; partial immutable outputs fail closed. The wrapper exits with
+status 3 when artifact checks pass but the preregistered spatial gate still
+requires refinement, preventing an accidental scale-up to 30,000 questions.
+
 ## CPU plumbing test
 
 `generate --backend fake` validates files and restart behavior without loading a

@@ -27,6 +27,7 @@ ABSTENTION_20K_SLICE = JUPITER_ROOT / "run_readiness_20k_abstention_slice.sbatch
 INCREMENTAL_AUDIT = JUPITER_ROOT / "audit_readiness_incremental_four_judge.sh"
 ABSTENTION_20K_AUDIT = JUPITER_ROOT / "audit_readiness_20k_abstention.sh"
 READINESS_HF_EMBEDDINGS = JUPITER_ROOT / "run_readiness_hf_embedding_views.sh"
+READINESS_PROMPT_ROUND1 = JUPITER_ROOT / "run_readiness_prompt_round1.sh"
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -44,6 +45,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             INCREMENTAL_AUDIT,
             ABSTENTION_20K_AUDIT,
             READINESS_HF_EMBEDDINGS,
+            READINESS_PROMPT_ROUND1,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -53,6 +55,27 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_prompt_round1_runner_is_resumable_and_fail_closed(self) -> None:
+        script = READINESS_PROMPT_ROUND1.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotIn("sbatch", script)
+        self.assertNotIn("srun", script)
+        self.assertIn("GEODML_EXPECTED_COMMIT", script)
+        self.assertIn("clean exact-commit worktree", script)
+        self.assertIn("partial or conflicting immutable projection directory", script)
+        self.assertIn("QWEN PROJECTION: COMPLETE; SKIPPING", script)
+        self.assertIn("MISTRAL PROJECTION: COMPLETE; SKIPPING", script)
+        self.assertIn("validator does not cover the exact candidate set", script)
+        self.assertIn("projection candidate set differs", script)
+        self.assertIn("compare-projections", script)
+        self.assertIn("spatial-select", script)
+        self.assertIn("generator_target_continuity_qwen_view", script)
+        self.assertIn("scale_to_30000_gate_passed", script)
+        self.assertIn("do not scale to 30,000 yet", script)
+        self.assertIn("do not define", script)
+        self.assertIn("randomized policy variable B", script)
 
     def test_hf_embedding_runner_never_allocates_and_is_resumable(self) -> None:
         script = READINESS_HF_EMBEDDINGS.read_text(encoding="utf-8")
