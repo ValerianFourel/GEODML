@@ -20,7 +20,7 @@ import numpy as np
 from .readiness_embedding_map import ReadinessEmbeddingMap
 
 
-READINESS_PROMPT_POPULATION_VERSION = "readiness-question-population-v1"
+READINESS_PROMPT_POPULATION_VERSION = "readiness-question-population-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -822,8 +822,154 @@ def _surface_realization_instruction(seed: int) -> str:
         "use neutral professional wording without unnecessary jargon",
         "use a natural first-person search question without inventing personal facts",
         "use an impersonal search question with a concrete but generic scope",
+        "open with a conditional situation and ask what follows from it",
+        "frame the question around evidence needed to resolve uncertainty",
+        "ask through a contrast between two plausible approaches without naming brands",
+        "use a concise how-or-why construction and avoid stock 'what are the best' wording",
+        "frame the information need as a diagnostic question about causes or consequences",
+        "ask for criteria that would distinguish a suitable approach from an unsuitable one",
+        "use a natural scenario-first question with the core topic near the end",
+        "ask what a careful reader should verify before proceeding",
+        "use an outcome-first question that asks what would help achieve that outcome",
+        "frame the question around a concrete obstacle without inventing personal details",
+        "ask for a sequence or procedure only when the semantic destination calls for action",
+        "use an uncommon but natural interrogative structure rather than a reusable template",
     )
     return variants[seed % len(variants)]
+
+
+def delexicalize_question(question: str, keyword: str) -> str:
+    """Normalize a question after replacing its topic phrase with one sentinel."""
+
+    if not question.strip() or not keyword.strip():
+        raise ValueError("question and keyword must be nonempty")
+    replaced, count = re.subn(
+        re.escape(keyword), " topicplaceholder ", question, flags=re.IGNORECASE
+    )
+    if count == 0:
+        raise ValueError("question does not contain its keyword")
+    tokens = re.findall(r"[a-z]+(?:'[a-z]+)?|\d+", replaced.casefold())
+    normalized = ["numberplaceholder" if token.isdigit() else token for token in tokens]
+    return " ".join(normalized)
+
+
+def audit_question_diversity(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    minimum_delexicalized_unique_fraction: float = 0.90,
+    maximum_template_fraction: float = 0.01,
+    minimum_median_keyword_unique_fraction: float = 0.90,
+    minimum_keyword_unique_fraction: float = 0.70,
+    maximum_opening_frame_fraction: float = 0.05,
+    opening_frame_tokens: int = 5,
+) -> dict[str, object]:
+    """Audit lexical/template diversity without using semantic-map coordinates.
+
+    Replacing the exact keyword before normalization detects the failure mode in
+    which one question frame is copied across topics.  Per-keyword summaries
+    additionally detect collapse among the targets for one topic.
+    """
+
+    thresholds = (
+        minimum_delexicalized_unique_fraction,
+        maximum_template_fraction,
+        minimum_median_keyword_unique_fraction,
+        minimum_keyword_unique_fraction,
+        maximum_opening_frame_fraction,
+    )
+    if not rows:
+        raise ValueError("diversity audit requires at least one question")
+    if any(not 0.0 <= value <= 1.0 for value in thresholds):
+        raise ValueError("diversity thresholds must lie in [0, 1]")
+    if opening_frame_tokens <= 0:
+        raise ValueError("opening frame token count must be positive")
+
+    exact_questions: list[str] = []
+    templates: list[str] = []
+    keyword_templates: dict[str, list[str]] = {}
+    for index, row in enumerate(rows):
+        question = str(row.get("question", "")).strip()
+        keyword = str(row.get("keyword", "")).strip()
+        keyword_id = str(row.get("keyword_id", "")).strip()
+        if not question or not keyword or not keyword_id:
+            raise ValueError(
+                f"diversity row {index} requires question, keyword, and keyword_id"
+            )
+        template = delexicalize_question(question, keyword)
+        exact_questions.append(_single_line(question).casefold())
+        templates.append(template)
+        keyword_templates.setdefault(keyword_id, []).append(template)
+
+    row_count = len(rows)
+    template_counts = Counter(templates)
+    opening_counts = Counter(
+        " ".join(template.split()[:opening_frame_tokens]) for template in templates
+    )
+    keyword_unique_fractions = {
+        keyword_id: len(set(values)) / len(values)
+        for keyword_id, values in sorted(keyword_templates.items())
+    }
+    delexicalized_unique_fraction = len(template_counts) / row_count
+    maximum_observed_template_fraction = max(template_counts.values()) / row_count
+    maximum_observed_opening_fraction = max(opening_counts.values()) / row_count
+    median_keyword_unique_fraction = float(
+        np.median(list(keyword_unique_fractions.values()))
+    )
+    minimum_observed_keyword_unique_fraction = min(keyword_unique_fractions.values())
+    checks = {
+        "all_exact_questions_unique": len(set(exact_questions)) == row_count,
+        "delexicalized_unique_fraction_at_least_threshold": (
+            delexicalized_unique_fraction >= minimum_delexicalized_unique_fraction
+        ),
+        "largest_delexicalized_template_fraction_at_most_threshold": (
+            maximum_observed_template_fraction <= maximum_template_fraction
+        ),
+        "median_keyword_unique_fraction_at_least_threshold": (
+            median_keyword_unique_fraction >= minimum_median_keyword_unique_fraction
+        ),
+        "minimum_keyword_unique_fraction_at_least_threshold": (
+            minimum_observed_keyword_unique_fraction >= minimum_keyword_unique_fraction
+        ),
+        "largest_opening_frame_fraction_at_most_threshold": (
+            maximum_observed_opening_fraction <= maximum_opening_frame_fraction
+        ),
+    }
+    top_templates = [
+        {"template": template, "count": count, "fraction": count / row_count}
+        for template, count in template_counts.most_common(20)
+    ]
+    top_opening_frames = [
+        {"frame": frame, "count": count, "fraction": count / row_count}
+        for frame, count in opening_counts.most_common(20)
+    ]
+    return {
+        "format_version": READINESS_PROMPT_POPULATION_VERSION,
+        "row_count": row_count,
+        "keyword_count": len(keyword_templates),
+        "exact_question_unique_fraction": len(set(exact_questions)) / row_count,
+        "delexicalized_template_count": len(template_counts),
+        "delexicalized_unique_fraction": delexicalized_unique_fraction,
+        "maximum_template_fraction": maximum_observed_template_fraction,
+        "opening_frame_tokens": opening_frame_tokens,
+        "maximum_opening_frame_fraction": maximum_observed_opening_fraction,
+        "median_keyword_unique_fraction": median_keyword_unique_fraction,
+        "minimum_keyword_unique_fraction": minimum_observed_keyword_unique_fraction,
+        "thresholds": {
+            "minimum_delexicalized_unique_fraction": minimum_delexicalized_unique_fraction,
+            "maximum_template_fraction": maximum_template_fraction,
+            "minimum_median_keyword_unique_fraction": minimum_median_keyword_unique_fraction,
+            "minimum_keyword_unique_fraction": minimum_keyword_unique_fraction,
+            "maximum_opening_frame_fraction": maximum_opening_frame_fraction,
+        },
+        "checks": checks,
+        "all_checks_passed": all(checks.values()),
+        "top_delexicalized_templates": top_templates,
+        "top_opening_frames": top_opening_frames,
+        "scientific_guard": (
+            "This audit measures wording diversity only. It does not define B or "
+            "either frozen semantic coordinate."
+        ),
+    }
 
 
 def parse_generated_question(raw: str) -> str:

@@ -35,6 +35,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     ReadinessPromptTarget,
     ReadinessQuestionCandidate,
     ReadinessSubspaceBounds,
+    audit_question_diversity,
     build_generation_tasks,
     build_refinement_tasks,
     build_support_aware_keyword_targets,
@@ -196,6 +197,27 @@ def _parser() -> argparse.ArgumentParser:
     spatial.add_argument("--candidates-per-task", type=int, default=3)
     spatial.add_argument("--master-seed", type=int, default=20260820)
     spatial.add_argument("--output-dir", required=True)
+
+    diversity = stages.add_parser(
+        "audit-diversity",
+        help="fail closed on repeated cross-keyword question templates",
+    )
+    diversity.add_argument("--questions", nargs="+", required=True)
+    diversity.add_argument("--output-dir", required=True)
+    diversity.add_argument(
+        "--minimum-delexicalized-unique-fraction", type=float, default=0.90
+    )
+    diversity.add_argument("--maximum-template-fraction", type=float, default=0.01)
+    diversity.add_argument(
+        "--minimum-median-keyword-unique-fraction", type=float, default=0.90
+    )
+    diversity.add_argument(
+        "--minimum-keyword-unique-fraction", type=float, default=0.70
+    )
+    diversity.add_argument(
+        "--maximum-opening-frame-fraction", type=float, default=0.05
+    )
+    diversity.add_argument("--opening-frame-tokens", type=int, default=5)
     return parser
 
 
@@ -217,6 +239,8 @@ def main() -> int:
         return _compare_projections(args)
     if args.stage == "spatial-select":
         return _spatial_select(args)
+    if args.stage == "audit-diversity":
+        return _audit_diversity(args)
     raise AssertionError(args.stage)
 
 
@@ -1009,6 +1033,88 @@ def _spatial_select(args) -> int:
     print(f"spacing_gate_passed={diagnostics['overall_spacing_gate_passed']}")
     print(f"output={output}")
     return 0
+
+
+def _audit_diversity(args) -> int:
+    output = Path(args.output_dir).resolve()
+    if output.exists():
+        raise ValueError(f"refusing to overwrite diversity audit directory: {output}")
+    question_paths = [Path(path).resolve() for path in args.questions]
+    rows = [row for path in question_paths for row in read_jsonl(path)]
+    diagnostics = audit_question_diversity(
+        rows,
+        minimum_delexicalized_unique_fraction=(
+            args.minimum_delexicalized_unique_fraction
+        ),
+        maximum_template_fraction=args.maximum_template_fraction,
+        minimum_median_keyword_unique_fraction=(
+            args.minimum_median_keyword_unique_fraction
+        ),
+        minimum_keyword_unique_fraction=args.minimum_keyword_unique_fraction,
+        maximum_opening_frame_fraction=args.maximum_opening_frame_fraction,
+        opening_frame_tokens=args.opening_frame_tokens,
+    )
+    output.mkdir(parents=True)
+    atomic_json(output / "question_diversity_audit.json", diagnostics)
+    atomic_text(
+        output / "question_diversity_report.md",
+        _diversity_report(diagnostics),
+    )
+    atomic_json(
+        output / "run_manifest.json",
+        {
+            "format_version": READINESS_PROMPT_POPULATION_VERSION,
+            "created_at": _now(),
+            "git_commit_sha": _git_sha(),
+            "slurm": _slurm_environment(),
+            "question_files": [_file_identity(path) for path in question_paths],
+            "row_count": diagnostics["row_count"],
+            "keyword_count": diagnostics["keyword_count"],
+            "all_checks_passed": diagnostics["all_checks_passed"],
+            "scientific_guard": diagnostics["scientific_guard"],
+        },
+    )
+    print(
+        f"rows={diagnostics['row_count']} keywords={diagnostics['keyword_count']} "
+        f"delexicalized_unique_fraction="
+        f"{diagnostics['delexicalized_unique_fraction']:.4f}"
+    )
+    print(f"diversity_gate_passed={diagnostics['all_checks_passed']}")
+    print(f"output={output}")
+    return 0 if diagnostics["all_checks_passed"] else 2
+
+
+def _diversity_report(diagnostics: dict[str, object]) -> str:
+    checks = diagnostics["checks"]
+    lines = [
+        "# Readiness-question diversity audit",
+        "",
+        f"Gate passed: **{str(diagnostics['all_checks_passed']).upper()}**",
+        "",
+        f"- Questions: {diagnostics['row_count']}",
+        f"- Keywords: {diagnostics['keyword_count']}",
+        "- Exact-question unique fraction: "
+        f"{diagnostics['exact_question_unique_fraction']:.4f}",
+        "- Delexicalized-template unique fraction: "
+        f"{diagnostics['delexicalized_unique_fraction']:.4f}",
+        "- Largest delexicalized-template fraction: "
+        f"{diagnostics['maximum_template_fraction']:.4f}",
+        "- Median within-keyword unique fraction: "
+        f"{diagnostics['median_keyword_unique_fraction']:.4f}",
+        "- Minimum within-keyword unique fraction: "
+        f"{diagnostics['minimum_keyword_unique_fraction']:.4f}",
+        "- Largest opening-frame fraction: "
+        f"{diagnostics['maximum_opening_frame_fraction']:.4f}",
+        "",
+        "## Checks",
+        "",
+    ]
+    lines.extend(
+        f"- [{'x' if passed else ' '}] {name}"
+        for name, passed in checks.items()
+    )
+    lines.extend(["", str(diagnostics["scientific_guard"]), ""])
+    return "\n".join(lines)
 
 
 def _read_keywords(path: str | Path) -> tuple[tuple[str, str], ...]:

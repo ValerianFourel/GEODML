@@ -21,10 +21,12 @@ from analysis.interpretability.pipeline.readiness_prompt_population import (
     LocalSearchQuestionValidator,
     ReadinessQuestionCandidate,
     ReadinessSubspaceBounds,
+    audit_question_diversity,
     build_generation_tasks,
     build_refinement_tasks,
     build_support_aware_keyword_targets,
     build_target_grid,
+    delexicalize_question,
     fit_reference_bounds,
     generate_question_candidates,
     parse_generated_question,
@@ -226,6 +228,57 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         legacy_task = replace(task, target=legacy_target)
         legacy = render_generation_request(legacy_task, candidate_slot=0)
         self.assertNotIn("0.370 on a 0-to-1 continuum", legacy)
+
+    def test_diversity_audit_detects_keyword_substitution_templates(self) -> None:
+        rows = [
+            {
+                "keyword_id": f"keyword:{index}",
+                "keyword": f"topic phrase {index}",
+                "question": (
+                    f"What should I know about topic phrase {index} before "
+                    "choosing a practical approach?"
+                ),
+            }
+            for index in range(10)
+        ]
+        diagnostics = audit_question_diversity(
+            rows,
+            minimum_delexicalized_unique_fraction=0.90,
+            maximum_template_fraction=0.20,
+            minimum_median_keyword_unique_fraction=1.0,
+            minimum_keyword_unique_fraction=1.0,
+            maximum_opening_frame_fraction=0.20,
+        )
+        self.assertEqual(diagnostics["delexicalized_template_count"], 1)
+        self.assertFalse(diagnostics["all_checks_passed"])
+        self.assertEqual(
+            delexicalize_question(rows[0]["question"], rows[0]["keyword"]),
+            delexicalize_question(rows[1]["question"], rows[1]["keyword"]),
+        )
+
+    def test_diversity_audit_accepts_distinct_frames(self) -> None:
+        rows = [
+            {
+                "keyword_id": "keyword:one",
+                "keyword": "enterprise password manager",
+                "question": question,
+            }
+            for question in (
+                "Which evidence explains how an enterprise password manager affects access controls?",
+                "Before deployment, what should a team verify about an enterprise password manager?",
+                "How could an enterprise password manager be configured for a distributed workforce?",
+                "When comparing options, which enterprise password manager criteria matter most?",
+            )
+        ]
+        diagnostics = audit_question_diversity(
+            rows,
+            maximum_template_fraction=0.25,
+            maximum_opening_frame_fraction=0.25,
+            minimum_median_keyword_unique_fraction=1.0,
+            minimum_keyword_unique_fraction=1.0,
+        )
+        self.assertTrue(diagnostics["all_checks_passed"])
+        self.assertEqual(diagnostics["delexicalized_unique_fraction"], 1.0)
 
     def test_support_design_scales_to_thirty_thousand_uniform_targets(self) -> None:
         coordinate_rows = [

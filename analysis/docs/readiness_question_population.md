@@ -274,6 +274,29 @@ Repeat with the other generator IDs and model snapshots. Tasks and cache keys
 are deterministic, so interrupted jobs can resume safely. `--start-index` and
 `--limit` support Slurm arrays or short wall-time slices.
 
+Before validation or projection, audit a balanced generation slice for wording
+collapse.  This check removes each exact keyword phrase before comparing the
+questions, so copying one question frame across topics cannot masquerade as
+diversity merely because the topic text changed:
+
+```bash
+python analysis/scripts/build_readiness_prompt_population.py audit-diversity \
+  --questions \
+    "$POPULATION_ROOT/candidates/qwen3-32b-round-00-pilot.jsonl" \
+    "$POPULATION_ROOT/candidates/gemma4-31b-round-00-pilot.jsonl" \
+  --minimum-delexicalized-unique-fraction 0.90 \
+  --maximum-template-fraction 0.01 \
+  --minimum-median-keyword-unique-fraction 0.90 \
+  --minimum-keyword-unique-fraction 0.70 \
+  --maximum-opening-frame-fraction 0.05 \
+  --output-dir "$POPULATION_ROOT/audits/diversity-round-00-pilot"
+```
+
+The command exits with status 2 when a diversity check fails and writes the
+most frequent delexicalized templates and opening frames for review.  Run the
+same audit again on the final `spatially_selected_questions.jsonl`; spatial
+coverage and wording diversity are separate acceptance gates.
+
 The current `Ministral-3-8B-Instruct-2512-BF16` snapshot has a multimodal
 `Mistral3Config` and is not a compatible text-only generator for the repository
 `AutoModelForCausalLM` ranker. It remains valid as a judge-panel model in its
