@@ -253,6 +253,24 @@ export READINESS_GENERATION_SECONDS="${READINESS_GENERATION_SECONDS:-3000}"
 candidate_files=()
 previous_selection=""
 pipeline_status="refine"
+active_srun_pids=()
+
+interrupt_pipeline() {
+    local signal_name="$1" exit_code=130 pid
+    [[ "$signal_name" == "TERM" ]] && exit_code=143
+    trap - INT TERM
+    echo "INTERRUPTED: terminating ${#active_srun_pids[@]} active Slurm steps; cached work is preserved." >&2
+    for pid in "${active_srun_pids[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    for pid in "${active_srun_pids[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+    exit "$exit_code"
+}
+
+trap 'interrupt_pipeline INT' INT
+trap 'interrupt_pipeline TERM' TERM
 
 generation_terminal() {
     local manifest
@@ -286,6 +304,7 @@ run_generation_round() {
     local round_root="$1" tasks="$2"
     mkdir -p "$round_root/candidates" "$round_root/cache" "$round_root/logs"
     local manifests=() pids=() generator_id generator_model task_count shard_count shard output cache log
+    active_srun_pids=()
     for generator_id in "$READINESS_GENERATOR_A_ID" "$READINESS_GENERATOR_B_ID"; do
         if [[ "$generator_id" == "$READINESS_GENERATOR_A_ID" ]]; then
             generator_model="$READINESS_GENERATOR_A_MODEL"
@@ -315,12 +334,14 @@ run_generation_round() {
             srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
                 "$worker" generate > "$log" 2>&1 &
             pids+=("$!")
+            active_srun_pids+=("$!")
         done
     done
     local failed=0 pid
     for pid in "${pids[@]}"; do
         wait "$pid" || failed=1
     done
+    active_srun_pids=()
     [[ "$failed" -eq 0 ]] || { echo "generation worker failure; inspect $round_root/logs" >&2; return 2; }
     if ! generation_terminal "${manifests[@]}"; then
         echo "GENERATION CHECKPOINTED: rerun this same script in the next approved allocation"
@@ -385,6 +406,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     mkdir -p "$READINESS_VALIDATION_CACHE" "$round_root/logs"
 
     stage_pids=() stage_names=()
+    active_srun_pids=()
     validation_shard_count=2
     validation_shard_files=()
     for ((validation_shard_index=0; validation_shard_index<validation_shard_count; validation_shard_index++)); do
@@ -400,29 +422,33 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         READINESS_VALIDATION_SHARD_INDEX="$validation_shard_index" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" validate > "$round_root/logs/validate-shard-$validation_shard_index.log" 2>&1 &
-        stage_pids+=("$!"); stage_names+=("validate-shard-$validation_shard_index")
+        stage_pids+=("$!"); active_srun_pids+=("$!")
+        stage_names+=("validate-shard-$validation_shard_index")
     done
-    qwen_projection_temporary="$round_root/projections/.qwen-job-$SLURM_JOB_ID"
-    mistral_projection_temporary="$round_root/projections/.mistral-job-$SLURM_JOB_ID"
+    projection_attempt="$SLURM_JOB_ID-${BASHPID:-$$}-$(date -u +%Y%m%dT%H%M%SZ)"
+    qwen_projection_temporary="$round_root/projections/.qwen-attempt-$projection_attempt"
+    mistral_projection_temporary="$round_root/projections/.mistral-attempt-$projection_attempt"
     qwen_projection_launched=0
     mistral_projection_launched=0
     if ! artifact_count_matches "$QWEN_PROJECTION_ROOT/projection_manifest.json" "$candidate_count"; then
         [[ ! -e "$QWEN_PROJECTION_ROOT" ]] || { echo "partial Qwen projection; choose a fresh pipeline root" >&2; exit 2; }
-        [[ ! -e "$qwen_projection_temporary" ]] || { echo "stale current-job Qwen projection: $qwen_projection_temporary" >&2; exit 2; }
+        [[ ! -e "$qwen_projection_temporary" ]] || { echo "projection attempt collision: $qwen_projection_temporary" >&2; exit 2; }
         qwen_projection_launched=1
         QWEN_PROJECTION_ROOT="$qwen_projection_temporary" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" project-qwen > "$round_root/logs/project-qwen.log" 2>&1 &
-        stage_pids+=("$!"); stage_names+=("project-qwen")
+        stage_pids+=("$!"); active_srun_pids+=("$!")
+        stage_names+=("project-qwen")
     fi
     if ! artifact_count_matches "$MISTRAL_PROJECTION_ROOT/projection_manifest.json" "$candidate_count"; then
         [[ ! -e "$MISTRAL_PROJECTION_ROOT" ]] || { echo "partial Mistral projection; choose a fresh pipeline root" >&2; exit 2; }
-        [[ ! -e "$mistral_projection_temporary" ]] || { echo "stale current-job Mistral projection: $mistral_projection_temporary" >&2; exit 2; }
+        [[ ! -e "$mistral_projection_temporary" ]] || { echo "projection attempt collision: $mistral_projection_temporary" >&2; exit 2; }
         mistral_projection_launched=1
         MISTRAL_PROJECTION_ROOT="$mistral_projection_temporary" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" project-mistral > "$round_root/logs/project-mistral.log" 2>&1 &
-        stage_pids+=("$!"); stage_names+=("project-mistral")
+        stage_pids+=("$!"); active_srun_pids+=("$!")
+        stage_names+=("project-mistral")
     fi
 
     stage_failure=0
@@ -432,6 +458,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
             stage_failure=1
         fi
     done
+    active_srun_pids=()
     [[ "$stage_failure" -eq 0 ]] || exit 2
     if [[ "$qwen_projection_launched" -eq 1 ]]; then
         mv "$qwen_projection_temporary" "$QWEN_PROJECTION_ROOT"

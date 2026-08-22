@@ -121,6 +121,11 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("validation_shard_count=2", script)
         self.assertIn("validation shards do not cover the exact candidate set", script)
         self.assertIn("SOURCE PILOT REFINEMENT", script)
+        self.assertIn("interrupt_pipeline", script)
+        self.assertIn("cached work is preserved", script)
+        self.assertIn(".qwen-attempt-$projection_attempt", script)
+        self.assertIn(".mistral-attempt-$projection_attempt", script)
+        self.assertNotIn("stale current-job Qwen projection", script)
         self.assertIn("the independent validator must differ", script)
 
         self.assertIn("GEODML_GENERATOR_VENV", worker)
