@@ -274,11 +274,11 @@ def _extract_domain(url: str) -> str:
     return host
 
 
-# Re-exported from interpretability.pipeline.prompts so the variant selection
+# Re-exported from the sibling pipeline package so the variant selection
 # (PROMPT_VARIANT env var / variant= kwarg) is honored in every call site
 # (ablation.py, saliency.py, probing.py, weight_analysis.py).
 # The biased default reproduces the original prompt byte-for-byte.
-from interpretability.pipeline.prompts import (  # noqa: E402
+from .pipeline.prompts import (  # noqa: E402
     build_rerank_prompt,
     build_rerank_prompt_with_spans,
 )
