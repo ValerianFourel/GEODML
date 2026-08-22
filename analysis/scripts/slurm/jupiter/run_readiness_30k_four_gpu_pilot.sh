@@ -76,6 +76,10 @@ export READINESS_GENERATION_SECONDS="${READINESS_GENERATION_SECONDS:-3000}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-job${SLURM_JOB_ID}"
 export READINESS_30K_PILOT_ROOT="${READINESS_30K_PILOT_ROOT:-$GEODML_RUNS_ROOT/readiness-30k-four-gpu-pilot/$run_id}"
 mkdir -p "$READINESS_30K_PILOT_ROOT"/{candidates,cache,logs,audits}
+printf '%s\n' "$READINESS_30K_PILOT_ROOT" > "$GEODML_PROJECT_ROOT/geodml-readiness-30k-four-gpu-pilot-latest.txt"
+echo "RUN_ROOT=$READINESS_30K_PILOT_ROOT"
+echo "Worker output is written to $READINESS_30K_PILOT_ROOT/logs"
+echo "A progress heartbeat will appear every 60 seconds."
 
 cd "$GEODML_REPOSITORY"
 git rev-parse HEAD > "$READINESS_30K_PILOT_ROOT/git-commit.txt"
@@ -91,7 +95,7 @@ run_worker() {
     local cache="$READINESS_30K_PILOT_ROOT/cache/$worker_id"
     local log="$READINESS_30K_PILOT_ROOT/logs/$worker_id.log"
     mkdir -p "$cache"
-    srun --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
+    srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
         --cpu-bind=none \
         python analysis/scripts/build_readiness_prompt_population.py generate \
         --tasks "$READINESS_30K_TASKS" \
@@ -110,6 +114,26 @@ run_worker() {
         --resume > "$log" 2>&1
 }
 
+worker_pids=()
+monitor_pid=""
+
+stop_workers() {
+    local signal="${1:-TERM}"
+    [[ -n "$monitor_pid" ]] && kill "$monitor_pid" 2>/dev/null || true
+    for pid in "${worker_pids[@]}"; do
+        kill -s "$signal" "$pid" 2>/dev/null || true
+    done
+}
+
+handle_interrupt() {
+    echo "Interrupted: terminating worker steps; completed prompt caches are preserved." >&2
+    printf '%s\n' "interrupted" > "$READINESS_30K_PILOT_ROOT/interrupted.txt"
+    stop_workers TERM
+    exit 130
+}
+
+trap handle_interrupt INT TERM
+
 run_worker qwen3-32b "$QWEN_GENERATOR_MODEL" 0 qwen-worker-0 &
 worker_pids=("$!")
 run_worker qwen3-32b "$QWEN_GENERATOR_MODEL" 1 qwen-worker-1 &
@@ -119,12 +143,34 @@ worker_pids+=("$!")
 run_worker gemma4-31b "$GEMMA_GENERATOR_MODEL" 1 gemma-worker-1 &
 worker_pids+=("$!")
 
+monitor_progress() {
+    while :; do
+        sleep 60
+        active=0
+        for pid in "${worker_pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                active=$((active + 1))
+            fi
+        done
+        cached_tasks="$(find "$READINESS_30K_PILOT_ROOT/cache" -type f -name '*.json' | wc -l)"
+        echo "progress active_workers=$active checkpointed_tasks=$cached_tasks time=$(date -u +%H:%M:%SZ)"
+        [[ "$active" -gt 0 ]] || break
+    done
+}
+
+monitor_progress &
+monitor_pid="$!"
+
 worker_failure=0
 for pid in "${worker_pids[@]}"; do
     if ! wait "$pid"; then
         worker_failure=1
     fi
 done
+kill "$monitor_pid" 2>/dev/null || true
+wait "$monitor_pid" 2>/dev/null || true
+monitor_pid=""
+trap - INT TERM
 
 candidate_files=("$READINESS_30K_PILOT_ROOT"/candidates/*.jsonl)
 if [[ "${candidate_files[0]}" == *'*'* ]]; then
@@ -191,8 +237,6 @@ PY
 printf '%s\n' "$worker_failure" > "$READINESS_30K_PILOT_ROOT/worker-failure.txt"
 printf '%s\n' "$diversity_exit" > "$READINESS_30K_PILOT_ROOT/diversity-exit-code.txt"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$READINESS_30K_PILOT_ROOT/finished-at.txt"
-printf '%s\n' "$READINESS_30K_PILOT_ROOT" > "$GEODML_PROJECT_ROOT/geodml-readiness-30k-four-gpu-pilot-latest.txt"
-
 echo "worker_failure=$worker_failure"
 echo "diversity_exit=$diversity_exit"
 echo "RUN_ROOT=$READINESS_30K_PILOT_ROOT"
