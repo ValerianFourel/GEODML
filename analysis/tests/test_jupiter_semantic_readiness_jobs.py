@@ -32,6 +32,10 @@ READINESS_30K_PILOT = JUPITER_ROOT / "run_readiness_30k_four_gpu_pilot.sh"
 READINESS_GENERATOR_INSTALLER = (
     JUPITER_ROOT / "install_readiness_generator_runtime.sh"
 )
+READINESS_30K_END_TO_END = JUPITER_ROOT / "run_readiness_30k_end_to_end.sh"
+READINESS_30K_PIPELINE_STAGE = (
+    JUPITER_ROOT / "run_readiness_30k_pipeline_stage.sh"
+)
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -52,6 +56,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_PROMPT_ROUND1,
             READINESS_30K_PILOT,
             READINESS_GENERATOR_INSTALLER,
+            READINESS_30K_END_TO_END,
+            READINESS_30K_PIPELINE_STAGE,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -85,6 +91,41 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn("sbatch", installer)
         self.assertIn('"transformers==5.6.2"', installer)
         self.assertIn("--system-site-packages", installer)
+        self.assertIn("PYTHONNOUSERSITE=1", installer)
+        self.assertIn('"python-dotenv==1.1.1"', installer)
+        self.assertIn('"huggingface-hub==1.16.1"', installer)
+
+    def test_30k_end_to_end_runner_is_one_resumable_strict_pipeline(self) -> None:
+        script = READINESS_30K_END_TO_END.read_text(encoding="utf-8")
+        worker = READINESS_30K_PIPELINE_STAGE.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotIn("sbatch", script)
+        self.assertIn("srun --exact --exclusive", script)
+        self.assertIn("READINESS_APPROVED_WALLTIME", script)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
+        self.assertIn("READINESS_SOURCE_PILOT_ROOT", script)
+        self.assertIn("READINESS_MAX_REFINEMENT_ROUNDS", script)
+        self.assertIn("GENERATION CHECKPOINTED", script)
+        self.assertIn("validate", script)
+        self.assertIn("project-qwen", script)
+        self.assertIn("project-mistral", script)
+        self.assertIn("compare-projections", script)
+        self.assertIn("spatial-select", script)
+        self.assertIn("--require-both-views-within-tolerance", script)
+        self.assertIn("--require-delexicalized-template-uniqueness", script)
+        self.assertIn("verified_population_passed", script)
+        self.assertIn('pipeline_status="quality-gate-failed"', script)
+        self.assertIn("not source_pilot_mode", script)
+        self.assertIn("the independent validator must differ", script)
+
+        self.assertIn("GEODML_GENERATOR_VENV", worker)
+        self.assertIn("QWEN_LLM2VEC_VENV", worker)
+        self.assertIn("MISTRAL_LLM2VEC_VENV", worker)
+        self.assertIn("PYTHONNOUSERSITE=1", worker)
+        self.assertIn('case "$stage"', worker)
+        self.assertIn("validate-candidates", worker)
+        self.assertIn("project-candidates", worker)
 
     def test_prompt_round1_runner_is_resumable_and_fail_closed(self) -> None:
         script = READINESS_PROMPT_ROUND1.read_text(encoding="utf-8")

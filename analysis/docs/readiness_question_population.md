@@ -294,6 +294,36 @@ a Slurm allocation, using
 pilot preflights both model configurations, auto-model mappings, and tokenizers
 before any GPU weights are loaded.
 
+For the complete generate-and-prove workflow, invoke only
+`analysis/scripts/slurm/jupiter/run_readiness_30k_end_to_end.sh` inside an
+approved four-GPU allocation. The entrypoint is restart-safe across allocations
+and performs, in order:
+
+1. Qwen/Gemma candidate generation with per-task caches;
+2. raw wording-diversity diagnostics;
+3. independent Ministral search-question validation;
+4. concurrent Qwen and Mistral LLM2Vec projection in their own pinned runtimes;
+5. frozen development-corpus alignment and cross-view comparison;
+6. strict dual-view target matching with exact delexicalized-template
+   uniqueness; and
+7. measured refinement rounds up to `READINESS_MAX_REFINEMENT_ROUNDS`.
+
+The text generators, independent validator, Qwen LLM2Vec, and Mistral LLM2Vec
+do not share one dependency environment. The user still runs one script, while
+the runner creates isolated Slurm steps with the appropriate pinned runtime for
+each stage. Generator models are configurable through
+`READINESS_GENERATOR_A_MODEL` and `READINESS_GENERATOR_B_MODEL`, but their IDs
+must match the generator assignments frozen in the plan. The independent
+validator must be a different model from both generators.
+
+Set `READINESS_SOURCE_PILOT_ROOT` to verify an already generated pilot without
+regenerating it. Because a runtime-limited pilot may cover only a subset of
+keywords, this mode measures and reports refinement tasks but never claims that
+the 30,330-target population is complete. Without that variable, every planned
+generation shard must reach a terminal checkpoint before validation and
+projection begin; an expiring allocation therefore exits cleanly and the same
+entrypoint resumes it in the next separately approved allocation.
+
 Before validation or projection, audit a balanced generation slice for wording
 collapse.  This check removes each exact keyword phrase before comparing the
 questions, so copying one question frame across topics cannot masquerade as
