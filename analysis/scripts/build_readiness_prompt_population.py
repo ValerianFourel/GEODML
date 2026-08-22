@@ -1442,7 +1442,9 @@ def _read_plan_targets(
         }
         for row in read_jsonl(keyword_path):
             keyword_id = str(row["keyword_id"])
-            if keyword_id not in grouped or row["keyword"] != expected_keywords[keyword_id]:
+            if keyword_id not in grouped:
+                continue
+            if row["keyword"] != expected_keywords[keyword_id]:
                 raise ValueError("keyword target plan does not match candidate keywords")
             grouped[keyword_id].append(ReadinessPromptTarget(**row["target"]))
         resolved = {

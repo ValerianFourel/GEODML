@@ -47,6 +47,7 @@ from analysis.scripts.build_readiness_prompt_population import (
     _dual_view_refinement_feedback,
     _generate,
     _plan,
+    _read_plan_targets,
     _spatial_select,
     _task_row,
     _validate_candidates,
@@ -202,6 +203,53 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             tasks[0].target,
             first[tasks[0].keyword_id][tasks[0].target.target_index],
         )
+
+    def test_keyword_target_plan_supports_an_exact_pilot_keyword_subset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            plan = Path(temporary_directory)
+            target = build_target_grid(self.bounds)[0]
+            atomic_json(
+                plan / "plan_manifest.json",
+                {
+                    "target_design": "support-aware-random",
+                    "target_count_per_keyword": 1,
+                },
+            )
+            atomic_jsonl(
+                plan / "keyword_target_grid.jsonl",
+                (
+                    {
+                        "keyword_id": keyword_id,
+                        "keyword": keyword,
+                        "target": asdict(target),
+                    }
+                    for keyword_id, keyword in (
+                        ("keyword:pilot", "pilot topic"),
+                        ("keyword:outside", "outside topic"),
+                    )
+                ),
+            )
+
+            resolved, design = _read_plan_targets(
+                plan,
+                (("keyword:pilot", "pilot topic"),),
+            )
+
+            self.assertEqual(design, "support-aware-random")
+            self.assertEqual(set(resolved), {"keyword:pilot"})
+            self.assertEqual(
+                tuple(asdict(value) for value in resolved["keyword:pilot"]),
+                (asdict(target),),
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "keyword target plan does not match candidate keywords",
+            ):
+                _read_plan_targets(
+                    plan,
+                    (("keyword:pilot", "wrong topic"),),
+                )
 
     def test_support_generation_request_exposes_continuous_control(self) -> None:
         target = replace(
