@@ -76,6 +76,9 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("AutoModelForMultimodalLM", script)
         self.assertIn("--allow-failed-tasks", script)
         self.assertIn('"failed_task_count": manifest["failed_task_count"]', script)
+        self.assertIn("READINESS_APPROVED_WALLTIME", script)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
+        self.assertNotIn('printf \'%s\\n\' "01:00:00"', script)
 
         installer = READINESS_GENERATOR_INSTALLER.read_text(encoding="utf-8")
         self.assertNotIn("salloc", installer)

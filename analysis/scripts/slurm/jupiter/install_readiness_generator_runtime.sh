@@ -23,16 +23,8 @@ fi
 
 runtime_parent="$(dirname "$runtime")"
 mkdir -p "$runtime_parent"
-temporary_runtime="$(mktemp -d "$runtime_parent/.readiness-generators-transformers562.tmp.XXXXXX")"
-cleanup() {
-    if [[ -n "${temporary_runtime:-}" && -d "$temporary_runtime" ]]; then
-        rm -rf -- "$temporary_runtime"
-    fi
-}
-trap cleanup EXIT
-
-python3 -m venv --system-site-packages "$temporary_runtime"
-source "$temporary_runtime/bin/activate"
+python3 -m venv --system-site-packages "$runtime"
+source "$runtime/bin/activate"
 runtime_site_packages="$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
 export PYTHONPATH="$runtime_site_packages${PYTHONPATH:+:$PYTHONPATH}"
 python3 -m pip install --upgrade "pip==25.2"
@@ -60,7 +52,4 @@ del AutoConfig, AutoModelForCausalLM, AutoModelForMultimodalLM, AutoTokenizer
 PY
 
 deactivate
-mv "$temporary_runtime" "$runtime"
-temporary_runtime=""
-trap - EXIT
 printf '%s\n' "$runtime"

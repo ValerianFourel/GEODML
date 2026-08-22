@@ -7,6 +7,8 @@ umask 077
 
 : "${SLURM_JOB_ID:?Run inside an existing Slurm allocation}"
 : "${GEODML_EXPECTED_COMMIT:?Set the exact pushed Git commit}"
+: "${READINESS_APPROVED_WALLTIME:?Record the wall time approved for this allocation}"
+: "${READINESS_ALLOCATION_ESTIMATE:?Record the estimate supporting this allocation}"
 
 if [[ -n "${VIRTUAL_ENV:-}" ]]; then
     cleaned_path=""
@@ -145,8 +147,8 @@ echo "Worker output is written to $READINESS_30K_PILOT_ROOT/logs"
 echo "A progress heartbeat will appear every 60 seconds."
 
 git rev-parse HEAD > "$READINESS_30K_PILOT_ROOT/git-commit.txt"
-printf '%s\n' "01:00:00" > "$READINESS_30K_PILOT_ROOT/approved-walltime.txt"
-printf '%s\n' "four one-GPU workers for 50 minutes plus audit margin" > "$READINESS_30K_PILOT_ROOT/runtime-estimate-basis.txt"
+printf '%s\n' "$READINESS_APPROVED_WALLTIME" > "$READINESS_30K_PILOT_ROOT/approved-walltime.txt"
+printf '%s\n' "$READINESS_ALLOCATION_ESTIMATE" > "$READINESS_30K_PILOT_ROOT/runtime-estimate-basis.txt"
 scontrol show job "$SLURM_JOB_ID" -o > "$READINESS_30K_PILOT_ROOT/slurm-job.txt"
 module list > "$READINESS_30K_PILOT_ROOT/modules.txt" 2>&1
 date -u +%Y-%m-%dT%H:%M:%SZ > "$READINESS_30K_PILOT_ROOT/started-at.txt"
