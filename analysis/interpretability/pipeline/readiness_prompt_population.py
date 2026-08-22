@@ -432,7 +432,29 @@ class LocalSearchQuestionValidator:
         }
         cache_path = self.cache_directory / f"{_stable_hash(identity)}.json"
         if cache_path.exists():
-            return SearchQuestionReview(**json.loads(cache_path.read_text(encoding="utf-8"))["review"])
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached.get("terminal_parse_failure"):
+                for failure in reversed(cached.get("failures", ())):
+                    try:
+                        recovered = parse_search_question_review(
+                            str(failure.get("raw", "")),
+                            candidate,
+                            judge_id=self.judge_id,
+                            judge_model=self.model_name,
+                        )
+                    except ValueError:
+                        continue
+                    _atomic_json(
+                        cache_path,
+                        {
+                            "identity": identity,
+                            "review": asdict(recovered),
+                            "failures": cached.get("failures", []),
+                            "recovered_terminal_parse_failure": True,
+                        },
+                    )
+                    return recovered
+            return SearchQuestionReview(**cached["review"])
         failures = []
         for attempt in range(self.maximum_attempts):
             raw = _generate_with_seed(
@@ -1087,6 +1109,19 @@ def parse_search_question_review(
     judge_id: str,
     judge_model: str,
 ) -> SearchQuestionReview:
+    raw = _normalize_byte_level_validator_text(raw)
+    allowed_keys = (
+        "topic_relevant",
+        "search_intent",
+        "web_answerable",
+        "standalone",
+        "natural_language",
+        "relevance_score_1_5",
+        "concise_reason",
+    )
+    key_pattern = "|".join(re.escape(key) for key in allowed_keys)
+    raw = re.sub(rf'\*{{1,2}}(?="(?:{key_pattern})"\s*:)', "", raw)
+    raw = re.sub(rf'("(?:{key_pattern})")\*{{1,2}}(?=\s*:)', r"\1", raw)
     decoder = json.JSONDecoder()
     payload = None
     for match in re.finditer(r"\{", raw):
@@ -1143,6 +1178,39 @@ def parse_search_question_review(
         accepted=accepted,
         concise_reason=reason,
     )
+
+
+def _normalize_byte_level_validator_text(raw: str) -> str:
+    """Undo GPT-2 byte-token display glyphs emitted by some slow tokenizers."""
+
+    if not any(marker in raw for marker in ("Ġ", "Ċ", "ĉ")):
+        return raw
+    byte_values = (
+        list(range(ord("!"), ord("~") + 1))
+        + list(range(ord("¡"), ord("¬") + 1))
+        + list(range(ord("®"), ord("ÿ") + 1))
+    )
+    unicode_values = list(byte_values)
+    extra_index = 0
+    for value in range(256):
+        if value not in byte_values:
+            byte_values.append(value)
+            unicode_values.append(256 + extra_index)
+            extra_index += 1
+    reverse = {
+        chr(unicode_value): byte_value
+        for byte_value, unicode_value in zip(byte_values, unicode_values)
+    }
+    encoded = bytearray()
+    for character in raw:
+        if character in reverse:
+            encoded.append(reverse[character])
+        else:
+            encoded.extend(character.encode("utf-8"))
+    try:
+        return encoded.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw
 
 
 def generate_question_candidates(

@@ -891,12 +891,56 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             )
             first = validator.review(candidate)
             second = validator.review(candidate)
-            cache_payload = json.loads(next(Path(temporary).glob("*.json")).read_text())
+            cache_path = next(Path(temporary).glob("*.json"))
+            cache_payload = json.loads(cache_path.read_text())
         self.assertFalse(first.accepted)
         self.assertEqual(first, second)
         self.assertEqual(ranker.call_count, 2)
         self.assertTrue(cache_payload["terminal_parse_failure"])
         self.assertEqual(len(cache_payload["failures"]), 2)
+
+    def test_search_validator_recovers_observed_byte_level_json_cache(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        observed = (
+            '```jsonĊ{ĊĠĠ"topic_relevant":Ġtrue,Ċ'
+            'ĠĠ"search_intent":Ġtrue,Ċ'
+            'ĠĠ**"web_answerable":Ġtrue,Ċ'
+            'ĠĠ"standalone":Ġtrue,Ċ'
+            'ĠĠ"natural_language":Ġtrue,Ċ'
+            'ĠĠ"relevance_score_1_5":Ġ5,Ċ'
+            'ĠĠ"concise_reason":Ġ"DirectlyĠanswerableĠonline."Ċ}Ċ```'
+        )
+        ranker = _StaticRanker(["not json"])
+        with tempfile.TemporaryDirectory() as temporary:
+            validator = LocalSearchQuestionValidator(
+                ranker,
+                judge_id="independent-judge",
+                model_name="model/judge",
+                cache_directory=temporary,
+                maximum_attempts=1,
+            )
+            rejected = validator.review(candidate)
+            cache_path = next(Path(temporary).glob("*.json"))
+            payload = json.loads(cache_path.read_text())
+            payload["failures"][-1]["raw"] = observed
+            cache_path.write_text(json.dumps(payload))
+
+            recovered = validator.review(candidate)
+            recovered_payload = json.loads(cache_path.read_text())
+
+        self.assertFalse(rejected.accepted)
+        self.assertTrue(recovered.accepted)
+        self.assertTrue(recovered_payload["recovered_terminal_parse_failure"])
+        self.assertEqual(ranker.call_count, 1)
 
     def test_global_spatial_matching_can_reassign_candidates_to_better_cells(self) -> None:
         targets = build_target_grid(self.bounds)[:2]
