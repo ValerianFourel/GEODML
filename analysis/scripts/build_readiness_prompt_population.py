@@ -41,6 +41,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     audit_question_diversity,
     build_axis_1_target_grid,
     build_generation_tasks,
+    build_quantized_uniform_axis_1_keyword_targets,
     build_refinement_tasks,
     build_support_aware_keyword_targets,
     build_target_grid,
@@ -74,10 +75,16 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--axis-2-points", type=int, default=5)
     plan.add_argument(
         "--target-design",
-        choices=("rectangular-grid", "support-aware-random", "axis-1-linear"),
+        choices=(
+            "rectangular-grid",
+            "support-aware-random",
+            "axis-1-linear",
+            "axis-1-quantized-uniform",
+        ),
         default="rectangular-grid",
     )
     plan.add_argument("--targets-per-keyword", type=int, default=30)
+    plan.add_argument("--axis-1-increment", type=float, default=0.001)
     plan.add_argument("--support-grid-resolution", type=int, default=20)
     plan.add_argument("--minimum-support-bin-count", type=int, default=3)
     plan.add_argument(
@@ -295,9 +302,9 @@ def _plan(args) -> int:
     )
     keywords = _read_keywords(args.keywords)
     generator_ids = _csv(args.generator_ids)
-    support_diagnostics = None
+    target_diagnostics = None
     if args.target_design == "support-aware-random":
-        targets, support_diagnostics = build_support_aware_keyword_targets(
+        targets, target_diagnostics = build_support_aware_keyword_targets(
             coordinate_rows,
             bounds,
             keywords,
@@ -314,6 +321,17 @@ def _plan(args) -> int:
             axis_1_points=args.targets_per_keyword,
         )
         target_count_per_keyword = len(targets)
+    elif args.target_design == "axis-1-quantized-uniform":
+        targets, target_diagnostics = (
+            build_quantized_uniform_axis_1_keyword_targets(
+                bounds,
+                keywords,
+                targets_per_keyword=args.targets_per_keyword,
+                lattice_increment=args.axis_1_increment,
+                master_seed=args.master_seed,
+            )
+        )
+        target_count_per_keyword = args.targets_per_keyword
     else:
         targets = build_target_grid(
             bounds,
@@ -345,7 +363,9 @@ def _plan(args) -> int:
                 for target in targets[keyword_id]
             ),
         )
-        atomic_json(output / "support_design.json", support_diagnostics)
+        atomic_json(output / "target_design.json", target_diagnostics)
+        if args.target_design == "support-aware-random":
+            atomic_json(output / "support_design.json", target_diagnostics)
     else:
         atomic_jsonl(output / "target_grid.jsonl", (asdict(row) for row in targets))
     atomic_jsonl(output / f"generation_tasks_round_{args.round_index:02d}.jsonl", (_task_row(row) for row in tasks))
@@ -371,7 +391,10 @@ def _plan(args) -> int:
                 "continuous-adjacent-anchor-blend-v1"
                 if args.target_design == "support-aware-random"
                 else "continuous-axis-1-only-v1"
-                if args.target_design == "axis-1-linear"
+                if args.target_design in {
+                    "axis-1-linear",
+                    "axis-1-quantized-uniform",
+                }
                 else "legacy-categorical-v1"
             ),
             "target_count_per_keyword": target_count_per_keyword,
@@ -1046,6 +1069,10 @@ def _spatial_select(args) -> int:
         raise ValueError("spatial selection candidates must be nonempty and unique")
     keywords = sorted({(row.keyword_id, row.keyword) for row in candidates})
     targets, target_design = _read_plan_targets(plan, keywords)
+    axis_1_only = target_design in {
+        "axis-1-linear",
+        "axis-1-quantized-uniform",
+    }
 
     aligned_rows, identities, agreement = _aligned_projection_rows(
         Path(args.reference_projections).resolve(),
@@ -1145,7 +1172,7 @@ def _spatial_select(args) -> int:
                         target,
                         accepted_candidates_by_keyword.get(keyword_id, ()),
                         coordinates,
-                        axis_1_only=target_design == "axis-1-linear",
+                        axis_1_only=axis_1_only,
                     )
                     feedback[(keyword_id, target.target_id)] = (
                         measured_feedback
@@ -1154,7 +1181,7 @@ def _spatial_select(args) -> int:
                 else:
                     delta_1 = target.normalized_axis_1 - row.consensus_normalized_axis_1
                     delta_2 = target.normalized_axis_2 - row.consensus_normalized_axis_2
-                    if target_design == "axis-1-linear":
+                    if axis_1_only:
                         feedback[(keyword_id, target.target_id)] = (
                             f"The closest validated question landed at axis 1 "
                             f"{row.consensus_normalized_axis_1:.3f}; shift axis 1 by "
@@ -1228,7 +1255,7 @@ def _spatial_select(args) -> int:
             "coordinate_acceptance_contract": {
                 "version": (
                     "strict-dual-frozen-view-axis-1-verification-v1"
-                    if target_design == "axis-1-linear"
+                    if axis_1_only
                     else "strict-dual-frozen-view-target-verification-v1"
                 ),
                 "enabled": getattr(
@@ -1236,7 +1263,7 @@ def _spatial_select(args) -> int:
                 ),
                 "axes": (
                     ["axis_1"]
-                    if target_design == "axis-1-linear"
+                    if axis_1_only
                     else ["axis_1", "axis_2"]
                 ),
                 "distance_tolerance": args.distance_tolerance,
@@ -1244,7 +1271,7 @@ def _spatial_select(args) -> int:
                     "Both frozen embedding views must be within the preregistered "
                     "absolute axis-1 tolerance of the assigned axis-1 target; axis 2 "
                     "is measured but does not enter acceptance."
-                    if target_design == "axis-1-linear"
+                    if axis_1_only
                     else "Both the frozen reference-view coordinate and the "
                     "development-aligned second-view coordinate must be within "
                     "the preregistered Euclidean tolerance of the assigned target."

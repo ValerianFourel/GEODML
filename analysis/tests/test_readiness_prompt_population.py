@@ -24,6 +24,7 @@ from analysis.interpretability.pipeline.readiness_prompt_population import (
     audit_question_diversity,
     build_axis_1_target_grid,
     build_generation_tasks,
+    build_quantized_uniform_axis_1_keyword_targets,
     build_refinement_tasks,
     build_support_aware_keyword_targets,
     build_target_grid,
@@ -120,6 +121,38 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertEqual({target.normalized_axis_2 for target in targets}, {0.5})
         self.assertEqual(targets[0].target_id, "readiness-axis-1-target:000")
         self.assertEqual(targets[-1].target_id, "readiness-axis-1-target:029")
+
+    def test_quantized_axis_1_targets_are_globally_uniform_at_point_zero_zero_one(self) -> None:
+        keywords = tuple(
+            (f"keyword:{index:04d}", f"topic phrase {index}")
+            for index in range(1011)
+        )
+
+        targets, diagnostics = build_quantized_uniform_axis_1_keyword_targets(
+            self.bounds,
+            keywords,
+            targets_per_keyword=30,
+            lattice_increment=0.001,
+            master_seed=20260820,
+        )
+
+        pooled = [
+            target.axis_1_index
+            for keyword_targets in targets.values()
+            for target in keyword_targets
+        ]
+        counts = np.bincount(pooled, minlength=1001)
+        self.assertEqual(len(pooled), 30330)
+        self.assertEqual(set(counts), {30, 31})
+        self.assertEqual(np.count_nonzero(counts), 1001)
+        self.assertEqual(diagnostics["lattice_increment"], 0.001)
+        self.assertEqual(diagnostics["minimum_targets_per_lattice_point"], 30)
+        self.assertEqual(diagnostics["maximum_targets_per_lattice_point"], 31)
+        for keyword_targets in targets.values():
+            values = [target.normalized_axis_1 for target in keyword_targets]
+            self.assertEqual(len(values), len(set(values)))
+            self.assertGreater(max(values) - min(values), 0.90)
+            self.assertEqual({target.normalized_axis_2 for target in keyword_targets}, {0.5})
 
     def test_rounds_rotate_each_target_across_generator_models(self) -> None:
         targets = build_target_grid(self.bounds)[:2]
@@ -560,6 +593,48 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             self.assertEqual(manifest["maximum_planned_candidate_count"], 30330)
             self.assertEqual(len(targets), 30)
             self.assertEqual({row["normalized_axis_2"] for row in targets}, {0.5})
+
+            quantized_output = root / "axis-1-quantized-plan"
+            _plan(
+                SimpleNamespace(
+                    keywords=str(keywords_path),
+                    map=str(map_path),
+                    reference_coordinates=str(coordinate_path),
+                    generator_ids="qwen,gemma",
+                    output_dir=str(quantized_output),
+                    axis_1_points=6,
+                    axis_2_points=5,
+                    target_design="axis-1-quantized-uniform",
+                    targets_per_keyword=30,
+                    axis_1_increment=0.001,
+                    support_grid_resolution=10,
+                    minimum_support_bin_count=3,
+                    support_include_unusable=False,
+                    lower_quantile=0.0,
+                    upper_quantile=1.0,
+                    reference_split="development",
+                    round_index=0,
+                    candidates_per_task=1,
+                    master_seed=20260820,
+                )
+            )
+            quantized_manifest = read_json(quantized_output / "plan_manifest.json")
+            quantized_design = read_json(quantized_output / "target_design.json")
+            quantized_targets = [
+                json.loads(line)["target"]
+                for line in (quantized_output / "keyword_target_grid.jsonl")
+                .read_text()
+                .splitlines()
+            ]
+            counts = np.bincount(
+                [row["axis_1_index"] for row in quantized_targets], minlength=1001
+            )
+            self.assertEqual(quantized_manifest["task_count"], 30330)
+            self.assertEqual(
+                quantized_manifest["target_design"], "axis-1-quantized-uniform"
+            )
+            self.assertEqual(quantized_design["lattice_increment"], 0.001)
+            self.assertEqual(set(counts), {30, 31})
 
     def test_fake_generation_retains_exact_keyword_and_task_identity(self) -> None:
         target = build_target_grid(self.bounds)[0]
@@ -1277,6 +1352,19 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             "global-axis-1-assignment-with-strict-dual-view-tolerance",
         )
         self.assertTrue(diagnostics["overall_spacing_gate_passed"])
+
+        quantized_selected, quantized_diagnostics = select_spatially_matched_questions(
+            candidates,
+            targets,
+            coordinates,
+            accepted_candidate_ids={row.candidate_id for row in candidates},
+            disagreement_weight=0.0,
+            distance_tolerance=0.01,
+            target_design="axis-1-quantized-uniform",
+            require_both_views_within_tolerance=True,
+        )
+        self.assertEqual(len(quantized_selected), 2)
+        self.assertTrue(quantized_diagnostics["overall_spacing_gate_passed"])
 
     def test_template_uniqueness_rejects_keyword_substitution(self) -> None:
         target = build_target_grid(self.bounds)[0]

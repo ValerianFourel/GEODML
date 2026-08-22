@@ -11,6 +11,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 from typing import Mapping, Protocol, Sequence
@@ -21,6 +22,9 @@ from .readiness_embedding_map import ReadinessEmbeddingMap
 
 
 READINESS_PROMPT_POPULATION_VERSION = "readiness-question-population-v2"
+AXIS_1_ONLY_TARGET_DESIGNS = frozenset(
+    {"axis-1-linear", "axis-1-quantized-uniform"}
+)
 
 
 class QuestionGenerationExhaustedError(RuntimeError):
@@ -621,6 +625,111 @@ def build_axis_1_target_grid(
             )
         )
     return tuple(rows)
+
+
+def build_quantized_uniform_axis_1_keyword_targets(
+    bounds: ReadinessSubspaceBounds,
+    keywords: Sequence[tuple[str, str]],
+    *,
+    targets_per_keyword: int = 30,
+    lattice_increment: float = 0.001,
+    master_seed: int = 20260820,
+    axis_2_reference: float = 0.5,
+) -> tuple[
+    dict[str, tuple[ReadinessPromptTarget, ...]],
+    dict[str, object],
+]:
+    """Assign a globally uniform, deterministic quantized axis-1 population.
+
+    The flattened keyword-target sequence is mapped bijectively around the
+    lattice with a coprime low-discrepancy stride.  Consequently every lattice
+    point receives either floor(N/L) or ceil(N/L) targets, while each keyword's
+    targets remain distinct and spread across the full axis.
+    """
+
+    if not keywords or targets_per_keyword <= 0:
+        raise ValueError("keywords and targets_per_keyword must be nonempty")
+    if not 0.0 < lattice_increment <= 1.0:
+        raise ValueError("axis-1 lattice increment must lie in (0, 1]")
+    if not 0.0 <= axis_2_reference <= 1.0:
+        raise ValueError("axis-2 reference must lie in [0, 1]")
+    interval_count = int(round(1.0 / lattice_increment))
+    if interval_count < 1 or not np.isclose(
+        interval_count * lattice_increment, 1.0, rtol=0.0, atol=1e-12
+    ):
+        raise ValueError("axis-1 lattice increment must divide the unit interval")
+    lattice_point_count = interval_count + 1
+    if targets_per_keyword > lattice_point_count:
+        raise ValueError("targets per keyword cannot exceed the axis-1 lattice size")
+    keyword_ids = [keyword_id for keyword_id, _ in keywords]
+    if len(set(keyword_ids)) != len(keyword_ids):
+        raise ValueError("quantized axis-1 keyword ids must be unique")
+
+    stride = int(round(lattice_point_count * ((math.sqrt(5.0) - 1.0) / 2.0)))
+    while math.gcd(stride, lattice_point_count) != 1:
+        stride += 1
+    offset = int(master_seed % lattice_point_count)
+    assigned_indices = []
+    targets_by_keyword: dict[str, tuple[ReadinessPromptTarget, ...]] = {}
+    for keyword_index, (keyword_id, keyword) in enumerate(keywords):
+        if not keyword_id.strip() or not _single_line(keyword):
+            raise ValueError("keyword ids and text must be nonempty")
+        start = keyword_index * targets_per_keyword
+        lattice_indices = sorted(
+            (offset + (start + slot) * stride) % lattice_point_count
+            for slot in range(targets_per_keyword)
+        )
+        if len(set(lattice_indices)) != targets_per_keyword:
+            raise AssertionError("low-discrepancy lattice assignment repeated within keyword")
+        assigned_indices.extend(lattice_indices)
+        keyword_targets = []
+        for target_index, lattice_index in enumerate(lattice_indices):
+            normalized_axis_1 = lattice_index / interval_count
+            keyword_targets.append(
+                ReadinessPromptTarget(
+                    target_id=(
+                        f"readiness-axis-1-target:{target_index:03d}-"
+                        f"lattice-{lattice_index:04d}"
+                    ),
+                    target_index=target_index,
+                    axis_1_index=lattice_index,
+                    axis_2_index=0,
+                    normalized_axis_1=float(normalized_axis_1),
+                    normalized_axis_2=float(axis_2_reference),
+                    raw_axis_1=_denormalize(
+                        float(normalized_axis_1), bounds.axis_1_low, bounds.axis_1_high
+                    ),
+                    raw_axis_2=_denormalize(
+                        float(axis_2_reference), bounds.axis_2_low, bounds.axis_2_high
+                    ),
+                )
+            )
+        targets_by_keyword[keyword_id] = tuple(keyword_targets)
+
+    counts = np.bincount(assigned_indices, minlength=lattice_point_count)
+    pooled = np.asarray(assigned_indices, dtype=np.float64) / interval_count
+    diagnostics = {
+        "target_design": "axis-1-quantized-uniform",
+        "master_seed": master_seed,
+        "keyword_count": len(keywords),
+        "targets_per_keyword": targets_per_keyword,
+        "pooled_target_count": len(assigned_indices),
+        "lattice_increment": 1.0 / interval_count,
+        "lattice_point_count": lattice_point_count,
+        "lattice_stride": stride,
+        "lattice_offset": offset,
+        "minimum_targets_per_lattice_point": int(counts.min()),
+        "maximum_targets_per_lattice_point": int(counts.max()),
+        "lattice_count_range": int(counts.max() - counts.min()),
+        "occupied_lattice_point_count": int(np.count_nonzero(counts)),
+        "pooled_axis_1_range": [float(pooled.min()), float(pooled.max())],
+        "axis_2_acceptance": "unconstrained",
+        "scientific_guard": (
+            "These balanced targets describe generated question semantics. They do "
+            "not define or replace the randomized experimental policy variable B."
+        ),
+    }
+    return targets_by_keyword, diagnostics
 
 
 def build_support_aware_keyword_targets(
@@ -1539,9 +1648,10 @@ def select_spatially_matched_questions(
         "rectangular-grid",
         "support-aware-random",
         "axis-1-linear",
+        "axis-1-quantized-uniform",
     }:
         raise ValueError(f"unsupported target design: {target_design}")
-    axis_1_only = target_design == "axis-1-linear"
+    axis_1_only = target_design in AXIS_1_ONLY_TARGET_DESIGNS
     grouped: dict[str, list[ReadinessQuestionCandidate]] = {}
     for candidate in candidates:
         grouped.setdefault(candidate.keyword_id, [])
@@ -1923,7 +2033,7 @@ def _spatial_coverage_diagnostics(
     distance_tolerance: float,
     target_design: str,
 ):
-    axis_1_only = target_design == "axis-1-linear"
+    axis_1_only = target_design in AXIS_1_ONLY_TARGET_DESIGNS
     target_count = len(targets)
     target_coordinates = np.asarray(
         [
@@ -2075,7 +2185,7 @@ def _spatial_coverage_diagnostics(
 
 
 def _empty_spatial_gate_checks(target_design: str) -> dict[str, bool]:
-    if target_design == "axis-1-linear":
+    if target_design in AXIS_1_ONLY_TARGET_DESIGNS:
         return {
             "complete_target_count": False,
             "all_selected_within_axis_1_tolerance": False,
@@ -2130,7 +2240,7 @@ def _pooled_spatial_coverage(
         dtype=np.float64,
     ).reshape((-1, 2))
 
-    axis_1_only = target_design == "axis-1-linear"
+    axis_1_only = target_design in AXIS_1_ONLY_TARGET_DESIGNS
 
     def histogram(values: np.ndarray) -> np.ndarray:
         if axis_1_only:

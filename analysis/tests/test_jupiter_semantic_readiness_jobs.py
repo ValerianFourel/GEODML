@@ -112,6 +112,9 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_MAX_REFINEMENT_ROUNDS", script)
         self.assertIn("the end-to-end loop requires four allocated GPUs", script)
         self.assertIn("GENERATION CHECKPOINTED", script)
+        self.assertIn("allocation_seconds_left", script)
+        self.assertIn("READINESS_FINALIZATION_RESERVE_SECONDS", script)
+        self.assertIn('READINESS_GENERATION_SECONDS="$generation_slice_seconds"', script)
         self.assertIn("validate", script)
         self.assertIn("project-qwen", script)
         self.assertIn("project-mistral", script)
@@ -122,7 +125,10 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("verified_population_passed", script)
         self.assertIn('pipeline_status="quality-gate-failed"', script)
         self.assertIn("not source_pilot_mode", script)
-        self.assertIn("validation_shard_count=2", script)
+        self.assertIn(
+            'validation_shard_count="${READINESS_VALIDATION_SHARD_COUNT:-2}"',
+            script,
+        )
         self.assertIn("validation shards do not cover the exact candidate set", script)
         self.assertIn("SOURCE PILOT REFINEMENT", script)
         self.assertIn("interrupt_pipeline", script)
@@ -130,7 +136,11 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn(".qwen-attempt-$projection_attempt", script)
         self.assertIn(".mistral-attempt-$projection_attempt", script)
         self.assertIn("READINESS_RECOVERY_PIPELINE_ROOT", script)
+        self.assertIn("READINESS_INITIAL_CANDIDATE_ROOT", script)
+        self.assertIn("READINESS_INITIAL_PROJECTION_ROOT", script)
+        self.assertIn("READINESS_VALIDATION_CACHE_ROOT", script)
         self.assertIn("recover_projection_attempt", script)
+        self.assertIn("recover_projection_source", script)
         self.assertIn("projection_artifact_matches", script)
         self.assertIn("recovered completed projection", script)
         self.assertIn('cp -an "$recovery_pipeline/cache/."', script)

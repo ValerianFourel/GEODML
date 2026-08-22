@@ -177,8 +177,20 @@ fi
 pointer="${READINESS_30K_PIPELINE_POINTER:-$GEODML_PROJECT_ROOT/geodml-readiness-30k-end-to-end-latest.txt}"
 source_pilot="${READINESS_SOURCE_PILOT_ROOT:-}"
 recovery_pipeline="${READINESS_RECOVERY_PIPELINE_ROOT:-}"
+initial_candidate_root="${READINESS_INITIAL_CANDIDATE_ROOT:-}"
+initial_projection_root="${READINESS_INITIAL_PROJECTION_ROOT:-}"
 export READINESS_SOURCE_PILOT_ROOT="$source_pilot"
 export READINESS_RECOVERY_PIPELINE_ROOT="$recovery_pipeline"
+export READINESS_INITIAL_CANDIDATE_ROOT="$initial_candidate_root"
+export READINESS_INITIAL_PROJECTION_ROOT="$initial_projection_root"
+[[ -z "$source_pilot" || -z "$initial_candidate_root" ]] || {
+    echo "configure either a source pilot or an initial checkpoint, not both" >&2
+    exit 2
+}
+[[ -z "$initial_projection_root" || -n "$initial_candidate_root" ]] || {
+    echo "initial projections require an initial candidate checkpoint" >&2
+    exit 2
+}
 if [[ -n "${READINESS_30K_PIPELINE_ROOT:-}" ]]; then
     pipeline_root="$READINESS_30K_PIPELINE_ROOT"
 elif [[ -n "$source_pilot" ]]; then
@@ -190,6 +202,9 @@ else
 fi
 export READINESS_30K_PIPELINE_ROOT="$pipeline_root"
 mkdir -p "$pipeline_root" "$pipeline_root/logs" "$pipeline_root/cache"
+validation_cache_root="${READINESS_VALIDATION_CACHE_ROOT:-$pipeline_root/cache}"
+export READINESS_VALIDATION_CACHE_ROOT="$validation_cache_root"
+mkdir -p "$validation_cache_root"
 if [[ -n "$recovery_pipeline" ]]; then
     [[ -d "$recovery_pipeline" ]] || {
         echo "recovery pipeline root does not exist: $recovery_pipeline" >&2
@@ -207,7 +222,8 @@ printf '%s\n' "$pipeline_root" > "$pointer"
 
 activate_control_runtime
 
-python - "$pipeline_root" "$READINESS_30K_PLAN_ROOT" "$source_pilot" "$recovery_pipeline" <<'PY'
+python - "$pipeline_root" "$READINESS_30K_PLAN_ROOT" "$source_pilot" "$recovery_pipeline" \
+    "$initial_candidate_root" "$initial_projection_root" "$validation_cache_root" <<'PY'
 import hashlib
 import json
 import os
@@ -218,6 +234,9 @@ root = pathlib.Path(sys.argv[1])
 plan = pathlib.Path(sys.argv[2])
 source = sys.argv[3] or None
 recovery = sys.argv[4] or None
+initial_candidates = sys.argv[5] or None
+initial_projections = sys.argv[6] or None
+validation_cache_root = sys.argv[7]
 manifest_path = root / "pipeline_manifest.json"
 identity = {
     "format_version": "readiness-30k-end-to-end-v1",
@@ -225,6 +244,9 @@ identity = {
     "plan_manifest_sha256": hashlib.sha256((plan / "plan_manifest.json").read_bytes()).hexdigest(),
     "source_pilot_root": source,
     "recovery_pipeline_root": recovery,
+    "initial_candidate_root": initial_candidates,
+    "initial_projection_root": initial_projections,
+    "validation_cache_root": validation_cache_root,
     "generator_ids": [os.environ["READINESS_GENERATOR_A_ID"], os.environ["READINESS_GENERATOR_B_ID"]],
     "generator_models": [os.environ["READINESS_GENERATOR_A_MODEL"], os.environ["READINESS_GENERATOR_B_MODEL"]],
     "validator_id": os.environ["READINESS_VALIDATOR_ID"],
@@ -297,6 +319,30 @@ generation_terminal() {
     done
 }
 
+allocation_seconds_left() {
+    local value
+    value="$(squeue -h -j "$SLURM_JOB_ID" -o '%L' | tr -d ' ')"
+    [[ -n "$value" ]] || return 1
+    python - "$value" <<'PY'
+import sys
+
+value = sys.argv[1]
+days = 0
+if "-" in value:
+    day, value = value.split("-", 1)
+    days = int(day)
+parts = [int(item) for item in value.split(":")]
+if len(parts) == 3:
+    hours, minutes, seconds = parts
+elif len(parts) == 2:
+    hours = 0
+    minutes, seconds = parts
+else:
+    raise SystemExit(f"unsupported Slurm time-left value: {sys.argv[1]}")
+print(days * 86400 + hours * 3600 + minutes * 60 + seconds)
+PY
+}
+
 artifact_count_matches() {
     local manifest="$1" expected="$2"
     [[ -s "$manifest" ]] || return 1
@@ -365,6 +411,23 @@ recover_projection_attempt() {
     echo "recovered completed projection: ${complete_attempts[0]} -> $final_root"
 }
 
+recover_projection_source() {
+    local final_root="$1" source_root="$2" expected="$3" candidates="$4"
+    [[ ! -e "$final_root" ]] || return 0
+    projection_artifact_matches "$source_root" "$expected" "$candidates" || {
+        echo "initial projection does not match the immutable candidate checkpoint: $source_root" >&2
+        return 2
+    }
+    local recovered_temporary="$final_root.recovering-${SLURM_JOB_ID}-${BASHPID:-$$}"
+    [[ ! -e "$recovered_temporary" ]] || {
+        echo "projection recovery collision: $recovered_temporary" >&2
+        return 2
+    }
+    cp -a "$source_root" "$recovered_temporary"
+    mv "$recovered_temporary" "$final_root"
+    echo "recovered initial checkpoint projection: $source_root -> $final_root"
+}
+
 validation_shard_complete() {
     local manifest="$1" expected_total="$2" expected_count="$3" expected_index="$4"
     [[ -s "$manifest" ]] || return 1
@@ -382,6 +445,21 @@ assert row["reviewed_count"] == row["candidate_count"]
 run_generation_round() {
     local round_root="$1" tasks="$2"
     mkdir -p "$round_root/candidates" "$round_root/cache" "$round_root/logs"
+    local remaining_seconds reserve_seconds generation_slice_seconds
+    remaining_seconds="$(allocation_seconds_left)" || {
+        echo "cannot determine remaining Slurm time; refusing to start a generation slice" >&2
+        return 2
+    }
+    reserve_seconds="${READINESS_FINALIZATION_RESERVE_SECONDS:-900}"
+    generation_slice_seconds="$((remaining_seconds - reserve_seconds))"
+    if [[ "$generation_slice_seconds" -lt "${READINESS_MINIMUM_GENERATION_SECONDS:-600}" ]]; then
+        echo "GENERATION CHECKPOINTED: insufficient allocation time remains to load four generators safely"
+        return 10
+    fi
+    if [[ "$generation_slice_seconds" -gt "$READINESS_GENERATION_SECONDS" ]]; then
+        generation_slice_seconds="$READINESS_GENERATION_SECONDS"
+    fi
+    echo "generation_slice_seconds=$generation_slice_seconds remaining_allocation_seconds=$remaining_seconds"
     local manifests=() pids=() generator_id generator_model task_count shard_count shard output cache log
     active_srun_pids=()
     for generator_id in "$READINESS_GENERATOR_A_ID" "$READINESS_GENERATOR_B_ID"; do
@@ -410,6 +488,7 @@ run_generation_round() {
             READINESS_STAGE_OUTPUT="$output" \
             READINESS_GENERATION_SHARD_COUNT="$shard_count" \
             READINESS_GENERATION_SHARD_INDEX="$shard" \
+            READINESS_GENERATION_SECONDS="$generation_slice_seconds" \
             srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
                 "$worker" generate > "$log" 2>&1 &
             pids+=("$!")
@@ -436,7 +515,20 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     round_root="$pipeline_root/$round_name"
     mkdir -p "$round_root"
 
-    if [[ "$round_index" -eq 0 && -n "$source_pilot" ]]; then
+    if [[ "$round_index" -eq 0 && -n "$initial_candidate_root" ]]; then
+        mapfile -t initial_candidates < <(find "$initial_candidate_root" -maxdepth 1 -type f -name '*.jsonl' ! -name '*.failures.jsonl' | sort)
+        [[ "${#initial_candidates[@]}" -gt 0 ]] || {
+            echo "initial checkpoint has no candidate JSONL files: $initial_candidate_root" >&2
+            exit 2
+        }
+        for initial_candidate in "${initial_candidates[@]}"; do
+            test -s "$initial_candidate.manifest.json" || {
+                echo "initial checkpoint candidate lacks its checkpoint manifest: $initial_candidate" >&2
+                exit 2
+            }
+        done
+        candidate_files+=("${initial_candidates[@]}")
+    elif [[ "$round_index" -eq 0 && -n "$source_pilot" ]]; then
         mapfile -t source_candidates < <(find "$source_pilot/candidates" -maxdepth 1 -type f -name '*.jsonl' ! -name '*.failures.jsonl' | sort)
         [[ "${#source_candidates[@]}" -gt 0 ]] || { echo "source pilot has no candidates" >&2; exit 2; }
         candidate_files+=("${source_candidates[@]}")
@@ -479,14 +571,22 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     fi
 
     export READINESS_VALIDATION_OUTPUT="$round_root/validation.jsonl"
-    export READINESS_VALIDATION_CACHE="$pipeline_root/cache/$READINESS_VALIDATOR_ID"
+    export READINESS_VALIDATION_CACHE="$validation_cache_root/$READINESS_VALIDATOR_ID"
     export QWEN_PROJECTION_ROOT="$round_root/projections/qwen"
     export MISTRAL_PROJECTION_ROOT="$round_root/projections/mistral"
-    mkdir -p "$READINESS_VALIDATION_CACHE" "$round_root/logs"
+    mkdir -p "$READINESS_VALIDATION_CACHE" "$round_root/logs" "$round_root/projections"
 
     projection_search_roots=("$round_root/projections")
     if [[ -n "$recovery_pipeline" ]]; then
         projection_search_roots+=("$recovery_pipeline/$round_name/projections")
+    fi
+    if [[ "$round_index" -eq 0 && -n "$initial_projection_root" ]]; then
+        recover_projection_source \
+            "$QWEN_PROJECTION_ROOT" "$initial_projection_root/qwen" \
+            "$candidate_count" "$candidate_list" || exit 2
+        recover_projection_source \
+            "$MISTRAL_PROJECTION_ROOT" "$initial_projection_root/mistral" \
+            "$candidate_count" "$candidate_list" || exit 2
     fi
     recover_projection_attempt \
         "$QWEN_PROJECTION_ROOT" '.qwen-attempt-*' "$candidate_count" "$candidate_list" \
@@ -497,7 +597,11 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
 
     stage_pids=() stage_names=()
     active_srun_pids=()
-    validation_shard_count=2
+    validation_shard_count="${READINESS_VALIDATION_SHARD_COUNT:-2}"
+    [[ "$validation_shard_count" -ge 1 && "$validation_shard_count" -le "$allocated_gpu_count" ]] || {
+        echo "validation shard count must be between 1 and $allocated_gpu_count" >&2
+        exit 2
+    }
     validation_shard_files=()
     for ((validation_shard_index=0; validation_shard_index<validation_shard_count; validation_shard_index++)); do
         validation_shard_output="$round_root/validation-shard-$validation_shard_index.jsonl"
