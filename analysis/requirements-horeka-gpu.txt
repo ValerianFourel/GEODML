@@ -6,4 +6,5 @@
 transformers>=4.45
 accelerate>=0.34
 bitsandbytes>=0.43
+protobuf==6.32.0
 sentence-transformers>=3.0

@@ -50,6 +50,8 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
+python -c 'import google.protobuf; print("protobuf runtime: OK")'
+
 actual_commit="$(git -C "$GEODML_REPOSITORY" rev-parse HEAD)"
 [[ "$actual_commit" == "$GEODML_EXPECTED_COMMIT" ]] || {
     echo "commit mismatch: expected=$GEODML_EXPECTED_COMMIT actual=$actual_commit" >&2
