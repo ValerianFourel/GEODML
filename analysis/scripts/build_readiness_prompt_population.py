@@ -39,6 +39,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     ReadinessQuestionCandidate,
     ReadinessSubspaceBounds,
     audit_question_diversity,
+    build_axis_1_target_grid,
     build_generation_tasks,
     build_refinement_tasks,
     build_support_aware_keyword_targets,
@@ -73,7 +74,7 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--axis-2-points", type=int, default=5)
     plan.add_argument(
         "--target-design",
-        choices=("rectangular-grid", "support-aware-random"),
+        choices=("rectangular-grid", "support-aware-random", "axis-1-linear"),
         default="rectangular-grid",
     )
     plan.add_argument("--targets-per-keyword", type=int, default=30)
@@ -307,6 +308,12 @@ def _plan(args) -> int:
             require_usable_for_axis=not args.support_include_unusable,
         )
         target_count_per_keyword = args.targets_per_keyword
+    elif args.target_design == "axis-1-linear":
+        targets = build_axis_1_target_grid(
+            bounds,
+            axis_1_points=args.targets_per_keyword,
+        )
+        target_count_per_keyword = len(targets)
     else:
         targets = build_target_grid(
             bounds,
@@ -363,6 +370,8 @@ def _plan(args) -> int:
             "generation_control": (
                 "continuous-adjacent-anchor-blend-v1"
                 if args.target_design == "support-aware-random"
+                else "continuous-axis-1-only-v1"
+                if args.target_design == "axis-1-linear"
                 else "legacy-categorical-v1"
             ),
             "target_count_per_keyword": target_count_per_keyword,
@@ -1136,6 +1145,7 @@ def _spatial_select(args) -> int:
                         target,
                         accepted_candidates_by_keyword.get(keyword_id, ()),
                         coordinates,
+                        axis_1_only=target_design == "axis-1-linear",
                     )
                     feedback[(keyword_id, target.target_id)] = (
                         measured_feedback
@@ -1144,14 +1154,23 @@ def _spatial_select(args) -> int:
                 else:
                     delta_1 = target.normalized_axis_1 - row.consensus_normalized_axis_1
                     delta_2 = target.normalized_axis_2 - row.consensus_normalized_axis_2
-                    feedback[(keyword_id, target.target_id)] = (
-                        f"The closest validated question landed at "
-                        f"({row.consensus_normalized_axis_1:.3f}, "
-                        f"{row.consensus_normalized_axis_2:.3f}); shift axis 1 by "
-                        f"{delta_1:+.3f} and axis 2 by {delta_2:+.3f}. "
-                        f"Rewrite this closest question with the smallest semantic "
-                        f"change while preserving the exact keyword: {row.question}"
-                    )
+                    if target_design == "axis-1-linear":
+                        feedback[(keyword_id, target.target_id)] = (
+                            f"The closest validated question landed at axis 1 "
+                            f"{row.consensus_normalized_axis_1:.3f}; shift axis 1 by "
+                            f"{delta_1:+.3f}. Rewrite this closest question with the "
+                            f"smallest readiness-stage change, preserve the exact keyword, "
+                            f"and use a new question frame: {row.question}"
+                        )
+                    else:
+                        feedback[(keyword_id, target.target_id)] = (
+                            f"The closest validated question landed at "
+                            f"({row.consensus_normalized_axis_1:.3f}, "
+                            f"{row.consensus_normalized_axis_2:.3f}); shift axis 1 by "
+                            f"{delta_1:+.3f} and axis 2 by {delta_2:+.3f}. "
+                            f"Rewrite this closest question with the smallest semantic "
+                            f"change while preserving the exact keyword: {row.question}"
+                        )
     all_next_tasks = build_generation_tasks(
         keywords,
         targets,
@@ -1207,13 +1226,26 @@ def _spatial_select(args) -> int:
             "selected_count": len(selected),
             "next_round_task_count": len(next_tasks),
             "coordinate_acceptance_contract": {
-                "version": "strict-dual-frozen-view-target-verification-v1",
+                "version": (
+                    "strict-dual-frozen-view-axis-1-verification-v1"
+                    if target_design == "axis-1-linear"
+                    else "strict-dual-frozen-view-target-verification-v1"
+                ),
                 "enabled": getattr(
                     args, "require_both_views_within_tolerance", False
                 ),
+                "axes": (
+                    ["axis_1"]
+                    if target_design == "axis-1-linear"
+                    else ["axis_1", "axis_2"]
+                ),
                 "distance_tolerance": args.distance_tolerance,
                 "rule": (
-                    "Both the frozen reference-view coordinate and the "
+                    "Both frozen embedding views must be within the preregistered "
+                    "absolute axis-1 tolerance of the assigned axis-1 target; axis 2 "
+                    "is measured but does not enter acceptance."
+                    if target_design == "axis-1-linear"
+                    else "Both the frozen reference-view coordinate and the "
                     "development-aligned second-view coordinate must be within "
                     "the preregistered Euclidean tolerance of the assigned target."
                 ),
@@ -1243,7 +1275,13 @@ def _spatial_select(args) -> int:
     return 0
 
 
-def _dual_view_refinement_feedback(target, candidates, coordinates):
+def _dual_view_refinement_feedback(
+    target,
+    candidates,
+    coordinates,
+    *,
+    axis_1_only: bool = False,
+):
     """Describe the closest measured proposal without accepting it."""
 
     measured = []
@@ -1269,10 +1307,16 @@ def _dual_view_refinement_feedback(target, candidates, coordinates):
             [target.normalized_axis_1, target.normalized_axis_2],
             dtype=np.float64,
         )
-        reference_distance = float(np.linalg.norm(target_coordinate - reference))
-        second_view_distance = float(
-            np.linalg.norm(target_coordinate - second_view)
-        )
+        if axis_1_only:
+            reference_distance = float(abs(target_coordinate[0] - reference[0]))
+            second_view_distance = float(
+                abs(target_coordinate[0] - second_view[0])
+            )
+        else:
+            reference_distance = float(np.linalg.norm(target_coordinate - reference))
+            second_view_distance = float(
+                np.linalg.norm(target_coordinate - second_view)
+            )
         measured.append(
             (
                 max(reference_distance, second_view_distance),
@@ -1297,6 +1341,17 @@ def _dual_view_refinement_feedback(target, candidates, coordinates):
     ) = min(measured, key=lambda row: row[:3])
     reference_delta = target_coordinate - reference
     second_view_delta = target_coordinate - second_view
+    if axis_1_only:
+        return (
+            f"The closest independently validated question landed on frozen Qwen "
+            f"LLM2Vec axis 1 at {reference[0]:.3f} and on development-aligned "
+            f"Mistral LLM2Vec axis 1 at {second_view[0]:.3f}, while the axis-1 "
+            f"target is {target_coordinate[0]:.3f}. The Qwen-view shift needed is "
+            f"{reference_delta[0]:+.3f}; the aligned Mistral-view shift needed is "
+            f"{second_view_delta[0]:+.3f}. Rewrite with the smallest readiness-stage "
+            f"change that moves both views toward the target, preserve the exact "
+            f"keyword, and do not reuse this question frame: {candidate.question}"
+        )
     return (
         f"The closest independently validated question landed in frozen Qwen "
         f"LLM2Vec at ({reference[0]:.3f}, {reference[1]:.3f}) and in the "

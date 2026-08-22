@@ -22,6 +22,7 @@ from analysis.interpretability.pipeline.readiness_prompt_population import (
     ReadinessQuestionCandidate,
     ReadinessSubspaceBounds,
     audit_question_diversity,
+    build_axis_1_target_grid,
     build_generation_tasks,
     build_refinement_tasks,
     build_support_aware_keyword_targets,
@@ -107,6 +108,18 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             {target.normalized_axis_1 for target in targets},
             set(np.linspace(0.0, 1.0, 6)),
         )
+
+    def test_axis_1_grid_has_thirty_smooth_targets_and_fixed_nuisance_axis(self) -> None:
+        targets = build_axis_1_target_grid(self.bounds)
+
+        self.assertEqual(len(targets), 30)
+        self.assertEqual(
+            [target.normalized_axis_1 for target in targets],
+            list(np.linspace(0.0, 1.0, 30)),
+        )
+        self.assertEqual({target.normalized_axis_2 for target in targets}, {0.5})
+        self.assertEqual(targets[0].target_id, "readiness-axis-1-target:000")
+        self.assertEqual(targets[-1].target_id, "readiness-axis-1-target:029")
 
     def test_rounds_rotate_each_target_across_generator_models(self) -> None:
         targets = build_target_grid(self.bounds)[:2]
@@ -281,6 +294,20 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         legacy_task = replace(task, target=legacy_target)
         legacy = render_generation_request(legacy_task, candidate_slot=0)
         self.assertNotIn("0.370 on a 0-to-1 continuum", legacy)
+
+    def test_axis_1_generation_request_does_not_control_axis_2(self) -> None:
+        target = build_axis_1_target_grid(self.bounds)[11]
+        task = build_generation_tasks(
+            (("keyword:one", "enterprise password manager"),),
+            (target,),
+            ("qwen",),
+        )[0]
+
+        request = render_generation_request(task, candidate_slot=0)
+
+        self.assertIn(f"{target.normalized_axis_1:.3f} on a 0-to-1 continuum", request)
+        self.assertIn("Control only readiness stage", request)
+        self.assertIn("Decision mode: unconstrained", request)
 
     def test_diversity_audit_detects_keyword_substitution_templates(self) -> None:
         rows = [
@@ -467,6 +494,72 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             )
             self.assertLessEqual(diagnostics["target_bin_count_range"], 1)
             self.assertFalse((output / "target_grid.jsonl").exists())
+
+    def test_axis_1_plan_writes_30330_single_candidate_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            keywords_path = root / "keywords.txt"
+            keywords_path.write_text(
+                "".join(f"topic {index}\n" for index in range(1011)),
+                encoding="utf-8",
+            )
+            map_path = root / "map.json"
+            atomic_json(
+                map_path,
+                {
+                    field: getattr(_map(), field)
+                    for field in _map().__dataclass_fields__
+                },
+            )
+            coordinate_path = root / "coordinates.jsonl"
+            atomic_jsonl(
+                coordinate_path,
+                (
+                    {
+                        "split": "development",
+                        "usable_for_axis": True,
+                        "axis_1": -1.0 + index * 0.1,
+                        "axis_2": 1.0 - index * 0.1,
+                    }
+                    for index in range(20)
+                ),
+            )
+            output = root / "axis-1-plan"
+
+            _plan(
+                SimpleNamespace(
+                    keywords=str(keywords_path),
+                    map=str(map_path),
+                    reference_coordinates=str(coordinate_path),
+                    generator_ids="qwen,gemma",
+                    output_dir=str(output),
+                    axis_1_points=6,
+                    axis_2_points=5,
+                    target_design="axis-1-linear",
+                    targets_per_keyword=30,
+                    support_grid_resolution=10,
+                    minimum_support_bin_count=3,
+                    support_include_unusable=False,
+                    lower_quantile=0.0,
+                    upper_quantile=1.0,
+                    reference_split="development",
+                    round_index=0,
+                    candidates_per_task=1,
+                    master_seed=20260820,
+                )
+            )
+
+            manifest = read_json(output / "plan_manifest.json")
+            targets = [
+                json.loads(line)
+                for line in (output / "target_grid.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(manifest["target_design"], "axis-1-linear")
+            self.assertEqual(manifest["generation_control"], "continuous-axis-1-only-v1")
+            self.assertEqual(manifest["task_count"], 30330)
+            self.assertEqual(manifest["maximum_planned_candidate_count"], 30330)
+            self.assertEqual(len(targets), 30)
+            self.assertEqual({row["normalized_axis_2"] for row in targets}, {0.5})
 
     def test_fake_generation_retains_exact_keyword_and_task_identity(self) -> None:
         target = build_target_grid(self.bounds)[0]
@@ -1138,6 +1231,52 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         )
         self.assertEqual(diagnostics["verified_selected_count"], 1)
         self.assertEqual(diagnostics["verified_selected_fraction"], 1.0)
+
+    def test_axis_1_matching_ignores_axis_2_but_requires_both_views(self) -> None:
+        targets = build_axis_1_target_grid(self.bounds, axis_1_points=2)
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+        coordinates = {}
+        for candidate, target, axis_2 in zip(candidates, targets, (20.0, -20.0)):
+            coordinates[candidate.candidate_id] = {
+                "reference_normalized_axis_1": target.normalized_axis_1,
+                "reference_normalized_axis_2": axis_2,
+                "candidate_aligned_normalized_axis_1": target.normalized_axis_1,
+                "candidate_aligned_normalized_axis_2": -axis_2,
+                "consensus_normalized_axis_1": target.normalized_axis_1,
+                "consensus_normalized_axis_2": 0.0,
+                "cross_embedding_disagreement": 40.0,
+            }
+
+        selected, diagnostics = select_spatially_matched_questions(
+            candidates,
+            targets,
+            coordinates,
+            accepted_candidate_ids={row.candidate_id for row in candidates},
+            disagreement_weight=0.0,
+            distance_tolerance=0.01,
+            target_design="axis-1-linear",
+            require_both_views_within_tolerance=True,
+        )
+
+        self.assertEqual(len(selected), 2)
+        self.assertTrue(all(row.both_views_within_tolerance for row in selected))
+        self.assertTrue(all(row.target_distance == 0.0 for row in selected))
+        self.assertEqual(
+            diagnostics["selection_method"],
+            "global-axis-1-assignment-with-strict-dual-view-tolerance",
+        )
+        self.assertTrue(diagnostics["overall_spacing_gate_passed"])
 
     def test_template_uniqueness_rejects_keyword_substitution(self) -> None:
         target = build_target_grid(self.bounds)[0]

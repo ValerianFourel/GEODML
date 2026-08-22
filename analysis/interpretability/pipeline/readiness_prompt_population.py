@@ -586,6 +586,43 @@ def build_target_grid(
     return tuple(rows)
 
 
+def build_axis_1_target_grid(
+    bounds: ReadinessSubspaceBounds,
+    *,
+    axis_1_points: int = 30,
+    axis_2_reference: float = 0.5,
+) -> tuple[ReadinessPromptTarget, ...]:
+    """Build a smooth one-dimensional target family over frozen axis 1.
+
+    Axis 2 is retained in the artifact schema only as a fixed reference value;
+    it is not part of matching or acceptance for this target design.
+    """
+
+    if axis_1_points < 2 or not 0.0 <= axis_2_reference <= 1.0:
+        raise ValueError("axis-1 target grid requires at least two points and axis 2 in [0, 1]")
+    rows = []
+    for index, normalized_axis_1 in enumerate(
+        np.linspace(0.0, 1.0, axis_1_points)
+    ):
+        rows.append(
+            ReadinessPromptTarget(
+                target_id=f"readiness-axis-1-target:{index:03d}",
+                target_index=index,
+                axis_1_index=index,
+                axis_2_index=0,
+                normalized_axis_1=float(normalized_axis_1),
+                normalized_axis_2=float(axis_2_reference),
+                raw_axis_1=_denormalize(
+                    float(normalized_axis_1), bounds.axis_1_low, bounds.axis_1_high
+                ),
+                raw_axis_2=_denormalize(
+                    float(axis_2_reference), bounds.axis_2_low, bounds.axis_2_high
+                ),
+            )
+        )
+    return tuple(rows)
+
+
 def build_support_aware_keyword_targets(
     coordinate_rows: Sequence[Mapping[str, object]],
     bounds: ReadinessSubspaceBounds,
@@ -817,7 +854,8 @@ def render_generation_request(
     task: ReadinessGenerationTask, *, candidate_slot: int
 ) -> str:
     support_aware = task.target.target_id.startswith("readiness-support-target:")
-    if support_aware:
+    axis_1_only = task.target.target_id.startswith("readiness-axis-1-target:")
+    if support_aware or axis_1_only:
         a1 = _continuous_axis_instruction(
             task.target.normalized_axis_1,
             (
@@ -828,20 +866,28 @@ def render_generation_request(
                 "request an immediate, concrete action or execution step",
             ),
         )
-        a2 = _continuous_axis_instruction(
-            task.target.normalized_axis_2,
-            (
-                "compare alternatives and decide which approach fits",
-                "select an approach using explicit criteria",
-                "translate a chosen approach into a practical procedure",
-                "implement, configure, troubleshoot, or execute a chosen approach",
-            ),
-        )
-        continuous_control = (
-            "Treat each percentage as a graded semantic mixture, not a category. "
-            "Preserve the difference between nearby targets through the question's "
-            "actual information need."
-        )
+        if axis_1_only:
+            a2 = "unconstrained; choose whatever decision mode makes the question natural"
+            continuous_control = (
+                "Control only readiness stage. Treat its percentage as a graded "
+                "semantic mixture, not a category, and preserve differences between "
+                "nearby targets through the question's actual information need."
+            )
+        else:
+            a2 = _continuous_axis_instruction(
+                task.target.normalized_axis_2,
+                (
+                    "compare alternatives and decide which approach fits",
+                    "select an approach using explicit criteria",
+                    "translate a chosen approach into a practical procedure",
+                    "implement, configure, troubleshoot, or execute a chosen approach",
+                ),
+            )
+            continuous_control = (
+                "Treat each percentage as a graded semantic mixture, not a category. "
+                "Preserve the difference between nearby targets through the question's "
+                "actual information need."
+            )
         surface_control = _surface_realization_instruction(
             task.generation_seed + candidate_slot * 1009
         )
@@ -1489,8 +1535,13 @@ def select_spatially_matched_questions(
 
     if not targets or disagreement_weight < 0 or distance_tolerance < 0:
         raise ValueError("invalid spatial matching configuration")
-    if target_design not in {"rectangular-grid", "support-aware-random"}:
+    if target_design not in {
+        "rectangular-grid",
+        "support-aware-random",
+        "axis-1-linear",
+    }:
         raise ValueError(f"unsupported target design: {target_design}")
+    axis_1_only = target_design == "axis-1-linear"
     grouped: dict[str, list[ReadinessQuestionCandidate]] = {}
     for candidate in candidates:
         grouped.setdefault(candidate.keyword_id, [])
@@ -1531,7 +1582,10 @@ def select_spatially_matched_questions(
         planned_targets = keyword_targets[keyword_id]
         target_matrix = np.asarray(
             [
-                [target.normalized_axis_1, target.normalized_axis_2]
+                [
+                    target.normalized_axis_1,
+                    0.0 if axis_1_only else target.normalized_axis_2,
+                ]
                 for target in planned_targets
             ],
             dtype=np.float64,
@@ -1549,7 +1603,13 @@ def select_spatially_matched_questions(
             [
                 [
                     coordinates_by_candidate[row.candidate_id]["consensus_normalized_axis_1"],
-                    coordinates_by_candidate[row.candidate_id]["consensus_normalized_axis_2"],
+                    (
+                        0.0
+                        if axis_1_only
+                        else coordinates_by_candidate[row.candidate_id][
+                            "consensus_normalized_axis_2"
+                        ]
+                    ),
                 ]
                 for row in pool
             ],
@@ -1561,9 +1621,13 @@ def select_spatially_matched_questions(
                     coordinates_by_candidate[row.candidate_id][
                         "reference_normalized_axis_1"
                     ],
-                    coordinates_by_candidate[row.candidate_id][
-                        "reference_normalized_axis_2"
-                    ],
+                    (
+                        0.0
+                        if axis_1_only
+                        else coordinates_by_candidate[row.candidate_id][
+                            "reference_normalized_axis_2"
+                        ]
+                    ),
                 ]
                 for row in pool
             ],
@@ -1575,9 +1639,13 @@ def select_spatially_matched_questions(
                     coordinates_by_candidate[row.candidate_id][
                         "candidate_aligned_normalized_axis_1"
                     ],
-                    coordinates_by_candidate[row.candidate_id][
-                        "candidate_aligned_normalized_axis_2"
-                    ],
+                    (
+                        0.0
+                        if axis_1_only
+                        else coordinates_by_candidate[row.candidate_id][
+                            "candidate_aligned_normalized_axis_2"
+                        ]
+                    ),
                 ]
                 for row in pool
             ],
@@ -1585,7 +1653,20 @@ def select_spatially_matched_questions(
         )
         disagreement = np.asarray(
             [
-                coordinates_by_candidate[row.candidate_id]["cross_embedding_disagreement"]
+                (
+                    abs(
+                        coordinates_by_candidate[row.candidate_id][
+                            "reference_normalized_axis_1"
+                        ]
+                        - coordinates_by_candidate[row.candidate_id][
+                            "candidate_aligned_normalized_axis_1"
+                        ]
+                    )
+                    if axis_1_only
+                    else coordinates_by_candidate[row.candidate_id][
+                        "cross_embedding_disagreement"
+                    ]
+                )
                 for row in pool
             ],
             dtype=np.float64,
@@ -1644,7 +1725,9 @@ def select_spatially_matched_questions(
                 target_normalized_axis_1=target.normalized_axis_1,
                 target_normalized_axis_2=target.normalized_axis_2,
                 consensus_normalized_axis_1=float(observed[candidate_index, 0]),
-                consensus_normalized_axis_2=float(observed[candidate_index, 1]),
+                consensus_normalized_axis_2=float(
+                    coordinate["consensus_normalized_axis_2"]
+                ),
                 reference_normalized_axis_1=float(coordinate["reference_normalized_axis_1"]),
                 reference_normalized_axis_2=float(coordinate["reference_normalized_axis_2"]),
                 candidate_aligned_normalized_axis_1=float(
@@ -1747,6 +1830,7 @@ def select_spatially_matched_questions(
         selected,
         keyword_targets,
         distance_tolerance=distance_tolerance,
+        target_design=target_design,
     )
     all_keywords_pass = all(
         item["spacing_gate_passed"] for item in keyword_diagnostics.values()
@@ -1822,7 +1906,9 @@ def select_spatially_matched_questions(
         "pooled_support_coverage": pooled_coverage,
         "overall_spacing_gate_passed": overall_gate,
         "selection_method": (
-            "global-linear-assignment-with-strict-dual-view-tolerance"
+            "global-axis-1-assignment-with-strict-dual-view-tolerance"
+            if axis_1_only and require_both_views_within_tolerance
+            else "global-linear-assignment-with-strict-dual-view-tolerance"
             if require_both_views_within_tolerance
             else "global-linear-assignment-on-aligned-two-view-consensus"
         ),
@@ -1837,6 +1923,7 @@ def _spatial_coverage_diagnostics(
     distance_tolerance: float,
     target_design: str,
 ):
+    axis_1_only = target_design == "axis-1-linear"
     target_count = len(targets)
     target_coordinates = np.asarray(
         [
@@ -1847,10 +1934,15 @@ def _spatial_coverage_diagnostics(
     )
     target_axis_spans = np.ptp(target_coordinates, axis=0)
     if target_count > 1:
-        target_pairwise = np.linalg.norm(
-            target_coordinates[:, None, :] - target_coordinates[None, :, :],
-            axis=2,
-        )
+        if axis_1_only:
+            target_pairwise = np.abs(
+                target_coordinates[:, None, 0] - target_coordinates[None, :, 0]
+            )
+        else:
+            target_pairwise = np.linalg.norm(
+                target_coordinates[:, None, :] - target_coordinates[None, :, :],
+                axis=2,
+            )
         np.fill_diagonal(target_pairwise, np.inf)
         target_nearest = target_pairwise.min(axis=1)
     else:
@@ -1890,9 +1982,14 @@ def _spatial_coverage_diagnostics(
         dtype=np.float64,
     )
     if len(rows) > 1:
-        pairwise = np.linalg.norm(
-            coordinates[:, None, :] - coordinates[None, :, :], axis=2
-        )
+        if axis_1_only:
+            pairwise = np.abs(
+                coordinates[:, None, 0] - coordinates[None, :, 0]
+            )
+        else:
+            pairwise = np.linalg.norm(
+                coordinates[:, None, :] - coordinates[None, :, :], axis=2
+            )
         np.fill_diagonal(pairwise, np.inf)
         nearest = pairwise.min(axis=1)
     else:
@@ -1907,7 +2004,27 @@ def _spatial_coverage_diagnostics(
         for value in coordinates
     }
     within = int(np.sum(distances <= distance_tolerance))
-    if target_design == "support-aware-random":
+    if axis_1_only:
+        sorted_axis_1 = np.sort(coordinates[:, 0])
+        sorted_target_axis_1 = np.sort(target_coordinates[:, 0])
+        observed_gaps = np.diff(sorted_axis_1)
+        target_gaps = np.diff(sorted_target_axis_1)
+        target_gap = float(np.median(target_gaps)) if len(target_gaps) else 0.0
+        maximum_gap = float(np.max(observed_gaps)) if len(observed_gaps) else 0.0
+        gate_checks = {
+            "complete_target_count": len(rows) == target_count,
+            "all_selected_within_axis_1_tolerance": within == target_count,
+            "axis_1_span_covers_90_percent_of_target": bool(
+                axis_spans[0] >= 0.90 * target_axis_spans[0]
+            ),
+            "median_axis_1_spacing_at_least_50_percent_of_target": float(
+                np.median(nearest)
+            )
+            >= 0.50 * float(np.median(target_nearest)),
+            "maximum_axis_1_gap_at_most_three_target_steps": maximum_gap
+            <= 3.0 * target_gap,
+        }
+    elif target_design == "support-aware-random":
         gate_checks = {
             "complete_target_count": len(rows) == target_count,
             "mean_target_distance_at_most_0_25": float(np.mean(distances)) <= 0.25,
@@ -1958,6 +2075,14 @@ def _spatial_coverage_diagnostics(
 
 
 def _empty_spatial_gate_checks(target_design: str) -> dict[str, bool]:
+    if target_design == "axis-1-linear":
+        return {
+            "complete_target_count": False,
+            "all_selected_within_axis_1_tolerance": False,
+            "axis_1_span_covers_90_percent_of_target": False,
+            "median_axis_1_spacing_at_least_50_percent_of_target": False,
+            "maximum_axis_1_gap_at_most_three_target_steps": False,
+        }
     if target_design == "support-aware-random":
         return {
             "complete_target_count": False,
@@ -1982,6 +2107,7 @@ def _pooled_spatial_coverage(
     targets_by_keyword: Mapping[str, Sequence[ReadinessPromptTarget]],
     *,
     distance_tolerance: float,
+    target_design: str = "support-aware-random",
     grid_resolution: int = 10,
 ) -> dict[str, object]:
     targets = [
@@ -2004,7 +2130,21 @@ def _pooled_spatial_coverage(
         dtype=np.float64,
     ).reshape((-1, 2))
 
+    axis_1_only = target_design == "axis-1-linear"
+
     def histogram(values: np.ndarray) -> np.ndarray:
+        if axis_1_only:
+            counts = np.zeros(grid_resolution, dtype=np.float64)
+            for coordinate in values:
+                index = int(
+                    np.clip(
+                        np.floor(coordinate[0] * grid_resolution),
+                        0,
+                        grid_resolution - 1,
+                    )
+                )
+                counts[index] += 1
+            return counts
         counts = np.zeros((grid_resolution, grid_resolution), dtype=np.float64)
         for coordinate in values:
             indices = tuple(
@@ -2039,19 +2179,32 @@ def _pooled_spatial_coverage(
     within_fraction = (
         float(np.mean(distances <= distance_tolerance)) if len(distances) else 0.0
     )
-    gate_checks = {
-        "complete_pooled_target_count": len(selected) == len(targets),
-        "pooled_mean_target_distance_at_most_0_25": bool(
-            len(distances) and float(np.mean(distances)) <= 0.25
-        ),
-        "pooled_at_least_80_percent_within_tolerance": within_fraction >= 0.80,
-        "pooled_axis_spans_cover_80_percent_of_target": bool(
-            np.all(observed_spans >= 0.80 * target_spans)
-        ),
-        "pooled_at_least_80_percent_target_bins_occupied": observed_on_target
-        >= int(np.ceil(0.80 * target_occupied)),
-        "pooled_histogram_total_variation_at_most_0_25": total_variation <= 0.25,
-    }
+    if axis_1_only:
+        gate_checks = {
+            "complete_pooled_target_count": len(selected) == len(targets),
+            "pooled_all_selected_within_axis_1_tolerance": within_fraction == 1.0,
+            "pooled_axis_1_span_covers_90_percent_of_target": bool(
+                observed_spans[0] >= 0.90 * target_spans[0]
+            ),
+            "pooled_at_least_90_percent_axis_1_bins_occupied": observed_on_target
+            >= int(np.ceil(0.90 * target_occupied)),
+            "pooled_axis_1_histogram_total_variation_at_most_0_15": total_variation
+            <= 0.15,
+        }
+    else:
+        gate_checks = {
+            "complete_pooled_target_count": len(selected) == len(targets),
+            "pooled_mean_target_distance_at_most_0_25": bool(
+                len(distances) and float(np.mean(distances)) <= 0.25
+            ),
+            "pooled_at_least_80_percent_within_tolerance": within_fraction >= 0.80,
+            "pooled_axis_spans_cover_80_percent_of_target": bool(
+                np.all(observed_spans >= 0.80 * target_spans)
+            ),
+            "pooled_at_least_80_percent_target_bins_occupied": observed_on_target
+            >= int(np.ceil(0.80 * target_occupied)),
+            "pooled_histogram_total_variation_at_most_0_25": total_variation <= 0.25,
+        }
     return {
         "target_count": len(targets),
         "selected_count": len(selected),
