@@ -378,12 +378,32 @@ python analysis/scripts/build_readiness_prompt_population.py spatial-select \
   --validations "$POPULATION_ROOT/validation/llama3.3-70b.jsonl" \
   --generator-ids gemma4-31b,qwen3-32b \
   --distance-tolerance 0.22 \
+  --require-both-views-within-tolerance \
+  --require-delexicalized-template-uniqueness \
   --disagreement-weight 0.10 \
   --next-round-index 1 \
   --output-dir "$POPULATION_ROOT/spatial-selection-round-00"
 ```
 
-The spacing gate requires all 30 cells, mean target distance at most 0.25, at
+For confirmatory population construction,
+`--require-both-views-within-tolerance` is the coordinate-acceptance contract.
+A question is retained for a target only when both the frozen Qwen coordinate
+and the development-aligned Mistral coordinate independently lie within the
+configured Euclidean tolerance. This prevents opposing projection errors from
+cancelling in their consensus. Unverified targets remain absent from the
+selected bank and are emitted as refinement tasks. The output records both
+per-view distances, the joint pass indicator, the tolerance, and immutable
+projection identities; this is empirical verification, not a guarantee before
+generation.
+
+`--require-delexicalized-template-uniqueness` separately enforces the surface
+contract. After replacing the exact keyword phrase with one sentinel and
+normalizing case, punctuation, and numbers, the selector retains at most one
+copy of any resulting question template. It keeps the jointly verified copy
+with the smallest worst-view target distance and emits every removed target as
+a refinement task. This makes keyword substitution insufficient for admission.
+
+The broader spacing gate requires all 30 cells, mean target distance at most 0.25, at
 least 80% of cells within tolerance, at least 0.70 observed span on each axis,
 median nearest-neighbor distance at least 0.08, and at least 18 occupied bins.
 These thresholds are fixed diagnostics for prompt-population construction, not

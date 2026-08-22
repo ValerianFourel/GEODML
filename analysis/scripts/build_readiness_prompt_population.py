@@ -202,6 +202,22 @@ def _parser() -> argparse.ArgumentParser:
     spatial.add_argument("--generator-ids", required=True)
     spatial.add_argument("--next-round-index", type=int, default=1)
     spatial.add_argument("--distance-tolerance", type=float, default=0.22)
+    spatial.add_argument(
+        "--require-both-views-within-tolerance",
+        action="store_true",
+        help=(
+            "accept a target assignment only when both frozen embedding views "
+            "independently fall within the distance tolerance"
+        ),
+    )
+    spatial.add_argument(
+        "--require-delexicalized-template-uniqueness",
+        action="store_true",
+        help=(
+            "retain at most one selected question for each exact template after "
+            "removing its keyword phrase"
+        ),
+    )
     spatial.add_argument("--disagreement-weight", type=float, default=0.10)
     spatial.add_argument("--candidates-per-task", type=int, default=3)
     spatial.add_argument("--master-seed", type=int, default=20260820)
@@ -1011,6 +1027,12 @@ def _spatial_select(args) -> int:
         disagreement_weight=args.disagreement_weight,
         distance_tolerance=args.distance_tolerance,
         target_design=target_design,
+        require_both_views_within_tolerance=getattr(
+            args, "require_both_views_within_tolerance", False
+        ),
+        require_delexicalized_template_uniqueness=getattr(
+            args, "require_delexicalized_template_uniqueness", False
+        ),
     )
     generators = _csv(args.generator_ids)
     targets_by_keyword = (
@@ -1021,14 +1043,33 @@ def _spatial_select(args) -> int:
     selected_by_key = {(row.keyword_id, row.target_id): row for row in selected}
     bad_pairs = set()
     feedback = {}
+    accepted_candidates_by_keyword = {}
+    for candidate in candidates:
+        if candidate.candidate_id in accepted:
+            accepted_candidates_by_keyword.setdefault(candidate.keyword_id, []).append(
+                candidate
+            )
     for keyword_id, _ in keywords:
         for target in targets_by_keyword[keyword_id]:
             row = selected_by_key.get((keyword_id, target.target_id))
-            if row is None or row.target_distance > args.distance_tolerance:
+            if (
+                row is None
+                or row.target_distance > args.distance_tolerance
+                or (
+                    getattr(args, "require_both_views_within_tolerance", False)
+                    and not row.both_views_within_tolerance
+                )
+            ):
                 bad_pairs.add((keyword_id, target.target_id))
                 if row is None:
+                    measured_feedback = _dual_view_refinement_feedback(
+                        target,
+                        accepted_candidates_by_keyword.get(keyword_id, ()),
+                        coordinates,
+                    )
                     feedback[(keyword_id, target.target_id)] = (
-                        "No independently validated candidate covered this cell."
+                        measured_feedback
+                        or "No independently validated candidate covered this cell."
                     )
                 else:
                     delta_1 = target.normalized_axis_1 - row.consensus_normalized_axis_1
@@ -1063,6 +1104,12 @@ def _spatial_select(args) -> int:
             "next_round_task_count": len(next_tasks),
             "distance_tolerance": args.distance_tolerance,
             "disagreement_weight": args.disagreement_weight,
+            "require_both_views_within_tolerance": getattr(
+                args, "require_both_views_within_tolerance", False
+            ),
+            "require_delexicalized_template_uniqueness": getattr(
+                args, "require_delexicalized_template_uniqueness", False
+            ),
             "cross_embedding_agreement": agreement,
         }
     )
@@ -1089,6 +1136,29 @@ def _spatial_select(args) -> int:
             "jointly_accepted_candidate_count": len(accepted),
             "selected_count": len(selected),
             "next_round_task_count": len(next_tasks),
+            "coordinate_acceptance_contract": {
+                "version": "strict-dual-frozen-view-target-verification-v1",
+                "enabled": getattr(
+                    args, "require_both_views_within_tolerance", False
+                ),
+                "distance_tolerance": args.distance_tolerance,
+                "rule": (
+                    "Both the frozen reference-view coordinate and the "
+                    "development-aligned second-view coordinate must be within "
+                    "the preregistered Euclidean tolerance of the assigned target."
+                ),
+            },
+            "surface_acceptance_contract": {
+                "version": "exact-delexicalized-template-uniqueness-v1",
+                "enabled": getattr(
+                    args, "require_delexicalized_template_uniqueness", False
+                ),
+                "rule": (
+                    "After replacing the exact keyword phrase with one sentinel "
+                    "and normalizing case, punctuation, and numbers, no selected "
+                    "question template may occur more than once."
+                ),
+            },
             "scientific_guard": (
                 "Aligned prompt coordinates describe text and do not define the randomized policy B."
             ),
@@ -1101,6 +1171,75 @@ def _spatial_select(args) -> int:
     print(f"spacing_gate_passed={diagnostics['overall_spacing_gate_passed']}")
     print(f"output={output}")
     return 0
+
+
+def _dual_view_refinement_feedback(target, candidates, coordinates):
+    """Describe the closest measured proposal without accepting it."""
+
+    measured = []
+    for candidate in candidates:
+        coordinate = coordinates.get(candidate.candidate_id)
+        if coordinate is None:
+            continue
+        reference = np.asarray(
+            [
+                coordinate["reference_normalized_axis_1"],
+                coordinate["reference_normalized_axis_2"],
+            ],
+            dtype=np.float64,
+        )
+        second_view = np.asarray(
+            [
+                coordinate["candidate_aligned_normalized_axis_1"],
+                coordinate["candidate_aligned_normalized_axis_2"],
+            ],
+            dtype=np.float64,
+        )
+        target_coordinate = np.asarray(
+            [target.normalized_axis_1, target.normalized_axis_2],
+            dtype=np.float64,
+        )
+        reference_distance = float(np.linalg.norm(target_coordinate - reference))
+        second_view_distance = float(
+            np.linalg.norm(target_coordinate - second_view)
+        )
+        measured.append(
+            (
+                max(reference_distance, second_view_distance),
+                reference_distance + second_view_distance,
+                candidate.candidate_id,
+                candidate,
+                reference,
+                second_view,
+                target_coordinate,
+            )
+        )
+    if not measured:
+        return None
+    (
+        _,
+        _,
+        _,
+        candidate,
+        reference,
+        second_view,
+        target_coordinate,
+    ) = min(measured, key=lambda row: row[:3])
+    reference_delta = target_coordinate - reference
+    second_view_delta = target_coordinate - second_view
+    return (
+        f"The closest independently validated question landed in frozen Qwen "
+        f"LLM2Vec at ({reference[0]:.3f}, {reference[1]:.3f}) and in the "
+        f"development-aligned Mistral LLM2Vec view at "
+        f"({second_view[0]:.3f}, {second_view[1]:.3f}), while the target is "
+        f"({target_coordinate[0]:.3f}, {target_coordinate[1]:.3f}). "
+        f"The Qwen-view shift needed is ({reference_delta[0]:+.3f}, "
+        f"{reference_delta[1]:+.3f}); the aligned Mistral-view shift needed is "
+        f"({second_view_delta[0]:+.3f}, {second_view_delta[1]:+.3f}). Rewrite "
+        f"with the smallest semantic change that moves both views toward the "
+        f"target, preserve the exact keyword, and do not reuse this question "
+        f"frame: {candidate.question}"
+    )
 
 
 def _audit_diversity(args) -> int:
@@ -1325,6 +1464,15 @@ def _spatial_report(diagnostics: dict[str, object]) -> str:
         f"- Selected: {diagnostics['selected_count']}",
         f"- Mean target distance: {_metric_text(diagnostics['mean_target_distance'])}",
         f"- Maximum target distance: {_metric_text(diagnostics['maximum_target_distance'])}",
+        f"- Strict dual-view tolerance required: {diagnostics['require_both_views_within_tolerance']}",
+        f"- Jointly coordinate-verified: {diagnostics['verified_selected_count']}/{diagnostics['selected_count']}",
+        f"- Mean Qwen-view target distance: {_metric_text(diagnostics['mean_reference_target_distance'])}",
+        f"- Maximum Qwen-view target distance: {_metric_text(diagnostics['maximum_reference_target_distance'])}",
+        f"- Mean aligned Mistral-view target distance: {_metric_text(diagnostics['mean_candidate_aligned_target_distance'])}",
+        f"- Maximum aligned Mistral-view target distance: {_metric_text(diagnostics['maximum_candidate_aligned_target_distance'])}",
+        f"- Exact delexicalized-template uniqueness required: {diagnostics['require_delexicalized_template_uniqueness']}",
+        f"- Template-duplicate assignments rejected: {diagnostics['template_duplicate_rejection_count']}",
+        f"- Selected delexicalized templates unique: {diagnostics['selected_delexicalized_templates_are_unique']}",
         f"- Mean cross-embedding disagreement: {_metric_text(diagnostics['mean_cross_embedding_disagreement'])}",
         f"- Next-round cells: {diagnostics['next_round_task_count']}",
         f"- Target design: {diagnostics.get('target_design', 'rectangular-grid')}",

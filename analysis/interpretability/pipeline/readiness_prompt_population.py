@@ -164,6 +164,9 @@ class SpatiallySelectedReadinessQuestion:
     candidate_aligned_normalized_axis_1: float
     candidate_aligned_normalized_axis_2: float
     target_distance: float
+    reference_target_distance: float
+    candidate_aligned_target_distance: float
+    both_views_within_tolerance: bool
     cross_embedding_disagreement: float
     assignment_cost: float
 
@@ -1374,8 +1377,17 @@ def select_spatially_matched_questions(
     disagreement_weight: float = 0.10,
     distance_tolerance: float = 0.22,
     target_design: str = "rectangular-grid",
+    require_both_views_within_tolerance: bool = False,
+    require_delexicalized_template_uniqueness: bool = False,
 ) -> tuple[tuple[SpatiallySelectedReadinessQuestion, ...], dict[str, object]]:
-    """Globally match validated candidates to planned two-view coordinates."""
+    """Globally match validated candidates to planned two-view coordinates.
+
+    When strict dual-view verification is enabled, a target-candidate edge is
+    eligible only when the frozen reference projection and the independently
+    aligned candidate projection both lie within ``distance_tolerance``.  The
+    consensus coordinate remains useful for matching and coverage diagnostics,
+    but opposing view errors can no longer cancel into a false acceptance.
+    """
 
     if not targets or disagreement_weight < 0 or distance_tolerance < 0:
         raise ValueError("invalid spatial matching configuration")
@@ -1391,6 +1403,10 @@ def select_spatially_matched_questions(
             raise ValueError(f"accepted candidate lacks aligned coordinates: {candidate.candidate_id}")
         values = np.asarray(
             [
+                coordinate["reference_normalized_axis_1"],
+                coordinate["reference_normalized_axis_2"],
+                coordinate["candidate_aligned_normalized_axis_1"],
+                coordinate["candidate_aligned_normalized_axis_2"],
                 coordinate["consensus_normalized_axis_1"],
                 coordinate["consensus_normalized_axis_2"],
                 coordinate["cross_embedding_disagreement"],
@@ -1441,6 +1457,34 @@ def select_spatially_matched_questions(
             ],
             dtype=np.float64,
         )
+        reference_observed = np.asarray(
+            [
+                [
+                    coordinates_by_candidate[row.candidate_id][
+                        "reference_normalized_axis_1"
+                    ],
+                    coordinates_by_candidate[row.candidate_id][
+                        "reference_normalized_axis_2"
+                    ],
+                ]
+                for row in pool
+            ],
+            dtype=np.float64,
+        )
+        candidate_observed = np.asarray(
+            [
+                [
+                    coordinates_by_candidate[row.candidate_id][
+                        "candidate_aligned_normalized_axis_1"
+                    ],
+                    coordinates_by_candidate[row.candidate_id][
+                        "candidate_aligned_normalized_axis_2"
+                    ],
+                ]
+                for row in pool
+            ],
+            dtype=np.float64,
+        )
         disagreement = np.asarray(
             [
                 coordinates_by_candidate[row.candidate_id]["cross_embedding_disagreement"]
@@ -1451,13 +1495,45 @@ def select_spatially_matched_questions(
         distances = np.linalg.norm(
             target_matrix[:, None, :] - observed[None, :, :], axis=2
         )
-        costs = distances + disagreement_weight * disagreement[None, :]
+        reference_distances = np.linalg.norm(
+            target_matrix[:, None, :] - reference_observed[None, :, :], axis=2
+        )
+        candidate_distances = np.linalg.norm(
+            target_matrix[:, None, :] - candidate_observed[None, :, :], axis=2
+        )
+        verified_pairs = (reference_distances <= distance_tolerance) & (
+            candidate_distances <= distance_tolerance
+        )
+        base_costs = distances + disagreement_weight * disagreement[None, :]
+        if require_both_views_within_tolerance:
+            # One private dummy column per target permits unmatched targets.  A
+            # penalty larger than every possible sum of real costs makes the
+            # assignment maximize verified cardinality before minimizing cost.
+            maximum_cost = float(np.max(base_costs)) if base_costs.size else 0.0
+            unmatched_penalty = (maximum_cost + 1.0) * (len(planned_targets) + 1)
+            costs = np.full(
+                (len(planned_targets), len(pool) + len(planned_targets)),
+                2.0 * unmatched_penalty,
+                dtype=np.float64,
+            )
+            costs[:, : len(pool)] = np.where(
+                verified_pairs, base_costs, 2.0 * unmatched_penalty
+            )
+            for target_index in range(len(planned_targets)):
+                costs[target_index, len(pool) + target_index] = unmatched_penalty
+        else:
+            costs = base_costs
         target_indices, candidate_indices = linear_sum_assignment(costs)
         rows = []
         for target_index, candidate_index in zip(target_indices, candidate_indices):
+            if candidate_index >= len(pool):
+                continue
             target = planned_targets[int(target_index)]
             candidate = pool[int(candidate_index)]
             coordinate = coordinates_by_candidate[candidate.candidate_id]
+            both_views_within_tolerance = bool(
+                verified_pairs[target_index, candidate_index]
+            )
             row = SpatiallySelectedReadinessQuestion(
                 keyword_id=candidate.keyword_id,
                 keyword=candidate.keyword,
@@ -1480,6 +1556,13 @@ def select_spatially_matched_questions(
                     coordinate["candidate_aligned_normalized_axis_2"]
                 ),
                 target_distance=float(distances[target_index, candidate_index]),
+                reference_target_distance=float(
+                    reference_distances[target_index, candidate_index]
+                ),
+                candidate_aligned_target_distance=float(
+                    candidate_distances[target_index, candidate_index]
+                ),
+                both_views_within_tolerance=both_views_within_tolerance,
                 cross_embedding_disagreement=float(disagreement[candidate_index]),
                 assignment_cost=float(costs[target_index, candidate_index]),
             )
@@ -1492,8 +1575,64 @@ def select_spatially_matched_questions(
             target_design=target_design,
         )
 
+    template_groups: dict[str, list[SpatiallySelectedReadinessQuestion]] = {}
+    for row in selected:
+        template_groups.setdefault(
+            delexicalize_question(row.question, row.keyword), []
+        ).append(row)
+    duplicate_groups = {
+        template: rows
+        for template, rows in template_groups.items()
+        if len(rows) > 1
+    }
+    template_duplicate_rejections = []
+    if require_delexicalized_template_uniqueness:
+        retained_ids = set()
+        for rows in template_groups.values():
+            retained = min(
+                rows,
+                key=lambda row: (
+                    not row.both_views_within_tolerance,
+                    max(
+                        row.reference_target_distance,
+                        row.candidate_aligned_target_distance,
+                    ),
+                    row.assignment_cost,
+                    row.candidate_id,
+                ),
+            )
+            retained_ids.add(retained.candidate_id)
+            template_duplicate_rejections.extend(
+                row for row in rows if row.candidate_id != retained.candidate_id
+            )
+        selected = [row for row in selected if row.candidate_id in retained_ids]
+
+    # Recompute per-keyword gates after any cross-keyword template removals so
+    # an omitted target necessarily becomes a refinement task.
+    selected_by_keyword: dict[str, list[SpatiallySelectedReadinessQuestion]] = {
+        keyword_id: [] for keyword_id in grouped
+    }
+    for row in selected:
+        selected_by_keyword[row.keyword_id].append(row)
+    keyword_diagnostics = {
+        keyword_id: _spatial_coverage_diagnostics(
+            selected_by_keyword[keyword_id],
+            targets=keyword_targets[keyword_id],
+            distance_tolerance=distance_tolerance,
+            target_design=target_design,
+        )
+        for keyword_id in sorted(grouped)
+    }
+
     all_distances = [row.target_distance for row in selected]
+    all_reference_distances = [row.reference_target_distance for row in selected]
+    all_candidate_distances = [
+        row.candidate_aligned_target_distance for row in selected
+    ]
     all_disagreement = [row.cross_embedding_disagreement for row in selected]
+    verified_selected_count = sum(
+        row.both_views_within_tolerance for row in selected
+    )
     target_counts = {
         keyword_id: len(keyword_targets[keyword_id]) for keyword_id in grouped
     }
@@ -1532,6 +1671,50 @@ def select_spatially_matched_questions(
         "target_design": target_design,
         "mean_target_distance": float(np.mean(all_distances)) if all_distances else None,
         "maximum_target_distance": float(np.max(all_distances)) if all_distances else None,
+        "mean_reference_target_distance": (
+            float(np.mean(all_reference_distances))
+            if all_reference_distances
+            else None
+        ),
+        "maximum_reference_target_distance": (
+            float(np.max(all_reference_distances))
+            if all_reference_distances
+            else None
+        ),
+        "mean_candidate_aligned_target_distance": (
+            float(np.mean(all_candidate_distances))
+            if all_candidate_distances
+            else None
+        ),
+        "maximum_candidate_aligned_target_distance": (
+            float(np.max(all_candidate_distances))
+            if all_candidate_distances
+            else None
+        ),
+        "verified_selected_count": verified_selected_count,
+        "verified_selected_fraction": (
+            verified_selected_count / len(selected) if selected else 0.0
+        ),
+        "require_both_views_within_tolerance": (
+            require_both_views_within_tolerance
+        ),
+        "require_delexicalized_template_uniqueness": (
+            require_delexicalized_template_uniqueness
+        ),
+        "delexicalized_template_count_before_filter": len(template_groups),
+        "delexicalized_duplicate_group_count_before_filter": len(
+            duplicate_groups
+        ),
+        "template_duplicate_rejection_count": len(
+            template_duplicate_rejections
+        ),
+        "selected_delexicalized_templates_are_unique": len(selected)
+        == len(
+            {
+                delexicalize_question(row.question, row.keyword)
+                for row in selected
+            }
+        ),
         "mean_cross_embedding_disagreement": (
             float(np.mean(all_disagreement)) if all_disagreement else None
         ),
@@ -1540,7 +1723,11 @@ def select_spatially_matched_questions(
         "all_keywords_pass_spacing_gate": all_keywords_pass,
         "pooled_support_coverage": pooled_coverage,
         "overall_spacing_gate_passed": overall_gate,
-        "selection_method": "global-linear-assignment-on-aligned-two-view-consensus",
+        "selection_method": (
+            "global-linear-assignment-with-strict-dual-view-tolerance"
+            if require_both_views_within_tolerance
+            else "global-linear-assignment-on-aligned-two-view-consensus"
+        ),
     }
     return tuple(sorted(selected, key=lambda row: (row.keyword_id, row.target_index))), diagnostics
 

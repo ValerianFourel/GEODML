@@ -44,6 +44,7 @@ from analysis.interpretability.pipeline.readiness_hf_dataset import (
 )
 from analysis.scripts.build_readiness_prompt_population import (
     _compare_projections,
+    _dual_view_refinement_feedback,
     _plan,
     _spatial_select,
 )
@@ -790,6 +791,187 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         )
         self.assertAlmostEqual(diagnostics["mean_target_distance"], 0.0)
 
+    def test_strict_dual_view_gate_rejects_consensus_cancellation(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        coordinates = {
+            candidate.candidate_id: {
+                "reference_normalized_axis_1": target.normalized_axis_1 + 0.30,
+                "reference_normalized_axis_2": target.normalized_axis_2,
+                "candidate_aligned_normalized_axis_1": (
+                    target.normalized_axis_1 - 0.30
+                ),
+                "candidate_aligned_normalized_axis_2": target.normalized_axis_2,
+                "consensus_normalized_axis_1": target.normalized_axis_1,
+                "consensus_normalized_axis_2": target.normalized_axis_2,
+                "cross_embedding_disagreement": 0.60,
+            }
+        }
+
+        loose, loose_diagnostics = select_spatially_matched_questions(
+            (candidate,),
+            (target,),
+            coordinates,
+            accepted_candidate_ids={candidate.candidate_id},
+            disagreement_weight=0.0,
+            distance_tolerance=0.22,
+        )
+        strict, strict_diagnostics = select_spatially_matched_questions(
+            (candidate,),
+            (target,),
+            coordinates,
+            accepted_candidate_ids={candidate.candidate_id},
+            disagreement_weight=0.0,
+            distance_tolerance=0.22,
+            require_both_views_within_tolerance=True,
+        )
+
+        self.assertEqual(len(loose), 1)
+        self.assertAlmostEqual(loose[0].target_distance, 0.0)
+        self.assertFalse(loose[0].both_views_within_tolerance)
+        self.assertEqual(loose_diagnostics["verified_selected_count"], 0)
+        self.assertEqual(strict, ())
+        self.assertEqual(strict_diagnostics["verified_selected_count"], 0)
+        self.assertTrue(
+            strict_diagnostics["require_both_views_within_tolerance"]
+        )
+
+    def test_strict_dual_view_gate_records_independent_passes(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        coordinates = {
+            candidate.candidate_id: {
+                "reference_normalized_axis_1": target.normalized_axis_1 + 0.10,
+                "reference_normalized_axis_2": target.normalized_axis_2,
+                "candidate_aligned_normalized_axis_1": (
+                    target.normalized_axis_1 + 0.12
+                ),
+                "candidate_aligned_normalized_axis_2": target.normalized_axis_2,
+                "consensus_normalized_axis_1": target.normalized_axis_1 + 0.11,
+                "consensus_normalized_axis_2": target.normalized_axis_2,
+                "cross_embedding_disagreement": 0.02,
+            }
+        }
+
+        selected, diagnostics = select_spatially_matched_questions(
+            (candidate,),
+            (target,),
+            coordinates,
+            accepted_candidate_ids={candidate.candidate_id},
+            disagreement_weight=0.0,
+            distance_tolerance=0.22,
+            require_both_views_within_tolerance=True,
+        )
+
+        self.assertEqual(len(selected), 1)
+        self.assertTrue(selected[0].both_views_within_tolerance)
+        self.assertAlmostEqual(selected[0].reference_target_distance, 0.10)
+        self.assertAlmostEqual(
+            selected[0].candidate_aligned_target_distance, 0.12
+        )
+        self.assertEqual(diagnostics["verified_selected_count"], 1)
+        self.assertEqual(diagnostics["verified_selected_fraction"], 1.0)
+
+    def test_template_uniqueness_rejects_keyword_substitution(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        tasks = build_generation_tasks(
+            (
+                ("keyword:one", "abandoned cart recovery"),
+                ("keyword:two", "enterprise password manager"),
+            ),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+        coordinates = {
+            candidate.candidate_id: {
+                "reference_normalized_axis_1": target.normalized_axis_1,
+                "reference_normalized_axis_2": target.normalized_axis_2,
+                "candidate_aligned_normalized_axis_1": target.normalized_axis_1,
+                "candidate_aligned_normalized_axis_2": target.normalized_axis_2,
+                "consensus_normalized_axis_1": target.normalized_axis_1,
+                "consensus_normalized_axis_2": target.normalized_axis_2,
+                "cross_embedding_disagreement": 0.0,
+            }
+            for candidate in candidates
+        }
+
+        selected, diagnostics = select_spatially_matched_questions(
+            candidates,
+            (target,),
+            coordinates,
+            accepted_candidate_ids={row.candidate_id for row in candidates},
+            disagreement_weight=0.0,
+            distance_tolerance=0.22,
+            require_both_views_within_tolerance=True,
+            require_delexicalized_template_uniqueness=True,
+        )
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(diagnostics["template_duplicate_rejection_count"], 1)
+        self.assertTrue(
+            diagnostics["selected_delexicalized_templates_are_unique"]
+        )
+        self.assertTrue(
+            diagnostics["require_delexicalized_template_uniqueness"]
+        )
+
+    def test_refinement_feedback_reports_both_measured_view_shifts(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        coordinates = {
+            candidate.candidate_id: {
+                "reference_normalized_axis_1": target.normalized_axis_1 + 0.30,
+                "reference_normalized_axis_2": target.normalized_axis_2 + 0.10,
+                "candidate_aligned_normalized_axis_1": (
+                    target.normalized_axis_1 - 0.20
+                ),
+                "candidate_aligned_normalized_axis_2": (
+                    target.normalized_axis_2 + 0.25
+                ),
+            }
+        }
+
+        feedback = _dual_view_refinement_feedback(
+            target, (candidate,), coordinates
+        )
+
+        self.assertIn("frozen Qwen LLM2Vec", feedback)
+        self.assertIn("development-aligned Mistral LLM2Vec", feedback)
+        self.assertIn("Qwen-view shift needed", feedback)
+        self.assertIn("aligned Mistral-view shift needed", feedback)
+        self.assertIn("do not reuse this question frame", feedback)
+
     def test_generated_question_projections_compare_with_frozen_alignment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -956,6 +1138,8 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                     generator_ids="fake",
                     next_round_index=1,
                     distance_tolerance=0.22,
+                    require_both_views_within_tolerance=True,
+                    require_delexicalized_template_uniqueness=True,
                     disagreement_weight=0.10,
                     candidates_per_task=1,
                     master_seed=20260820,
@@ -965,7 +1149,13 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             diagnostics = read_json(output / "spatial_coverage_diagnostics.json")
             self.assertEqual(diagnostics["selected_count"], 3)
             self.assertAlmostEqual(diagnostics["mean_target_distance"], 0.0)
-            self.assertTrue((output / "run_manifest.json").is_file())
+            self.assertEqual(diagnostics["verified_selected_count"], 3)
+            self.assertTrue(
+                diagnostics["selected_delexicalized_templates_are_unique"]
+            )
+            manifest = read_json(output / "run_manifest.json")
+            self.assertTrue(manifest["coordinate_acceptance_contract"]["enabled"])
+            self.assertTrue(manifest["surface_acceptance_contract"]["enabled"])
 
 
 def _map() -> ReadinessEmbeddingMap:
