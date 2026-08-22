@@ -77,12 +77,11 @@ test -s "$GEMMA_GENERATOR_MODEL/config.json"
 python - "$QWEN_GENERATOR_MODEL" "$GEMMA_GENERATOR_MODEL" <<'PY'
 import sys
 
-from transformers import AutoTokenizer
+from analysis.interpretability.utils import load_local_tokenizer
 
 for model_path in sys.argv[1:]:
-    tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = load_local_tokenizer(
         model_path,
-        local_files_only=True,
         use_fast=True,
     )
     print(f"tokenizer preflight: OK model={model_path} type={type(tokenizer).__name__}")

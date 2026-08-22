@@ -472,6 +472,49 @@ class InferenceRanker:
         raise RuntimeError(f"HF inference failed after {self.max_retries} retries: {last_err}")
 
 
+def _local_tokenizer_compatibility_kwargs(model: str | Path) -> dict[str, Any]:
+    """Translate the legacy list form of ``extra_special_tokens`` safely.
+
+    Transformers 4.56 expects ``extra_special_tokens`` to be a mapping, while
+    some frozen local model snapshots store the older list form. Preserve those
+    token strings as ordinary additional special tokens and pass an empty
+    model-specific mapping instead of modifying the frozen model directory.
+    """
+
+    config_path = Path(model) / "tokenizer_config.json"
+    if not config_path.is_file():
+        return {}
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    extra_special_tokens = config.get("extra_special_tokens")
+    if not isinstance(extra_special_tokens, list):
+        return {}
+    return {
+        "additional_special_tokens": extra_special_tokens,
+        "extra_special_tokens": {},
+    }
+
+
+def load_local_tokenizer(model: str | Path, *, use_fast: bool = True):
+    """Load a local/Hugging Face tokenizer with frozen-snapshot compatibility."""
+
+    from transformers import AutoTokenizer
+
+    compatibility_kwargs = _local_tokenizer_compatibility_kwargs(model)
+    if compatibility_kwargs:
+        print(
+            "[LocalRanker] translating legacy tokenizer extra_special_tokens list",
+            flush=True,
+        )
+    return AutoTokenizer.from_pretrained(
+        model,
+        use_fast=use_fast,
+        **compatibility_kwargs,
+    )
+
+
 class LocalRanker:
     """Offline: load a HF causal-LM locally and generate the re-ranking output.
     Use on cluster GPUs (Jülich booster: --gres=gpu:4 H100/A100).
@@ -488,11 +531,11 @@ class LocalRanker:
 
     def __init__(self, model: str, quantize: bool = False, dtype: str = "bfloat16"):
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoModelForCausalLM
 
         self.model_name = model
         self.quantize = quantize
-        self.tok = AutoTokenizer.from_pretrained(model, use_fast=True)
+        self.tok = load_local_tokenizer(model, use_fast=True)
         if self.tok.pad_token_id is None:
             self.tok.pad_token = self.tok.eos_token
         self.tok.padding_side = "left"
