@@ -19,7 +19,9 @@ clear_runtime() {
         done
         export PATH="$cleaned"
     fi
-    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV CUDA_VISIBLE_DEVICES
+    # CUDA_VISIBLE_DEVICES is Slurm's per-step GPU isolation contract. Removing
+    # it would expose every allocated GPU to each nominally one-GPU worker.
+    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV
     hash -r
 }
 

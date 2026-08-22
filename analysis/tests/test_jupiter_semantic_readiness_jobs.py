@@ -132,6 +132,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("QWEN_LLM2VEC_VENV", worker)
         self.assertIn("MISTRAL_LLM2VEC_VENV", worker)
         self.assertIn("PYTHONNOUSERSITE=1", worker)
+        self.assertIn("CUDA_VISIBLE_DEVICES is Slurm's per-step GPU isolation", worker)
+        self.assertNotIn("VIRTUAL_ENV CUDA_VISIBLE_DEVICES", worker)
         self.assertIn('case "$stage"', worker)
         self.assertIn("validate-candidates", worker)
         self.assertIn("READINESS_VALIDATION_SHARD_COUNT", worker)

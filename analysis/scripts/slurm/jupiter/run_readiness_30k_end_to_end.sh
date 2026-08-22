@@ -22,7 +22,7 @@ clear_runtime() {
         done
         export PATH="$cleaned"
     fi
-    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV CUDA_VISIBLE_DEVICES
+    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV
     hash -r
 }
 
