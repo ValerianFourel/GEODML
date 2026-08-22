@@ -71,6 +71,8 @@ class HorekaLatentPromptJobTests(unittest.TestCase):
         self.assertIn("accelerate>=", requirements)
         self.assertIn("bitsandbytes>=", requirements)
         self.assertIn("transformers>=", requirements)
+        self.assertIn("protobuf==6.32.0", requirements)
+        self.assertIn("requests==2.32.5", requirements)
 
     def test_generator_persists_complete_provider_failure_diagnostics(self) -> None:
         generator = GENERATOR.read_text(encoding="utf-8")

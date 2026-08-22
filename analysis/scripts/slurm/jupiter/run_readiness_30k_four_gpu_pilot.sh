@@ -50,7 +50,7 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
-python -c 'import google.protobuf; print("protobuf runtime: OK")'
+python -c 'import google.protobuf, requests; print("HTTP/tokenizer dependencies: OK")'
 
 actual_commit="$(git -C "$GEODML_REPOSITORY" rev-parse HEAD)"
 [[ "$actual_commit" == "$GEODML_EXPECTED_COMMIT" ]] || {
@@ -73,6 +73,20 @@ export QWEN_GENERATOR_MODEL="${QWEN_GENERATOR_MODEL:-$GEODML_MODELS_ROOT/qwen/Qw
 export GEMMA_GENERATOR_MODEL="${GEMMA_GENERATOR_MODEL:-$GEODML_MODELS_ROOT/gemma/gemma-4-31B-it/$gemma_revision}"
 test -s "$QWEN_GENERATOR_MODEL/config.json"
 test -s "$GEMMA_GENERATOR_MODEL/config.json"
+
+python - "$QWEN_GENERATOR_MODEL" "$GEMMA_GENERATOR_MODEL" <<'PY'
+import sys
+
+from transformers import AutoTokenizer
+
+for model_path in sys.argv[1:]:
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_path,
+        local_files_only=True,
+        use_fast=True,
+    )
+    print(f"tokenizer preflight: OK model={model_path} type={type(tokenizer).__name__}")
+PY
 
 export READINESS_GENERATION_SECONDS="${READINESS_GENERATION_SECONDS:-3000}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-job${SLURM_JOB_ID}"
