@@ -36,6 +36,9 @@ READINESS_30K_END_TO_END = JUPITER_ROOT / "run_readiness_30k_end_to_end.sh"
 READINESS_30K_PIPELINE_STAGE = (
     JUPITER_ROOT / "run_readiness_30k_pipeline_stage.sh"
 )
+READINESS_AXIS1_CHECKPOINT_AUDIT = (
+    JUPITER_ROOT / "run_readiness_axis1_checkpoint_audit.sh"
+)
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -58,6 +61,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_GENERATOR_INSTALLER,
             READINESS_30K_END_TO_END,
             READINESS_30K_PIPELINE_STAGE,
+            READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -145,6 +149,24 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_VALIDATION_SHARD_COUNT", worker)
         self.assertIn("READINESS_VALIDATION_SHARD_INDEX", worker)
         self.assertIn("project-candidates", worker)
+
+    def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:
+        script = READINESS_AXIS1_CHECKPOINT_AUDIT.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotIn("sbatch", script)
+        self.assertIn("requires exactly four allocated GPUs", script)
+        self.assertEqual(script.count("--gres=gpu:1"), 4)
+        self.assertIn("READINESS_APPROVED_WALLTIME", script)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
+        self.assertIn("project-qwen", script)
+        self.assertIn("project-mistral", script)
+        self.assertIn("READINESS_VALIDATION_SHARD_INDEX=0", script)
+        self.assertIn("READINESS_VALIDATION_SHARD_INDEX=1", script)
+        self.assertIn("compare-projections", script)
+        self.assertIn("audit_readiness_axis1_continuity.py", script)
+        self.assertIn("--primary-tolerance-steps 0.5", script)
+        self.assertIn("validator cache continues", script)
 
     def test_prompt_round1_runner_is_resumable_and_fail_closed(self) -> None:
         script = READINESS_PROMPT_ROUND1.read_text(encoding="utf-8")
