@@ -176,7 +176,9 @@ fi
 
 pointer="${READINESS_30K_PIPELINE_POINTER:-$GEODML_PROJECT_ROOT/geodml-readiness-30k-end-to-end-latest.txt}"
 source_pilot="${READINESS_SOURCE_PILOT_ROOT:-}"
+recovery_pipeline="${READINESS_RECOVERY_PIPELINE_ROOT:-}"
 export READINESS_SOURCE_PILOT_ROOT="$source_pilot"
+export READINESS_RECOVERY_PIPELINE_ROOT="$recovery_pipeline"
 if [[ -n "${READINESS_30K_PIPELINE_ROOT:-}" ]]; then
     pipeline_root="$READINESS_30K_PIPELINE_ROOT"
 elif [[ -n "$source_pilot" ]]; then
@@ -188,11 +190,24 @@ else
 fi
 export READINESS_30K_PIPELINE_ROOT="$pipeline_root"
 mkdir -p "$pipeline_root" "$pipeline_root/logs" "$pipeline_root/cache"
+if [[ -n "$recovery_pipeline" ]]; then
+    [[ -d "$recovery_pipeline" ]] || {
+        echo "recovery pipeline root does not exist: $recovery_pipeline" >&2
+        exit 2
+    }
+    [[ "$recovery_pipeline" != "$pipeline_root" ]] || {
+        echo "recovery pipeline root must differ from the new pipeline root" >&2
+        exit 2
+    }
+    if [[ -d "$recovery_pipeline/cache" ]]; then
+        cp -an "$recovery_pipeline/cache/." "$pipeline_root/cache/"
+    fi
+fi
 printf '%s\n' "$pipeline_root" > "$pointer"
 
 activate_control_runtime
 
-python - "$pipeline_root" "$READINESS_30K_PLAN_ROOT" "$source_pilot" <<'PY'
+python - "$pipeline_root" "$READINESS_30K_PLAN_ROOT" "$source_pilot" "$recovery_pipeline" <<'PY'
 import hashlib
 import json
 import os
@@ -202,12 +217,14 @@ import sys
 root = pathlib.Path(sys.argv[1])
 plan = pathlib.Path(sys.argv[2])
 source = sys.argv[3] or None
+recovery = sys.argv[4] or None
 manifest_path = root / "pipeline_manifest.json"
 identity = {
     "format_version": "readiness-30k-end-to-end-v1",
     "git_commit_sha": os.environ["GEODML_EXPECTED_COMMIT"],
     "plan_manifest_sha256": hashlib.sha256((plan / "plan_manifest.json").read_bytes()).hexdigest(),
     "source_pilot_root": source,
+    "recovery_pipeline_root": recovery,
     "generator_ids": [os.environ["READINESS_GENERATOR_A_ID"], os.environ["READINESS_GENERATOR_B_ID"]],
     "generator_models": [os.environ["READINESS_GENERATOR_A_MODEL"], os.environ["READINESS_GENERATOR_B_MODEL"]],
     "validator_id": os.environ["READINESS_VALIDATOR_ID"],
@@ -284,6 +301,68 @@ artifact_count_matches() {
     local manifest="$1" expected="$2"
     [[ -s "$manifest" ]] || return 1
     python -c 'import json,sys; assert json.load(open(sys.argv[1]))["candidate_count"] == int(sys.argv[2])' "$manifest" "$expected"
+}
+
+projection_artifact_matches() {
+    local root="$1" expected="$2" candidates="$3"
+    [[ -s "$root/projection_manifest.json" ]] || return 1
+    [[ -s "$root/question_projections.jsonl" ]] || return 1
+    [[ -s "$root/question_embeddings.restricted-local.npz" ]] || return 1
+    python - "$root/projection_manifest.json" "$expected" "$candidates" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+expected_count = int(sys.argv[2])
+candidate_list = pathlib.Path(sys.argv[3])
+candidate_paths = [
+    pathlib.Path(value).resolve()
+    for value in candidate_list.read_text().splitlines()
+    if value.strip()
+]
+identities = [
+    {
+        "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "size_bytes": path.stat().st_size,
+    }
+    for path in candidate_paths
+]
+assert manifest["candidate_count"] == expected_count
+assert manifest["candidate_files"] == identities
+PY
+}
+
+recover_projection_attempt() {
+    local final_root="$1" attempt_pattern="$2" expected="$3" candidates="$4"
+    shift 4
+    [[ ! -e "$final_root" ]] || return 0
+    local search_root attempt recovered_temporary
+    local complete_attempts=()
+    for search_root in "$@"; do
+        [[ -d "$search_root" ]] || continue
+        while IFS= read -r attempt; do
+            if projection_artifact_matches "$attempt" "$expected" "$candidates"; then
+                complete_attempts+=("$attempt")
+            fi
+        done < <(find "$search_root" -mindepth 1 -maxdepth 1 -type d -name "$attempt_pattern" -print | sort)
+    done
+    if [[ "${#complete_attempts[@]}" -gt 1 ]]; then
+        echo "multiple complete projection attempts match the exact candidate set for $final_root" >&2
+        printf '  %s\n' "${complete_attempts[@]}" >&2
+        return 2
+    fi
+    [[ "${#complete_attempts[@]}" -eq 1 ]] || return 0
+    recovered_temporary="$final_root.recovering-${SLURM_JOB_ID}-${BASHPID:-$$}"
+    [[ ! -e "$recovered_temporary" ]] || {
+        echo "projection recovery collision: $recovered_temporary" >&2
+        return 2
+    }
+    cp -a "${complete_attempts[0]}" "$recovered_temporary"
+    mv "$recovered_temporary" "$final_root"
+    echo "recovered completed projection: ${complete_attempts[0]} -> $final_root"
 }
 
 validation_shard_complete() {
@@ -404,6 +483,17 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     export QWEN_PROJECTION_ROOT="$round_root/projections/qwen"
     export MISTRAL_PROJECTION_ROOT="$round_root/projections/mistral"
     mkdir -p "$READINESS_VALIDATION_CACHE" "$round_root/logs"
+
+    projection_search_roots=("$round_root/projections")
+    if [[ -n "$recovery_pipeline" ]]; then
+        projection_search_roots+=("$recovery_pipeline/$round_name/projections")
+    fi
+    recover_projection_attempt \
+        "$QWEN_PROJECTION_ROOT" '.qwen-attempt-*' "$candidate_count" "$candidate_list" \
+        "${projection_search_roots[@]}" || exit 2
+    recover_projection_attempt \
+        "$MISTRAL_PROJECTION_ROOT" '.mistral-attempt-*' "$candidate_count" "$candidate_list" \
+        "${projection_search_roots[@]}" || exit 2
 
     stage_pids=() stage_names=()
     active_srun_pids=()

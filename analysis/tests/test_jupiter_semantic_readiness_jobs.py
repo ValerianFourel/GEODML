@@ -125,6 +125,12 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("cached work is preserved", script)
         self.assertIn(".qwen-attempt-$projection_attempt", script)
         self.assertIn(".mistral-attempt-$projection_attempt", script)
+        self.assertIn("READINESS_RECOVERY_PIPELINE_ROOT", script)
+        self.assertIn("recover_projection_attempt", script)
+        self.assertIn("projection_artifact_matches", script)
+        self.assertIn("recovered completed projection", script)
+        self.assertIn('cp -an "$recovery_pipeline/cache/."', script)
+        self.assertIn('manifest["candidate_files"] == identities', script)
         self.assertNotIn("stale current-job Qwen projection", script)
         self.assertIn("the independent validator must differ", script)
 
