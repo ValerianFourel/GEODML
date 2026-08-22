@@ -59,6 +59,27 @@ export GEODML_GENERATOR_VENV="${GEODML_GENERATOR_VENV:-$GEODML_CACHE_ROOT/python
 export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-torch291}"
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
+gpu_descriptor="${READINESS_ALLOCATED_GPU_COUNT:-${SLURM_GPUS_ON_NODE:-${SLURM_GPUS_PER_NODE:-${SLURM_GPUS:-}}}}"
+[[ -n "$gpu_descriptor" ]] || {
+    echo "cannot determine allocated GPU count; set READINESS_ALLOCATED_GPU_COUNT=4" >&2
+    exit 2
+}
+allocated_gpu_count="$(python3 - "$gpu_descriptor" <<'PY'
+import re
+import sys
+
+matches = re.findall(r"[0-9]+", sys.argv[1])
+if not matches:
+    raise SystemExit("allocated GPU descriptor contains no count")
+print(matches[0])
+PY
+)"
+[[ "$allocated_gpu_count" -ge 4 ]] || {
+    echo "the end-to-end loop requires four allocated GPUs; found $allocated_gpu_count" >&2
+    exit 2
+}
+export READINESS_ALLOCATED_GPU_COUNT="$allocated_gpu_count"
+
 for runtime in "$GEODML_GENERATOR_VENV" "$QWEN_LLM2VEC_VENV" "$MISTRAL_LLM2VEC_VENV"; do
     [[ -x "$runtime/bin/python" ]] || {
         echo "missing required isolated runtime: $runtime" >&2
@@ -194,16 +215,23 @@ identity = {
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],
     "slurm_job_id": os.environ["SLURM_JOB_ID"],
+    "allocated_gpu_count": int(os.environ["READINESS_ALLOCATED_GPU_COUNT"]),
 }
 if manifest_path.exists():
     existing = json.loads(manifest_path.read_text())
-    stable_keys = set(identity) - {"approved_walltime", "allocation_estimate", "slurm_job_id"}
+    stable_keys = set(identity) - {
+        "approved_walltime",
+        "allocation_estimate",
+        "slurm_job_id",
+        "allocated_gpu_count",
+    }
     if any(existing.get(key) != identity[key] for key in stable_keys):
         raise SystemExit("pipeline root identity differs from this invocation")
     existing.setdefault("allocation_slices", []).append({
         "approved_walltime": identity["approved_walltime"],
         "allocation_estimate": identity["allocation_estimate"],
         "slurm_job_id": identity["slurm_job_id"],
+        "allocated_gpu_count": identity["allocated_gpu_count"],
     })
     value = existing
 else:
@@ -212,6 +240,7 @@ else:
         "approved_walltime": identity["approved_walltime"],
         "allocation_estimate": identity["allocation_estimate"],
         "slurm_job_id": identity["slurm_job_id"],
+        "allocated_gpu_count": identity["allocated_gpu_count"],
     }]
 temporary = manifest_path.with_suffix(".tmp")
 temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
@@ -237,6 +266,20 @@ artifact_count_matches() {
     local manifest="$1" expected="$2"
     [[ -s "$manifest" ]] || return 1
     python -c 'import json,sys; assert json.load(open(sys.argv[1]))["candidate_count"] == int(sys.argv[2])' "$manifest" "$expected"
+}
+
+validation_shard_complete() {
+    local manifest="$1" expected_total="$2" expected_count="$3" expected_index="$4"
+    [[ -s "$manifest" ]] || return 1
+    python -c '
+import json
+import sys
+row = json.load(open(sys.argv[1]))
+assert row["total_candidate_count"] == int(sys.argv[2])
+assert row["shard_count"] == int(sys.argv[3])
+assert row["shard_index"] == int(sys.argv[4])
+assert row["reviewed_count"] == row["candidate_count"]
+' "$manifest" "$expected_total" "$expected_count" "$expected_index"
 }
 
 run_generation_round() {
@@ -342,11 +385,23 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     mkdir -p "$READINESS_VALIDATION_CACHE" "$round_root/logs"
 
     stage_pids=() stage_names=()
-    if ! artifact_count_matches "$READINESS_VALIDATION_OUTPUT.manifest.json" "$candidate_count"; then
+    validation_shard_count=2
+    validation_shard_files=()
+    for ((validation_shard_index=0; validation_shard_index<validation_shard_count; validation_shard_index++)); do
+        validation_shard_output="$round_root/validation-shard-$validation_shard_index.jsonl"
+        validation_shard_files+=("$validation_shard_output")
+        if artifact_count_matches "$READINESS_VALIDATION_OUTPUT.manifest.json" "$candidate_count" || \
+            validation_shard_complete "$validation_shard_output.manifest.json" "$candidate_count" \
+                "$validation_shard_count" "$validation_shard_index"; then
+            continue
+        fi
+        READINESS_VALIDATION_OUTPUT="$validation_shard_output" \
+        READINESS_VALIDATION_SHARD_COUNT="$validation_shard_count" \
+        READINESS_VALIDATION_SHARD_INDEX="$validation_shard_index" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
-            "$worker" validate > "$round_root/logs/validate.log" 2>&1 &
-        stage_pids+=("$!"); stage_names+=("validate")
-    fi
+            "$worker" validate > "$round_root/logs/validate-shard-$validation_shard_index.log" 2>&1 &
+        stage_pids+=("$!"); stage_names+=("validate-shard-$validation_shard_index")
+    done
     qwen_projection_temporary="$round_root/projections/.qwen-job-$SLURM_JOB_ID"
     mistral_projection_temporary="$round_root/projections/.mistral-job-$SLURM_JOB_ID"
     qwen_projection_launched=0
@@ -383,6 +438,95 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     fi
     if [[ "$mistral_projection_launched" -eq 1 ]]; then
         mv "$mistral_projection_temporary" "$MISTRAL_PROJECTION_ROOT"
+    fi
+
+    if ! artifact_count_matches "$READINESS_VALIDATION_OUTPUT.manifest.json" "$candidate_count"; then
+        python - "$READINESS_VALIDATION_OUTPUT" "$candidate_list" "${validation_shard_files[@]}" <<'PY'
+from datetime import datetime, timezone
+import hashlib
+import json
+import pathlib
+import sys
+
+output = pathlib.Path(sys.argv[1])
+candidate_list = pathlib.Path(sys.argv[2])
+shards = [pathlib.Path(value) for value in sys.argv[3:]]
+candidate_paths = [
+    pathlib.Path(value)
+    for value in candidate_list.read_text().splitlines()
+    if value.strip()
+]
+candidate_ids = {
+    json.loads(line)["candidate_id"]
+    for path in candidate_paths
+    for line in path.read_text().splitlines()
+    if line.strip()
+}
+rows = {}
+for shard in shards:
+    for line in shard.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        candidate_id = row["candidate_id"]
+        if candidate_id in rows:
+            raise SystemExit(f"duplicate validation across shards: {candidate_id}")
+        rows[candidate_id] = row
+if set(rows) != candidate_ids:
+    raise SystemExit("validation shards do not cover the exact candidate set")
+manifests = [
+    json.loads(shard.with_suffix(shard.suffix + ".manifest.json").read_text())
+    for shard in shards
+]
+if sorted(manifest["shard_index"] for manifest in manifests) != list(range(len(shards))):
+    raise SystemExit("validation shard indices are incomplete")
+if any(
+    manifest["shard_count"] != len(shards)
+    or manifest["total_candidate_count"] != len(candidate_ids)
+    for manifest in manifests
+):
+    raise SystemExit("validation shard geometry differs from the candidate set")
+stable_fields = ("judge_id", "judge_model", "judge_backend", "judge_precision")
+for field in stable_fields:
+    if len({manifest[field] for manifest in manifests}) != 1:
+        raise SystemExit(f"validation shard {field} differs")
+ordered = [rows[candidate_id] for candidate_id in sorted(rows)]
+temporary = output.with_suffix(output.suffix + ".tmp")
+temporary.write_text(
+    "".join(json.dumps(row, sort_keys=True) + "\n" for row in ordered)
+)
+temporary.replace(output)
+manifest = {
+    "format_version": manifests[0]["format_version"],
+    "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "git_commit_sha": manifests[0]["git_commit_sha"],
+    "slurm": manifests[0]["slurm"],
+    "candidate_files": manifests[0]["candidate_files"],
+    "candidate_count": len(ordered),
+    "reviewed_count": len(ordered),
+    "accepted_count": sum(bool(row["accepted"]) for row in ordered),
+    "validation_shards": [
+        {
+            "path": str(shard.resolve()),
+            "sha256": hashlib.sha256(shard.read_bytes()).hexdigest(),
+            "candidate_count": shard_manifest["candidate_count"],
+            "shard_count": shard_manifest["shard_count"],
+            "shard_index": shard_manifest["shard_index"],
+        }
+        for shard, shard_manifest in zip(shards, manifests)
+    ],
+    **{field: manifests[0][field] for field in stable_fields},
+    "acceptance_contract": manifests[0]["acceptance_contract"],
+}
+manifest_path = output.with_suffix(output.suffix + ".manifest.json")
+manifest_temporary = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+manifest_temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+manifest_temporary.replace(manifest_path)
+print(
+    f"merged_validation_shards={len(shards)} reviewed={len(ordered)} "
+    f"accepted={manifest['accepted_count']}"
+)
+PY
     fi
 
     comparison="$round_root/comparison"
@@ -472,6 +616,8 @@ PY
     if [[ -n "$source_pilot" ]]; then
         if [[ -s "$next_tasks" ]]; then
             pipeline_status="pilot-refine"
+            echo "SOURCE PILOT REFINEMENT: missed dual-view targets will enter the next four-GPU loop."
+            continue
         else
             pipeline_status="pilot-verified-subset"
         fi

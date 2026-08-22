@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
 import tempfile
 from pathlib import Path
@@ -49,6 +49,7 @@ from analysis.scripts.build_readiness_prompt_population import (
     _plan,
     _spatial_select,
     _task_row,
+    _validate_candidates,
     QuestionGenerationExhaustedError,
 )
 
@@ -638,6 +639,87 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             judge_model="model/judge",
         )
         self.assertFalse(rejected.accepted)
+
+    def test_validation_shards_are_disjoint_and_cover_every_candidate(self) -> None:
+        targets = build_target_grid(self.bounds)[:6]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+        accepted_output = (
+            '{"topic_relevant":true,"search_intent":true,'
+            '"web_answerable":true,"standalone":true,'
+            '"natural_language":true,"relevance_score_1_5":5,'
+            '"concise_reason":"A direct, answerable search question."}'
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate_path = root / "candidates.jsonl"
+            atomic_jsonl(candidate_path, (asdict(candidate) for candidate in candidates))
+            outputs = []
+            from unittest.mock import patch
+
+            for shard_index in range(2):
+                output = root / f"validation-{shard_index}.jsonl"
+                outputs.append(output)
+                validator = LocalSearchQuestionValidator(
+                    _StaticRanker([accepted_output] * len(candidates)),
+                    judge_id="independent-judge",
+                    model_name="model/judge",
+                    cache_directory=root / f"cache-{shard_index}",
+                )
+                args = SimpleNamespace(
+                    output=str(output),
+                    resume=False,
+                    candidates=[str(candidate_path)],
+                    shard_count=2,
+                    shard_index=shard_index,
+                    model="model/judge",
+                    judge_id="independent-judge",
+                    cache_dir=str(root / f"cache-{shard_index}"),
+                    backend="local",
+                    precision="full",
+                    maximum_attempts=3,
+                )
+                with patch(
+                    "analysis.scripts.build_readiness_prompt_population."
+                    "LocalSearchQuestionValidator.from_model",
+                    return_value=validator,
+                ):
+                    self.assertEqual(_validate_candidates(args), 0)
+
+            shard_ids = [
+                {
+                    json.loads(line)["candidate_id"]
+                    for line in output.read_text().splitlines()
+                    if line.strip()
+                }
+                for output in outputs
+            ]
+            manifests = [
+                json.loads(
+                    output.with_suffix(".jsonl.manifest.json").read_text()
+                )
+                for output in outputs
+            ]
+
+        self.assertFalse(shard_ids[0] & shard_ids[1])
+        self.assertEqual(
+            shard_ids[0] | shard_ids[1],
+            {candidate.candidate_id for candidate in candidates},
+        )
+        self.assertEqual([row["shard_index"] for row in manifests], [0, 1])
+        self.assertTrue(
+            all(row["total_candidate_count"] == len(candidates) for row in manifests)
+        )
 
     def test_generator_atomically_resumes_after_each_accepted_question(self) -> None:
         target = build_target_grid(self.bounds)[0]

@@ -99,6 +99,8 @@ case "$stage" in
             --cache-dir "${READINESS_VALIDATION_CACHE:?READINESS_VALIDATION_CACHE is required}" \
             --output "${READINESS_VALIDATION_OUTPUT:?READINESS_VALIDATION_OUTPUT is required}" \
             --maximum-attempts "${READINESS_VALIDATION_MAXIMUM_ATTEMPTS:-3}" \
+            --shard-count "${READINESS_VALIDATION_SHARD_COUNT:-1}" \
+            --shard-index "${READINESS_VALIDATION_SHARD_INDEX:-0}" \
             --resume
         ;;
     project-qwen)

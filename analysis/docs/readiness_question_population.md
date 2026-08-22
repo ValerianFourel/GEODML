@@ -301,7 +301,8 @@ and performs, in order:
 
 1. Qwen/Gemma candidate generation with per-task caches;
 2. raw wording-diversity diagnostics;
-3. independent Ministral search-question validation;
+3. two deterministic shards of independent Ministral search-question
+   validation;
 4. concurrent Qwen and Mistral LLM2Vec projection in their own pinned runtimes;
 5. frozen development-corpus alignment and cross-view comparison;
 6. strict dual-view target matching with exact delexicalized-template
@@ -316,13 +317,23 @@ each stage. Generator models are configurable through
 must match the generator assignments frozen in the plan. The independent
 validator must be a different model from both generators.
 
+The runner requires four allocated GPUs. Candidate generation assigns two
+workers to each proposal model. During every verification/refinement pass, two
+GPUs validate disjoint deterministic candidate shards while the other two GPUs
+independently project the identical complete candidate set through Qwen and
+Mistral LLM2Vec. The validation shards are merged only after their disjoint
+union is proven to equal the candidate set. A prompt that misses the target
+tolerance in either embedding view is not accepted: its measured displacement
+becomes feedback for the next generation round, and the four-GPU loop repeats.
+
 Set `READINESS_SOURCE_PILOT_ROOT` to verify an already generated pilot without
 regenerating it. Because a runtime-limited pilot may cover only a subset of
-keywords, this mode measures and reports refinement tasks but never claims that
-the 30,330-target population is complete. Without that variable, every planned
-generation shard must reach a terminal checkpoint before validation and
-projection begin; an expiring allocation therefore exits cleanly and the same
-entrypoint resumes it in the next separately approved allocation.
+keywords, this mode executes measured refinement rounds for that subset but
+never claims that the 30,330-target population is complete. Without that
+variable, every planned generation shard must reach a terminal checkpoint
+before validation and projection begin; an expiring allocation therefore exits
+cleanly and the same entrypoint resumes it in the next separately approved
+allocation.
 
 Before validation or projection, audit a balanced generation slice for wording
 collapse.  This check removes each exact keyword phrase before comparing the

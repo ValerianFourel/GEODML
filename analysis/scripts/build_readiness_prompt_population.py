@@ -152,6 +152,8 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--cache-dir", required=True)
     validate.add_argument("--output", required=True)
     validate.add_argument("--maximum-attempts", type=int, default=3)
+    validate.add_argument("--shard-count", type=int, default=1)
+    validate.add_argument("--shard-index", type=int, default=0)
     validate.add_argument("--resume", action="store_true")
 
     score = stages.add_parser(
@@ -611,13 +613,23 @@ def _validate_candidates(args) -> int:
     output = Path(args.output).resolve()
     if output.exists() and not args.resume:
         raise ValueError(f"refusing to overwrite validation file: {output}")
-    candidates = tuple(
+    all_candidates = tuple(
         ReadinessQuestionCandidate(**row)
         for path in args.candidates
         for row in read_jsonl(path)
     )
-    if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
+    if not all_candidates or len(
+        {row.candidate_id for row in all_candidates}
+    ) != len(all_candidates):
         raise ValueError("validation candidates must be nonempty and uniquely identified")
+    if args.shard_count <= 0 or not 0 <= args.shard_index < args.shard_count:
+        raise ValueError("validation shard must satisfy 0 <= index < count")
+    candidates = tuple(
+        row
+        for row in all_candidates
+        if int(_sha256_text(row.candidate_id)[:16], 16) % args.shard_count
+        == args.shard_index
+    )
     existing = {
         str(row["candidate_id"]): row
         for row in (read_jsonl(output) if output.exists() else [])
@@ -654,6 +666,9 @@ def _validate_candidates(args) -> int:
             "slurm": _slurm_environment(),
             "candidate_files": [_file_identity(path) for path in args.candidates],
             "candidate_count": len(candidates),
+            "total_candidate_count": len(all_candidates),
+            "shard_count": args.shard_count,
+            "shard_index": args.shard_index,
             "reviewed_count": len(rows),
             "accepted_count": sum(bool(row["accepted"]) for row in rows),
             "judge_id": args.judge_id,

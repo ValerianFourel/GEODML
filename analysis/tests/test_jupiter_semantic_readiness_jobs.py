@@ -106,6 +106,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
         self.assertIn("READINESS_SOURCE_PILOT_ROOT", script)
         self.assertIn("READINESS_MAX_REFINEMENT_ROUNDS", script)
+        self.assertIn("the end-to-end loop requires four allocated GPUs", script)
         self.assertIn("GENERATION CHECKPOINTED", script)
         self.assertIn("validate", script)
         self.assertIn("project-qwen", script)
@@ -117,6 +118,9 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("verified_population_passed", script)
         self.assertIn('pipeline_status="quality-gate-failed"', script)
         self.assertIn("not source_pilot_mode", script)
+        self.assertIn("validation_shard_count=2", script)
+        self.assertIn("validation shards do not cover the exact candidate set", script)
+        self.assertIn("SOURCE PILOT REFINEMENT", script)
         self.assertIn("the independent validator must differ", script)
 
         self.assertIn("GEODML_GENERATOR_VENV", worker)
@@ -125,6 +129,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("PYTHONNOUSERSITE=1", worker)
         self.assertIn('case "$stage"', worker)
         self.assertIn("validate-candidates", worker)
+        self.assertIn("READINESS_VALIDATION_SHARD_COUNT", worker)
+        self.assertIn("READINESS_VALIDATION_SHARD_INDEX", worker)
         self.assertIn("project-candidates", worker)
 
     def test_prompt_round1_runner_is_resumable_and_fail_closed(self) -> None:
