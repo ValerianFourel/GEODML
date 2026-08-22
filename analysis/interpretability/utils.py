@@ -531,7 +531,7 @@ class LocalRanker:
 
     def __init__(self, model: str, quantize: bool = False, dtype: str = "bfloat16"):
         import torch
-        from transformers import AutoModelForCausalLM
+        from transformers import AutoConfig, AutoModelForCausalLM
 
         self.model_name = model
         self.quantize = quantize
@@ -563,7 +563,27 @@ class LocalRanker:
             f"device_map={device_map_strategy} attention={attention_implementation or 'model-default'}",
             flush=True,
         )
-        self.model = AutoModelForCausalLM.from_pretrained(model, **kw)
+        config = AutoConfig.from_pretrained(model, local_files_only=True)
+        architectures = tuple(config.architectures or ())
+        if any(name.endswith("ForCausalLM") for name in architectures):
+            auto_model_class = AutoModelForCausalLM
+        elif any(
+            name in {
+                "Gemma4ForConditionalGeneration",
+                "Mistral3ForConditionalGeneration",
+            }
+            for name in architectures
+        ):
+            from transformers import AutoModelForMultimodalLM
+
+            auto_model_class = AutoModelForMultimodalLM
+        else:
+            raise RuntimeError(
+                "local generation requires a causal-LM checkpoint or a supported "
+                "text-only conditional checkpoint; "
+                f"found architectures={architectures!r}"
+            )
+        self.model = auto_model_class.from_pretrained(model, config=config, **kw)
         self.model.eval()
         log_device_map(self.model, prefix="[LocalRanker]")
         if required_gpu_count is not None:

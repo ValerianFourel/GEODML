@@ -28,6 +28,10 @@ INCREMENTAL_AUDIT = JUPITER_ROOT / "audit_readiness_incremental_four_judge.sh"
 ABSTENTION_20K_AUDIT = JUPITER_ROOT / "audit_readiness_20k_abstention.sh"
 READINESS_HF_EMBEDDINGS = JUPITER_ROOT / "run_readiness_hf_embedding_views.sh"
 READINESS_PROMPT_ROUND1 = JUPITER_ROOT / "run_readiness_prompt_round1.sh"
+READINESS_30K_PILOT = JUPITER_ROOT / "run_readiness_30k_four_gpu_pilot.sh"
+READINESS_GENERATOR_INSTALLER = (
+    JUPITER_ROOT / "install_readiness_generator_runtime.sh"
+)
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -46,6 +50,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             ABSTENTION_20K_AUDIT,
             READINESS_HF_EMBEDDINGS,
             READINESS_PROMPT_ROUND1,
+            READINESS_30K_PILOT,
+            READINESS_GENERATOR_INSTALLER,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -55,6 +61,27 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_30k_pilot_preflights_models_and_retains_exhausted_tasks(self) -> None:
+        script = READINESS_30K_PILOT.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotIn("sbatch", script)
+        self.assertLess(
+            script.index('cd "$GEODML_REPOSITORY"'),
+            script.index("from analysis.interpretability.utils"),
+        )
+        self.assertIn('expected_transformers = "5.6.2"', script)
+        self.assertIn("AutoConfig.from_pretrained", script)
+        self.assertIn("AutoModelForMultimodalLM", script)
+        self.assertIn("--allow-failed-tasks", script)
+        self.assertIn('"failed_task_count": manifest["failed_task_count"]', script)
+
+        installer = READINESS_GENERATOR_INSTALLER.read_text(encoding="utf-8")
+        self.assertNotIn("salloc", installer)
+        self.assertNotIn("sbatch", installer)
+        self.assertIn('"transformers==5.6.2"', installer)
+        self.assertIn("--system-site-packages", installer)
 
     def test_prompt_round1_runner_is_resumable_and_fail_closed(self) -> None:
         script = READINESS_PROMPT_ROUND1.read_text(encoding="utf-8")

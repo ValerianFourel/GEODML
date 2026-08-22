@@ -23,6 +23,10 @@ from .readiness_embedding_map import ReadinessEmbeddingMap
 READINESS_PROMPT_POPULATION_VERSION = "readiness-question-population-v2"
 
 
+class QuestionGenerationExhaustedError(RuntimeError):
+    """All deterministic validation attempts for one generation task failed."""
+
+
 @dataclass(frozen=True, slots=True)
 class ReadinessSubspaceBounds:
     axis_1_low: float
@@ -322,6 +326,16 @@ class LocalReadinessQuestionGenerator:
                     failures.append(
                         {"slot": slot, "attempt": attempt, "error": str(exc), "raw": raw}
                     )
+                    _atomic_json(
+                        cache_path,
+                        {
+                            "identity": identity,
+                            "questions": accepted,
+                            "failures": failures,
+                            "complete": False,
+                            "terminal_failure": False,
+                        },
+                    )
                     continue
                 accepted.append(question)
                 _atomic_json(
@@ -335,9 +349,24 @@ class LocalReadinessQuestionGenerator:
                 )
                 break
             else:
-                raise RuntimeError(
+                terminal_error = (
+                    str(failures[-1]["error"]) if failures else "unknown error"
+                )
+                _atomic_json(
+                    cache_path,
+                    {
+                        "identity": identity,
+                        "questions": accepted,
+                        "failures": failures,
+                        "complete": False,
+                        "terminal_failure": True,
+                        "terminal_slot": slot,
+                        "terminal_error": terminal_error,
+                    },
+                )
+                raise QuestionGenerationExhaustedError(
                     f"question generation failed for {task.task_id} slot {slot}: "
-                    f"{failures[-1]['error'] if failures else 'unknown error'}"
+                    f"{terminal_error}"
                 )
         _atomic_json(
             cache_path,
@@ -346,6 +375,7 @@ class LocalReadinessQuestionGenerator:
                 "questions": accepted,
                 "failures": failures,
                 "complete": True,
+                "terminal_failure": False,
             },
         )
         return tuple(accepted)

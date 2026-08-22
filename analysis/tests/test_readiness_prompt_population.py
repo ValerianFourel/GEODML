@@ -45,8 +45,11 @@ from analysis.interpretability.pipeline.readiness_hf_dataset import (
 from analysis.scripts.build_readiness_prompt_population import (
     _compare_projections,
     _dual_view_refinement_feedback,
+    _generate,
     _plan,
     _spatial_select,
+    _task_row,
+    QuestionGenerationExhaustedError,
 )
 
 
@@ -670,6 +673,7 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             partial = json.loads(next(Path(temporary).glob("*.json")).read_text())
             self.assertEqual(partial["questions"], [first_question])
             self.assertFalse(partial["complete"])
+            self.assertTrue(partial["terminal_failure"])
 
             resumed_ranker = _StaticRanker([json.dumps({"question": second_question})])
             resumed = LocalReadinessQuestionGenerator(
@@ -683,6 +687,79 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             self.assertEqual(resumed_ranker.call_count, 1)
             complete = json.loads(next(Path(temporary).glob("*.json")).read_text())
             self.assertTrue(complete["complete"])
+            self.assertFalse(complete["terminal_failure"])
+
+    def test_generate_can_record_one_exhausted_task_and_finish_its_slice(self) -> None:
+        targets = build_target_grid(self.bounds)[:2]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        original_generate = generate_question_candidates
+
+        def generate_or_fail(selected_tasks, generator):
+            if selected_tasks[0].task_id == tasks[0].task_id:
+                raise QuestionGenerationExhaustedError(
+                    "question lost the exact keyword phrase"
+                )
+            return original_generate(selected_tasks, generator)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            task_path = root / "tasks.jsonl"
+            output = root / "candidates.jsonl"
+            atomic_jsonl(task_path, (_task_row(task) for task in tasks))
+            args = SimpleNamespace(
+                output=str(output),
+                resume=False,
+                tasks=str(task_path),
+                generator_id="fake",
+                start_index=0,
+                limit=None,
+                shard_count=1,
+                shard_index=0,
+                maximum_runtime_seconds=None,
+                backend="fake",
+                model="fake/model",
+                cache_dir=str(root / "cache"),
+                precision="full",
+                max_new_tokens=180,
+                temperature=0.9,
+                maximum_attempts=1,
+                allow_failed_tasks=True,
+            )
+            from unittest.mock import patch
+
+            with patch(
+                "analysis.scripts.build_readiness_prompt_population.generate_question_candidates",
+                side_effect=generate_or_fail,
+            ):
+                self.assertEqual(_generate(args), 0)
+
+            candidates = [
+                json.loads(line)
+                for line in output.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            failures = [
+                json.loads(line)
+                for line in output.with_suffix(".jsonl.failures.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.strip()
+            ]
+            manifest = json.loads(
+                output.with_suffix(".jsonl.manifest.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual([row["task_id"] for row in failures], [tasks[0].task_id])
+        self.assertEqual(manifest["completed_task_count"], 1)
+        self.assertEqual(manifest["failed_task_count"], 1)
+        self.assertFalse(manifest["slice_complete"])
+        self.assertTrue(manifest["slice_terminal"])
 
     def test_search_validator_normalizes_integer_equivalent_scores(self) -> None:
         target = build_target_grid(self.bounds)[0]

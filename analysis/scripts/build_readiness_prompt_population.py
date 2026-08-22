@@ -33,6 +33,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     FakeReadinessQuestionGenerator,
     LocalSearchQuestionValidator,
     LocalReadinessQuestionGenerator,
+    QuestionGenerationExhaustedError,
     ReadinessGenerationTask,
     ReadinessPromptTarget,
     ReadinessQuestionCandidate,
@@ -117,6 +118,14 @@ def _parser() -> argparse.ArgumentParser:
         help="stop cleanly between tasks after this elapsed runtime",
     )
     generate.add_argument("--resume", action="store_true")
+    generate.add_argument(
+        "--allow-failed-tasks",
+        action="store_true",
+        help=(
+            "record tasks that exhaust generation validation and continue the "
+            "slice; unexpected model/runtime failures still abort"
+        ),
+    )
 
     imported = stages.add_parser(
         "import-proposals",
@@ -379,8 +388,11 @@ def _plan(args) -> int:
 def _generate(args) -> int:
     started = time.monotonic()
     output = Path(args.output).resolve()
+    failure_output = output.with_suffix(output.suffix + ".failures.jsonl")
     if output.exists() and not args.resume:
         raise ValueError(f"refusing to overwrite candidate file: {output}")
+    if failure_output.exists() and not args.resume:
+        raise ValueError(f"refusing to overwrite task-failure file: {failure_output}")
     tasks = [task for task in _read_tasks(args.tasks) if task.generator_id == args.generator_id]
     if (
         args.start_index < 0
@@ -433,16 +445,49 @@ def _generate(args) -> int:
         for task_id, count in existing_counts.items()
         if count == requested_counts[task_id]
     }
+    existing_failures = {
+        str(row["task_id"]): row
+        for row in (read_jsonl(failure_output) if failure_output.exists() else [])
+    }
+    if any(task_id not in expected_task_ids for task_id in existing_failures):
+        raise ValueError("resume failure file contains tasks outside the requested slice")
+    if existing_failures and not args.allow_failed_tasks:
+        raise ValueError("resume failure file requires --allow-failed-tasks")
+    failed_by_task = dict(existing_failures)
     generated_task_count = 0
     for task in tasks:
-        if task.task_id in completed_task_ids:
+        if task.task_id in completed_task_ids or task.task_id in failed_by_task:
             continue
         if (
             args.maximum_runtime_seconds is not None
             and time.monotonic() - started >= args.maximum_runtime_seconds
         ):
             break
-        new_rows = generate_question_candidates((task,), generator)
+        try:
+            new_rows = generate_question_candidates((task,), generator)
+        except QuestionGenerationExhaustedError as exc:
+            if not args.allow_failed_tasks:
+                raise
+            failed_by_task[task.task_id] = {
+                "task_id": task.task_id,
+                "keyword_id": task.keyword_id,
+                "keyword": task.keyword,
+                "generator_id": task.generator_id,
+                "round_index": task.round_index,
+                "failure_type": type(exc).__name__,
+                "error": str(exc),
+                "recorded_at": _now(),
+            }
+            atomic_jsonl(
+                failure_output,
+                (failed_by_task[key] for key in sorted(failed_by_task)),
+            )
+            print(
+                f"failed_task={task.task_id} failed_tasks={len(failed_by_task)} "
+                f"error={exc}",
+                flush=True,
+            )
+            continue
         by_id.update((row.candidate_id, row) for row in new_rows)
         completed_task_ids.add(task.task_id)
         generated_task_count += 1
@@ -453,8 +498,13 @@ def _generate(args) -> int:
             )
     rows = tuple(by_id[key] for key in sorted(by_id))
     atomic_jsonl(output, (asdict(row) for row in rows))
+    atomic_jsonl(
+        failure_output,
+        (failed_by_task[key] for key in sorted(failed_by_task)),
+    )
     elapsed_seconds = time.monotonic() - started
     slice_complete = len(completed_task_ids) == len(tasks)
+    slice_terminal = len(completed_task_ids) + len(failed_by_task) == len(tasks)
     atomic_json(
         output.with_suffix(output.suffix + ".manifest.json"),
         {
@@ -473,19 +523,24 @@ def _generate(args) -> int:
             "task_shard_count": args.shard_count,
             "requested_task_count": len(tasks),
             "completed_task_count": len(completed_task_ids),
+            "failed_task_count": len(failed_by_task),
+            "failed_task_ids": sorted(failed_by_task),
             "generated_task_count_this_invocation": generated_task_count,
             "slice_complete": slice_complete,
+            "slice_terminal": slice_terminal,
             "candidate_count": len(rows),
             "elapsed_seconds": elapsed_seconds,
             "maximum_runtime_seconds": args.maximum_runtime_seconds,
             "temperature": args.temperature,
             "max_new_tokens": args.max_new_tokens,
             "maximum_attempts": args.maximum_attempts,
+            "allow_failed_tasks": args.allow_failed_tasks,
         },
     )
     print(
         f"generator={args.generator_id} tasks={len(completed_task_ids)}/{len(tasks)} "
-        f"candidates={len(rows)} elapsed_seconds={elapsed_seconds:.1f}"
+        f"failed_tasks={len(failed_by_task)} candidates={len(rows)} "
+        f"elapsed_seconds={elapsed_seconds:.1f}"
     )
     print(f"output={output}")
     return 0

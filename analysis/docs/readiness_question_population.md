@@ -277,12 +277,22 @@ are deterministic, so interrupted jobs can resume safely. `--start-index` and
 GPU workers. `--maximum-runtime-seconds` stops cleanly between tasks. Each
 accepted question is atomically checkpointed in the task cache immediately,
 including partial multi-candidate tasks, before generation continues.
+With `--allow-failed-tasks`, a task that exhausts all deterministic validation
+attempts is written to the adjacent `*.failures.jsonl` file and generation
+continues. Model-loading, CUDA, and other unexpected runtime errors still abort
+the worker.
 
 For a four-GPU throughput pilot, use
 `analysis/scripts/slurm/jupiter/run_readiness_30k_four_gpu_pilot.sh` inside an
 approved four-GPU allocation. It runs two workers per generator, stops
 generation after 50 minutes by default, audits the combined candidate bank, and
-writes `throughput_summary.json` with projected full-run GPU-hours.
+writes `throughput_summary.json` with projected full-run GPU-hours. The pilot
+requires the separate pinned Transformers 5.6.2 proposal runtime because Gemma4
+is not supported by the older judge-panel environment. Install it once, without
+a Slurm allocation, using
+`analysis/scripts/slurm/jupiter/install_readiness_generator_runtime.sh`. The
+pilot preflights both model configurations, auto-model mappings, and tokenizers
+before any GPU weights are loaded.
 
 Before validation or projection, audit a balanced generation slice for wording
 collapse.  This check removes each exact keyword phrase before comparing the

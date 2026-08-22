@@ -38,7 +38,13 @@ export GEODML_MODELS_ROOT="${GEODML_MODELS_ROOT:-$GEODML_PROJECT_ROOT/models}"
 export GEODML_RUNS_ROOT="${GEODML_RUNS_ROOT:-$GEODML_PROJECT_ROOT/runs}"
 export GEODML_CACHE_ROOT="${GEODML_CACHE_ROOT:-$FSCRATCH/$USER/geodml}"
 export GEODML_REPOSITORY="${GEODML_REPOSITORY:-$GEODML_PROJECT_ROOT/src/geodml-mono-$GEODML_EXPECTED_COMMIT}"
-export GEODML_MODEL_VENV="${GEODML_MODEL_VENV:-$GEODML_CACHE_ROOT/python/.venv-model-panel-transformers5141}"
+export GEODML_MODEL_VENV="${GEODML_MODEL_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-generators-transformers562}"
+
+if [[ ! -x "$GEODML_MODEL_VENV/bin/python" ]]; then
+    echo "missing generator runtime: $GEODML_MODEL_VENV" >&2
+    echo "install it with analysis/scripts/slurm/jupiter/install_readiness_generator_runtime.sh" >&2
+    exit 2
+fi
 
 source "$GEODML_MODEL_VENV/bin/activate"
 export PYTHONPATH="$GEODML_MODEL_VENV/lib/python3.13/site-packages${GEODML_MODULE_PYTHONPATH:+:$GEODML_MODULE_PYTHONPATH}"
@@ -61,6 +67,7 @@ actual_commit="$(git -C "$GEODML_REPOSITORY" rev-parse HEAD)"
     echo "generation requires a clean exact-commit checkout" >&2
     exit 2
 }
+cd "$GEODML_REPOSITORY"
 
 plan_pointer="${READINESS_30K_PLAN_POINTER:-$GEODML_PROJECT_ROOT/geodml-readiness-30k-v2-plan-latest.txt}"
 export READINESS_30K_PLAN_ROOT="${READINESS_30K_PLAN_ROOT:-$(<"$plan_pointer")}"
@@ -78,13 +85,54 @@ python - "$QWEN_GENERATOR_MODEL" "$GEMMA_GENERATOR_MODEL" <<'PY'
 import sys
 
 from analysis.interpretability.utils import load_local_tokenizer
+import transformers
+from transformers import AutoConfig, AutoModelForCausalLM
+
+expected_transformers = "5.6.2"
+if transformers.__version__ != expected_transformers:
+    raise SystemExit(
+        "generator runtime mismatch: "
+        f"expected transformers={expected_transformers}, "
+        f"found {transformers.__version__}"
+    )
 
 for model_path in sys.argv[1:]:
+    config = AutoConfig.from_pretrained(model_path, local_files_only=True)
+    architectures = tuple(config.architectures or ())
+    if any(name.endswith("ForCausalLM") for name in architectures):
+        auto_model_class = AutoModelForCausalLM
+        loader_kind = "causal"
+    elif any(
+        name in {
+            "Gemma4ForConditionalGeneration",
+            "Mistral3ForConditionalGeneration",
+        }
+        for name in architectures
+    ):
+        from transformers import AutoModelForMultimodalLM
+
+        auto_model_class = AutoModelForMultimodalLM
+        loader_kind = "multimodal-text-only"
+    else:
+        raise SystemExit(
+            f"unsupported generator architectures for {model_path}: {architectures!r}"
+        )
+    try:
+        resolved_model_class = auto_model_class._model_mapping[type(config)]
+    except KeyError as exc:
+        raise SystemExit(
+            f"runtime cannot resolve {type(config).__name__} with {loader_kind} loader"
+        ) from exc
     tokenizer = load_local_tokenizer(
         model_path,
         use_fast=True,
     )
-    print(f"tokenizer preflight: OK model={model_path} type={type(tokenizer).__name__}")
+    print(
+        "model/tokenizer preflight: OK "
+        f"model={model_path} config={type(config).__name__} "
+        f"loader={loader_kind}:{resolved_model_class.__name__} "
+        f"tokenizer={type(tokenizer).__name__}"
+    )
 PY
 
 export READINESS_GENERATION_SECONDS="${READINESS_GENERATION_SECONDS:-3000}"
@@ -96,7 +144,6 @@ echo "RUN_ROOT=$READINESS_30K_PILOT_ROOT"
 echo "Worker output is written to $READINESS_30K_PILOT_ROOT/logs"
 echo "A progress heartbeat will appear every 60 seconds."
 
-cd "$GEODML_REPOSITORY"
 git rev-parse HEAD > "$READINESS_30K_PILOT_ROOT/git-commit.txt"
 printf '%s\n' "01:00:00" > "$READINESS_30K_PILOT_ROOT/approved-walltime.txt"
 printf '%s\n' "four one-GPU workers for 50 minutes plus audit margin" > "$READINESS_30K_PILOT_ROOT/runtime-estimate-basis.txt"
@@ -126,6 +173,7 @@ run_worker() {
         --shard-count 2 \
         --shard-index "$shard_index" \
         --maximum-runtime-seconds "$READINESS_GENERATION_SECONDS" \
+        --allow-failed-tasks \
         --resume > "$log" 2>&1
 }
 
@@ -221,11 +269,14 @@ for path in sorted((root / "candidates").glob("*.jsonl.manifest.json")):
             "generator_id": manifest["generator_id"],
             "candidate_count": manifest["candidate_count"],
             "completed_task_count": manifest["completed_task_count"],
+            "failed_task_count": manifest["failed_task_count"],
             "elapsed_seconds": manifest["elapsed_seconds"],
             "slice_complete": manifest["slice_complete"],
+            "slice_terminal": manifest["slice_terminal"],
         }
     )
 candidate_count = sum(row["candidate_count"] for row in workers)
+failed_task_count = sum(row["failed_task_count"] for row in workers)
 gpu_seconds = sum(row["elapsed_seconds"] for row in workers)
 rate = candidate_count / gpu_seconds if gpu_seconds else 0.0
 planned = int(plan["maximum_planned_candidate_count"])
@@ -235,6 +286,7 @@ summary = {
     "planned_target_count": int(plan["task_count"]),
     "planned_candidate_count": planned,
     "pilot_candidate_count": candidate_count,
+    "pilot_failed_task_count": failed_task_count,
     "pilot_gpu_hours": gpu_seconds / 3600,
     "candidates_per_gpu_hour": rate * 3600,
     "estimated_full_generation_gpu_hours": estimated_gpu_hours,
