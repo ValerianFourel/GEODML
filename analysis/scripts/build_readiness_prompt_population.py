@@ -160,8 +160,16 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--cache-dir", required=True)
     validate.add_argument("--output", required=True)
     validate.add_argument("--maximum-attempts", type=int, default=3)
+    validate.add_argument("--inference-batch-size", type=int, default=8)
     validate.add_argument("--shard-count", type=int, default=1)
     validate.add_argument("--shard-index", type=int, default=0)
+    validate.add_argument(
+        "--base-validation",
+        help=(
+            "reuse immutable reviews from a previous cumulative validation file; "
+            "only candidates absent from it are sent to the judge"
+        ),
+    )
     validate.add_argument(
         "--shard-salt",
         default="",
@@ -205,6 +213,13 @@ def _parser() -> argparse.ArgumentParser:
     project.add_argument("--peft-model")
     project.add_argument("--embedding-batch-size", type=int, default=8)
     project.add_argument("--embedding-max-length", type=int, default=512)
+    project.add_argument(
+        "--base-projections",
+        help=(
+            "reuse immutable embeddings and projections for an exact candidate "
+            "subset, embedding only newly appended candidates"
+        ),
+    )
     project.add_argument("--output-dir", required=True)
 
     compare = stages.add_parser(
@@ -664,6 +679,11 @@ def _validate_candidates(args) -> int:
         raise ValueError("validation candidates must be nonempty and uniquely identified")
     if args.shard_count <= 0 or not 0 <= args.shard_index < args.shard_count:
         raise ValueError("validation shard must satisfy 0 <= index < count")
+    # Direct library callers predate the CLI batch option and retain singleton
+    # checkpoint behavior unless they opt in explicitly.
+    inference_batch_size = int(getattr(args, "inference_batch_size", 1))
+    if inference_batch_size <= 0:
+        raise ValueError("validation inference batch size must be positive")
     shard_salt = str(getattr(args, "shard_salt", ""))
     candidates = tuple(
         row
@@ -686,6 +706,41 @@ def _validate_candidates(args) -> int:
     candidate_ids = {row.candidate_id for row in candidates}
     if not set(existing).issubset(candidate_ids):
         raise ValueError("existing validation contains unknown candidate ids")
+    base_validation_identity = None
+    base_validation_value = getattr(args, "base_validation", None)
+    if base_validation_value:
+        base_validation = Path(base_validation_value).resolve()
+        base_manifest_path = base_validation.with_suffix(
+            base_validation.suffix + ".manifest.json"
+        )
+        if not base_validation.is_file() or not base_manifest_path.is_file():
+            raise ValueError("base validation and its manifest must both exist")
+        base_manifest = read_json(base_manifest_path)
+        stable_identity = {
+            "judge_id": args.judge_id,
+            "judge_model": args.model,
+            "judge_backend": args.backend,
+            "judge_precision": args.precision,
+        }
+        if any(base_manifest.get(key) != value for key, value in stable_identity.items()):
+            raise ValueError("base validation uses a different independent judge")
+        base_rows = read_jsonl(base_validation)
+        base_by_id = {str(row["candidate_id"]): row for row in base_rows}
+        if (
+            len(base_by_id) != len(base_rows)
+            or int(base_manifest.get("reviewed_count", -1)) != len(base_rows)
+            or not set(base_by_id).issubset(
+                {row.candidate_id for row in all_candidates}
+            )
+        ):
+            raise ValueError("base validation candidate identities are inconsistent")
+        for candidate_id in sorted(candidate_ids & set(base_by_id)):
+            if candidate_id in existing and existing[candidate_id] != base_by_id[candidate_id]:
+                raise ValueError(
+                    f"base validation conflicts with resume output: {candidate_id}"
+                )
+            existing[candidate_id] = base_by_id[candidate_id]
+        base_validation_identity = _file_identity(base_manifest_path)
     pending = [row for row in candidates if row.candidate_id not in existing]
     if pending:
         validator = LocalSearchQuestionValidator.from_model(
@@ -696,22 +751,26 @@ def _validate_candidates(args) -> int:
             precision=args.precision,
             maximum_attempts=args.maximum_attempts,
         )
-        for index, candidate in enumerate(pending, start=1):
-            review = validator.review(candidate)
-            existing[candidate.candidate_id] = asdict(review)
-            if index % 10 == 0 or index == len(pending):
-                # A validator shard can run for hours.  Persist every reported
-                # milestone so an allocation timeout resumes from the exact
-                # reviewed set instead of relying only on per-question caches.
-                checkpoint_rows = [
-                    existing[candidate_id]
-                    for candidate_id in sorted(existing)
-                ]
-                atomic_jsonl(output, checkpoint_rows)
-                print(
-                    f"validated={len(existing)}/{len(candidates)} "
-                    f"accepted={sum(bool(row['accepted']) for row in existing.values())}"
-                )
+        for start in range(0, len(pending), inference_batch_size):
+            batch = pending[start : start + inference_batch_size]
+            if callable(getattr(validator, "review_many", None)):
+                reviews = validator.review_many(batch)
+            else:
+                reviews = tuple(validator.review(candidate) for candidate in batch)
+            existing.update(
+                (review.candidate_id, asdict(review)) for review in reviews
+            )
+            # Persist after every inference batch so a preemption loses at most
+            # one in-flight batch.  Per-candidate caches are written even sooner.
+            checkpoint_rows = [
+                existing[candidate_id]
+                for candidate_id in sorted(existing)
+            ]
+            atomic_jsonl(output, checkpoint_rows)
+            print(
+                f"validated={len(existing)}/{len(candidates)} "
+                f"accepted={sum(bool(row['accepted']) for row in existing.values())}"
+            )
     rows = [existing[candidate_id] for candidate_id in sorted(existing)]
     atomic_jsonl(output, rows)
     atomic_json(
@@ -729,6 +788,8 @@ def _validate_candidates(args) -> int:
             "shard_salt": shard_salt,
             "reviewed_count": len(rows),
             "accepted_count": sum(bool(row["accepted"]) for row in rows),
+            "inference_batch_size": inference_batch_size,
+            "base_validation_manifest": base_validation_identity,
             "judge_id": args.judge_id,
             "judge_model": args.model,
             "judge_backend": args.backend,
@@ -902,28 +963,134 @@ def _project_candidates(args) -> int:
     )
     if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
         raise ValueError("projection candidates must be nonempty and uniquely identified")
-    embedder = LLM2VecPromptEmbedder(
-        args.embedding_model,
-        mntp_model_name_or_path=args.mntp_model,
-        peft_model_name_or_path=args.peft_model,
-        batch_size=args.embedding_batch_size,
-        max_length=args.embedding_max_length,
+    base_root_value = getattr(args, "base_projections", None)
+    base_projection_by_id = {}
+    base_embedding_by_id = {}
+    base_identity = None
+    if base_root_value:
+        base_root = Path(base_root_value).resolve()
+        base_manifest_path = base_root / "projection_manifest.json"
+        base_projection_path = base_root / "question_projections.jsonl"
+        base_embedding_path = (
+            base_root / "question_embeddings.restricted-local.npz"
+        )
+        for required in (
+            base_manifest_path,
+            base_projection_path,
+            base_embedding_path,
+        ):
+            if not required.is_file():
+                raise ValueError(f"base projection artifact is missing: {required}")
+        base_manifest = read_json(base_manifest_path)
+        expected_embedding = {
+            "model": str(Path(args.embedding_model).resolve()),
+            "mntp_model": (
+                str(Path(args.mntp_model).resolve()) if args.mntp_model else None
+            ),
+            "peft_model": (
+                str(Path(args.peft_model).resolve()) if args.peft_model else None
+            ),
+            "max_length": args.embedding_max_length,
+        }
+        if (
+            base_manifest.get("map_id") != fitted.map_id
+            or base_manifest.get("map") != _file_identity(args.map)
+            or base_manifest.get("reference_coordinates")
+            != _file_identity(args.reference_coordinates)
+            or any(
+                base_manifest.get("embedding", {}).get(key) != value
+                for key, value in expected_embedding.items()
+            )
+        ):
+            raise ValueError(
+                "base projections use a different frozen map or embedding stack"
+            )
+        base_rows = read_jsonl(base_projection_path)
+        if len({row["candidate_id"] for row in base_rows}) != len(base_rows):
+            raise ValueError("base projections contain duplicate candidate ids")
+        base_projection_by_id = {row["candidate_id"]: row for row in base_rows}
+        with np.load(base_embedding_path, allow_pickle=False) as payload:
+            base_candidate_ids = [str(value) for value in payload["candidate_ids"]]
+            base_embeddings = np.asarray(payload["embeddings"], dtype=np.float32)
+        if (
+            len(base_candidate_ids) != len(base_embeddings)
+            or len(set(base_candidate_ids)) != len(base_candidate_ids)
+            or set(base_candidate_ids) != set(base_projection_by_id)
+            or int(base_manifest.get("candidate_count", -1)) != len(base_candidate_ids)
+        ):
+            raise ValueError("base projection artifacts disagree on candidate identity")
+        base_embedding_by_id = dict(zip(base_candidate_ids, base_embeddings))
+        current_by_id = {row.candidate_id: row for row in candidates}
+        if not set(base_projection_by_id).issubset(current_by_id):
+            raise ValueError("base projections are not a subset of current candidates")
+        for candidate_id, base_row in base_projection_by_id.items():
+            candidate = current_by_id[candidate_id]
+            projection = base_row.get("projection", {})
+            if (
+                base_row.get("question_sha256") != candidate.question_sha256
+                or projection.get("item_id") != candidate_id
+                or projection.get("text_sha256") != candidate.question_sha256
+            ):
+                raise ValueError(
+                    f"base projection text identity differs: {candidate_id}"
+                )
+        base_identity = _file_identity(base_manifest_path)
+
+    new_candidates = tuple(
+        row for row in candidates if row.candidate_id not in base_projection_by_id
     )
-    embeddings = embedder.embed([row.question for row in candidates])
-    projections = project_text_embeddings(
-        fitted,
-        bounds,
-        item_ids=[row.candidate_id for row in candidates],
-        text_sha256s=[row.question_sha256 for row in candidates],
-        embeddings=embeddings,
+    new_embedding_by_id = {}
+    new_projection_by_id = {}
+    if new_candidates:
+        embedder = LLM2VecPromptEmbedder(
+            args.embedding_model,
+            mntp_model_name_or_path=args.mntp_model,
+            peft_model_name_or_path=args.peft_model,
+            batch_size=args.embedding_batch_size,
+            max_length=args.embedding_max_length,
+        )
+        new_embeddings = embedder.embed(
+            [row.question for row in new_candidates]
+        )
+        new_projections = project_text_embeddings(
+            fitted,
+            bounds,
+            item_ids=[row.candidate_id for row in new_candidates],
+            text_sha256s=[row.question_sha256 for row in new_candidates],
+            embeddings=new_embeddings,
+        )
+        new_embedding_by_id = {
+            candidate.candidate_id: embedding
+            for candidate, embedding in zip(new_candidates, new_embeddings)
+        }
+        new_projection_by_id = {
+            row.item_id: row for row in new_projections
+        }
+    projection_by_id = {
+        **{
+            candidate_id: row["projection"]
+            for candidate_id, row in base_projection_by_id.items()
+        },
+        **{
+            candidate_id: asdict(row)
+            for candidate_id, row in new_projection_by_id.items()
+        },
+    }
+    embeddings = np.asarray(
+        [
+            base_embedding_by_id.get(candidate.candidate_id)
+            if candidate.candidate_id in base_embedding_by_id
+            else new_embedding_by_id[candidate.candidate_id]
+            for candidate in candidates
+        ],
+        dtype=np.float32,
     )
-    projection_by_id = {row.item_id: row for row in projections}
     atomic_jsonl(
         output / "question_projections.jsonl",
         (
             {
                 **asdict(candidate),
-                "projection": asdict(projection_by_id[candidate.candidate_id]),
+                "projection": projection_by_id[candidate.candidate_id],
             }
             for candidate in candidates
         ),
@@ -945,6 +1112,11 @@ def _project_candidates(args) -> int:
             "reference_coordinates": _file_identity(args.reference_coordinates),
             "candidate_files": [_file_identity(path) for path in args.candidates],
             "candidate_count": len(candidates),
+            "incremental_reuse": {
+                "base_projection_manifest": base_identity,
+                "reused_candidate_count": len(base_projection_by_id),
+                "embedded_candidate_count": len(new_candidates),
+            },
             "embedding": {
                 "model": str(Path(args.embedding_model).resolve()),
                 "mntp_model": str(Path(args.mntp_model).resolve()) if args.mntp_model else None,
@@ -954,7 +1126,10 @@ def _project_candidates(args) -> int:
             },
         },
     )
-    print(f"map_id={fitted.map_id} candidates={len(candidates)}")
+    print(
+        f"map_id={fitted.map_id} candidates={len(candidates)} "
+        f"reused={len(base_projection_by_id)} embedded={len(new_candidates)}"
+    )
     print(f"output={output}")
     return 0
 
@@ -1209,7 +1384,14 @@ def _spatial_select(args) -> int:
                     )
                     feedback[(keyword_id, target.target_id)] = (
                         measured_feedback
-                        or "No independently validated candidate covered this cell."
+                        or (
+                            "No independently validated candidate covered this cell. "
+                            + _axis_1_refinement_target_instruction(
+                                target.normalized_axis_1
+                            )
+                            if axis_1_only
+                            else "No independently validated candidate covered this cell."
+                        )
                     )
                 else:
                     delta_1 = target.normalized_axis_1 - row.consensus_normalized_axis_1
@@ -1220,7 +1402,9 @@ def _spatial_select(args) -> int:
                             f"{row.consensus_normalized_axis_1:.3f}; shift axis 1 by "
                             f"{delta_1:+.3f}. Rewrite this closest question with the "
                             f"smallest readiness-stage change, preserve the exact keyword, "
-                            f"and use a new question frame: {row.question}"
+                            f"and use a new question frame. "
+                            f"{_axis_1_refinement_target_instruction(target.normalized_axis_1)} "
+                            f"Closest question: {row.question}"
                         )
                     else:
                         feedback[(keyword_id, target.target_id)] = (
@@ -1410,7 +1594,9 @@ def _dual_view_refinement_feedback(
             f"{reference_delta[0]:+.3f}; the aligned Mistral-view shift needed is "
             f"{second_view_delta[0]:+.3f}. Rewrite with the smallest readiness-stage "
             f"change that moves both views toward the target, preserve the exact "
-            f"keyword, and do not reuse this question frame: {candidate.question}"
+            f"keyword, and do not reuse this question frame. "
+            f"{_axis_1_refinement_target_instruction(target.normalized_axis_1)} "
+            f"Closest question: {candidate.question}"
         )
     return (
         f"The closest independently validated question landed in frozen Qwen "
@@ -1424,6 +1610,38 @@ def _dual_view_refinement_feedback(
         f"with the smallest semantic change that moves both views toward the "
         f"target, preserve the exact keyword, and do not reuse this question "
         f"frame: {candidate.question}"
+    )
+
+
+def _axis_1_refinement_target_instruction(value: float) -> str:
+    """Translate a numeric miss into generator-visible semantic behavior."""
+
+    if not 0.0 <= value <= 1.0:
+        raise ValueError("axis-1 refinement target must be in [0, 1]")
+    if value <= 0.20:
+        return (
+            "Target behavior: ask only to understand or explain what the topic is, "
+            "how it works, or why it occurs; avoid comparisons, choosing, plans, "
+            "instructions, setup, and execution."
+        )
+    if value <= 0.40:
+        return (
+            "Target behavior: investigate evidence, mechanisms, causes, consequences, "
+            "or implications; avoid selecting an option or asking for an action plan."
+        )
+    if value <= 0.60:
+        return (
+            "Target behavior: evaluate concrete alternatives, criteria, or trade-offs "
+            "to support a choice; avoid both pure explanation and step-by-step execution."
+        )
+    if value <= 0.80:
+        return (
+            "Target behavior: turn an impending choice into a commitment or practical "
+            "plan; ask what should be decided or prepared, but stop short of immediate execution."
+        )
+    return (
+        "Target behavior: request an immediate, concrete action, procedure, setup, "
+        "implementation, or troubleshooting step; avoid broad explanation or open-ended comparison."
     )
 
 

@@ -242,10 +242,12 @@ source_pilot="${READINESS_SOURCE_PILOT_ROOT:-}"
 recovery_pipeline="${READINESS_RECOVERY_PIPELINE_ROOT:-}"
 initial_candidate_root="${READINESS_INITIAL_CANDIDATE_ROOT:-}"
 initial_projection_root="${READINESS_INITIAL_PROJECTION_ROOT:-}"
+initial_validation_output="${READINESS_INITIAL_VALIDATION_OUTPUT:-}"
 export READINESS_SOURCE_PILOT_ROOT="$source_pilot"
 export READINESS_RECOVERY_PIPELINE_ROOT="$recovery_pipeline"
 export READINESS_INITIAL_CANDIDATE_ROOT="$initial_candidate_root"
 export READINESS_INITIAL_PROJECTION_ROOT="$initial_projection_root"
+export READINESS_INITIAL_VALIDATION_OUTPUT="$initial_validation_output"
 export READINESS_MAX_REFINEMENT_ROUNDS="${READINESS_MAX_REFINEMENT_ROUNDS:-1000}"
 export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="${READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND:-128}"
 [[ -z "$source_pilot" || -z "$initial_candidate_root" ]] || {
@@ -256,6 +258,14 @@ export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="${READINESS_REFINEMENT_TASK_LI
     echo "initial projections require an initial candidate checkpoint" >&2
     exit 2
 }
+[[ -z "$initial_validation_output" || -n "$initial_candidate_root" ]] || {
+    echo "initial validation requires an initial candidate checkpoint" >&2
+    exit 2
+}
+if [[ -n "$initial_validation_output" ]]; then
+    test -s "$initial_validation_output"
+    test -s "$initial_validation_output.manifest.json"
+fi
 if [[ -n "${READINESS_30K_PIPELINE_ROOT:-}" ]]; then
     pipeline_root="$READINESS_30K_PIPELINE_ROOT"
 elif [[ -n "$source_pilot" ]]; then
@@ -338,7 +348,8 @@ if [[ "${#validation_cache_sources[@]}" -gt 0 ]]; then
 fi
 
 python - "$pipeline_root" "$READINESS_30K_PLAN_ROOT" "$source_pilot" "$recovery_pipeline" \
-    "$initial_candidate_root" "$initial_projection_root" "$validation_cache_root" <<'PY'
+    "$initial_candidate_root" "$initial_projection_root" "$initial_validation_output" \
+    "$validation_cache_root" <<'PY'
 import hashlib
 import json
 import os
@@ -351,7 +362,8 @@ source = sys.argv[3] or None
 recovery = sys.argv[4] or None
 initial_candidates = sys.argv[5] or None
 initial_projections = sys.argv[6] or None
-validation_cache_root = sys.argv[7]
+initial_validation = sys.argv[7] or None
+validation_cache_root = sys.argv[8]
 manifest_path = root / "pipeline_manifest.json"
 identity = {
     "format_version": "readiness-30k-end-to-end-v1",
@@ -361,6 +373,7 @@ identity = {
     "recovery_pipeline_root": recovery,
     "initial_candidate_root": initial_candidates,
     "initial_projection_root": initial_projections,
+    "initial_validation_output": initial_validation,
     "validation_cache_root": validation_cache_root,
     "generator_ids": [os.environ["READINESS_GENERATOR_A_ID"], os.environ["READINESS_GENERATOR_B_ID"]],
     "generator_models": [os.environ["READINESS_GENERATOR_A_MODEL"], os.environ["READINESS_GENERATOR_B_MODEL"]],
@@ -420,6 +433,9 @@ pipeline_status="refine"
 active_srun_pids=()
 recovered_generation_candidates=()
 logical_round_offset=0
+previous_qwen_projection_root=""
+previous_mistral_projection_root=""
+previous_validation_output="$initial_validation_output"
 
 if [[ -n "$recovery_pipeline" ]]; then
     while IFS= read -r recovered_candidate; do
@@ -865,6 +881,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         READINESS_VALIDATION_SHARD_COUNT="$validation_shard_count" \
         READINESS_VALIDATION_SHARD_INDEX="$shard_index" \
         READINESS_VALIDATION_SHARD_SALT="$validation_shard_salt" \
+        READINESS_BASE_VALIDATION_OUTPUT="$previous_validation_output" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" validate > "$round_root/logs/validate-shard-$shard_index.log" 2>&1 &
         validation_pids+=("$!")
@@ -909,6 +926,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
 
     projection_pids=() projection_names=()
     if [[ "$qwen_projection_launched" -eq 1 ]]; then
+        READINESS_BASE_PROJECTION_ROOT="$previous_qwen_projection_root" \
         QWEN_PROJECTION_ROOT="$qwen_projection_temporary" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" project-qwen > "$round_root/logs/project-qwen.log" 2>&1 &
@@ -916,6 +934,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         active_srun_pids+=("$!")
     fi
     if [[ "$mistral_projection_launched" -eq 1 ]]; then
+        READINESS_BASE_PROJECTION_ROOT="$previous_mistral_projection_root" \
         MISTRAL_PROJECTION_ROOT="$mistral_projection_temporary" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" project-mistral > "$round_root/logs/project-mistral.log" 2>&1 &
@@ -946,6 +965,8 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     if [[ "$mistral_projection_launched" -eq 1 ]]; then
         mv "$mistral_projection_temporary" "$MISTRAL_PROJECTION_ROOT"
     fi
+    previous_qwen_projection_root="$QWEN_PROJECTION_ROOT"
+    previous_mistral_projection_root="$MISTRAL_PROJECTION_ROOT"
 
     for ((pending_index=initial_validation_count; pending_index<${#pending_validation_indices[@]}; pending_index++)); do
         launch_validation_shard "${pending_validation_indices[$pending_index]}"
@@ -1053,6 +1074,7 @@ print(
 )
 PY
     fi
+    previous_validation_output="$READINESS_VALIDATION_OUTPUT"
 
     comparison="$round_root/comparison"
     if ! artifact_count_matches "$comparison/comparison_manifest.json" "$candidate_count"; then

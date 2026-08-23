@@ -21,6 +21,7 @@ from analysis.interpretability.pipeline.readiness_prompt_population import (
     LocalSearchQuestionValidator,
     ReadinessQuestionCandidate,
     ReadinessSubspaceBounds,
+    SearchQuestionReview,
     audit_question_diversity,
     build_axis_1_target_grid,
     build_generation_tasks,
@@ -49,6 +50,7 @@ from analysis.scripts.build_readiness_prompt_population import (
     _dual_view_refinement_feedback,
     _generate,
     _plan,
+    _project_candidates,
     _read_plan_targets,
     _spatial_select,
     _task_row,
@@ -66,6 +68,20 @@ class _StaticRanker:
         del prompt, max_tokens, temperature, kwargs
         self.call_count += 1
         return self.outputs.pop(0)
+
+
+class _BatchStaticRanker:
+    def __init__(self, output_batches):
+        self.output_batches = [list(batch) for batch in output_batches]
+        self.batch_sizes = []
+
+    def rank_batch(self, prompts, max_tokens=180, temperature=0.9, **kwargs):
+        del max_tokens, temperature, kwargs
+        self.batch_sizes.append(len(prompts))
+        outputs = self.output_batches.pop(0)
+        if len(outputs) != len(prompts):
+            raise AssertionError("test batch output length mismatch")
+        return outputs
 
 
 class ReadinessPromptPopulationTests(unittest.TestCase):
@@ -678,6 +694,190 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(ranker.call_count, 2)
 
+    def test_local_generator_batches_candidate_slots_and_retries_only_invalid_slots(self) -> None:
+        target = build_target_grid(self.bounds)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("model-a",),
+            requested_candidate_count=4,
+        )[0]
+        questions = [
+            f"What should a team understand about abandoned cart recovery example {index}?"
+            for index in range(4)
+        ]
+        ranker = _BatchStaticRanker(
+            [
+                [
+                    json.dumps({"question": questions[0]}),
+                    "not json",
+                    json.dumps({"question": questions[2]}),
+                    json.dumps({"question": questions[3]}),
+                ],
+                [json.dumps({"question": questions[1]})],
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            generator = LocalReadinessQuestionGenerator(
+                ranker,
+                generator_id="model-a",
+                model_name="model/a",
+                cache_directory=Path(temporary),
+                maximum_attempts=2,
+            )
+            first = generator.generate(task)
+            second = generator.generate(task)
+
+        self.assertEqual(first, tuple(questions))
+        self.assertEqual(second, first)
+        self.assertEqual(ranker.batch_sizes, [4, 1])
+
+    def test_local_validator_batches_candidates_and_retries_only_invalid_outputs(self) -> None:
+        targets = build_target_grid(self.bounds)[:2]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+        accepted = (
+            '{"topic_relevant":true,"search_intent":true,'
+            '"web_answerable":true,"standalone":true,'
+            '"natural_language":true,"relevance_score_1_5":5,'
+            '"concise_reason":"A direct search question."}'
+        )
+        ranker = _BatchStaticRanker([[accepted, "not json"], [accepted]])
+        with tempfile.TemporaryDirectory() as temporary:
+            validator = LocalSearchQuestionValidator(
+                ranker,
+                judge_id="independent-judge",
+                model_name="model/judge",
+                cache_directory=temporary,
+                maximum_attempts=2,
+            )
+            first = validator.review_many(candidates)
+            second = validator.review_many(candidates)
+
+        self.assertTrue(all(review.accepted for review in first))
+        self.assertEqual(second, first)
+        self.assertEqual(ranker.batch_sizes, [2, 1])
+
+    def test_projection_reuses_base_embeddings_and_embeds_only_new_candidates(self) -> None:
+        targets = build_target_grid(self.bounds)[:2]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+
+        class RecordingEmbedder:
+            calls = []
+
+            def __init__(self, *args, **kwargs):
+                del args, kwargs
+
+            def embed(self, texts):
+                self.calls.append(list(texts))
+                return np.asarray(
+                    [[0.1 + len(self.calls), 0.2, 0.3] for _ in texts],
+                    dtype=np.float32,
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            model = root / "revision"
+            model.mkdir()
+            map_path = root / "map.json"
+            atomic_json(
+                map_path,
+                asdict(replace(_map(), embedding_model="synthetic@revision")),
+            )
+            reference = root / "reference.jsonl"
+            atomic_jsonl(
+                reference,
+                (
+                    {
+                        "split": "development",
+                        "axis_1": index / 9,
+                        "axis_2": 1.0 - index / 9,
+                    }
+                    for index in range(10)
+                ),
+            )
+            base_candidates = root / "base-candidates.jsonl"
+            new_candidates = root / "new-candidates.jsonl"
+            atomic_jsonl(base_candidates, (asdict(candidates[0]),))
+            atomic_jsonl(new_candidates, (asdict(candidates[1]),))
+            common = {
+                "map": str(map_path),
+                "reference_coordinates": str(reference),
+                "embedding_model": str(model),
+                "mntp_model": None,
+                "peft_model": None,
+                "embedding_batch_size": 8,
+                "embedding_max_length": 512,
+            }
+            from unittest.mock import patch
+
+            with patch(
+                "analysis.scripts.build_readiness_prompt_population."
+                "LLM2VecPromptEmbedder",
+                RecordingEmbedder,
+            ):
+                base_output = root / "base-projections"
+                _project_candidates(
+                    SimpleNamespace(
+                        **common,
+                        candidates=[str(base_candidates)],
+                        base_projections=None,
+                        output_dir=str(base_output),
+                    )
+                )
+                combined_output = root / "combined-projections"
+                _project_candidates(
+                    SimpleNamespace(
+                        **common,
+                        candidates=[str(base_candidates), str(new_candidates)],
+                        base_projections=str(base_output),
+                        output_dir=str(combined_output),
+                    )
+                )
+
+            manifest = read_json(combined_output / "projection_manifest.json")
+            self.assertEqual([len(call) for call in RecordingEmbedder.calls], [1, 1])
+            self.assertEqual(
+                RecordingEmbedder.calls[1], [candidates[1].question]
+            )
+            self.assertEqual(
+                manifest["incremental_reuse"]["reused_candidate_count"], 1
+            )
+            self.assertEqual(
+                manifest["incremental_reuse"]["embedded_candidate_count"], 1
+            )
+            projected_ids = {
+                json.loads(line)["candidate_id"]
+                for line in (combined_output / "question_projections.jsonl")
+                .read_text()
+                .splitlines()
+                if line.strip()
+            }
+            self.assertEqual(
+                projected_ids, {candidate.candidate_id for candidate in candidates}
+            )
+
     def test_projection_matches_frozen_map_formula(self) -> None:
         target = build_target_grid(self.bounds)[0]
         task = build_generation_tasks(
@@ -1064,6 +1264,101 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             ]
             self.assertEqual(len(checkpoint), 10)
             self.assertFalse(output.with_suffix(".jsonl.manifest.json").exists())
+
+    def test_validator_reuses_previous_reviews_and_only_judges_new_candidates(self) -> None:
+        targets = build_target_grid(self.bounds)[:2]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+
+        def accepted_review(candidate):
+            return SearchQuestionReview(
+                candidate_id=candidate.candidate_id,
+                judge_id="independent-judge",
+                judge_model="model/judge",
+                exact_keyword_present=True,
+                single_question=True,
+                topic_relevant=True,
+                search_intent=True,
+                web_answerable=True,
+                standalone=True,
+                natural_language=True,
+                relevance_score_1_5=5,
+                accepted=True,
+                concise_reason="accepted",
+            )
+
+        class CountingValidator:
+            def __init__(self):
+                self.reviewed = []
+
+            def review(self, candidate):
+                self.reviewed.append(candidate.candidate_id)
+                return accepted_review(candidate)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate_path = root / "candidates.jsonl"
+            base = root / "base-validation.jsonl"
+            output = root / "validation.jsonl"
+            atomic_jsonl(candidate_path, (asdict(row) for row in candidates))
+            atomic_jsonl(base, (asdict(accepted_review(candidates[0])),))
+            atomic_json(
+                base.with_suffix(".jsonl.manifest.json"),
+                {
+                    "reviewed_count": 1,
+                    "judge_id": "independent-judge",
+                    "judge_model": "model/judge",
+                    "judge_backend": "local",
+                    "judge_precision": "full",
+                },
+            )
+            validator = CountingValidator()
+            args = SimpleNamespace(
+                output=str(output),
+                resume=True,
+                candidates=[str(candidate_path)],
+                shard_count=1,
+                shard_index=0,
+                shard_salt="",
+                base_validation=str(base),
+                model="model/judge",
+                judge_id="independent-judge",
+                cache_dir=str(root / "cache"),
+                backend="local",
+                precision="full",
+                maximum_attempts=3,
+            )
+            from unittest.mock import patch
+
+            with patch(
+                "analysis.scripts.build_readiness_prompt_population."
+                "LocalSearchQuestionValidator.from_model",
+                return_value=validator,
+            ):
+                _validate_candidates(args)
+
+            rows = [
+                json.loads(line)
+                for line in output.read_text().splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(validator.reviewed, [candidates[1].candidate_id])
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(
+                read_json(output.with_suffix(".jsonl.manifest.json"))[
+                    "base_validation_manifest"
+                ]
+            )
 
     def test_generate_can_record_one_exhausted_task_and_finish_its_slice(self) -> None:
         targets = build_target_grid(self.bounds)[:2]
@@ -1572,6 +1867,38 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertIn("Qwen-view shift needed", feedback)
         self.assertIn("aligned Mistral-view shift needed", feedback)
         self.assertIn("do not reuse this question frame", feedback)
+
+    def test_axis_one_refinement_feedback_names_target_behavior_and_counter_anchor(self) -> None:
+        targets = build_axis_1_target_grid(self.bounds)
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (targets[0],),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        coordinates = {
+            candidate.candidate_id: {
+                "reference_normalized_axis_1": 0.5,
+                "reference_normalized_axis_2": 0.5,
+                "candidate_aligned_normalized_axis_1": 0.6,
+                "candidate_aligned_normalized_axis_2": 0.5,
+            }
+        }
+
+        exploratory = _dual_view_refinement_feedback(
+            targets[0], (candidate,), coordinates, axis_1_only=True
+        )
+        action_ready = _dual_view_refinement_feedback(
+            targets[-1], (candidate,), coordinates, axis_1_only=True
+        )
+
+        self.assertIn("ask only to understand or explain", exploratory)
+        self.assertIn("avoid comparisons, choosing, plans", exploratory)
+        self.assertIn("request an immediate, concrete action", action_ready)
+        self.assertIn("avoid broad explanation", action_ready)
 
     def test_generated_question_projections_compare_with_frozen_alignment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

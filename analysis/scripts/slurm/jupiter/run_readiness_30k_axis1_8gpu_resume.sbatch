@@ -33,9 +33,11 @@ export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-r
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
 export READINESS_APPROVED_WALLTIME="12:00:00"
-export READINESS_ALLOCATION_ESTIMATE="Approved two-node JUPITER Booster strict axis-one continuation: 8 H100 GPUs for 12 hours, maximum 96 GPU-hours. Resume 29944 candidates and 2885 verified selections from job 1468481; reuse exact latest projections and validation caches; use eight generation and validation workers with 1024 refinement targets per round. Expected productive runtime 10.5-11.5 hours plus checkpoint reserve; estimated 3000-7000 additional strict prompts."
+export READINESS_ALLOCATION_ESTIMATE="Approved two-node JUPITER Booster strict axis-one continuation: 8 H100 GPUs for 12 hours, maximum 96 GPU-hours. Resume 29944 candidates and 2885 verified selections from job 1468481; reuse exact prior reviews and projections, embed only new candidates, batch four generation slots per task, use eight workers, and process 1024 refinement targets per round. Expected productive runtime 10.5-11.5 hours plus checkpoint reserve; estimated 3000-7000 additional strict prompts."
 export READINESS_ALLOCATED_GPU_COUNT="8"
 export READINESS_VALIDATION_SHARD_COUNT="8"
+export READINESS_VALIDATION_BATCH_SIZE="16"
+export READINESS_EMBEDDING_BATCH_SIZE="32"
 export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="1024"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="4"
 export READINESS_GENERATION_SECONDS="10800"
@@ -62,8 +64,11 @@ latest_verified_summary="$({
 }
 latest_verified_round="$(dirname "$latest_verified_summary")"
 export READINESS_INITIAL_PROJECTION_ROOT="${READINESS_INITIAL_PROJECTION_ROOT:-$latest_verified_round/projections}"
+export READINESS_INITIAL_VALIDATION_OUTPUT="${READINESS_INITIAL_VALIDATION_OUTPUT:-$latest_verified_round/validation.jsonl}"
 [[ -s "$READINESS_INITIAL_PROJECTION_ROOT/qwen/projection_manifest.json" ]]
 [[ -s "$READINESS_INITIAL_PROJECTION_ROOT/mistral/projection_manifest.json" ]]
+[[ -s "$READINESS_INITIAL_VALIDATION_OUTPUT" ]]
+[[ -s "$READINESS_INITIAL_VALIDATION_OUTPUT.manifest.json" ]]
 
 mkdir -p "$READINESS_30K_PIPELINE_ROOT"
 printf '%s\n' "$SLURM_JOB_ID" > "$READINESS_30K_PIPELINE_ROOT/current-job-id.txt"
@@ -74,6 +79,7 @@ echo "job=$SLURM_JOB_ID"
 echo "nodes=$SLURM_JOB_NUM_NODES"
 echo "recovery=$READINESS_RECOVERY_PIPELINE_ROOT"
 echo "initial_projections=$READINESS_INITIAL_PROJECTION_ROOT"
+echo "initial_validation=$READINESS_INITIAL_VALIDATION_OUTPUT"
 echo "pipeline=$READINESS_30K_PIPELINE_ROOT"
 
 exec "$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_axis1_strict_loop.sh"

@@ -92,6 +92,10 @@ case "$stage" in
     validate)
         read_candidates
         activate_runtime "${GEODML_GENERATOR_VENV:?GEODML_GENERATOR_VENV is required}"
+        validation_reuse_args=()
+        if [[ -n "${READINESS_BASE_VALIDATION_OUTPUT:-}" ]]; then
+            validation_reuse_args+=(--base-validation "$READINESS_BASE_VALIDATION_OUTPUT")
+        fi
         python analysis/scripts/build_readiness_prompt_population.py validate-candidates \
             --candidates "${candidate_files[@]}" \
             --judge-id "${READINESS_VALIDATOR_ID:?READINESS_VALIDATOR_ID is required}" \
@@ -101,14 +105,20 @@ case "$stage" in
             --cache-dir "${READINESS_VALIDATION_CACHE:?READINESS_VALIDATION_CACHE is required}" \
             --output "${READINESS_VALIDATION_OUTPUT:?READINESS_VALIDATION_OUTPUT is required}" \
             --maximum-attempts "${READINESS_VALIDATION_MAXIMUM_ATTEMPTS:-3}" \
+            --inference-batch-size "${READINESS_VALIDATION_BATCH_SIZE:-8}" \
             --shard-count "${READINESS_VALIDATION_SHARD_COUNT:-1}" \
             --shard-index "${READINESS_VALIDATION_SHARD_INDEX:-0}" \
             --shard-salt "${READINESS_VALIDATION_SHARD_SALT:-}" \
+            "${validation_reuse_args[@]}" \
             --resume
         ;;
     project-qwen)
         read_candidates
         activate_runtime "${QWEN_LLM2VEC_VENV:?QWEN_LLM2VEC_VENV is required}"
+        projection_reuse_args=()
+        if [[ -n "${READINESS_BASE_PROJECTION_ROOT:-}" ]]; then
+            projection_reuse_args+=(--base-projections "$READINESS_BASE_PROJECTION_ROOT")
+        fi
         python analysis/scripts/build_readiness_prompt_population.py project-candidates \
             --candidates "${candidate_files[@]}" \
             --map "${QWEN_MAP_ROOT:?QWEN_MAP_ROOT is required}/readiness_embedding_map.json" \
@@ -118,11 +128,16 @@ case "$stage" in
             --peft-model "${QWEN_LLM2VEC_SIMCSE:?QWEN_LLM2VEC_SIMCSE is required}" \
             --embedding-batch-size "${READINESS_EMBEDDING_BATCH_SIZE:-8}" \
             --embedding-max-length "${READINESS_EMBEDDING_MAX_LENGTH:-512}" \
+            "${projection_reuse_args[@]}" \
             --output-dir "${QWEN_PROJECTION_ROOT:?QWEN_PROJECTION_ROOT is required}"
         ;;
     project-mistral)
         read_candidates
         activate_runtime "${MISTRAL_LLM2VEC_VENV:?MISTRAL_LLM2VEC_VENV is required}"
+        projection_reuse_args=()
+        if [[ -n "${READINESS_BASE_PROJECTION_ROOT:-}" ]]; then
+            projection_reuse_args+=(--base-projections "$READINESS_BASE_PROJECTION_ROOT")
+        fi
         python analysis/scripts/build_readiness_prompt_population.py project-candidates \
             --candidates "${candidate_files[@]}" \
             --map "${MISTRAL_MAP_ROOT:?MISTRAL_MAP_ROOT is required}/readiness_embedding_map.json" \
@@ -132,6 +147,7 @@ case "$stage" in
             --peft-model "${MISTRAL_LLM2VEC_SIMCSE:?MISTRAL_LLM2VEC_SIMCSE is required}" \
             --embedding-batch-size "${READINESS_EMBEDDING_BATCH_SIZE:-8}" \
             --embedding-max-length "${READINESS_EMBEDDING_MAX_LENGTH:-512}" \
+            "${projection_reuse_args[@]}" \
             --output-dir "${MISTRAL_PROJECTION_ROOT:?MISTRAL_PROJECTION_ROOT is required}"
         ;;
     *)

@@ -278,6 +278,13 @@ class LocalReadinessQuestionGenerator:
         )
 
     def generate(self, task: ReadinessGenerationTask) -> tuple[str, ...]:
+        # LocalRanker exposes padded generation.  A refinement task normally asks
+        # for four similarly sized questions, so decoding those slots together
+        # avoids four batch-size-one passes through a 31B/32B model.  Keep the
+        # legacy path for API/test rankers that only implement rank().
+        if callable(getattr(self._ranker, "rank_batch", None)):
+            return self._generate_batched(task)
+
         identity = {
             "version": READINESS_PROMPT_POPULATION_VERSION,
             "model": self.model_name,
@@ -384,6 +391,126 @@ class LocalReadinessQuestionGenerator:
         )
         return tuple(accepted)
 
+    def _generate_batched(
+        self, task: ReadinessGenerationTask
+    ) -> tuple[str, ...]:
+        identity = {
+            "version": READINESS_PROMPT_POPULATION_VERSION,
+            "model": self.model_name,
+            "generator_id": self.generator_id,
+            "task": asdict(task),
+            "temperature": self.temperature,
+            "max_new_tokens": self.max_new_tokens,
+            "generation_mode": "per-task-padded-batch-v1",
+        }
+        cache_key = _stable_hash(identity)
+        cache_path = self.cache_directory / f"{cache_key}.json"
+        accepted_by_slot: dict[int, str] = {}
+        failures: list[dict[str, object]] = []
+        if cache_path.exists():
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            if payload.get("identity") != identity:
+                raise ValueError(f"generation cache identity mismatch: {cache_path}")
+            slot_payload = payload.get("questions_by_slot")
+            if slot_payload is None:
+                # Accept an early batched checkpoint written before explicit slot
+                # keys were added.  Values were always stored in slot order.
+                slot_payload = {
+                    str(slot): question
+                    for slot, question in enumerate(payload.get("questions", []))
+                }
+            accepted_by_slot = {
+                int(slot): str(question) for slot, question in slot_payload.items()
+            }
+            failures = list(payload.get("failures", []))
+        expected_slots = set(range(task.requested_candidate_count))
+        if not set(accepted_by_slot).issubset(expected_slots):
+            raise ValueError(f"generation cache has invalid slots: {cache_path}")
+        for question in accepted_by_slot.values():
+            validate_generated_question(question, task.keyword)
+        if len(set(accepted_by_slot.values())) != len(accepted_by_slot):
+            raise ValueError(f"generation cache contains duplicate questions: {cache_path}")
+        if set(accepted_by_slot) == expected_slots:
+            return tuple(accepted_by_slot[slot] for slot in sorted(expected_slots))
+
+        pending_slots = sorted(expected_slots - set(accepted_by_slot))
+        for attempt in range(self.maximum_attempts):
+            prompts = []
+            seeds = []
+            for slot in pending_slots:
+                request = render_generation_request(task, candidate_slot=slot)
+                if attempt:
+                    request += (
+                        "\nYour previous output was invalid. Return only the required "
+                        "one-object JSON, with a new question."
+                    )
+                prompts.append(request)
+                seeds.append(task.generation_seed + slot * 1009 + attempt)
+            raw_values = _generate_batch_with_seeds(
+                self._ranker,
+                prompts,
+                seeds=seeds,
+                max_new_tokens=self.max_new_tokens,
+                temperature=self.temperature,
+            )
+            if len(raw_values) != len(pending_slots):
+                raise RuntimeError(
+                    "batched generator returned a different number of continuations"
+                )
+            still_pending = []
+            for slot, raw in zip(pending_slots, raw_values):
+                try:
+                    question = parse_generated_question(raw)
+                    validate_generated_question(question, task.keyword)
+                    if question in accepted_by_slot.values():
+                        raise ValueError("duplicate question within task")
+                except ValueError as exc:
+                    failures.append(
+                        {
+                            "slot": slot,
+                            "attempt": attempt,
+                            "error": str(exc),
+                            "raw": raw,
+                        }
+                    )
+                    still_pending.append(slot)
+                    continue
+                accepted_by_slot[slot] = question
+            _write_batched_generation_cache(
+                cache_path,
+                identity=identity,
+                accepted_by_slot=accepted_by_slot,
+                failures=failures,
+                complete=not still_pending,
+            )
+            pending_slots = still_pending
+            if not pending_slots:
+                break
+        if pending_slots:
+            terminal_slot = pending_slots[0]
+            terminal_errors = [
+                row for row in failures if int(row["slot"]) == terminal_slot
+            ]
+            terminal_error = (
+                str(terminal_errors[-1]["error"])
+                if terminal_errors
+                else "unknown error"
+            )
+            _write_batched_generation_cache(
+                cache_path,
+                identity=identity,
+                accepted_by_slot=accepted_by_slot,
+                failures=failures,
+                complete=False,
+                terminal_slot=terminal_slot,
+                terminal_error=terminal_error,
+            )
+            raise QuestionGenerationExhaustedError(
+                f"question generation failed for {task.task_id} slot "
+                f"{terminal_slot}: {terminal_error}"
+            )
+        return tuple(accepted_by_slot[slot] for slot in sorted(expected_slots))
+
 
 class LocalSearchQuestionValidator:
     """Independent cached review of topic fidelity and online-search utility."""
@@ -427,13 +554,7 @@ class LocalSearchQuestionValidator:
         )
 
     def review(self, candidate: ReadinessQuestionCandidate) -> SearchQuestionReview:
-        identity = {
-            "version": READINESS_PROMPT_POPULATION_VERSION,
-            "judge_id": self.judge_id,
-            "judge_model": self.model_name,
-            "candidate_id": candidate.candidate_id,
-            "question_sha256": candidate.question_sha256,
-        }
+        identity = self._cache_identity(candidate)
         cache_path = self.cache_directory / f"{_stable_hash(identity)}.json"
         if cache_path.exists():
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -512,6 +633,118 @@ class LocalSearchQuestionValidator:
             },
         )
         return review
+
+    def review_many(
+        self,
+        candidates: Sequence[ReadinessQuestionCandidate],
+    ) -> tuple[SearchQuestionReview, ...]:
+        """Review one padded batch while preserving per-candidate caches."""
+
+        if not candidates:
+            return ()
+        if len({row.candidate_id for row in candidates}) != len(candidates):
+            raise ValueError("validation batch contains duplicate candidate ids")
+        if not callable(getattr(self._ranker, "rank_batch", None)):
+            return tuple(self.review(candidate) for candidate in candidates)
+
+        by_id: dict[str, SearchQuestionReview] = {}
+        pending = []
+        for candidate in candidates:
+            identity = self._cache_identity(candidate)
+            cache_path = self.cache_directory / f"{_stable_hash(identity)}.json"
+            if cache_path.exists():
+                by_id[candidate.candidate_id] = self.review(candidate)
+            else:
+                pending.append(candidate)
+        failures = {candidate.candidate_id: [] for candidate in pending}
+        for attempt in range(self.maximum_attempts):
+            if not pending:
+                break
+            raw_values = _generate_batch_with_seeds(
+                self._ranker,
+                [render_search_validation_request(candidate) for candidate in pending],
+                seeds=[
+                    candidate.generation_seed + 900_001 + attempt
+                    for candidate in pending
+                ],
+                max_new_tokens=220,
+                temperature=0.0,
+            )
+            if len(raw_values) != len(pending):
+                raise RuntimeError(
+                    "batched validator returned a different number of continuations"
+                )
+            retry = []
+            for candidate, raw in zip(pending, raw_values):
+                try:
+                    review = parse_search_question_review(
+                        raw,
+                        candidate,
+                        judge_id=self.judge_id,
+                        judge_model=self.model_name,
+                    )
+                except ValueError as exc:
+                    failures[candidate.candidate_id].append(
+                        {"attempt": attempt, "error": str(exc), "raw": raw}
+                    )
+                    retry.append(candidate)
+                    continue
+                identity = self._cache_identity(candidate)
+                _atomic_json(
+                    self.cache_directory / f"{_stable_hash(identity)}.json",
+                    {
+                        "identity": identity,
+                        "review": asdict(review),
+                        "failures": failures[candidate.candidate_id],
+                    },
+                )
+                by_id[candidate.candidate_id] = review
+            pending = retry
+        for candidate in pending:
+            review = SearchQuestionReview(
+                candidate_id=candidate.candidate_id,
+                judge_id=self.judge_id,
+                judge_model=self.model_name,
+                exact_keyword_present=candidate.keyword in candidate.question,
+                single_question=(
+                    candidate.question.endswith("?")
+                    and candidate.question.count("?") == 1
+                ),
+                topic_relevant=False,
+                search_intent=False,
+                web_answerable=False,
+                standalone=False,
+                natural_language=False,
+                relevance_score_1_5=1,
+                accepted=False,
+                concise_reason=(
+                    f"Validator output remained invalid after "
+                    f"{self.maximum_attempts} attempts."
+                ),
+            )
+            identity = self._cache_identity(candidate)
+            _atomic_json(
+                self.cache_directory / f"{_stable_hash(identity)}.json",
+                {
+                    "identity": identity,
+                    "review": asdict(review),
+                    "failures": failures[candidate.candidate_id],
+                    "terminal_parse_failure": True,
+                },
+            )
+            by_id[candidate.candidate_id] = review
+        return tuple(by_id[candidate.candidate_id] for candidate in candidates)
+
+    def _cache_identity(
+        self, candidate: ReadinessQuestionCandidate
+    ) -> dict[str, object]:
+        return {
+            "version": READINESS_PROMPT_POPULATION_VERSION,
+            "judge_id": self.judge_id,
+            "judge_model": self.model_name,
+            "candidate_id": candidate.candidate_id,
+            "question_sha256": candidate.question_sha256,
+        }
 
 
 def load_readiness_embedding_map(path: str | Path) -> ReadinessEmbeddingMap:
@@ -2424,6 +2657,75 @@ def _axis_2_instruction(value: float) -> str:
     if value <= 0.75:
         return "translate a chosen approach into a practical procedure"
     return "implement, configure, troubleshoot, or execute a chosen approach"
+
+
+def _write_batched_generation_cache(
+    path: Path,
+    *,
+    identity: Mapping[str, object],
+    accepted_by_slot: Mapping[int, str],
+    failures: Sequence[Mapping[str, object]],
+    complete: bool,
+    terminal_slot: int | None = None,
+    terminal_error: str | None = None,
+) -> None:
+    ordered_slots = sorted(accepted_by_slot)
+    payload: dict[str, object] = {
+        "identity": identity,
+        "questions": [accepted_by_slot[slot] for slot in ordered_slots],
+        "questions_by_slot": {
+            str(slot): accepted_by_slot[slot] for slot in ordered_slots
+        },
+        "failures": list(failures),
+        "complete": complete,
+        "terminal_failure": terminal_slot is not None,
+    }
+    if terminal_slot is not None:
+        payload["terminal_slot"] = terminal_slot
+        payload["terminal_error"] = terminal_error or "unknown error"
+    _atomic_json(path, payload)
+
+
+def _generate_batch_with_seeds(
+    ranker,
+    prompts: Sequence[str],
+    *,
+    seeds: Sequence[int],
+    max_new_tokens: int,
+    temperature: float,
+) -> tuple[str, ...]:
+    if len(prompts) != len(seeds):
+        raise ValueError("batched prompts and seeds must have equal length")
+    if not prompts:
+        return ()
+    # Transformers sampling uses the process RNG for a padded batch.  Hash the
+    # per-slot deterministic seeds into one stable batch seed so a fixed task,
+    # retry set, and software stack reproduce the same continuations.
+    batch_seed = int(_stable_hash(list(seeds))[:16], 16) % (2**63 - 1)
+    try:
+        import torch
+    except ImportError:
+        values = ranker.rank_batch(
+            prompts, max_tokens=max_new_tokens, temperature=temperature
+        )
+        return tuple(str(value).strip() for value in values)
+    devices = list(range(torch.cuda.device_count()))
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(batch_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(batch_seed)
+        try:
+            values = ranker.rank_batch(
+                prompts,
+                max_tokens=max_new_tokens,
+                temperature=temperature,
+                chat_template_kwargs={"enable_thinking": False},
+            )
+        except TypeError:
+            values = ranker.rank_batch(
+                prompts, max_tokens=max_new_tokens, temperature=temperature
+            )
+    return tuple(str(value).strip() for value in values)
 
 
 def _generate_with_seed(ranker, prompt: str, *, seed: int, max_new_tokens: int, temperature: float) -> str:
