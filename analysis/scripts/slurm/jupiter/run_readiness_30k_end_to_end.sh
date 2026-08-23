@@ -103,6 +103,64 @@ test -s "$plan_pointer"
 export READINESS_30K_PLAN_ROOT="${READINESS_30K_PLAN_ROOT:-$(<"$plan_pointer")}"
 test -s "$READINESS_30K_PLAN_ROOT/plan_manifest.json"
 test -s "$READINESS_30K_PLAN_ROOT/generation_tasks_round_00.jsonl"
+test -s "$READINESS_30K_PLAN_ROOT/keyword_target_grid.jsonl"
+test -s "$READINESS_30K_PLAN_ROOT/target_design.json"
+
+export READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"
+export READINESS_DISAGREEMENT_WEIGHT="${READINESS_DISAGREEMENT_WEIGHT:-0.10}"
+export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
+export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
+
+python3 - "$READINESS_30K_PLAN_ROOT" <<'PY'
+import collections
+import json
+import math
+import os
+import pathlib
+import sys
+
+plan = pathlib.Path(sys.argv[1])
+manifest = json.loads((plan / "plan_manifest.json").read_text())
+design = json.loads((plan / "target_design.json").read_text())
+rows = [
+    json.loads(line)
+    for line in (plan / "keyword_target_grid.jsonl").read_text().splitlines()
+    if line.strip()
+]
+if manifest.get("target_design") != "axis-1-quantized-uniform":
+    raise SystemExit("the strict axis-1 loop requires axis-1-quantized-uniform targets")
+expected = {
+    "keyword_count": 1011,
+    "target_count_per_keyword": 30,
+    "task_count": 30330,
+}
+for key, value in expected.items():
+    if manifest.get(key) != value:
+        raise SystemExit(f"plan {key} must equal {value}; found {manifest.get(key)!r}")
+if len(rows) != 30330:
+    raise SystemExit(f"keyword target grid must contain 30330 rows; found {len(rows)}")
+counts = collections.Counter(str(row["keyword_id"]) for row in rows)
+if len(counts) != 1011 or set(counts.values()) != {30}:
+    raise SystemExit("keyword target grid must contain exactly 30 targets for each of 1011 keywords")
+increment = float(design.get("lattice_increment", math.nan))
+if not math.isclose(increment, 0.001, rel_tol=0.0, abs_tol=1e-12):
+    raise SystemExit(f"axis-1 lattice increment must equal 0.001; found {increment!r}")
+if design.get("lattice_point_count") != 1001:
+    raise SystemExit("axis-1 target design must contain 1001 lattice points")
+if design.get("pooled_target_count") != 30330:
+    raise SystemExit("axis-1 target design must contain 30330 pooled targets")
+if design.get("occupied_lattice_point_count") != 1001:
+    raise SystemExit("axis-1 target design must occupy all 1001 lattice points")
+tolerance = float(os.environ["READINESS_DISTANCE_TOLERANCE"])
+if not math.isclose(tolerance, 0.017, rel_tol=0.0, abs_tol=1e-12):
+    raise SystemExit(f"strict axis-1 tolerance must equal 0.017; found {tolerance!r}")
+if int(os.environ["READINESS_REFINEMENT_CANDIDATES_PER_TASK"]) <= 0:
+    raise SystemExit("refinement candidates per task must be positive")
+print(
+    "strict axis-1 plan preflight: PASS "
+    "keywords=1011 targets=30330 lattice=0.001 tolerance=0.017"
+)
+PY
 
 subspace_pointer="${READINESS_SUBSPACE_POINTER:-$HOME/geodml-readiness-subspace-latest.txt}"
 test -s "$subspace_pointer"
@@ -265,6 +323,10 @@ identity = {
     "generator_models": [os.environ["READINESS_GENERATOR_A_MODEL"], os.environ["READINESS_GENERATOR_B_MODEL"]],
     "validator_id": os.environ["READINESS_VALIDATOR_ID"],
     "validator_model": os.environ["READINESS_VALIDATOR_MODEL"],
+    "distance_tolerance": float(os.environ["READINESS_DISTANCE_TOLERANCE"]),
+    "disagreement_weight": float(os.environ["READINESS_DISAGREEMENT_WEIGHT"]),
+    "refinement_candidates_per_task": int(os.environ["READINESS_REFINEMENT_CANDIDATES_PER_TASK"]),
+    "master_seed": int(os.environ["READINESS_MASTER_SEED"]),
     "maximum_refinement_rounds": int(os.environ["READINESS_MAX_REFINEMENT_ROUNDS"]),
     "refinement_task_limit_per_round": int(os.environ["READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND"]),
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
@@ -916,12 +978,12 @@ PY
             --validations "$READINESS_VALIDATION_OUTPUT" \
             --generator-ids "$READINESS_GENERATOR_A_ID,$READINESS_GENERATOR_B_ID" \
             --next-round-index "$((logical_round_index + 1))" \
-            --distance-tolerance "${READINESS_DISTANCE_TOLERANCE:-0.22}" \
+            --distance-tolerance "$READINESS_DISTANCE_TOLERANCE" \
             --require-both-views-within-tolerance \
             --require-delexicalized-template-uniqueness \
-            --disagreement-weight "${READINESS_DISAGREEMENT_WEIGHT:-0.10}" \
-            --candidates-per-task "${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}" \
-            --master-seed "${READINESS_MASTER_SEED:-20260820}" \
+            --disagreement-weight "$READINESS_DISAGREEMENT_WEIGHT" \
+            --candidates-per-task "$READINESS_REFINEMENT_CANDIDATES_PER_TASK" \
+            --master-seed "$READINESS_MASTER_SEED" \
             --output-dir "$selection_temporary"
         mv "$selection_temporary" "$selection"
     fi
