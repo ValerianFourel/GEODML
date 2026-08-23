@@ -1632,6 +1632,7 @@ def select_spatially_matched_questions(
     target_design: str = "rectangular-grid",
     require_both_views_within_tolerance: bool = False,
     require_delexicalized_template_uniqueness: bool = False,
+    planned_keywords: Sequence[tuple[str, str]] | None = None,
 ) -> tuple[tuple[SpatiallySelectedReadinessQuestion, ...], dict[str, object]]:
     """Globally match validated candidates to planned two-view coordinates.
 
@@ -1652,9 +1653,24 @@ def select_spatially_matched_questions(
     }:
         raise ValueError(f"unsupported target design: {target_design}")
     axis_1_only = target_design in AXIS_1_ONLY_TARGET_DESIGNS
-    grouped: dict[str, list[ReadinessQuestionCandidate]] = {}
+    candidate_keyword_text = {
+        candidate.keyword_id: candidate.keyword for candidate in candidates
+    }
+    if planned_keywords is None:
+        keyword_text = candidate_keyword_text
+    else:
+        keyword_text = dict(planned_keywords)
+        if len(keyword_text) != len(planned_keywords):
+            raise ValueError("planned keyword ids must be unique")
+        if any(
+            keyword_id not in keyword_text or keyword_text[keyword_id] != keyword
+            for keyword_id, keyword in candidate_keyword_text.items()
+        ):
+            raise ValueError("candidate keywords differ from the planned keyword universe")
+    grouped: dict[str, list[ReadinessQuestionCandidate]] = {
+        keyword_id: [] for keyword_id in keyword_text
+    }
     for candidate in candidates:
-        grouped.setdefault(candidate.keyword_id, [])
         if candidate.candidate_id not in accepted_candidate_ids:
             continue
         coordinate = coordinates_by_candidate.get(candidate.candidate_id)
@@ -1677,9 +1693,6 @@ def select_spatially_matched_questions(
         grouped[candidate.keyword_id].append(candidate)
     if not grouped:
         raise ValueError("no candidates are available for spatial matching")
-    keyword_text = {
-        candidate.keyword_id: candidate.keyword for candidate in candidates
-    }
     keyword_targets = _targets_by_keyword(
         sorted(keyword_text.items()), targets
     )

@@ -759,7 +759,10 @@ def _score_select(args) -> int:
         raise ValueError("no candidates to score")
     if len({row.candidate_id for row in candidates}) != len(candidates):
         raise ValueError("candidate files contain duplicate candidate ids")
-    keywords = sorted({(row.keyword_id, row.keyword) for row in candidates})
+    candidate_keywords = sorted(
+        {(row.keyword_id, row.keyword) for row in candidates}
+    )
+    keywords = _read_plan_keywords(plan, candidate_keywords)
     targets, _ = _read_plan_targets(plan, keywords)
     if isinstance(targets, dict):
         targets_by_key = {
@@ -1085,7 +1088,10 @@ def _spatial_select(args) -> int:
     )
     if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
         raise ValueError("spatial selection candidates must be nonempty and unique")
-    keywords = sorted({(row.keyword_id, row.keyword) for row in candidates})
+    candidate_keywords = sorted(
+        {(row.keyword_id, row.keyword) for row in candidates}
+    )
+    keywords = _read_plan_keywords(plan, candidate_keywords)
     targets, target_design = _read_plan_targets(plan, keywords)
     axis_1_only = target_design in {
         "axis-1-linear",
@@ -1157,6 +1163,7 @@ def _spatial_select(args) -> int:
         require_delexicalized_template_uniqueness=getattr(
             args, "require_delexicalized_template_uniqueness", False
         ),
+        planned_keywords=keywords,
     )
     generators = _csv(args.generator_ids)
     targets_by_keyword = (
@@ -1559,6 +1566,33 @@ def _read_plan_targets(
         ReadinessPromptTarget(**row) for row in read_jsonl(plan / "target_grid.jsonl")
     )
     return targets, target_design
+
+
+def _read_plan_keywords(
+    plan: Path,
+    candidate_keywords: Sequence[tuple[str, str]],
+) -> tuple[tuple[str, str], ...]:
+    """Return the complete planned keyword universe, including empty pools."""
+
+    keyword_path = plan / "keyword_target_grid.jsonl"
+    if not keyword_path.is_file():
+        return tuple(candidate_keywords)
+    planned: dict[str, str] = {}
+    for row in read_jsonl(keyword_path):
+        keyword_id = str(row["keyword_id"])
+        keyword = str(row["keyword"])
+        previous = planned.setdefault(keyword_id, keyword)
+        if previous != keyword:
+            raise ValueError("keyword target plan contains inconsistent keyword text")
+    if not planned:
+        raise ValueError("keyword target plan is empty")
+    candidate_mapping = dict(candidate_keywords)
+    if any(
+        keyword_id not in planned or planned[keyword_id] != keyword
+        for keyword_id, keyword in candidate_mapping.items()
+    ):
+        raise ValueError("keyword target plan does not match candidate keywords")
+    return tuple(sorted(planned.items()))
 
 
 def _task_row(task: ReadinessGenerationTask) -> dict[str, object]:

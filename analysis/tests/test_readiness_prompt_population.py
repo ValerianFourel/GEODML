@@ -1371,6 +1371,51 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertEqual(len(quantized_selected), 2)
         self.assertTrue(quantized_diagnostics["overall_spacing_gate_passed"])
 
+    def test_spatial_matching_retains_planned_keyword_with_no_candidates(self) -> None:
+        target = build_axis_1_target_grid(self.bounds, axis_1_points=2)[0]
+        task = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            (target,),
+            ("fake",),
+            requested_candidate_count=1,
+        )[0]
+        candidate = generate_question_candidates(
+            (task,), FakeReadinessQuestionGenerator("fake")
+        )[0]
+        coordinates = {
+            candidate.candidate_id: {
+                "reference_normalized_axis_1": target.normalized_axis_1,
+                "reference_normalized_axis_2": 0.0,
+                "candidate_aligned_normalized_axis_1": target.normalized_axis_1,
+                "candidate_aligned_normalized_axis_2": 0.0,
+                "consensus_normalized_axis_1": target.normalized_axis_1,
+                "consensus_normalized_axis_2": 0.0,
+                "cross_embedding_disagreement": 0.0,
+            }
+        }
+
+        selected, diagnostics = select_spatially_matched_questions(
+            (candidate,),
+            {
+                "keyword:one": (target,),
+                "keyword:two": (target,),
+            },
+            coordinates,
+            accepted_candidate_ids={candidate.candidate_id},
+            distance_tolerance=0.017,
+            target_design="axis-1-linear",
+            require_both_views_within_tolerance=True,
+            planned_keywords=(
+                ("keyword:one", "abandoned cart recovery"),
+                ("keyword:two", "enterprise password manager"),
+            ),
+        )
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(diagnostics["keyword_count"], 2)
+        self.assertEqual(diagnostics["keywords"]["keyword:two"]["selected_count"], 0)
+        self.assertFalse(diagnostics["all_keywords_pass_spacing_gate"])
+
     def test_template_uniqueness_rejects_keyword_substitution(self) -> None:
         target = build_target_grid(self.bounds)[0]
         tasks = build_generation_tasks(
@@ -1557,13 +1602,31 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                 for field in self.bounds.__dataclass_fields__
             })
             atomic_jsonl(
-                plan / "target_grid.jsonl",
+                plan / "keyword_target_grid.jsonl",
                 (
-                    {field: getattr(target, field) for field in target.__dataclass_fields__}
+                    {
+                        "keyword_id": keyword_id,
+                        "keyword": keyword,
+                        "target": {
+                            field: getattr(target, field)
+                            for field in target.__dataclass_fields__
+                        },
+                    }
+                    for keyword_id, keyword in (
+                        ("keyword:one", "abandoned cart recovery"),
+                        ("keyword:two", "enterprise password manager"),
+                    )
                     for target in targets
                 ),
             )
-            atomic_json(plan / "plan_manifest.json", {"map_id": "qwen-map"})
+            atomic_json(
+                plan / "plan_manifest.json",
+                {
+                    "map_id": "qwen-map",
+                    "target_design": "rectangular-grid",
+                    "target_count_per_keyword": len(targets),
+                },
+            )
             atomic_json(reference / "projection_manifest.json", {"map_id": "qwen-map"})
             atomic_json(candidate_root / "projection_manifest.json", {"map_id": "mistral-map"})
             atomic_json(
@@ -1631,12 +1694,14 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             )
             diagnostics = read_json(output / "spatial_coverage_diagnostics.json")
             self.assertEqual(diagnostics["selected_count"], 3)
+            self.assertEqual(diagnostics["keyword_count"], 2)
             self.assertAlmostEqual(diagnostics["mean_target_distance"], 0.0)
             self.assertEqual(diagnostics["verified_selected_count"], 3)
             self.assertTrue(
                 diagnostics["selected_delexicalized_templates_are_unique"]
             )
             manifest = read_json(output / "run_manifest.json")
+            self.assertEqual(manifest["next_round_task_count"], 3)
             self.assertTrue(manifest["coordinate_acceptance_contract"]["enabled"])
             self.assertTrue(manifest["surface_acceptance_contract"]["enabled"])
 

@@ -183,6 +183,8 @@ export READINESS_SOURCE_PILOT_ROOT="$source_pilot"
 export READINESS_RECOVERY_PIPELINE_ROOT="$recovery_pipeline"
 export READINESS_INITIAL_CANDIDATE_ROOT="$initial_candidate_root"
 export READINESS_INITIAL_PROJECTION_ROOT="$initial_projection_root"
+export READINESS_MAX_REFINEMENT_ROUNDS="${READINESS_MAX_REFINEMENT_ROUNDS:-1000}"
+export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="${READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND:-128}"
 [[ -z "$source_pilot" || -z "$initial_candidate_root" ]] || {
     echo "configure either a source pilot or an initial checkpoint, not both" >&2
     exit 2
@@ -202,6 +204,18 @@ else
 fi
 export READINESS_30K_PIPELINE_ROOT="$pipeline_root"
 mkdir -p "$pipeline_root" "$pipeline_root/logs" "$pipeline_root/cache"
+command -v flock >/dev/null || {
+    echo "flock is required to prevent concurrent pipeline controllers" >&2
+    exit 2
+}
+exec 9>"$pipeline_root/.controller.lock"
+flock -n 9 || {
+    echo "another controller already owns this pipeline root: $pipeline_root" >&2
+    exit 2
+}
+printf 'job_id=%s pid=%s started_at=%s\n' \
+    "$SLURM_JOB_ID" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "$pipeline_root/controller-owner.txt"
 validation_cache_root="${READINESS_VALIDATION_CACHE_ROOT:-$pipeline_root/cache}"
 export READINESS_VALIDATION_CACHE_ROOT="$validation_cache_root"
 mkdir -p "$validation_cache_root"
@@ -251,6 +265,8 @@ identity = {
     "generator_models": [os.environ["READINESS_GENERATOR_A_MODEL"], os.environ["READINESS_GENERATOR_B_MODEL"]],
     "validator_id": os.environ["READINESS_VALIDATOR_ID"],
     "validator_model": os.environ["READINESS_VALIDATOR_MODEL"],
+    "maximum_refinement_rounds": int(os.environ["READINESS_MAX_REFINEMENT_ROUNDS"]),
+    "refinement_task_limit_per_round": int(os.environ["READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND"]),
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],
     "slurm_job_id": os.environ["SLURM_JOB_ID"],
@@ -287,12 +303,42 @@ temporary.replace(manifest_path)
 PY
 
 worker="$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_pipeline_stage.sh"
-max_rounds="${READINESS_MAX_REFINEMENT_ROUNDS:-2}"
+max_rounds="$READINESS_MAX_REFINEMENT_ROUNDS"
+refinement_task_limit="$READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND"
+[[ "$max_rounds" -ge 1 ]] || { echo "READINESS_MAX_REFINEMENT_ROUNDS must be positive" >&2; exit 2; }
+[[ "$refinement_task_limit" -ge 1 ]] || { echo "READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND must be positive" >&2; exit 2; }
 export READINESS_GENERATION_SECONDS="${READINESS_GENERATION_SECONDS:-3000}"
 candidate_files=()
 previous_selection=""
 pipeline_status="refine"
 active_srun_pids=()
+recovered_generation_candidates=()
+logical_round_offset=0
+
+if [[ -n "$recovery_pipeline" ]]; then
+    while IFS= read -r recovered_candidate; do
+        recovered_manifest="$recovered_candidate.manifest.json"
+        [[ -s "$recovered_manifest" ]] || {
+            echo "recovery candidate lacks a checkpoint manifest: $recovered_candidate" >&2
+            exit 2
+        }
+        recovered_count="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["candidate_count"])' "$recovered_manifest")"
+        [[ "$recovered_count" -gt 0 ]] || continue
+        recovered_generation_candidates+=("$recovered_candidate")
+        recovered_round_name="$(basename "$(dirname "$(dirname "$(dirname "$recovered_candidate")")")")"
+        recovered_round_number="${recovered_round_name#round-}"
+        recovered_round_number="$((10#$recovered_round_number))"
+        if [[ "$recovered_round_number" -gt "$logical_round_offset" ]]; then
+            logical_round_offset="$recovered_round_number"
+        fi
+    done < <(
+        find "$recovery_pipeline" -path '*/round-*/generation/candidates/*.jsonl' \
+            ! -name '*.failures.jsonl' -type f -print | sort
+    )
+fi
+if [[ "${#recovered_generation_candidates[@]}" -gt 0 ]]; then
+    echo "RECOVERED GENERATION CHECKPOINTS: files=${#recovered_generation_candidates[@]} logical_round_offset=$logical_round_offset"
+fi
 
 interrupt_pipeline() {
     local signal_name="$1" exit_code=130 pid
@@ -443,6 +489,89 @@ assert row["reviewed_count"] == row["candidate_count"]
 ' "$manifest" "$expected_total" "$expected_count" "$expected_index" "$expected_salt"
 }
 
+prepare_refinement_task_batch() {
+    local source_tasks="$1" batch_tasks="$2" limit="$3"
+    python - "$source_tasks" "$batch_tasks" "$limit" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).resolve()
+output = pathlib.Path(sys.argv[2]).resolve()
+limit = int(sys.argv[3])
+manifest_path = output.with_suffix(output.suffix + ".manifest.json")
+source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+rows = [
+    json.loads(line)
+    for line in source.read_text().splitlines()
+    if line.strip()
+]
+if len({row["task_id"] for row in rows}) != len(rows):
+    raise SystemExit("refinement task source contains duplicate task ids")
+
+# A stable hash avoids repeatedly favoring the first keywords. Round-robin
+# generator interleaving keeps all four one-GPU generation workers useful.
+grouped = {}
+for row in rows:
+    grouped.setdefault(row["generator_id"], []).append(row)
+for generator_rows in grouped.values():
+    generator_rows.sort(
+        key=lambda row: hashlib.sha256(
+            f'{source_sha256}:{row["task_id"]}'.encode()
+        ).hexdigest()
+    )
+selected = []
+generators = sorted(grouped)
+while len(selected) < min(limit, len(rows)):
+    progressed = False
+    for generator_id in generators:
+        if grouped[generator_id] and len(selected) < limit:
+            selected.append(grouped[generator_id].pop(0))
+            progressed = True
+    if not progressed:
+        break
+
+identity = {
+    "format_version": "readiness-refinement-task-batch-v1",
+    "source_path": str(source),
+    "source_sha256": source_sha256,
+    "source_task_count": len(rows),
+    "task_limit": limit,
+    "selected_task_count": len(selected),
+    "selected_task_ids": [row["task_id"] for row in selected],
+    "selection_method": "stable-hash-generator-round-robin-v1",
+}
+if output.exists() or manifest_path.exists():
+    if not output.is_file() or not manifest_path.is_file():
+        raise SystemExit(f"partial refinement task batch: {output}")
+    existing = json.loads(manifest_path.read_text())
+    if existing != identity:
+        raise SystemExit(f"immutable refinement task batch differs: {output}")
+    actual_ids = [
+        json.loads(line)["task_id"]
+        for line in output.read_text().splitlines()
+        if line.strip()
+    ]
+    if actual_ids != identity["selected_task_ids"]:
+        raise SystemExit(f"refinement task batch content differs: {output}")
+else:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in selected)
+    )
+    temporary.replace(output)
+    temporary_manifest = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    temporary_manifest.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n")
+    temporary_manifest.replace(manifest_path)
+print(
+    f"REFINEMENT BATCH: selected={len(selected)}/{len(rows)} "
+    f"limit={limit} output={output}"
+)
+PY
+}
+
 run_generation_round() {
     local round_root="$1" tasks="$2"
     mkdir -p "$round_root/candidates" "$round_root/cache" "$round_root/logs"
@@ -513,6 +642,7 @@ run_generation_round() {
 
 for ((round_index=0; round_index<=max_rounds; round_index++)); do
     printf -v round_name 'round-%02d' "$round_index"
+    logical_round_index="$((round_index + logical_round_offset))"
     round_root="$pipeline_root/$round_name"
     mkdir -p "$round_root"
 
@@ -529,15 +659,19 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
             }
         done
         candidate_files+=("${initial_candidates[@]}")
+        candidate_files+=("${recovered_generation_candidates[@]}")
     elif [[ "$round_index" -eq 0 && -n "$source_pilot" ]]; then
         mapfile -t source_candidates < <(find "$source_pilot/candidates" -maxdepth 1 -type f -name '*.jsonl' ! -name '*.failures.jsonl' | sort)
         [[ "${#source_candidates[@]}" -gt 0 ]] || { echo "source pilot has no candidates" >&2; exit 2; }
         candidate_files+=("${source_candidates[@]}")
     else
         if [[ "$round_index" -eq 0 ]]; then
-            tasks="$READINESS_30K_PLAN_ROOT/generation_tasks_round_00.jsonl"
+            source_tasks="$READINESS_30K_PLAN_ROOT/generation_tasks_round_00.jsonl"
+            tasks="$source_tasks"
         else
-            tasks="$previous_selection/generation_tasks_round_$(printf '%02d' "$round_index").jsonl"
+            source_tasks="$previous_selection/generation_tasks_round_$(printf '%02d' "$logical_round_index").jsonl"
+            tasks="$round_root/refinement-task-batch.jsonl"
+            prepare_refinement_task_batch "$source_tasks" "$tasks" "$refinement_task_limit"
         fi
         test -e "$tasks"
         if [[ ! -s "$tasks" ]]; then
@@ -771,6 +905,8 @@ PY
     previous_selection="$selection"
     if ! artifact_count_matches "$selection/run_manifest.json" "$candidate_count"; then
         [[ ! -e "$selection" ]] || { echo "partial selection directory: $selection" >&2; exit 2; }
+        selection_temporary="$round_root/.strict-selection-attempt-$SLURM_JOB_ID-${BASHPID:-$$}-$(date -u +%Y%m%dT%H%M%SZ)"
+        [[ ! -e "$selection_temporary" ]] || { echo "selection attempt collision: $selection_temporary" >&2; exit 2; }
         python analysis/scripts/build_readiness_prompt_population.py spatial-select \
             --plan-dir "$READINESS_30K_PLAN_ROOT" \
             --candidates "${candidate_files[@]}" \
@@ -779,14 +915,15 @@ PY
             --robustness-battery "$READINESS_BATTERY_ROOT" \
             --validations "$READINESS_VALIDATION_OUTPUT" \
             --generator-ids "$READINESS_GENERATOR_A_ID,$READINESS_GENERATOR_B_ID" \
-            --next-round-index "$((round_index + 1))" \
+            --next-round-index "$((logical_round_index + 1))" \
             --distance-tolerance "${READINESS_DISTANCE_TOLERANCE:-0.22}" \
             --require-both-views-within-tolerance \
             --require-delexicalized-template-uniqueness \
             --disagreement-weight "${READINESS_DISAGREEMENT_WEIGHT:-0.10}" \
             --candidates-per-task "${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}" \
             --master-seed "${READINESS_MASTER_SEED:-20260820}" \
-            --output-dir "$selection"
+            --output-dir "$selection_temporary"
+        mv "$selection_temporary" "$selection"
     fi
 
     selected="$selection/spatially_selected_questions.jsonl"
@@ -840,7 +977,7 @@ summary = {
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
 
-    next_tasks="$selection/generation_tasks_round_$(printf '%02d' "$((round_index + 1))").jsonl"
+    next_tasks="$selection/generation_tasks_round_$(printf '%02d' "$((logical_round_index + 1))").jsonl"
     if [[ -n "$source_pilot" ]]; then
         if [[ -s "$next_tasks" ]]; then
             pipeline_status="pilot-refine"
