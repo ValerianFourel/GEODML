@@ -162,6 +162,14 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--maximum-attempts", type=int, default=3)
     validate.add_argument("--shard-count", type=int, default=1)
     validate.add_argument("--shard-index", type=int, default=0)
+    validate.add_argument(
+        "--shard-salt",
+        default="",
+        help=(
+            "optional deterministic salt for redistributing cached validation "
+            "work across a fresh shard layout"
+        ),
+    )
     validate.add_argument("--resume", action="store_true")
 
     score = stages.add_parser(
@@ -656,10 +664,19 @@ def _validate_candidates(args) -> int:
         raise ValueError("validation candidates must be nonempty and uniquely identified")
     if args.shard_count <= 0 or not 0 <= args.shard_index < args.shard_count:
         raise ValueError("validation shard must satisfy 0 <= index < count")
+    shard_salt = str(getattr(args, "shard_salt", ""))
     candidates = tuple(
         row
         for row in all_candidates
-        if int(_sha256_text(row.candidate_id)[:16], 16) % args.shard_count
+        if int(
+            _sha256_text(
+                f"{shard_salt}\0{row.candidate_id}"
+                if shard_salt
+                else row.candidate_id
+            )[:16],
+            16,
+        )
+        % args.shard_count
         == args.shard_index
     )
     existing = {
@@ -701,6 +718,7 @@ def _validate_candidates(args) -> int:
             "total_candidate_count": len(all_candidates),
             "shard_count": args.shard_count,
             "shard_index": args.shard_index,
+            "shard_salt": shard_salt,
             "reviewed_count": len(rows),
             "accepted_count": sum(bool(row["accepted"]) for row in rows),
             "judge_id": args.judge_id,

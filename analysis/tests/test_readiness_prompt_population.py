@@ -898,6 +898,7 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                     candidates=[str(candidate_path)],
                     shard_count=2,
                     shard_index=shard_index,
+                    shard_salt="retry-layout",
                     model="model/judge",
                     judge_id="independent-judge",
                     cache_dir=str(root / f"cache-{shard_index}"),
@@ -933,6 +934,10 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             {candidate.candidate_id for candidate in candidates},
         )
         self.assertEqual([row["shard_index"] for row in manifests], [0, 1])
+        self.assertEqual(
+            [row["shard_salt"] for row in manifests],
+            ["retry-layout", "retry-layout"],
+        )
         self.assertTrue(
             all(row["total_candidate_count"] == len(candidates) for row in manifests)
         )

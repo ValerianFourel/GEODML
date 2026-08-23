@@ -158,6 +158,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("validate-candidates", worker)
         self.assertIn("READINESS_VALIDATION_SHARD_COUNT", worker)
         self.assertIn("READINESS_VALIDATION_SHARD_INDEX", worker)
+        self.assertIn("READINESS_VALIDATION_SHARD_SALT", worker)
+        self.assertIn("READINESS_VALIDATION_SHARD_SALT", script)
         self.assertIn("project-candidates", worker)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:

@@ -429,7 +429,7 @@ recover_projection_source() {
 }
 
 validation_shard_complete() {
-    local manifest="$1" expected_total="$2" expected_count="$3" expected_index="$4"
+    local manifest="$1" expected_total="$2" expected_count="$3" expected_index="$4" expected_salt="$5"
     [[ -s "$manifest" ]] || return 1
     python -c '
 import json
@@ -438,8 +438,9 @@ row = json.load(open(sys.argv[1]))
 assert row["total_candidate_count"] == int(sys.argv[2])
 assert row["shard_count"] == int(sys.argv[3])
 assert row["shard_index"] == int(sys.argv[4])
+assert row.get("shard_salt", "") == sys.argv[5]
 assert row["reviewed_count"] == row["candidate_count"]
-' "$manifest" "$expected_total" "$expected_count" "$expected_index"
+' "$manifest" "$expected_total" "$expected_count" "$expected_index" "$expected_salt"
 }
 
 run_generation_round() {
@@ -598,6 +599,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     stage_pids=() stage_names=()
     active_srun_pids=()
     validation_shard_count="${READINESS_VALIDATION_SHARD_COUNT:-2}"
+    validation_shard_salt="${READINESS_VALIDATION_SHARD_SALT:-}"
     [[ "$validation_shard_count" -ge 1 && "$validation_shard_count" -le "$allocated_gpu_count" ]] || {
         echo "validation shard count must be between 1 and $allocated_gpu_count" >&2
         exit 2
@@ -608,12 +610,13 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         validation_shard_files+=("$validation_shard_output")
         if artifact_count_matches "$READINESS_VALIDATION_OUTPUT.manifest.json" "$candidate_count" || \
             validation_shard_complete "$validation_shard_output.manifest.json" "$candidate_count" \
-                "$validation_shard_count" "$validation_shard_index"; then
+                "$validation_shard_count" "$validation_shard_index" "$validation_shard_salt"; then
             continue
         fi
         READINESS_VALIDATION_OUTPUT="$validation_shard_output" \
         READINESS_VALIDATION_SHARD_COUNT="$validation_shard_count" \
         READINESS_VALIDATION_SHARD_INDEX="$validation_shard_index" \
+        READINESS_VALIDATION_SHARD_SALT="$validation_shard_salt" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" validate > "$round_root/logs/validate-shard-$validation_shard_index.log" 2>&1 &
         stage_pids+=("$!"); active_srun_pids+=("$!")
@@ -711,6 +714,9 @@ stable_fields = ("judge_id", "judge_model", "judge_backend", "judge_precision")
 for field in stable_fields:
     if len({manifest[field] for manifest in manifests}) != 1:
         raise SystemExit(f"validation shard {field} differs")
+shard_salts = {manifest.get("shard_salt", "") for manifest in manifests}
+if len(shard_salts) != 1:
+    raise SystemExit("validation shard salts differ")
 ordered = [rows[candidate_id] for candidate_id in sorted(rows)]
 temporary = output.with_suffix(output.suffix + ".tmp")
 temporary.write_text(
@@ -726,6 +732,7 @@ manifest = {
     "candidate_count": len(ordered),
     "reviewed_count": len(ordered),
     "accepted_count": sum(bool(row["accepted"]) for row in ordered),
+    "shard_salt": shard_salts.pop(),
     "validation_shards": [
         {
             "path": str(shard.resolve()),

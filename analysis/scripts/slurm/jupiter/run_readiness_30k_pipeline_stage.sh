@@ -103,6 +103,7 @@ case "$stage" in
             --maximum-attempts "${READINESS_VALIDATION_MAXIMUM_ATTEMPTS:-3}" \
             --shard-count "${READINESS_VALIDATION_SHARD_COUNT:-1}" \
             --shard-index "${READINESS_VALIDATION_SHARD_INDEX:-0}" \
+            --shard-salt "${READINESS_VALIDATION_SHARD_SALT:-}" \
             --resume
         ;;
     project-qwen)
