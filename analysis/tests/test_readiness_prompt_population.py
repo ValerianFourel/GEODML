@@ -992,6 +992,79 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             self.assertTrue(complete["complete"])
             self.assertFalse(complete["terminal_failure"])
 
+    def test_validator_atomically_checkpoints_each_reported_milestone(self) -> None:
+        targets = build_target_grid(self.bounds)[:12]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+        accepted_output = (
+            '{"topic_relevant":true,"search_intent":true,'
+            '"web_answerable":true,"standalone":true,'
+            '"natural_language":true,"relevance_score_1_5":5,'
+            '"concise_reason":"A direct, answerable search question."}'
+        )
+
+        class InterruptingValidator:
+            def __init__(self):
+                self.calls = 0
+
+            def review(self, candidate):
+                self.calls += 1
+                if self.calls == 11:
+                    raise RuntimeError("allocation interrupted")
+                return parse_search_question_review(
+                    accepted_output,
+                    candidate,
+                    judge_id="independent-judge",
+                    judge_model="model/judge",
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate_path = root / "candidates.jsonl"
+            output = root / "validation.jsonl"
+            atomic_jsonl(candidate_path, (asdict(row) for row in candidates))
+            args = SimpleNamespace(
+                output=str(output),
+                resume=True,
+                candidates=[str(candidate_path)],
+                shard_count=1,
+                shard_index=0,
+                shard_salt="",
+                model="model/judge",
+                judge_id="independent-judge",
+                cache_dir=str(root / "cache"),
+                backend="local",
+                precision="full",
+                maximum_attempts=3,
+            )
+            from unittest.mock import patch
+
+            with patch(
+                "analysis.scripts.build_readiness_prompt_population."
+                "LocalSearchQuestionValidator.from_model",
+                return_value=InterruptingValidator(),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "allocation interrupted"):
+                    _validate_candidates(args)
+
+            checkpoint = [
+                json.loads(line)
+                for line in output.read_text().splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(checkpoint), 10)
+            self.assertFalse(output.with_suffix(".jsonl.manifest.json").exists())
+
     def test_generate_can_record_one_exhausted_task_and_finish_its_slice(self) -> None:
         targets = build_target_grid(self.bounds)[:2]
         tasks = build_generation_tasks(

@@ -700,6 +700,14 @@ def _validate_candidates(args) -> int:
             review = validator.review(candidate)
             existing[candidate.candidate_id] = asdict(review)
             if index % 10 == 0 or index == len(pending):
+                # A validator shard can run for hours.  Persist every reported
+                # milestone so an allocation timeout resumes from the exact
+                # reviewed set instead of relying only on per-question caches.
+                checkpoint_rows = [
+                    existing[candidate_id]
+                    for candidate_id in sorted(existing)
+                ]
+                atomic_jsonl(output, checkpoint_rows)
                 print(
                     f"validated={len(existing)}/{len(candidates)} "
                     f"accepted={sum(bool(row['accepted']) for row in existing.values())}"

@@ -36,6 +36,9 @@ READINESS_30K_END_TO_END = JUPITER_ROOT / "run_readiness_30k_end_to_end.sh"
 READINESS_30K_PIPELINE_STAGE = (
     JUPITER_ROOT / "run_readiness_30k_pipeline_stage.sh"
 )
+READINESS_30K_AXIS1_STRICT_LOOP = (
+    JUPITER_ROOT / "run_readiness_30k_axis1_strict_loop.sh"
+)
 READINESS_AXIS1_CHECKPOINT_AUDIT = (
     JUPITER_ROOT / "run_readiness_axis1_checkpoint_audit.sh"
 )
@@ -61,6 +64,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_GENERATOR_INSTALLER,
             READINESS_30K_END_TO_END,
             READINESS_30K_PIPELINE_STAGE,
+            READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
             with self.subTest(script=script.name):
@@ -141,10 +145,9 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("verified_population_passed", script)
         self.assertIn('pipeline_status="quality-gate-failed"', script)
         self.assertIn("not source_pilot_mode", script)
-        self.assertIn(
-            'validation_shard_count="${READINESS_VALIDATION_SHARD_COUNT:-2}"',
-            script,
-        )
+        self.assertIn('READINESS_VALIDATION_SHARD_COUNT:-4', script)
+        self.assertIn("initial_validation_slots", script)
+        self.assertIn("launch_validation_shard", script)
         self.assertIn("validation shards do not cover the exact candidate set", script)
         self.assertIn("SOURCE PILOT REFINEMENT", script)
         self.assertIn("interrupt_pipeline", script)
@@ -159,7 +162,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("recover_projection_source", script)
         self.assertIn("projection_artifact_matches", script)
         self.assertIn("recovered completed projection", script)
-        self.assertIn('cp -an "$recovery_pipeline/cache/."', script)
+        self.assertIn("merge_readiness_validation_caches.py", script)
+        self.assertIn("READINESS_VALIDATION_CACHE_SEARCH_ROOTS", script)
         self.assertIn('manifest["candidate_files"] == identities', script)
         self.assertNotIn("stale current-job Qwen projection", script)
         self.assertIn("the independent validator must differ", script)
@@ -177,6 +181,16 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_VALIDATION_SHARD_SALT", worker)
         self.assertIn("READINESS_VALIDATION_SHARD_SALT", script)
         self.assertIn("project-candidates", worker)
+
+        strict_loop = READINESS_30K_AXIS1_STRICT_LOOP.read_text(encoding="utf-8")
+        self.assertNotIn("salloc", strict_loop)
+        self.assertNotIn("sbatch", strict_loop)
+        self.assertIn("READINESS_APPROVED_WALLTIME", strict_loop)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", strict_loop)
+        self.assertIn('READINESS_DISTANCE_TOLERANCE="0.017"', strict_loop)
+        self.assertIn('READINESS_VALIDATION_SHARD_COUNT:-4', strict_loop)
+        self.assertIn("READINESS_VALIDATION_CACHE_SEARCH_ROOTS", strict_loop)
+        self.assertIn("run_readiness_30k_end_to_end.sh", strict_loop)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:
         script = READINESS_AXIS1_CHECKPOINT_AUDIT.read_text(encoding="utf-8")

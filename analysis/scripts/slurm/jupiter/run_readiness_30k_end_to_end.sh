@@ -110,6 +110,7 @@ export READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"
 export READINESS_DISAGREEMENT_WEIGHT="${READINESS_DISAGREEMENT_WEIGHT:-0.10}"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
 export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
+export READINESS_VALIDATION_SHARD_COUNT="${READINESS_VALIDATION_SHARD_COUNT:-4}"
 
 python3 - "$READINESS_30K_PLAN_ROOT" <<'PY'
 import collections
@@ -286,13 +287,51 @@ if [[ -n "$recovery_pipeline" ]]; then
         echo "recovery pipeline root must differ from the new pipeline root" >&2
         exit 2
     }
-    if [[ -d "$recovery_pipeline/cache" ]]; then
-        cp -an "$recovery_pipeline/cache/." "$pipeline_root/cache/"
-    fi
 fi
 printf '%s\n' "$pipeline_root" > "$pointer"
 
 activate_control_runtime
+
+# Cache reuse is an explicit, audited union.  Search roots let a recovery run
+# discover every previous cache for the same immutable judge rather than
+# accidentally copying only the most recent (possibly partial) allocation.
+validation_cache_sources=()
+if [[ -n "$recovery_pipeline" && -d "$recovery_pipeline/cache/$READINESS_VALIDATOR_ID" ]]; then
+    validation_cache_sources+=("$recovery_pipeline/cache/$READINESS_VALIDATOR_ID")
+fi
+if [[ -n "${READINESS_VALIDATION_CACHE_SOURCES:-}" ]]; then
+    IFS=: read -r -a explicit_validation_cache_sources \
+        <<< "$READINESS_VALIDATION_CACHE_SOURCES"
+    validation_cache_sources+=("${explicit_validation_cache_sources[@]}")
+fi
+if [[ -n "${READINESS_VALIDATION_CACHE_SEARCH_ROOTS:-}" ]]; then
+    IFS=: read -r -a validation_cache_search_roots \
+        <<< "$READINESS_VALIDATION_CACHE_SEARCH_ROOTS"
+    for cache_search_root in "${validation_cache_search_roots[@]}"; do
+        [[ -d "$cache_search_root" ]] || {
+            echo "validation cache search root does not exist: $cache_search_root" >&2
+            exit 2
+        }
+        while IFS= read -r -d '' discovered_cache; do
+            validation_cache_sources+=("$discovered_cache")
+        done < <(
+            find "$cache_search_root" -type d -name "$READINESS_VALIDATOR_ID" \
+                -print0
+        )
+    done
+fi
+if [[ "${#validation_cache_sources[@]}" -gt 0 ]]; then
+    cache_merge_arguments=()
+    for validation_cache_source in "${validation_cache_sources[@]}"; do
+        cache_merge_arguments+=(--source "$validation_cache_source")
+    done
+    python analysis/scripts/merge_readiness_validation_caches.py \
+        "${cache_merge_arguments[@]}" \
+        --destination "$validation_cache_root/$READINESS_VALIDATOR_ID" \
+        --judge-id "$READINESS_VALIDATOR_ID" \
+        --judge-model "$READINESS_VALIDATOR_MODEL" \
+        --report "$pipeline_root/logs/validator-cache-merge-job-$SLURM_JOB_ID.json"
+fi
 
 python - "$pipeline_root" "$READINESS_30K_PLAN_ROOT" "$source_pilot" "$recovery_pipeline" \
     "$initial_candidate_root" "$initial_projection_root" "$validation_cache_root" <<'PY'
@@ -329,6 +368,7 @@ identity = {
     "master_seed": int(os.environ["READINESS_MASTER_SEED"]),
     "maximum_refinement_rounds": int(os.environ["READINESS_MAX_REFINEMENT_ROUNDS"]),
     "refinement_task_limit_per_round": int(os.environ["READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND"]),
+    "validation_shard_count": int(os.environ["READINESS_VALIDATION_SHARD_COUNT"]),
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],
     "slurm_job_id": os.environ["SLURM_JOB_ID"],
@@ -792,15 +832,16 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         "$MISTRAL_PROJECTION_ROOT" '.mistral-attempt-*' "$candidate_count" "$candidate_list" \
         "${projection_search_roots[@]}" || exit 2
 
-    stage_pids=() stage_names=()
+    validation_pids=() validation_names=()
     active_srun_pids=()
-    validation_shard_count="${READINESS_VALIDATION_SHARD_COUNT:-2}"
+    validation_shard_count="$READINESS_VALIDATION_SHARD_COUNT"
     validation_shard_salt="${READINESS_VALIDATION_SHARD_SALT:-}"
     [[ "$validation_shard_count" -ge 1 && "$validation_shard_count" -le "$allocated_gpu_count" ]] || {
         echo "validation shard count must be between 1 and $allocated_gpu_count" >&2
         exit 2
     }
     validation_shard_files=()
+    pending_validation_indices=()
     for ((validation_shard_index=0; validation_shard_index<validation_shard_count; validation_shard_index++)); do
         validation_shard_output="$round_root/validation-shard-$validation_shard_index.jsonl"
         validation_shard_files+=("$validation_shard_output")
@@ -809,56 +850,111 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
                 "$validation_shard_count" "$validation_shard_index" "$validation_shard_salt"; then
             continue
         fi
-        READINESS_VALIDATION_OUTPUT="$validation_shard_output" \
+        pending_validation_indices+=("$validation_shard_index")
+    done
+
+    launch_validation_shard() {
+        local shard_index="$1"
+        local shard_output="$round_root/validation-shard-$shard_index.jsonl"
+        READINESS_VALIDATION_OUTPUT="$shard_output" \
         READINESS_VALIDATION_SHARD_COUNT="$validation_shard_count" \
-        READINESS_VALIDATION_SHARD_INDEX="$validation_shard_index" \
+        READINESS_VALIDATION_SHARD_INDEX="$shard_index" \
         READINESS_VALIDATION_SHARD_SALT="$validation_shard_salt" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
-            "$worker" validate > "$round_root/logs/validate-shard-$validation_shard_index.log" 2>&1 &
-        stage_pids+=("$!"); active_srun_pids+=("$!")
-        stage_names+=("validate-shard-$validation_shard_index")
-    done
+            "$worker" validate > "$round_root/logs/validate-shard-$shard_index.log" 2>&1 &
+        validation_pids+=("$!")
+        validation_names+=("validate-shard-$shard_index")
+        active_srun_pids+=("$!")
+    }
+
     projection_attempt="$SLURM_JOB_ID-${BASHPID:-$$}-$(date -u +%Y%m%dT%H%M%SZ)"
     qwen_projection_temporary="$round_root/projections/.qwen-attempt-$projection_attempt"
     mistral_projection_temporary="$round_root/projections/.mistral-attempt-$projection_attempt"
     qwen_projection_launched=0
     mistral_projection_launched=0
+    projection_launch_count=0
     if ! artifact_count_matches "$QWEN_PROJECTION_ROOT/projection_manifest.json" "$candidate_count"; then
         [[ ! -e "$QWEN_PROJECTION_ROOT" ]] || { echo "partial Qwen projection; choose a fresh pipeline root" >&2; exit 2; }
         [[ ! -e "$qwen_projection_temporary" ]] || { echo "projection attempt collision: $qwen_projection_temporary" >&2; exit 2; }
         qwen_projection_launched=1
-        QWEN_PROJECTION_ROOT="$qwen_projection_temporary" \
-        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
-            "$worker" project-qwen > "$round_root/logs/project-qwen.log" 2>&1 &
-        stage_pids+=("$!"); active_srun_pids+=("$!")
-        stage_names+=("project-qwen")
+        projection_launch_count=$((projection_launch_count + 1))
     fi
     if ! artifact_count_matches "$MISTRAL_PROJECTION_ROOT/projection_manifest.json" "$candidate_count"; then
         [[ ! -e "$MISTRAL_PROJECTION_ROOT" ]] || { echo "partial Mistral projection; choose a fresh pipeline root" >&2; exit 2; }
         [[ ! -e "$mistral_projection_temporary" ]] || { echo "projection attempt collision: $mistral_projection_temporary" >&2; exit 2; }
         mistral_projection_launched=1
+        projection_launch_count=$((projection_launch_count + 1))
+    fi
+
+    # Reserve one GPU for each missing LLM2Vec view.  The remaining GPUs begin
+    # validation immediately.  As soon as both short projection jobs finish,
+    # launch the remaining validation shards so all four GPUs stay productive.
+    initial_validation_slots="$((allocated_gpu_count - projection_launch_count))"
+    if [[ "$initial_validation_slots" -lt 0 ]]; then
+        echo "projection stages exceed the allocated GPU count" >&2
+        exit 2
+    fi
+    initial_validation_count="${#pending_validation_indices[@]}"
+    if [[ "$initial_validation_count" -gt "$initial_validation_slots" ]]; then
+        initial_validation_count="$initial_validation_slots"
+    fi
+    for ((pending_index=0; pending_index<initial_validation_count; pending_index++)); do
+        launch_validation_shard "${pending_validation_indices[$pending_index]}"
+    done
+
+    projection_pids=() projection_names=()
+    if [[ "$qwen_projection_launched" -eq 1 ]]; then
+        QWEN_PROJECTION_ROOT="$qwen_projection_temporary" \
+        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
+            "$worker" project-qwen > "$round_root/logs/project-qwen.log" 2>&1 &
+        projection_pids+=("$!"); projection_names+=("project-qwen")
+        active_srun_pids+=("$!")
+    fi
+    if [[ "$mistral_projection_launched" -eq 1 ]]; then
         MISTRAL_PROJECTION_ROOT="$mistral_projection_temporary" \
         srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
             "$worker" project-mistral > "$round_root/logs/project-mistral.log" 2>&1 &
-        stage_pids+=("$!"); active_srun_pids+=("$!")
-        stage_names+=("project-mistral")
+        projection_pids+=("$!"); projection_names+=("project-mistral")
+        active_srun_pids+=("$!")
     fi
 
-    stage_failure=0
-    for index in "${!stage_pids[@]}"; do
-        if ! wait "${stage_pids[$index]}"; then
-            echo "stage failed: ${stage_names[$index]}; inspect $round_root/logs" >&2
-            stage_failure=1
+    projection_failure=0
+    for index in "${!projection_pids[@]}"; do
+        if ! wait "${projection_pids[$index]}"; then
+            echo "stage failed: ${projection_names[$index]}; inspect $round_root/logs" >&2
+            projection_failure=1
         fi
     done
-    active_srun_pids=()
-    [[ "$stage_failure" -eq 0 ]] || exit 2
+    if [[ "$projection_failure" -ne 0 ]]; then
+        for pid in "${validation_pids[@]}"; do
+            kill -TERM "$pid" 2>/dev/null || true
+        done
+        for pid in "${validation_pids[@]}"; do
+            wait "$pid" 2>/dev/null || true
+        done
+        active_srun_pids=()
+        exit 2
+    fi
     if [[ "$qwen_projection_launched" -eq 1 ]]; then
         mv "$qwen_projection_temporary" "$QWEN_PROJECTION_ROOT"
     fi
     if [[ "$mistral_projection_launched" -eq 1 ]]; then
         mv "$mistral_projection_temporary" "$MISTRAL_PROJECTION_ROOT"
     fi
+
+    for ((pending_index=initial_validation_count; pending_index<${#pending_validation_indices[@]}; pending_index++)); do
+        launch_validation_shard "${pending_validation_indices[$pending_index]}"
+    done
+
+    validation_failure=0
+    for index in "${!validation_pids[@]}"; do
+        if ! wait "${validation_pids[$index]}"; then
+            echo "stage failed: ${validation_names[$index]}; inspect $round_root/logs" >&2
+            validation_failure=1
+        fi
+    done
+    active_srun_pids=()
+    [[ "$validation_failure" -eq 0 ]] || exit 2
 
     if ! artifact_count_matches "$READINESS_VALIDATION_OUTPUT.manifest.json" "$candidate_count"; then
         python - "$READINESS_VALIDATION_OUTPUT" "$candidate_list" "${validation_shard_files[@]}" <<'PY'
