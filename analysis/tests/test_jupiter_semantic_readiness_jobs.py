@@ -39,6 +39,9 @@ READINESS_30K_PIPELINE_STAGE = (
 READINESS_30K_AXIS1_STRICT_LOOP = (
     JUPITER_ROOT / "run_readiness_30k_axis1_strict_loop.sh"
 )
+READINESS_30K_AXIS1_8GPU_RESUME = (
+    JUPITER_ROOT / "run_readiness_30k_axis1_8gpu_resume.sbatch"
+)
 READINESS_AXIS1_CHECKPOINT_AUDIT = (
     JUPITER_ROOT / "run_readiness_axis1_checkpoint_audit.sh"
 )
@@ -65,6 +68,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_END_TO_END,
             READINESS_30K_PIPELINE_STAGE,
             READINESS_30K_AXIS1_STRICT_LOOP,
+            READINESS_30K_AXIS1_8GPU_RESUME,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
             with self.subTest(script=script.name):
@@ -130,7 +134,10 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("flock -n 9", script)
         self.assertIn("another controller already owns this pipeline root", script)
         self.assertIn(".strict-selection-attempt-", script)
-        self.assertIn("the end-to-end loop requires four allocated GPUs", script)
+        self.assertIn("the end-to-end loop requires at least four allocated GPUs", script)
+        self.assertIn("the two-generator loop requires an even allocated GPU count", script)
+        self.assertIn('generation_shards_per_generator="$((allocated_gpu_count / 2))"', script)
+        self.assertNotIn("shard_count=2", script)
         self.assertIn("GENERATION CHECKPOINTED", script)
         self.assertIn("allocation_seconds_left", script)
         self.assertIn("READINESS_FINALIZATION_RESERVE_SECONDS", script)
@@ -188,9 +195,33 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_APPROVED_WALLTIME", strict_loop)
         self.assertIn("READINESS_ALLOCATION_ESTIMATE", strict_loop)
         self.assertIn('READINESS_DISTANCE_TOLERANCE="0.017"', strict_loop)
-        self.assertIn('READINESS_VALIDATION_SHARD_COUNT:-4', strict_loop)
+        self.assertIn(
+            'READINESS_VALIDATION_SHARD_COUNT:-$READINESS_ALLOCATED_GPU_COUNT',
+            strict_loop,
+        )
+        self.assertIn('READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND:-1024', strict_loop)
         self.assertIn("READINESS_VALIDATION_CACHE_SEARCH_ROOTS", strict_loop)
         self.assertIn("run_readiness_30k_end_to_end.sh", strict_loop)
+
+    def test_axis1_eight_gpu_resume_records_approved_budget_and_reuses_work(self) -> None:
+        script = READINESS_30K_AXIS1_8GPU_RESUME.read_text(encoding="utf-8")
+
+        self.assertIn("#SBATCH --nodes=2", script)
+        self.assertIn("#SBATCH --ntasks=8", script)
+        self.assertIn("#SBATCH --ntasks-per-node=4", script)
+        self.assertIn("#SBATCH --gres=gpu:4", script)
+        self.assertIn("#SBATCH --time=12:00:00", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME="12:00:00"', script)
+        self.assertIn('READINESS_ALLOCATED_GPU_COUNT="8"', script)
+        self.assertIn('READINESS_VALIDATION_SHARD_COUNT="8"', script)
+        self.assertIn('READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="1024"', script)
+        self.assertIn("maximum 96 GPU-hours", script)
+        self.assertIn("READINESS_RECOVERY_PIPELINE_ROOT", script)
+        self.assertIn("READINESS_INITIAL_PROJECTION_ROOT", script)
+        self.assertIn("latest_verified_summary", script)
+        self.assertIn("verified_round_summary.json", script)
+        self.assertIn("SLURM_JOB_NUM_NODES", script)
+        self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:
         script = READINESS_AXIS1_CHECKPOINT_AUDIT.read_text(encoding="utf-8")

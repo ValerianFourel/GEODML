@@ -61,7 +61,7 @@ export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.
 
 gpu_descriptor="${READINESS_ALLOCATED_GPU_COUNT:-${SLURM_GPUS_ON_NODE:-${SLURM_GPUS_PER_NODE:-${SLURM_GPUS:-}}}}"
 [[ -n "$gpu_descriptor" ]] || {
-    echo "cannot determine allocated GPU count; set READINESS_ALLOCATED_GPU_COUNT=4" >&2
+    echo "cannot determine allocated GPU count; set READINESS_ALLOCATED_GPU_COUNT explicitly" >&2
     exit 2
 }
 allocated_gpu_count="$(python3 - "$gpu_descriptor" <<'PY'
@@ -75,7 +75,11 @@ print(matches[0])
 PY
 )"
 [[ "$allocated_gpu_count" -ge 4 ]] || {
-    echo "the end-to-end loop requires four allocated GPUs; found $allocated_gpu_count" >&2
+    echo "the end-to-end loop requires at least four allocated GPUs; found $allocated_gpu_count" >&2
+    exit 2
+}
+[[ "$((allocated_gpu_count % 2))" -eq 0 ]] || {
+    echo "the two-generator loop requires an even allocated GPU count; found $allocated_gpu_count" >&2
     exit 2
 }
 export READINESS_ALLOCATED_GPU_COUNT="$allocated_gpu_count"
@@ -613,7 +617,7 @@ if len({row["task_id"] for row in rows}) != len(rows):
     raise SystemExit("refinement task source contains duplicate task ids")
 
 # A stable hash avoids repeatedly favoring the first keywords. Round-robin
-# generator interleaving keeps all four one-GPU generation workers useful.
+# generator interleaving keeps the one-GPU generation workers useful.
 grouped = {}
 for row in rows:
     grouped.setdefault(row["generator_id"], []).append(row)
@@ -685,7 +689,7 @@ run_generation_round() {
     reserve_seconds="${READINESS_FINALIZATION_RESERVE_SECONDS:-900}"
     generation_slice_seconds="$((remaining_seconds - reserve_seconds))"
     if [[ "$generation_slice_seconds" -lt "${READINESS_MINIMUM_GENERATION_SECONDS:-600}" ]]; then
-        echo "GENERATION CHECKPOINTED: insufficient allocation time remains to load four generators safely"
+        echo "GENERATION CHECKPOINTED: insufficient allocation time remains to load $allocated_gpu_count generators safely"
         return 10
     fi
     if [[ "$generation_slice_seconds" -gt "$READINESS_GENERATION_SECONDS" ]]; then
@@ -693,6 +697,7 @@ run_generation_round() {
     fi
     echo "generation_slice_seconds=$generation_slice_seconds remaining_allocation_seconds=$remaining_seconds"
     local manifests=() pids=() generator_id generator_model task_count shard_count shard output cache log
+    local generation_shards_per_generator="$((allocated_gpu_count / 2))"
     active_srun_pids=()
     for generator_id in "$READINESS_GENERATOR_A_ID" "$READINESS_GENERATOR_B_ID"; do
         if [[ "$generator_id" == "$READINESS_GENERATOR_A_ID" ]]; then
@@ -702,8 +707,8 @@ run_generation_round() {
         fi
         task_count="$(python -c 'import json,sys; print(sum(json.loads(x)["generator_id"] == sys.argv[2] for x in open(sys.argv[1]) if x.strip()))' "$tasks" "$generator_id")"
         [[ "$task_count" -gt 0 ]] || continue
-        shard_count=2
-        [[ "$task_count" -ge 2 ]] || shard_count=1
+        shard_count="$generation_shards_per_generator"
+        [[ "$task_count" -ge "$shard_count" ]] || shard_count="$task_count"
         for ((shard=0; shard<shard_count; shard++)); do
             output="$round_root/candidates/$generator_id-shard-$shard.jsonl"
             cache="$round_root/cache/$generator_id-shard-$shard"
@@ -888,7 +893,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
 
     # Reserve one GPU for each missing LLM2Vec view.  The remaining GPUs begin
     # validation immediately.  As soon as both short projection jobs finish,
-    # launch the remaining validation shards so all four GPUs stay productive.
+    # launch the remaining validation shards so all allocated GPUs stay productive.
     initial_validation_slots="$((allocated_gpu_count - projection_launch_count))"
     if [[ "$initial_validation_slots" -lt 0 ]]; then
         echo "projection stages exceed the allocated GPU count" >&2
