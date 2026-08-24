@@ -145,6 +145,33 @@ def _diversity_thresholds(
         raise ValueError("selected diversity audit has invalid thresholds") from exc
 
 
+def _resolve_population_artifacts(
+    root: Path,
+) -> tuple[str, list[Path], Path]:
+    merged_candidates = root / "merged" / "candidates.jsonl"
+    merged_validation = root / "merged" / "validation.jsonl"
+    if merged_candidates.is_file() or merged_validation.is_file():
+        if not merged_candidates.is_file() or not merged_validation.is_file():
+            raise ValueError(f"partial merged population artifacts: {root / 'merged'}")
+        return "final-merge", [merged_candidates], merged_validation
+
+    candidate_list = root / "candidate-files.txt"
+    validation = root / "validation.jsonl"
+    if not candidate_list.is_file() or not validation.is_file():
+        raise ValueError(
+            "artifact root is neither a final merge nor a verified pipeline round: "
+            f"{root}"
+        )
+    candidates = [
+        Path(value).resolve()
+        for value in candidate_list.read_text(encoding="utf-8").splitlines()
+        if value.strip()
+    ]
+    if not candidates or any(not path.is_file() for path in candidates):
+        raise ValueError(f"verified round candidate list is incomplete: {candidate_list}")
+    return "verified-round", candidates, validation
+
+
 def audit_fully_compliant_prompts(
     final_root: str | Path,
     *,
@@ -169,11 +196,12 @@ def audit_fully_compliant_prompts(
     diversity_root = root / "selected-diversity"
     diversity_manifest_path = diversity_root / "run_manifest.json"
     diversity_audit_path = diversity_root / "question_diversity_audit.json"
-    candidates_path = root / "merged" / "candidates.jsonl"
-    candidates_manifest_path = candidates_path.with_suffix(
-        candidates_path.suffix + ".manifest.json"
+    artifact_kind, candidate_paths, validation_path = _resolve_population_artifacts(
+        root
     )
-    validation_path = root / "merged" / "validation.jsonl"
+    candidate_manifest_paths = [
+        path.with_suffix(path.suffix + ".manifest.json") for path in candidate_paths
+    ]
     validation_manifest_path = validation_path.with_suffix(
         validation_path.suffix + ".manifest.json"
     )
@@ -183,7 +211,7 @@ def audit_fully_compliant_prompts(
     diagnostics = _read_json(diagnostics_path)
     diversity_manifest = _read_json(diversity_manifest_path)
     stored_diversity = _read_json(diversity_audit_path)
-    candidates_manifest = _read_json(candidates_manifest_path)
+    candidate_manifests = [_read_json(path) for path in candidate_manifest_paths]
     validation_manifest = _read_json(validation_manifest_path)
     selected = list(_read_jsonl(selection_path))
 
@@ -260,14 +288,19 @@ def audit_fully_compliant_prompts(
     selected_candidates: dict[str, dict[str, object]] = {}
     candidate_duplicate_count = 0
     candidate_count = 0
-    for candidate in _read_jsonl(candidates_path):
-        candidate_count += 1
-        candidate_id = str(candidate.get("candidate_id", ""))
-        if not candidate_id or candidate_id in candidate_ids:
-            candidate_duplicate_count += 1
-        candidate_ids.add(candidate_id)
-        if candidate_id in selected_ids:
-            selected_candidates[candidate_id] = candidate
+    candidate_file_counts: list[int] = []
+    for candidate_path in candidate_paths:
+        file_count = 0
+        for candidate in _read_jsonl(candidate_path):
+            candidate_count += 1
+            file_count += 1
+            candidate_id = str(candidate.get("candidate_id", ""))
+            if not candidate_id or candidate_id in candidate_ids:
+                candidate_duplicate_count += 1
+            candidate_ids.add(candidate_id)
+            if candidate_id in selected_ids:
+                selected_candidates[candidate_id] = candidate
+        candidate_file_counts.append(file_count)
 
     validation_ids: set[str] = set()
     selected_validations: dict[str, dict[str, object]] = {}
@@ -314,7 +347,10 @@ def audit_fully_compliant_prompts(
     check("validation_covers_exact_candidate_set", validation_ids == candidate_ids)
     check(
         "candidate_manifest_count_matches",
-        _matches_count(candidates_manifest, "candidate_count", candidate_count),
+        all(
+            _matches_count(manifest, "candidate_count", count)
+            for manifest, count in zip(candidate_manifests, candidate_file_counts)
+        ),
     )
     for name, row in (
         ("summary", summary),
@@ -462,6 +498,7 @@ def audit_fully_compliant_prompts(
         "format_version": "fully-compliant-readiness-prompt-audit-v1",
         "created_at": _now(),
         "final_root": str(root),
+        "artifact_kind": artifact_kind,
         "audit_passed": audit_passed,
         "claimed_selected_count": selected_count,
         "fully_compliant_prompt_count": fully_compliant_count,

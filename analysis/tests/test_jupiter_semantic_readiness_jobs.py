@@ -48,6 +48,9 @@ READINESS_30K_AXIS1_PARTITION = (
 READINESS_30K_AXIS1_ONE_NODE_RECOVERY = (
     JUPITER_ROOT / "run_readiness_30k_axis1_one_node_recovery.sbatch"
 )
+READINESS_30K_AXIS1_ONE_NODE_GLOBAL = (
+    JUPITER_ROOT / "run_readiness_30k_axis1_one_node_global.sbatch"
+)
 READINESS_30K_PARTITION_FINALIZER = (
     JUPITER_ROOT / "finalize_readiness_30k_partitions.sh"
 )
@@ -80,6 +83,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_AXIS1_8GPU_RESUME,
             READINESS_30K_AXIS1_PARTITION,
             READINESS_30K_AXIS1_ONE_NODE_RECOVERY,
+            READINESS_30K_AXIS1_ONE_NODE_GLOBAL,
             READINESS_30K_PARTITION_FINALIZER,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
@@ -323,6 +327,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("40-50 minutes of safety margin", script)
         self.assertIn("approximately 0.7-1.3 GPU-hours", script)
         self.assertIn("GEODML_RECOVERY_ORCHESTRATOR_REPOSITORY", script)
+
         self.assertIn(
             'orchestrator_repository="$(realpath "$GEODML_RECOVERY_ORCHESTRATOR_REPOSITORY")"',
             script,
@@ -352,6 +357,24 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_END_TO_END_RUNNER", strict_loop)
         self.assertIn("READINESS_STOP_AFTER_PHYSICAL_ROUND", end_to_end)
         self.assertIn("OPERATIONAL CHECKPOINT", end_to_end)
+
+    def test_axis1_one_node_global_continues_the_fused_checkpoint(self) -> None:
+        script = READINESS_30K_AXIS1_ONE_NODE_GLOBAL.read_text(encoding="utf-8")
+
+        self.assertIn("#SBATCH --nodes=1", script)
+        self.assertIn("#SBATCH --gres=gpu:4", script)
+        self.assertNotIn("#SBATCH --time=", script)
+        self.assertIn("Wall time is intentionally omitted", script)
+        self.assertIn("READINESS_APPROVED_WALLTIME", script)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
+        self.assertIn("READINESS_GLOBAL_CHECKPOINT_ROOT", script)
+        self.assertIn("merged/candidates.jsonl", script)
+        self.assertIn("merged/projections", script)
+        self.assertIn("merged/validation.jsonl", script)
+        self.assertIn('READINESS_WORK_PARTITION_COUNT="1"', script)
+        self.assertIn("empty-validation-cache-source", script)
+        self.assertIn("geodml-readiness-global-latest.txt", script)
+        self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:
         script = READINESS_AXIS1_CHECKPOINT_AUDIT.read_text(encoding="utf-8")

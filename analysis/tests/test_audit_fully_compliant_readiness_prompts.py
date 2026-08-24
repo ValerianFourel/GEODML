@@ -157,6 +157,23 @@ def _fixture(root: Path) -> tuple[list[dict[str, object]], list[dict[str, object
     return selected, validation
 
 
+def _convert_to_verified_round(root: Path) -> None:
+    candidate_source = root / "source/candidates.jsonl"
+    candidate_source.parent.mkdir(parents=True, exist_ok=True)
+    (root / "merged/candidates.jsonl").replace(candidate_source)
+    (root / "merged/candidates.jsonl.manifest.json").replace(
+        candidate_source.with_suffix(".jsonl.manifest.json")
+    )
+    (root / "merged/validation.jsonl").replace(root / "validation.jsonl")
+    (root / "merged/validation.jsonl.manifest.json").replace(
+        root / "validation.jsonl.manifest.json"
+    )
+    (root / "candidate-files.txt").write_text(
+        str(candidate_source.resolve()) + "\n",
+        encoding="utf-8",
+    )
+
+
 class FullyCompliantPromptAuditTests(unittest.TestCase):
     def test_independently_counts_every_fully_compliant_prompt(self) -> None:
         with TemporaryDirectory() as directory:
@@ -171,6 +188,19 @@ class FullyCompliantPromptAuditTests(unittest.TestCase):
             self.assertEqual(report["failed_prompt_count"], 0)
             self.assertEqual(report["ready_to_export_count"], 2)
             self.assertFalse(report["complete_30330_population_passed"])
+
+    def test_audits_an_immutable_verified_pipeline_round(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "round-07"
+            _fixture(root)
+            _convert_to_verified_round(root)
+
+            report = audit_fully_compliant_prompts(root)
+
+            self.assertTrue(report["audit_passed"])
+            self.assertEqual(report["artifact_kind"], "verified-round")
+            self.assertEqual(report["fully_compliant_prompt_count"], 2)
+            self.assertEqual(report["ready_to_export_count"], 2)
 
     def test_allows_spatial_selection_to_reassign_a_candidate_target(self) -> None:
         with TemporaryDirectory() as directory:
