@@ -172,6 +172,24 @@ class FullyCompliantPromptAuditTests(unittest.TestCase):
             self.assertEqual(report["ready_to_export_count"], 2)
             self.assertFalse(report["complete_30330_population_passed"])
 
+    def test_allows_spatial_selection_to_reassign_a_candidate_target(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "final"
+            _fixture(root)
+            candidates_path = root / "merged/candidates.jsonl"
+            candidates = [
+                json.loads(line)
+                for line in candidates_path.read_text(encoding="utf-8").splitlines()
+            ]
+            candidates[0]["target_id"] = "original-generation-target"
+            _write_jsonl(candidates_path, candidates)
+
+            report = audit_fully_compliant_prompts(root)
+
+            self.assertTrue(report["audit_passed"])
+            self.assertEqual(report["fully_compliant_prompt_count"], 2)
+            self.assertEqual(report["ready_to_export_count"], 2)
+
     def test_rejects_selected_text_that_does_not_match_immutable_candidate(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory) / "final"

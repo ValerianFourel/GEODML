@@ -92,11 +92,14 @@ def _validation_acceptance_is_consistent(row: Mapping[str, object]) -> bool:
 def _candidate_matches_selection(
     candidate: Mapping[str, object], selected: Mapping[str, object]
 ) -> bool:
+    # A candidate's target_id records the cell it was generated for.  Spatial
+    # assignment is deliberately allowed to place that validated text in a
+    # different nearest observed target cell, so target_id is not immutable
+    # candidate content and must not be compared here.
     stable_fields = (
         "candidate_id",
         "keyword_id",
         "keyword",
-        "target_id",
         "question",
         "generator_id",
         "generator_model",
