@@ -50,7 +50,8 @@ echo "plan=$READINESS_30K_PLAN_ROOT"
 echo "cache_search=$READINESS_VALIDATION_CACHE_SEARCH_ROOTS"
 
 set +e
-"$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_end_to_end.sh" \
+end_to_end_runner="${READINESS_END_TO_END_RUNNER:-$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_end_to_end.sh}"
+"$end_to_end_runner" \
     2>&1 | tee -a "$controller_log"
 pipeline_exit="${PIPESTATUS[0]}"
 set -e

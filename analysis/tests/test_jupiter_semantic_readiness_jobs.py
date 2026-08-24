@@ -302,13 +302,21 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("batch job 1480390 failed during module preflight", script)
         self.assertIn('science_commit="f77b16f453a9421218d44a4d2e896cb7eb5fb589"', script)
         self.assertIn("GEODML_RECOVERY_ORCHESTRATOR_COMMIT", script)
-        self.assertIn('READINESS_FINALIZATION_RESERVE_SECONDS="3600"', script)
+        self.assertIn('READINESS_FINALIZATION_RESERVE_SECONDS="900"', script)
         self.assertIn('READINESS_MAX_REFINEMENT_ROUNDS="1000"', script)
+        self.assertIn('READINESS_STOP_AFTER_PHYSICAL_ROUND="19"', script)
+        self.assertIn("READINESS_END_TO_END_RUNNER", script)
         self.assertIn("recover_partition 0", script)
         self.assertIn("recover_partition 1", script)
         self.assertIn("round-19", script)
         self.assertIn("finalize_readiness_30k_partitions.sh", script)
         self.assertIn("recovery-job-$SLURM_JOB_ID.json", script)
+
+        strict_loop = READINESS_30K_AXIS1_STRICT_LOOP.read_text(encoding="utf-8")
+        end_to_end = READINESS_30K_END_TO_END.read_text(encoding="utf-8")
+        self.assertIn("READINESS_END_TO_END_RUNNER", strict_loop)
+        self.assertIn("READINESS_STOP_AFTER_PHYSICAL_ROUND", end_to_end)
+        self.assertIn("OPERATIONAL CHECKPOINT", end_to_end)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:
         script = READINESS_AXIS1_CHECKPOINT_AUDIT.read_text(encoding="utf-8")

@@ -438,6 +438,7 @@ if manifest_path.exists():
         "allocation_estimate": identity["allocation_estimate"],
         "slurm_job_id": identity["slurm_job_id"],
         "allocated_gpu_count": identity["allocated_gpu_count"],
+        "stop_after_physical_round": os.getenv("READINESS_STOP_AFTER_PHYSICAL_ROUND"),
     })
     value = existing
 else:
@@ -447,6 +448,7 @@ else:
         "allocation_estimate": identity["allocation_estimate"],
         "slurm_job_id": identity["slurm_job_id"],
         "allocated_gpu_count": identity["allocated_gpu_count"],
+        "stop_after_physical_round": os.getenv("READINESS_STOP_AFTER_PHYSICAL_ROUND"),
     }]
 temporary = manifest_path.with_suffix(".tmp")
 temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
@@ -456,8 +458,15 @@ PY
 worker="$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_pipeline_stage.sh"
 max_rounds="$READINESS_MAX_REFINEMENT_ROUNDS"
 refinement_task_limit="$READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND"
+stop_after_physical_round="${READINESS_STOP_AFTER_PHYSICAL_ROUND:-}"
 [[ "$max_rounds" -ge 1 ]] || { echo "READINESS_MAX_REFINEMENT_ROUNDS must be positive" >&2; exit 2; }
 [[ "$refinement_task_limit" -ge 1 ]] || { echo "READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND must be positive" >&2; exit 2; }
+if [[ -n "$stop_after_physical_round" ]]; then
+    [[ "$stop_after_physical_round" =~ ^[0-9]+$ ]] || {
+        echo "READINESS_STOP_AFTER_PHYSICAL_ROUND must be a nonnegative integer" >&2
+        exit 2
+    }
+fi
 export READINESS_GENERATION_SECONDS="${READINESS_GENERATION_SECONDS:-3000}"
 candidate_files=()
 previous_selection=""
@@ -1165,6 +1174,12 @@ summary = {
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
     echo "ROUND COMPLETE: round=$round_name elapsed_seconds=$round_elapsed_seconds candidates=$candidate_count"
+
+    if [[ -n "$stop_after_physical_round" && "$round_index" -ge "$stop_after_physical_round" ]]; then
+        pipeline_status="operational-checkpoint"
+        echo "OPERATIONAL CHECKPOINT: completed $round_name; refusing to start a later round"
+        break
+    fi
 
     next_tasks="$selection/generation_tasks_round_$(printf '%02d' "$((logical_round_index + 1))").jsonl"
     if [[ -n "$source_pilot" ]]; then
