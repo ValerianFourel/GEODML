@@ -299,10 +299,16 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('READINESS_APPROVED_WALLTIME="01:00:00"', script)
         self.assertIn("maximum four GPU-hours", script)
         self.assertIn("module load GCCcore/14.3.0", script)
-        self.assertIn("recovery job 1481430 completed partition 0", script)
+        self.assertIn("batch job 1484067 failed during repository preflight", script)
         self.assertIn("10-20 minutes", script)
         self.assertIn("40-50 minutes of safety margin", script)
         self.assertIn("approximately 0.7-1.3 GPU-hours", script)
+        self.assertIn("GEODML_RECOVERY_ORCHESTRATOR_REPOSITORY", script)
+        self.assertIn(
+            'orchestrator_repository="$(realpath "$GEODML_RECOVERY_ORCHESTRATOR_REPOSITORY")"',
+            script,
+        )
+        self.assertNotIn('dirname "${BASH_SOURCE[0]}"', script)
         self.assertIn("quarantine_corrupt_readiness_validation.py", script)
         self.assertIn("validation-shard-2.jsonl", script)
         self.assertIn("corrupt-source-job-1481430", script)

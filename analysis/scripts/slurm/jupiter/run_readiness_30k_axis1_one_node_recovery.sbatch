@@ -1,8 +1,8 @@
 #!/bin/bash -l
 # Recover the two interrupted round-19 partitions sequentially, then finalize.
-# Freshly approved 2026-08-24 after job 1481430: one JUPITER Booster node,
-# four GPUs, one hour, maximum four GPU-hours. This job must not start a new
-# generation round.
+# Freshly approved 2026-08-24 after job 1484067 failed during repository
+# preflight: one JUPITER Booster node, four GPUs, one hour, maximum four
+# GPU-hours. This job must not start a new generation round.
 
 #SBATCH --account=scifi
 #SBATCH --partition=booster
@@ -19,6 +19,7 @@ umask 077
 
 : "${SLURM_JOB_ID:?Run through sbatch on JUPITER}"
 : "${GEODML_RECOVERY_ORCHESTRATOR_COMMIT:?Export the pushed recovery commit}"
+: "${GEODML_RECOVERY_ORCHESTRATOR_REPOSITORY:?Export the exact recovery checkout}"
 
 module --force purge
 module load Stages/2026
@@ -26,8 +27,11 @@ module load GCCcore/14.3.0
 module load git
 jutil env activate -p "${JUPITER_PROJECT:-scifi}"
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-orchestrator_repository="$(git -C "$script_dir" rev-parse --show-toplevel)"
+orchestrator_repository="$(realpath "$GEODML_RECOVERY_ORCHESTRATOR_REPOSITORY")"
+[[ -d "$orchestrator_repository" ]] || {
+    echo "recovery orchestrator repository is missing: $orchestrator_repository" >&2
+    exit 2
+}
 actual_orchestrator_commit="$(git -C "$orchestrator_repository" rev-parse HEAD)"
 [[ "$actual_orchestrator_commit" == "$GEODML_RECOVERY_ORCHESTRATOR_COMMIT" ]] || {
     echo "recovery orchestrator commit mismatch: expected=$GEODML_RECOVERY_ORCHESTRATOR_COMMIT actual=$actual_orchestrator_commit" >&2
@@ -74,7 +78,7 @@ export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-r
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
 export READINESS_APPROVED_WALLTIME="01:00:00"
-export READINESS_ALLOCATION_ESTIMATE="Approved 2026-08-24 after recovery job 1481430 completed partition 0 and then failed closed on partition-1 validation shard 2: one JUPITER Booster node, four H100 GPUs, 32 CPUs, one hour, maximum four GPU-hours. Partition 1 has 106,996 round-19 candidates; shards 0, 1, and 3 preserve 80,523 validated rows with completion manifests. Shard 2 is a nonempty 18 MB zero-record JSONL without a completion manifest; per-candidate reviews are written durably before aggregate checkpoints. Estimated cache-backed shard reconstruction, strict selection, two-partition reconciliation, diagnostics, and export readiness: 10-20 minutes, with 40-50 minutes of safety margin. Expected consumption is approximately 0.7-1.3 GPU-hours. An explicit operational checkpoint after physical round 19 forbids a new generation round."
+export READINESS_ALLOCATION_ESTIMATE="Approved 2026-08-24 after batch job 1484067 failed during repository preflight before scientific work because Slurm executes a copied spool script: one JUPITER Booster node, four H100 GPUs, 32 CPUs, one hour, maximum four GPU-hours. Partition 0 remains complete. Partition 1 has 106,996 round-19 candidates; shards 0, 1, and 3 preserve 80,523 validated rows with completion manifests. Shard 2 is a nonempty 18 MB zero-record JSONL without a completion manifest; per-candidate reviews are written durably before aggregate checkpoints. Estimated cache-backed shard reconstruction, strict selection, two-partition reconciliation, diagnostics, and export readiness: 10-20 minutes, with 40-50 minutes of safety margin. Expected consumption is approximately 0.7-1.3 GPU-hours. An explicit operational checkpoint after physical round 19 forbids a new generation round."
 export READINESS_ALLOCATED_GPU_COUNT="4"
 export READINESS_VALIDATION_SHARD_COUNT="4"
 export READINESS_VALIDATION_BATCH_SIZE="16"
@@ -148,7 +152,7 @@ payload = {
     "allocated_gpus": 4,
     "allocated_cpus": 32,
     "maximum_gpu_hours": 4,
-    "source_slurm_job_ids": ["1471783", "1471784", "1480390", "1480473", "1481430"],
+    "source_slurm_job_ids": ["1471783", "1471784", "1480390", "1480473", "1481430", "1484067"],
     "target_round": 19,
     "status": "running",
 }
