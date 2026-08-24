@@ -590,33 +590,12 @@ projection_artifact_matches() {
     [[ -s "$root/projection_manifest.json" ]] || return 1
     [[ -s "$root/question_projections.jsonl" ]] || return 1
     [[ -s "$root/question_embeddings.restricted-local.npz" ]] || return 1
-    python - "$root/projection_manifest.json" "$expected" "$candidates" "$expected_attention" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
-expected_count = int(sys.argv[2])
-candidate_list = pathlib.Path(sys.argv[3])
-expected_attention = sys.argv[4]
-candidate_paths = [
-    pathlib.Path(value).resolve()
-    for value in candidate_list.read_text().splitlines()
-    if value.strip()
-]
-identities = [
-    {
-        "path": str(path),
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "size_bytes": path.stat().st_size,
-    }
-    for path in candidate_paths
-]
-assert manifest["candidate_count"] == expected_count
-assert manifest["candidate_files"] == identities
-assert manifest.get("embedding", {}).get("attention_implementation", "eager") == expected_attention
-PY
+    python \
+        "$GEODML_REPOSITORY/analysis/scripts/verify_readiness_projection_checkpoint.py" \
+        --projection-manifest "$root/projection_manifest.json" \
+        --expected-count "$expected" \
+        --candidate-file-list "$candidates" \
+        --expected-attention "$expected_attention"
 }
 
 recover_projection_attempt() {

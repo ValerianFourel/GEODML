@@ -126,6 +126,10 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
     def test_30k_end_to_end_runner_is_one_resumable_strict_pipeline(self) -> None:
         script = READINESS_30K_END_TO_END.read_text(encoding="utf-8")
         worker = READINESS_30K_PIPELINE_STAGE.read_text(encoding="utf-8")
+        projection_verifier = (
+            REPOSITORY_ROOT
+            / "analysis/scripts/verify_readiness_projection_checkpoint.py"
+        ).read_text(encoding="utf-8")
 
         self.assertNotIn("salloc", script)
         self.assertNotIn("sbatch", script)
@@ -202,13 +206,16 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("recover_projection_attempt", script)
         self.assertIn("recover_projection_source", script)
         self.assertIn("projection_artifact_matches", script)
-        self.assertIn('get("attention_implementation", "eager")', script)
+        self.assertIn(
+            'get("attention_implementation", "eager")', projection_verifier
+        )
         self.assertIn("READINESS_BASE_PROJECTION_ROOT", script)
         self.assertIn("READINESS_BASE_VALIDATION_OUTPUT", script)
         self.assertIn("recovered completed projection", script)
         self.assertIn("merge_readiness_validation_caches.py", script)
         self.assertIn("READINESS_VALIDATION_CACHE_SEARCH_ROOTS", script)
-        self.assertIn('manifest["candidate_files"] == identities', script)
+        self.assertIn("verify_readiness_projection_checkpoint.py", script)
+        self.assertNotIn('manifest["candidate_files"] == identities', script)
         self.assertNotIn("stale current-job Qwen projection", script)
         self.assertIn("the independent validator must differ", script)
 
