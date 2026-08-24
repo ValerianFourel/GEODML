@@ -19,6 +19,12 @@ umask 077
 : "${SLURM_JOB_ID:?Run through sbatch on JUPITER}"
 : "${GEODML_RECOVERY_ORCHESTRATOR_COMMIT:?Export the pushed recovery commit}"
 
+module --force purge
+module load Stages/2026
+module load GCCcore/14.3.0
+module load git
+jutil env activate -p "${JUPITER_PROJECT:-scifi}"
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 orchestrator_repository="$(git -C "$script_dir" rev-parse --show-toplevel)"
 actual_orchestrator_commit="$(git -C "$orchestrator_repository" rev-parse HEAD)"
@@ -67,7 +73,7 @@ export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-r
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
 export READINESS_APPROVED_WALLTIME="01:00:00"
-export READINESS_ALLOCATION_ESTIMATE="Approved 2026-08-24 recovery after jobs 1471783 and 1471784 were cancelled when the shared project filesystem returned stale file handles: one JUPITER Booster node, four H100 GPUs, 32 CPUs, one hour, maximum four GPU-hours. Round-19 generation and both projection views are complete. At the last durable logs, 4,572 partition-specific validation items remained. Estimated sequential validation, strict selection, two-partition reconciliation, and diagnostics: 20-45 minutes, with 15-40 minutes of safety margin. The 3,600-second finalization reserve forbids a new generation round."
+export READINESS_ALLOCATION_ESTIMATE="Freshly approved 2026-08-24 interactive retry after batch job 1480390 failed during module preflight after 10 seconds and approximately 0.011 GPU-hours, before any scientific work: one JUPITER Booster node, four H100 GPUs, 32 CPUs, one hour, maximum four GPU-hours. Round-19 generation and both projection views from jobs 1471783 and 1471784 are complete. At the last durable logs, 4,572 partition-specific validation items remained. Estimated sequential validation, strict selection, two-partition reconciliation, and diagnostics: 20-45 minutes, with 15-40 minutes of safety margin. The 3,600-second finalization reserve forbids a new generation round."
 export READINESS_ALLOCATED_GPU_COUNT="4"
 export READINESS_VALIDATION_SHARD_COUNT="4"
 export READINESS_VALIDATION_BATCH_SIZE="16"
@@ -139,7 +145,7 @@ payload = {
     "allocated_gpus": 4,
     "allocated_cpus": 32,
     "maximum_gpu_hours": 4,
-    "source_slurm_job_ids": ["1471783", "1471784"],
+    "source_slurm_job_ids": ["1471783", "1471784", "1480390"],
     "target_round": 19,
     "status": "running",
 }

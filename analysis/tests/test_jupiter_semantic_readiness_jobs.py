@@ -298,6 +298,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("#SBATCH --time=01:00:00", script)
         self.assertIn('READINESS_APPROVED_WALLTIME="01:00:00"', script)
         self.assertIn("maximum four GPU-hours", script)
+        self.assertIn("module load GCCcore/14.3.0", script)
+        self.assertIn("batch job 1480390 failed during module preflight", script)
         self.assertIn('science_commit="f77b16f453a9421218d44a4d2e896cb7eb5fb589"', script)
         self.assertIn("GEODML_RECOVERY_ORCHESTRATOR_COMMIT", script)
         self.assertIn('READINESS_FINALIZATION_RESERVE_SECONDS="3600"', script)
