@@ -241,13 +241,16 @@ pointer="${READINESS_30K_PIPELINE_POINTER:-$GEODML_PROJECT_ROOT/geodml-readiness
 source_pilot="${READINESS_SOURCE_PILOT_ROOT:-}"
 recovery_pipeline="${READINESS_RECOVERY_PIPELINE_ROOT:-}"
 initial_candidate_root="${READINESS_INITIAL_CANDIDATE_ROOT:-}"
+initial_candidate_file_list="${READINESS_INITIAL_CANDIDATE_FILE_LIST:-}"
 initial_projection_root="${READINESS_INITIAL_PROJECTION_ROOT:-}"
 initial_validation_output="${READINESS_INITIAL_VALIDATION_OUTPUT:-}"
 export READINESS_SOURCE_PILOT_ROOT="$source_pilot"
 export READINESS_RECOVERY_PIPELINE_ROOT="$recovery_pipeline"
 export READINESS_INITIAL_CANDIDATE_ROOT="$initial_candidate_root"
+export READINESS_INITIAL_CANDIDATE_FILE_LIST="$initial_candidate_file_list"
 export READINESS_INITIAL_PROJECTION_ROOT="$initial_projection_root"
 export READINESS_INITIAL_VALIDATION_OUTPUT="$initial_validation_output"
+export READINESS_INITIAL_LOGICAL_ROUND_INDEX="${READINESS_INITIAL_LOGICAL_ROUND_INDEX:-0}"
 export READINESS_MAX_REFINEMENT_ROUNDS="${READINESS_MAX_REFINEMENT_ROUNDS:-1000}"
 export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="${READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND:-128}"
 export READINESS_WORK_PARTITION_COUNT="${READINESS_WORK_PARTITION_COUNT:-1}"
@@ -261,18 +264,25 @@ export READINESS_WORK_PARTITION_SALT="${READINESS_WORK_PARTITION_SALT:-readiness
     echo "work partition must satisfy 0 <= index < count" >&2
     exit 2
 }
-[[ -z "$source_pilot" || -z "$initial_candidate_root" ]] || {
+[[ "$READINESS_INITIAL_LOGICAL_ROUND_INDEX" =~ ^[0-9]+$ ]] || {
+    echo "READINESS_INITIAL_LOGICAL_ROUND_INDEX must be a nonnegative integer" >&2
+    exit 2
+}
+[[ -z "$source_pilot" || ( -z "$initial_candidate_root" && -z "$initial_candidate_file_list" ) ]] || {
     echo "configure either a source pilot or an initial checkpoint, not both" >&2
     exit 2
 }
-[[ -z "$initial_projection_root" || -n "$initial_candidate_root" ]] || {
+[[ -z "$initial_projection_root" || -n "$initial_candidate_root" || -n "$initial_candidate_file_list" ]] || {
     echo "initial projections require an initial candidate checkpoint" >&2
     exit 2
 }
-[[ -z "$initial_validation_output" || -n "$initial_candidate_root" ]] || {
+[[ -z "$initial_validation_output" || -n "$initial_candidate_root" || -n "$initial_candidate_file_list" ]] || {
     echo "initial validation requires an initial candidate checkpoint" >&2
     exit 2
 }
+if [[ -n "$initial_candidate_file_list" ]]; then
+    test -s "$initial_candidate_file_list"
+fi
 if [[ -n "$initial_validation_output" ]]; then
     test -s "$initial_validation_output"
     test -s "$initial_validation_output.manifest.json"
@@ -359,8 +369,8 @@ if [[ "${#validation_cache_sources[@]}" -gt 0 ]]; then
 fi
 
 python - "$pipeline_root" "$READINESS_30K_PLAN_ROOT" "$source_pilot" "$recovery_pipeline" \
-    "$initial_candidate_root" "$initial_projection_root" "$initial_validation_output" \
-    "$validation_cache_root" <<'PY'
+    "$initial_candidate_root" "$initial_candidate_file_list" "$initial_projection_root" \
+    "$initial_validation_output" "$validation_cache_root" <<'PY'
 import hashlib
 import json
 import os
@@ -372,9 +382,10 @@ plan = pathlib.Path(sys.argv[2])
 source = sys.argv[3] or None
 recovery = sys.argv[4] or None
 initial_candidates = sys.argv[5] or None
-initial_projections = sys.argv[6] or None
-initial_validation = sys.argv[7] or None
-validation_cache_root = sys.argv[8]
+initial_candidate_file_list = sys.argv[6] or None
+initial_projections = sys.argv[7] or None
+initial_validation = sys.argv[8] or None
+validation_cache_root = sys.argv[9]
 manifest_path = root / "pipeline_manifest.json"
 identity = {
     "format_version": "readiness-30k-end-to-end-v1",
@@ -383,6 +394,13 @@ identity = {
     "source_pilot_root": source,
     "recovery_pipeline_root": recovery,
     "initial_candidate_root": initial_candidates,
+    "initial_candidate_file_list": initial_candidate_file_list,
+    "initial_candidate_file_list_sha256": (
+        hashlib.sha256(pathlib.Path(initial_candidate_file_list).read_bytes()).hexdigest()
+        if initial_candidate_file_list
+        else None
+    ),
+    "initial_logical_round_index": int(os.environ["READINESS_INITIAL_LOGICAL_ROUND_INDEX"]),
     "initial_projection_root": initial_projections,
     "initial_validation_output": initial_validation,
     "validation_cache_root": validation_cache_root,
@@ -446,12 +464,12 @@ previous_selection=""
 pipeline_status="refine"
 active_srun_pids=()
 recovered_generation_candidates=()
-logical_round_offset=0
+logical_round_offset="$READINESS_INITIAL_LOGICAL_ROUND_INDEX"
 previous_qwen_projection_root=""
 previous_mistral_projection_root=""
 previous_validation_output="$initial_validation_output"
 
-if [[ -n "$recovery_pipeline" ]]; then
+if [[ -n "$recovery_pipeline" && -z "$initial_candidate_file_list" ]]; then
     while IFS= read -r recovered_candidate; do
         recovered_manifest="$recovered_candidate.manifest.json"
         [[ -s "$recovered_manifest" ]] || {
@@ -719,7 +737,24 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     round_root="$pipeline_root/$round_name"
     mkdir -p "$round_root"
 
-    if [[ "$round_index" -eq 0 && -n "$initial_candidate_root" ]]; then
+    if [[ "$round_index" -eq 0 && -n "$initial_candidate_file_list" ]]; then
+        mapfile -t initial_candidates < "$initial_candidate_file_list"
+        [[ "${#initial_candidates[@]}" -gt 0 ]] || {
+            echo "initial checkpoint candidate file list is empty: $initial_candidate_file_list" >&2
+            exit 2
+        }
+        for initial_candidate in "${initial_candidates[@]}"; do
+            test -s "$initial_candidate" || {
+                echo "initial checkpoint candidate file is missing: $initial_candidate" >&2
+                exit 2
+            }
+            test -s "$initial_candidate.manifest.json" || {
+                echo "initial checkpoint candidate lacks its checkpoint manifest: $initial_candidate" >&2
+                exit 2
+            }
+        done
+        candidate_files+=("${initial_candidates[@]}")
+    elif [[ "$round_index" -eq 0 && -n "$initial_candidate_root" ]]; then
         mapfile -t initial_candidates < <(find "$initial_candidate_root" -maxdepth 1 -type f -name '*.jsonl' ! -name '*.failures.jsonl' | sort)
         [[ "${#initial_candidates[@]}" -gt 0 ]] || {
             echo "initial checkpoint has no candidate JSONL files: $initial_candidate_root" >&2

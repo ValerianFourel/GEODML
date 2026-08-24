@@ -64,8 +64,13 @@ latest_verified_summary="$({
     exit 2
 }
 latest_verified_round="$(dirname "$latest_verified_summary")"
+export READINESS_INITIAL_CANDIDATE_FILE_LIST="${READINESS_INITIAL_CANDIDATE_FILE_LIST:-$latest_verified_round/candidate-files.txt}"
+latest_verified_round_name="$(basename "$latest_verified_round")"
+latest_verified_round_number="${latest_verified_round_name#round-}"
+export READINESS_INITIAL_LOGICAL_ROUND_INDEX="$((10#$latest_verified_round_number))"
 export READINESS_INITIAL_PROJECTION_ROOT="${READINESS_INITIAL_PROJECTION_ROOT:-$latest_verified_round/projections}"
 export READINESS_INITIAL_VALIDATION_OUTPUT="${READINESS_INITIAL_VALIDATION_OUTPUT:-$latest_verified_round/validation.jsonl}"
+[[ -s "$READINESS_INITIAL_CANDIDATE_FILE_LIST" ]]
 [[ -s "$READINESS_INITIAL_PROJECTION_ROOT/qwen/projection_manifest.json" ]]
 [[ -s "$READINESS_INITIAL_PROJECTION_ROOT/mistral/projection_manifest.json" ]]
 [[ -s "$READINESS_INITIAL_VALIDATION_OUTPUT" ]]

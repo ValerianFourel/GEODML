@@ -176,6 +176,13 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn(".mistral-attempt-$projection_attempt", script)
         self.assertIn("READINESS_RECOVERY_PIPELINE_ROOT", script)
         self.assertIn("READINESS_INITIAL_CANDIDATE_ROOT", script)
+        self.assertIn("READINESS_INITIAL_CANDIDATE_FILE_LIST", script)
+        self.assertIn("READINESS_INITIAL_LOGICAL_ROUND_INDEX", script)
+        self.assertIn('mapfile -t initial_candidates < "$initial_candidate_file_list"', script)
+        self.assertIn(
+            '[[ -n "$recovery_pipeline" && -z "$initial_candidate_file_list" ]]',
+            script,
+        )
         self.assertIn("READINESS_INITIAL_PROJECTION_ROOT", script)
         self.assertIn("READINESS_INITIAL_VALIDATION_OUTPUT", script)
         self.assertIn("READINESS_VALIDATION_CACHE_ROOT", script)
@@ -243,6 +250,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_RECOVERY_PIPELINE_ROOT", script)
         self.assertIn("READINESS_INITIAL_PROJECTION_ROOT", script)
         self.assertIn("READINESS_INITIAL_VALIDATION_OUTPUT", script)
+        self.assertIn("READINESS_INITIAL_CANDIDATE_FILE_LIST", script)
+        self.assertIn("READINESS_INITIAL_LOGICAL_ROUND_INDEX", script)
         self.assertIn("latest_verified_summary", script)
 
     def test_axis1_partition_jobs_are_disjoint_and_finalize_the_exact_union(self) -> None:
@@ -257,6 +266,11 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("axis1-30330-two-way-v1", script)
         self.assertIn("partition-$READINESS_WORK_PARTITION_INDEX-latest.txt", script)
         self.assertIn('READINESS_FINALIZATION_RESERVE_SECONDS="5400"', script)
+        self.assertIn(
+            'READINESS_INITIAL_CANDIDATE_FILE_LIST="${READINESS_INITIAL_CANDIDATE_FILE_LIST:-$latest_verified_round/candidate-files.txt}"',
+            script,
+        )
+        self.assertIn('READINESS_INITIAL_LOGICAL_ROUND_INDEX="$((10#$latest_verified_round_number))"', script)
         self.assertIn('f"producer-{index}.ready.json"', script)
         self.assertIn("finalize_readiness_30k_partitions.sh", script)
 

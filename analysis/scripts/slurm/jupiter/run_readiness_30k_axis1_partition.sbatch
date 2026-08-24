@@ -1,6 +1,6 @@
 #!/bin/bash -l
 # One of two collision-free strict axis-one producer/finalizer jobs.
-# Approved allocation per partition: 2026-08-24, 12 hours, 4 GPUs, 48 GPU-hours.
+# Retry approved per partition: 2026-08-24, 12 hours, 4 GPUs, 48 GPU-hours.
 
 #SBATCH --account=scifi
 #SBATCH --partition=booster
@@ -54,7 +54,7 @@ export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-r
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
 export READINESS_APPROVED_WALLTIME="12:00:00"
-export READINESS_ALLOCATION_ESTIMATE="Approved partition $READINESS_WORK_PARTITION_INDEX of a two-job JUPITER Booster continuation: one node, 4 H100 GPUs for 12 hours, maximum 48 GPU-hours for this job and 96 GPU-hours across both jobs. Stable target ownership prevents duplicate refinement tasks; immutable overlap checks and a global final strict selection combine both checkpoints. Expected productive generation and per-partition verification: 10.5-11 hours, followed by a 60-90 minute finalization reserve in the last producer."
+export READINESS_ALLOCATION_ESTIMATE="Freshly approved 2026-08-24 retry of partition $READINESS_WORK_PARTITION_INDEX after jobs 1471643 and 1471645 failed during checkpoint preflight before GPU generation: one JUPITER Booster node, 4 H100 GPUs for 12 hours, maximum 48 GPU-hours for this job and 96 GPU-hours across both jobs. The retry starts from the exact 29944-candidate verified checkpoint; stable target ownership prevents duplicate refinement tasks, and a global final strict selection combines both checkpoints. Estimated productive generation and per-partition verification: 10.5-12 hours including a 90-minute finalization reserve."
 export READINESS_ALLOCATED_GPU_COUNT="4"
 export READINESS_VALIDATION_SHARD_COUNT="4"
 export READINESS_VALIDATION_BATCH_SIZE="16"
@@ -95,8 +95,13 @@ latest_verified_summary="$({
     exit 2
 }
 latest_verified_round="$(dirname "$latest_verified_summary")"
+export READINESS_INITIAL_CANDIDATE_FILE_LIST="${READINESS_INITIAL_CANDIDATE_FILE_LIST:-$latest_verified_round/candidate-files.txt}"
+latest_verified_round_name="$(basename "$latest_verified_round")"
+latest_verified_round_number="${latest_verified_round_name#round-}"
+export READINESS_INITIAL_LOGICAL_ROUND_INDEX="$((10#$latest_verified_round_number))"
 export READINESS_INITIAL_PROJECTION_ROOT="${READINESS_INITIAL_PROJECTION_ROOT:-$latest_verified_round/projections}"
 export READINESS_INITIAL_VALIDATION_OUTPUT="${READINESS_INITIAL_VALIDATION_OUTPUT:-$latest_verified_round/validation.jsonl}"
+[[ -s "$READINESS_INITIAL_CANDIDATE_FILE_LIST" ]]
 [[ -s "$READINESS_INITIAL_PROJECTION_ROOT/qwen/projection_manifest.json" ]]
 [[ -s "$READINESS_INITIAL_PROJECTION_ROOT/mistral/projection_manifest.json" ]]
 [[ -s "$READINESS_INITIAL_VALIDATION_OUTPUT" ]]
