@@ -1,7 +1,8 @@
 #!/bin/bash -l
 # Recover the two interrupted round-19 partitions sequentially, then finalize.
-# Approved 2026-08-24: one JUPITER Booster node, four GPUs, one hour,
-# maximum four GPU-hours. This job must not start a new generation round.
+# Freshly approved 2026-08-24 after job 1481430: one JUPITER Booster node,
+# four GPUs, one hour, maximum four GPU-hours. This job must not start a new
+# generation round.
 
 #SBATCH --account=scifi
 #SBATCH --partition=booster
@@ -73,7 +74,7 @@ export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-r
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
 export READINESS_APPROVED_WALLTIME="01:00:00"
-export READINESS_ALLOCATION_ESTIMATE="Freshly approved 2026-08-24 interactive retry after batch job 1480390 failed during module preflight after 10 seconds and approximately 0.011 GPU-hours, before any scientific work: one JUPITER Booster node, four H100 GPUs, 32 CPUs, one hour, maximum four GPU-hours. Round-19 generation and both projection views from jobs 1471783 and 1471784 are complete. At the last durable logs, 4,572 partition-specific validation items remained. Estimated sequential validation, strict selection, two-partition reconciliation, and diagnostics: 20-45 minutes, with 15-40 minutes of safety margin. An explicit operational checkpoint after physical round 19 forbids a new generation round."
+export READINESS_ALLOCATION_ESTIMATE="Approved 2026-08-24 after recovery job 1481430 completed partition 0 and then failed closed on partition-1 validation shard 2: one JUPITER Booster node, four H100 GPUs, 32 CPUs, one hour, maximum four GPU-hours. Partition 1 has 106,996 round-19 candidates; shards 0, 1, and 3 preserve 80,523 validated rows with completion manifests. Shard 2 is a nonempty 18 MB zero-record JSONL without a completion manifest; per-candidate reviews are written durably before aggregate checkpoints. Estimated cache-backed shard reconstruction, strict selection, two-partition reconciliation, diagnostics, and export readiness: 10-20 minutes, with 40-50 minutes of safety margin. Expected consumption is approximately 0.7-1.3 GPU-hours. An explicit operational checkpoint after physical round 19 forbids a new generation round."
 export READINESS_ALLOCATED_GPU_COUNT="4"
 export READINESS_VALIDATION_SHARD_COUNT="4"
 export READINESS_VALIDATION_BATCH_SIZE="16"
@@ -147,7 +148,7 @@ payload = {
     "allocated_gpus": 4,
     "allocated_cpus": 32,
     "maximum_gpu_hours": 4,
-    "source_slurm_job_ids": ["1471783", "1471784", "1480390"],
+    "source_slurm_job_ids": ["1471783", "1471784", "1480390", "1480473", "1481430"],
     "target_round": 19,
     "status": "running",
 }
@@ -177,6 +178,17 @@ if path.exists():
 PY
 }
 trap record_recovery_exit EXIT
+
+corrupt_validation="$READINESS_PARTITION_ROOT_1/round-19/validation-shard-2.jsonl"
+quarantined_validation="$corrupt_validation.corrupt-source-job-1481430"
+quarantine_manifest="$READINESS_PARTITION_COORDINATION_ROOT/validation-shard-2-quarantine-source-job-1481430.json"
+python3 \
+    "$orchestrator_repository/analysis/scripts/quarantine_corrupt_readiness_validation.py" \
+    --source "$corrupt_validation" \
+    --quarantine "$quarantined_validation" \
+    --manifest "$quarantine_manifest" \
+    --source-job-id 1481430 \
+    --recovery-job-id "$SLURM_JOB_ID"
 
 write_producer_marker() {
     local partition_index="$1" pipeline_root="$2" summary="$3" producer_exit="$4"
