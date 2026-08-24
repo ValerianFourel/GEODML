@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create one immutable, generator-balanced refinement batch for a work partition."""
+"""Create one immutable, keyword-disjoint refinement batch for a work partition."""
 
 from __future__ import annotations
 
@@ -25,9 +25,10 @@ def target_partition(
     target_id = str(target.get("target_id", ""))
     if not keyword_id or not target_id:
         raise ValueError("refinement task lacks keyword_id or target_id")
-    digest = hashlib.sha256(
-        f"{partition_salt}\0{keyword_id}\0{target_id}".encode()
-    ).hexdigest()
+    # Keep every target intensity for one keyword on the same producer.  The
+    # target id remains a required task-identity field, but must not influence
+    # ownership or the two producers could generate prompts for one keyword.
+    digest = hashlib.sha256(f"{partition_salt}\0{keyword_id}".encode()).hexdigest()
     return int(digest[:16], 16) % partition_count
 
 
@@ -118,7 +119,7 @@ def prepare_partition_batch(
         for row in rows
     )
     identity = {
-        "format_version": "readiness-refinement-task-batch-v2",
+        "format_version": "readiness-refinement-task-batch-v3",
         "source_path": str(source_path),
         "source_sha256": source_sha256,
         "source_task_count": len(rows),
@@ -129,7 +130,7 @@ def prepare_partition_batch(
         "owned_source_task_count": owned_count,
         "selected_task_count": len(selected),
         "selected_task_ids": [str(row["task_id"]) for row in selected],
-        "selection_method": "stable-target-hash-partition-generator-round-robin-v2",
+        "selection_method": "stable-keyword-hash-partition-generator-round-robin-v3",
     }
     if output_path.exists() or manifest_path.exists():
         if not output_path.is_file() or not manifest_path.is_file():

@@ -41,7 +41,7 @@ class ReadinessPartitioningTests(unittest.TestCase):
             for index in range(count)
         ]
 
-    def test_target_partition_is_stable_disjoint_and_exhaustive(self) -> None:
+    def test_target_partition_is_keyword_stable_disjoint_and_exhaustive(self) -> None:
         rows = self._tasks()
         owners = [
             target_partition(
@@ -52,11 +52,28 @@ class ReadinessPartitioningTests(unittest.TestCase):
             for row in rows
         ]
         self.assertEqual(set(owners), {0, 1})
+        owners_by_keyword: dict[str, set[int]] = {}
+        for row, owner in zip(rows, owners):
+            owners_by_keyword.setdefault(str(row["keyword_id"]), set()).add(owner)
+        self.assertTrue(all(len(values) == 1 for values in owners_by_keyword.values()))
         changed_round = dict(rows[0], task_id="new-round-task")
         self.assertEqual(
             owners[0],
             target_partition(
                 changed_round,
+                partition_count=2,
+                partition_salt="test-salt",
+            ),
+        )
+        changed_target = dict(
+            rows[0],
+            task_id="new-target-task",
+            target={"target_id": "another-intensity-for-the-same-keyword"},
+        )
+        self.assertEqual(
+            owners[0],
+            target_partition(
+                changed_target,
                 partition_count=2,
                 partition_salt="test-salt",
             ),
@@ -101,6 +118,10 @@ class ReadinessPartitioningTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(first["selected_task_count"], 7)
             self.assertEqual(first["partition_index"], 1)
+            self.assertEqual(
+                first["selection_method"],
+                "stable-keyword-hash-partition-generator-round-robin-v3",
+            )
             self.assertLessEqual(
                 first["selected_task_count"], first["owned_source_task_count"]
             )
