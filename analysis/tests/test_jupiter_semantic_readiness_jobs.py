@@ -45,6 +45,9 @@ READINESS_30K_AXIS1_8GPU_RESUME = (
 READINESS_30K_AXIS1_PARTITION = (
     JUPITER_ROOT / "run_readiness_30k_axis1_partition.sbatch"
 )
+READINESS_30K_AXIS1_ONE_NODE_RECOVERY = (
+    JUPITER_ROOT / "run_readiness_30k_axis1_one_node_recovery.sbatch"
+)
 READINESS_30K_PARTITION_FINALIZER = (
     JUPITER_ROOT / "finalize_readiness_30k_partitions.sh"
 )
@@ -76,6 +79,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_30K_AXIS1_8GPU_RESUME,
             READINESS_30K_AXIS1_PARTITION,
+            READINESS_30K_AXIS1_ONE_NODE_RECOVERY,
             READINESS_30K_PARTITION_FINALIZER,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
@@ -284,6 +288,25 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("verified_round_summary.json", script)
         self.assertIn("SLURM_JOB_NUM_NODES", script)
         self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)
+
+    def test_axis1_one_node_recovery_is_bounded_and_traceable(self) -> None:
+        script = READINESS_30K_AXIS1_ONE_NODE_RECOVERY.read_text(encoding="utf-8")
+
+        self.assertIn("#SBATCH --nodes=1", script)
+        self.assertIn("#SBATCH --ntasks=4", script)
+        self.assertIn("#SBATCH --gres=gpu:4", script)
+        self.assertIn("#SBATCH --time=01:00:00", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME="01:00:00"', script)
+        self.assertIn("maximum four GPU-hours", script)
+        self.assertIn('science_commit="f77b16f453a9421218d44a4d2e896cb7eb5fb589"', script)
+        self.assertIn("GEODML_RECOVERY_ORCHESTRATOR_COMMIT", script)
+        self.assertIn('READINESS_FINALIZATION_RESERVE_SECONDS="3600"', script)
+        self.assertIn('READINESS_MAX_REFINEMENT_ROUNDS="1000"', script)
+        self.assertIn("recover_partition 0", script)
+        self.assertIn("recover_partition 1", script)
+        self.assertIn("round-19", script)
+        self.assertIn("finalize_readiness_30k_partitions.sh", script)
+        self.assertIn("recovery-job-$SLURM_JOB_ID.json", script)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:
         script = READINESS_AXIS1_CHECKPOINT_AUDIT.read_text(encoding="utf-8")
