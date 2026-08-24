@@ -214,6 +214,15 @@ def _parser() -> argparse.ArgumentParser:
     project.add_argument("--embedding-batch-size", type=int, default=8)
     project.add_argument("--embedding-max-length", type=int, default=512)
     project.add_argument(
+        "--attention-implementation",
+        choices=("eager", "sdpa", "flash_attention_2"),
+        default="eager",
+        help=(
+            "attention backend for new embeddings; incremental reuse requires "
+            "the same backend (legacy manifests are treated as eager)"
+        ),
+    )
+    project.add_argument(
         "--base-projections",
         help=(
             "reuse immutable embeddings and projections for an exact candidate "
@@ -665,6 +674,7 @@ def _import_proposals(args) -> int:
 
 
 def _validate_candidates(args) -> int:
+    started = time.monotonic()
     output = Path(args.output).resolve()
     if output.exists() and not args.resume:
         raise ValueError(f"refusing to overwrite validation file: {output}")
@@ -794,6 +804,7 @@ def _validate_candidates(args) -> int:
             "judge_model": args.model,
             "judge_backend": args.backend,
             "judge_precision": args.precision,
+            "elapsed_seconds": time.monotonic() - started,
             "acceptance_contract": (
                 "Exact keyword, one question, topic relevance, search intent, web "
                 "answerability, standalone wording, natural language, and score >= 4/5."
@@ -949,6 +960,7 @@ def _score_select(args) -> int:
 
 
 def _project_candidates(args) -> int:
+    started = time.monotonic()
     output = Path(args.output_dir).resolve()
     if output.exists():
         raise ValueError(f"refusing to overwrite projection directory: {output}")
@@ -967,6 +979,9 @@ def _project_candidates(args) -> int:
     base_projection_by_id = {}
     base_embedding_by_id = {}
     base_identity = None
+    attention_implementation = str(
+        getattr(args, "attention_implementation", "eager")
+    )
     if base_root_value:
         base_root = Path(base_root_value).resolve()
         base_manifest_path = base_root / "projection_manifest.json"
@@ -991,14 +1006,19 @@ def _project_candidates(args) -> int:
                 str(Path(args.peft_model).resolve()) if args.peft_model else None
             ),
             "max_length": args.embedding_max_length,
+            "attention_implementation": attention_implementation,
         }
+        base_embedding = dict(base_manifest.get("embedding", {}))
+        # Every projection produced before this field was introduced used the
+        # then-hard-coded eager backend.  Preserve that exact resume identity.
+        base_embedding.setdefault("attention_implementation", "eager")
         if (
             base_manifest.get("map_id") != fitted.map_id
             or base_manifest.get("map") != _file_identity(args.map)
             or base_manifest.get("reference_coordinates")
             != _file_identity(args.reference_coordinates)
             or any(
-                base_manifest.get("embedding", {}).get(key) != value
+                base_embedding.get(key) != value
                 for key, value in expected_embedding.items()
             )
         ):
@@ -1048,6 +1068,7 @@ def _project_candidates(args) -> int:
             peft_model_name_or_path=args.peft_model,
             batch_size=args.embedding_batch_size,
             max_length=args.embedding_max_length,
+            attention_implementation=attention_implementation,
         )
         new_embeddings = embedder.embed(
             [row.question for row in new_candidates]
@@ -1123,7 +1144,9 @@ def _project_candidates(args) -> int:
                 "peft_model": str(Path(args.peft_model).resolve()) if args.peft_model else None,
                 "batch_size": args.embedding_batch_size,
                 "max_length": args.embedding_max_length,
+                "attention_implementation": attention_implementation,
             },
+            "elapsed_seconds": time.monotonic() - started,
         },
     )
     print(
@@ -1135,6 +1158,7 @@ def _project_candidates(args) -> int:
 
 
 def _compare_projections(args) -> int:
+    started = time.monotonic()
     output = Path(args.output_dir).resolve()
     if output.exists():
         raise ValueError(f"refusing to overwrite comparison directory: {output}")
@@ -1160,6 +1184,7 @@ def _compare_projections(args) -> int:
             "slurm": _slurm_environment(),
             **identities,
             "candidate_count": len(rows),
+            "elapsed_seconds": time.monotonic() - started,
         },
     )
     print(
@@ -1259,6 +1284,7 @@ def _aligned_projection_rows(reference_root, candidate_root, battery_root):
 
 
 def _spatial_select(args) -> int:
+    started = time.monotonic()
     output = Path(args.output_dir).resolve()
     if output.exists():
         raise ValueError(f"refusing to overwrite spatial selection directory: {output}")
@@ -1469,6 +1495,7 @@ def _spatial_select(args) -> int:
             "jointly_accepted_candidate_count": len(accepted),
             "selected_count": len(selected),
             "next_round_task_count": len(next_tasks),
+            "elapsed_seconds": time.monotonic() - started,
             "coordinate_acceptance_contract": {
                 "version": (
                     "strict-dual-frozen-view-axis-1-verification-v1"
@@ -1646,6 +1673,7 @@ def _axis_1_refinement_target_instruction(value: float) -> str:
 
 
 def _audit_diversity(args) -> int:
+    started = time.monotonic()
     output = Path(args.output_dir).resolve()
     if output.exists():
         raise ValueError(f"refusing to overwrite diversity audit directory: {output}")
@@ -1681,6 +1709,7 @@ def _audit_diversity(args) -> int:
             "row_count": diagnostics["row_count"],
             "keyword_count": diagnostics["keyword_count"],
             "all_checks_passed": diagnostics["all_checks_passed"],
+            "elapsed_seconds": time.monotonic() - started,
             "scientific_guard": diagnostics["scientific_guard"],
         },
     )

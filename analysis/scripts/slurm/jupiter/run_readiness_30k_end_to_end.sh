@@ -519,10 +519,11 @@ artifact_count_matches() {
 
 projection_artifact_matches() {
     local root="$1" expected="$2" candidates="$3"
+    local expected_attention="${READINESS_LLM2VEC_ATTENTION_IMPLEMENTATION:-eager}"
     [[ -s "$root/projection_manifest.json" ]] || return 1
     [[ -s "$root/question_projections.jsonl" ]] || return 1
     [[ -s "$root/question_embeddings.restricted-local.npz" ]] || return 1
-    python - "$root/projection_manifest.json" "$expected" "$candidates" <<'PY'
+    python - "$root/projection_manifest.json" "$expected" "$candidates" "$expected_attention" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -531,6 +532,7 @@ import sys
 manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
 expected_count = int(sys.argv[2])
 candidate_list = pathlib.Path(sys.argv[3])
+expected_attention = sys.argv[4]
 candidate_paths = [
     pathlib.Path(value).resolve()
     for value in candidate_list.read_text().splitlines()
@@ -546,6 +548,7 @@ identities = [
 ]
 assert manifest["candidate_count"] == expected_count
 assert manifest["candidate_files"] == identities
+assert manifest.get("embedding", {}).get("attention_implementation", "eager") == expected_attention
 PY
 }
 
@@ -698,72 +701,77 @@ run_generation_round() {
     local round_root="$1" tasks="$2"
     mkdir -p "$round_root/candidates" "$round_root/cache" "$round_root/logs"
     local remaining_seconds reserve_seconds generation_slice_seconds
-    remaining_seconds="$(allocation_seconds_left)" || {
-        echo "cannot determine remaining Slurm time; refusing to start a generation slice" >&2
-        return 2
-    }
-    reserve_seconds="${READINESS_FINALIZATION_RESERVE_SECONDS:-900}"
-    generation_slice_seconds="$((remaining_seconds - reserve_seconds))"
-    if [[ "$generation_slice_seconds" -lt "${READINESS_MINIMUM_GENERATION_SECONDS:-600}" ]]; then
-        echo "GENERATION CHECKPOINTED: insufficient allocation time remains to load $allocated_gpu_count generators safely"
-        return 10
-    fi
-    if [[ "$generation_slice_seconds" -gt "$READINESS_GENERATION_SECONDS" ]]; then
-        generation_slice_seconds="$READINESS_GENERATION_SECONDS"
-    fi
-    echo "generation_slice_seconds=$generation_slice_seconds remaining_allocation_seconds=$remaining_seconds"
-    local manifests=() pids=() generator_id generator_model task_count shard_count shard output cache log
+    local manifests pids generator_id generator_model task_count shard_count shard output cache log
     local generation_shards_per_generator="$((allocated_gpu_count / 2))"
-    active_srun_pids=()
-    for generator_id in "$READINESS_GENERATOR_A_ID" "$READINESS_GENERATOR_B_ID"; do
-        if [[ "$generator_id" == "$READINESS_GENERATOR_A_ID" ]]; then
-            generator_model="$READINESS_GENERATOR_A_MODEL"
-        else
-            generator_model="$READINESS_GENERATOR_B_MODEL"
+    while true; do
+        remaining_seconds="$(allocation_seconds_left)" || {
+            echo "cannot determine remaining Slurm time; refusing to start a generation slice" >&2
+            return 2
+        }
+        reserve_seconds="${READINESS_FINALIZATION_RESERVE_SECONDS:-900}"
+        generation_slice_seconds="$((remaining_seconds - reserve_seconds))"
+        if [[ "$generation_slice_seconds" -lt "${READINESS_MINIMUM_GENERATION_SECONDS:-600}" ]]; then
+            echo "GENERATION CHECKPOINTED: insufficient allocation time remains to load $allocated_gpu_count generators safely"
+            return 10
         fi
-        task_count="$(python -c 'import json,sys; print(sum(json.loads(x)["generator_id"] == sys.argv[2] for x in open(sys.argv[1]) if x.strip()))' "$tasks" "$generator_id")"
-        [[ "$task_count" -gt 0 ]] || continue
-        shard_count="$generation_shards_per_generator"
-        [[ "$task_count" -ge "$shard_count" ]] || shard_count="$task_count"
-        for ((shard=0; shard<shard_count; shard++)); do
-            output="$round_root/candidates/$generator_id-shard-$shard.jsonl"
-            cache="$round_root/cache/$generator_id-shard-$shard"
-            log="$round_root/logs/$generator_id-shard-$shard.log"
-            mkdir -p "$cache"
-            manifests+=("$output.manifest.json")
-            if [[ -s "$output.manifest.json" ]] && python -c 'import json,sys; assert json.load(open(sys.argv[1]))["slice_terminal"]' "$output.manifest.json"; then
-                continue
+        if [[ "$generation_slice_seconds" -gt "$READINESS_GENERATION_SECONDS" ]]; then
+            generation_slice_seconds="$READINESS_GENERATION_SECONDS"
+        fi
+        echo "generation_slice_seconds=$generation_slice_seconds remaining_allocation_seconds=$remaining_seconds"
+        manifests=()
+        pids=()
+        active_srun_pids=()
+        for generator_id in "$READINESS_GENERATOR_A_ID" "$READINESS_GENERATOR_B_ID"; do
+            if [[ "$generator_id" == "$READINESS_GENERATOR_A_ID" ]]; then
+                generator_model="$READINESS_GENERATOR_A_MODEL"
+            else
+                generator_model="$READINESS_GENERATOR_B_MODEL"
             fi
-            READINESS_GENERATION_TASKS="$tasks" \
-            READINESS_STAGE_GENERATOR_ID="$generator_id" \
-            READINESS_STAGE_GENERATOR_MODEL="$generator_model" \
-            READINESS_STAGE_CACHE="$cache" \
-            READINESS_STAGE_OUTPUT="$output" \
-            READINESS_GENERATION_SHARD_COUNT="$shard_count" \
-            READINESS_GENERATION_SHARD_INDEX="$shard" \
-            READINESS_GENERATION_SECONDS="$generation_slice_seconds" \
-            srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
-                "$worker" generate > "$log" 2>&1 &
-            pids+=("$!")
-            active_srun_pids+=("$!")
+            task_count="$(python -c 'import json,sys; print(sum(json.loads(x)["generator_id"] == sys.argv[2] for x in open(sys.argv[1]) if x.strip()))' "$tasks" "$generator_id")"
+            [[ "$task_count" -gt 0 ]] || continue
+            shard_count="$generation_shards_per_generator"
+            [[ "$task_count" -ge "$shard_count" ]] || shard_count="$task_count"
+            for ((shard=0; shard<shard_count; shard++)); do
+                output="$round_root/candidates/$generator_id-shard-$shard.jsonl"
+                cache="$round_root/cache/$generator_id-shard-$shard"
+                log="$round_root/logs/$generator_id-shard-$shard.log"
+                mkdir -p "$cache"
+                manifests+=("$output.manifest.json")
+                if [[ -s "$output.manifest.json" ]] && python -c 'import json,sys; assert json.load(open(sys.argv[1]))["slice_terminal"]' "$output.manifest.json"; then
+                    continue
+                fi
+                READINESS_GENERATION_TASKS="$tasks" \
+                READINESS_STAGE_GENERATOR_ID="$generator_id" \
+                READINESS_STAGE_GENERATOR_MODEL="$generator_model" \
+                READINESS_STAGE_CACHE="$cache" \
+                READINESS_STAGE_OUTPUT="$output" \
+                READINESS_GENERATION_SHARD_COUNT="$shard_count" \
+                READINESS_GENERATION_SHARD_INDEX="$shard" \
+                READINESS_GENERATION_SECONDS="$generation_slice_seconds" \
+                srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
+                    "$worker" generate >> "$log" 2>&1 &
+                pids+=("$!")
+                active_srun_pids+=("$!")
+            done
         done
+        local failed=0 pid
+        for pid in "${pids[@]}"; do
+            wait "$pid" || failed=1
+        done
+        active_srun_pids=()
+        [[ "$failed" -eq 0 ]] || { echo "generation worker failure; inspect $round_root/logs" >&2; return 2; }
+        if generation_terminal "${manifests[@]}"; then
+            break
+        fi
+        echo "GENERATION CONTINUING: slice checkpointed; resuming unfinished shards in this allocation"
     done
-    local failed=0 pid
-    for pid in "${pids[@]}"; do
-        wait "$pid" || failed=1
-    done
-    active_srun_pids=()
-    [[ "$failed" -eq 0 ]] || { echo "generation worker failure; inspect $round_root/logs" >&2; return 2; }
-    if ! generation_terminal "${manifests[@]}"; then
-        echo "GENERATION CHECKPOINTED: rerun this same script in the next approved allocation"
-        return 10
-    fi
     mapfile -t round_candidates < <(find "$round_root/candidates" -maxdepth 1 -type f -name '*.jsonl' ! -name '*.failures.jsonl' | sort)
     candidate_files+=("${round_candidates[@]}")
     return 0
 }
 
 for ((round_index=0; round_index<=max_rounds; round_index++)); do
+    round_started_seconds="$SECONDS"
     printf -v round_name 'round-%02d' "$round_index"
     logical_round_index="$((round_index + logical_round_offset))"
     round_root="$pipeline_root/$round_name"
@@ -895,13 +903,13 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     qwen_projection_launched=0
     mistral_projection_launched=0
     projection_launch_count=0
-    if ! artifact_count_matches "$QWEN_PROJECTION_ROOT/projection_manifest.json" "$candidate_count"; then
+    if ! projection_artifact_matches "$QWEN_PROJECTION_ROOT" "$candidate_count" "$candidate_list"; then
         [[ ! -e "$QWEN_PROJECTION_ROOT" ]] || { echo "partial Qwen projection; choose a fresh pipeline root" >&2; exit 2; }
         [[ ! -e "$qwen_projection_temporary" ]] || { echo "projection attempt collision: $qwen_projection_temporary" >&2; exit 2; }
         qwen_projection_launched=1
         projection_launch_count=$((projection_launch_count + 1))
     fi
-    if ! artifact_count_matches "$MISTRAL_PROJECTION_ROOT/projection_manifest.json" "$candidate_count"; then
+    if ! projection_artifact_matches "$MISTRAL_PROJECTION_ROOT" "$candidate_count" "$candidate_list"; then
         [[ ! -e "$MISTRAL_PROJECTION_ROOT" ]] || { echo "partial Mistral projection; choose a fresh pipeline root" >&2; exit 2; }
         [[ ! -e "$mistral_projection_temporary" ]] || { echo "projection attempt collision: $mistral_projection_temporary" >&2; exit 2; }
         mistral_projection_launched=1
@@ -1050,6 +1058,12 @@ manifest = {
     "candidate_count": len(ordered),
     "reviewed_count": len(ordered),
     "accepted_count": sum(bool(row["accepted"]) for row in ordered),
+    "maximum_shard_elapsed_seconds": max(
+        float(row.get("elapsed_seconds", 0.0)) for row in manifests
+    ),
+    "sum_shard_elapsed_seconds": sum(
+        float(row.get("elapsed_seconds", 0.0)) for row in manifests
+    ),
     "shard_salt": shard_salts.pop(),
     "validation_shards": [
         {
@@ -1128,7 +1142,8 @@ PY
         fi
     fi
 
-    python - "$round_root" "$candidate_count" "$selected_diversity_exit" "$source_pilot" <<'PY'
+    round_elapsed_seconds="$((SECONDS - round_started_seconds))"
+    python - "$round_root" "$candidate_count" "$selected_diversity_exit" "$source_pilot" "$round_elapsed_seconds" <<'PY'
 import json
 import pathlib
 import sys
@@ -1137,6 +1152,7 @@ root = pathlib.Path(sys.argv[1])
 candidate_count = int(sys.argv[2])
 diversity_exit = int(sys.argv[3])
 source_pilot_mode = bool(sys.argv[4])
+round_elapsed_seconds = int(sys.argv[5])
 validation = json.loads((root / "validation.jsonl.manifest.json").read_text())
 selection = json.loads((root / "strict-selection/run_manifest.json").read_text())
 diagnostics = json.loads((root / "strict-selection/spatial_coverage_diagnostics.json").read_text())
@@ -1151,6 +1167,7 @@ summary = {
     "selected_diversity_gate_passed": diversity_exit == 0,
     "spacing_gate_passed": diagnostics["overall_spacing_gate_passed"],
     "source_pilot_mode": source_pilot_mode,
+    "round_elapsed_seconds": round_elapsed_seconds,
     "verified_population_passed": (
         not source_pilot_mode
         and selection["next_round_task_count"] == 0
@@ -1161,6 +1178,7 @@ summary = {
 (root / "verified_round_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
+    echo "ROUND COMPLETE: round=$round_name elapsed_seconds=$round_elapsed_seconds candidates=$candidate_count"
 
     next_tasks="$selection/generation_tasks_round_$(printf '%02d' "$((logical_round_index + 1))").jsonl"
     if [[ -n "$source_pilot" ]]; then

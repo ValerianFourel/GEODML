@@ -221,6 +221,7 @@ class CandidatePopulationTests(unittest.TestCase):
         self.assertEqual(calls[0][2]["peft_model_name_or_path"], "mntp-adapter")
         self.assertTrue(calls[0][2]["merge_peft"])
         self.assertEqual(calls[0][2]["max_length"], 256)
+        self.assertEqual(calls[0][2]["attn_implementation"], "eager")
         self.assertEqual(
             calls[1],
             (
@@ -235,6 +236,53 @@ class CandidatePopulationTests(unittest.TestCase):
             embedder.model_name,
             "qwen-base+mntp:mntp-adapter+peft:simcse-adapter",
         )
+
+    def test_llm2vec_loader_records_requested_attention_backend(self) -> None:
+        calls = []
+
+        class FakeCUDA:
+            @staticmethod
+            def is_available():
+                return True
+
+            @staticmethod
+            def device_count():
+                return 1
+
+        class FakeModel:
+            @staticmethod
+            def encode(texts, **kwargs):
+                calls.append((list(texts), kwargs))
+                return [[1.0, 2.0] for _ in texts]
+
+        class FakeLLM2Vec:
+            @classmethod
+            def from_pretrained(cls, model_name, **kwargs):
+                calls.append((model_name, kwargs))
+                return FakeModel()
+
+        modules = {
+            "torch": types.SimpleNamespace(cuda=FakeCUDA(), bfloat16="bf16"),
+            "llm2vec": types.SimpleNamespace(LLM2Vec=FakeLLM2Vec),
+        }
+        with patch.dict(sys.modules, modules):
+            embedder = LLM2VecPromptEmbedder(
+                "qwen-base",
+                batch_size=2,
+                attention_implementation="sdpa",
+            )
+            embedded = embedder.embed(("one", "two", "three"))
+
+        self.assertEqual(embedder.attention_implementation, "sdpa")
+        self.assertEqual(calls[0][1]["attn_implementation"], "sdpa")
+        self.assertEqual(
+            calls[1:],
+            [
+                (["one", "two"], {"batch_size": 2, "show_progress_bar": False}),
+                (["three"], {"batch_size": 2, "show_progress_bar": False}),
+            ],
+        )
+        self.assertEqual(embedded.shape, (3, 2))
 
     def test_complete_grid_has_multiple_candidates_per_style(self) -> None:
         candidates, *_ = _pipeline()

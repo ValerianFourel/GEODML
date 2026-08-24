@@ -33,11 +33,12 @@ export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-r
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
 export READINESS_APPROVED_WALLTIME="12:00:00"
-export READINESS_ALLOCATION_ESTIMATE="Approved two-node JUPITER Booster strict axis-one continuation: 8 H100 GPUs for 12 hours, maximum 96 GPU-hours. Resume 29944 candidates and 2885 verified selections from job 1468481; reuse exact prior reviews and projections, embed only new candidates, batch four generation slots per task, use eight workers, and process 1024 refinement targets per round. Expected productive runtime 10.5-11.5 hours plus checkpoint reserve; estimated 3000-7000 additional strict prompts."
+export READINESS_ALLOCATION_ESTIMATE="Approved two-node JUPITER Booster strict axis-one continuation: 8 H100 GPUs for 12 hours, maximum 96 GPU-hours. Resume 29944 candidates and 2885 verified selections from job 1468481; reuse exact prior reviews and projections, embed only new candidates, batch four generation slots per task, use eight workers, process 1024 refinement targets per round, and continue resumable generation slices inside the allocation. Expected productive runtime 10.5-11.5 hours plus checkpoint reserve; estimated 3000-7000 additional strict prompts."
 export READINESS_ALLOCATED_GPU_COUNT="8"
 export READINESS_VALIDATION_SHARD_COUNT="8"
 export READINESS_VALIDATION_BATCH_SIZE="16"
 export READINESS_EMBEDDING_BATCH_SIZE="32"
+export READINESS_LLM2VEC_ATTENTION_IMPLEMENTATION="eager"
 export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="1024"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="4"
 export READINESS_GENERATION_SECONDS="10800"

@@ -846,6 +846,22 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                         output_dir=str(base_output),
                     )
                 )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "different frozen map or embedding stack",
+                ):
+                    _project_candidates(
+                        SimpleNamespace(
+                            **common,
+                            attention_implementation="sdpa",
+                            candidates=[
+                                str(base_candidates),
+                                str(new_candidates),
+                            ],
+                            base_projections=str(base_output),
+                            output_dir=str(root / "mixed-attention-projections"),
+                        )
+                    )
                 combined_output = root / "combined-projections"
                 _project_candidates(
                     SimpleNamespace(

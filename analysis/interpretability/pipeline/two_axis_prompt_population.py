@@ -1560,7 +1560,18 @@ class LLM2VecPromptEmbedder:
         peft_model_name_or_path: str | None = None,
         batch_size: int = 1,
         max_length: int = 512,
+        attention_implementation: str = "eager",
     ) -> None:
+        supported_attention_implementations = {
+            "eager",
+            "sdpa",
+            "flash_attention_2",
+        }
+        if attention_implementation not in supported_attention_implementations:
+            raise ValueError(
+                "attention_implementation must be one of "
+                f"{sorted(supported_attention_implementations)}"
+            )
         try:
             import torch
             from llm2vec import LLM2Vec
@@ -1578,6 +1589,7 @@ class LLM2VecPromptEmbedder:
             model_parts.append(f"peft:{peft_model_name_or_path}")
         self.model_name = "+".join(model_parts)
         self.batch_size = batch_size
+        self.attention_implementation = attention_implementation
         if mntp_model_name_or_path is None:
             self._model = LLM2Vec.from_pretrained(
                 model_name,
@@ -1585,7 +1597,7 @@ class LLM2VecPromptEmbedder:
                 device_map="cuda",
                 torch_dtype=torch.bfloat16,
                 max_length=max_length,
-                attn_implementation="eager",
+                attn_implementation=attention_implementation,
             )
         else:
             try:
@@ -1601,7 +1613,7 @@ class LLM2VecPromptEmbedder:
                 device_map="cuda",
                 torch_dtype=torch.bfloat16,
                 max_length=max_length,
-                attn_implementation="eager",
+                attn_implementation=attention_implementation,
             )
             if peft_model_name_or_path is not None:
                 self._model.model = PeftModel.from_pretrained(
@@ -1614,7 +1626,11 @@ class LLM2VecPromptEmbedder:
     def embed(self, texts: Sequence[str]) -> np.ndarray:
         batches: list[np.ndarray] = []
         for start in range(0, len(texts), self.batch_size):
-            encoded = self._model.encode(list(texts[start : start + self.batch_size]))
+            encoded = self._model.encode(
+                list(texts[start : start + self.batch_size]),
+                batch_size=self.batch_size,
+                show_progress_bar=False,
+            )
             if hasattr(encoded, "detach"):
                 encoded = encoded.detach().float().cpu().numpy()
             batches.append(np.asarray(encoded, dtype=np.float64))

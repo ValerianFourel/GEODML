@@ -128,6 +128,7 @@ case "$stage" in
             --peft-model "${QWEN_LLM2VEC_SIMCSE:?QWEN_LLM2VEC_SIMCSE is required}" \
             --embedding-batch-size "${READINESS_EMBEDDING_BATCH_SIZE:-8}" \
             --embedding-max-length "${READINESS_EMBEDDING_MAX_LENGTH:-512}" \
+            --attention-implementation "${READINESS_LLM2VEC_ATTENTION_IMPLEMENTATION:-eager}" \
             "${projection_reuse_args[@]}" \
             --output-dir "${QWEN_PROJECTION_ROOT:?QWEN_PROJECTION_ROOT is required}"
         ;;
@@ -147,6 +148,7 @@ case "$stage" in
             --peft-model "${MISTRAL_LLM2VEC_SIMCSE:?MISTRAL_LLM2VEC_SIMCSE is required}" \
             --embedding-batch-size "${READINESS_EMBEDDING_BATCH_SIZE:-8}" \
             --embedding-max-length "${READINESS_EMBEDDING_MAX_LENGTH:-512}" \
+            --attention-implementation "${READINESS_LLM2VEC_ATTENTION_IMPLEMENTATION:-eager}" \
             "${projection_reuse_args[@]}" \
             --output-dir "${MISTRAL_PROJECTION_ROOT:?MISTRAL_PROJECTION_ROOT is required}"
         ;;
