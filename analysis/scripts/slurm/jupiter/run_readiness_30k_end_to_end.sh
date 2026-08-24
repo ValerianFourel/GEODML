@@ -530,7 +530,33 @@ generation_terminal() {
 
 allocation_seconds_left() {
     local value
-    value="$(squeue -h -j "$SLURM_JOB_ID" -o '%L' | tr -d ' ')"
+    local values=()
+    if [[ -n "${SLURM_ARRAY_JOB_ID:-}" && -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+        mapfile -t values < <(
+            squeue -h -r -j "$SLURM_ARRAY_JOB_ID" -o '%A|%a|%L' |
+                awk -F'|' \
+                    -v array_id="$SLURM_ARRAY_JOB_ID" \
+                    -v task_id="$SLURM_ARRAY_TASK_ID" \
+                    '$1 == array_id && $2 == task_id {
+                        gsub(/[[:space:]]/, "", $3)
+                        print $3
+                    }'
+        )
+    else
+        mapfile -t values < <(
+            squeue -h -j "$SLURM_JOB_ID" -o '%A|%L' |
+                awk -F'|' -v job_id="$SLURM_JOB_ID" \
+                    '$1 == job_id {
+                        gsub(/[[:space:]]/, "", $2)
+                        print $2
+                    }'
+        )
+    fi
+    [[ "${#values[@]}" -eq 1 ]] || {
+        echo "expected exactly one Slurm time-left value for this allocation; found ${#values[@]}" >&2
+        return 1
+    }
+    value="${values[0]}"
     [[ -n "$value" ]] || return 1
     python - "$value" <<'PY'
 import sys
