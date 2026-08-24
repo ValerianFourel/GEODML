@@ -267,9 +267,23 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("#SBATCH --gres=gpu:4", script)
         self.assertIn("#SBATCH --time=12:00:00", script)
         self.assertIn('READINESS_WORK_PARTITION_COUNT="2"', script)
+        self.assertIn("SLURM_ARRAY_TASK_ID", script)
         self.assertIn("axis1-30330-two-way-v1", script)
         self.assertIn("partition-$READINESS_WORK_PARTITION_INDEX-latest.txt", script)
-        self.assertIn('READINESS_FINALIZATION_RESERVE_SECONDS="5400"', script)
+        self.assertIn("READINESS_CONTINUATION_SOURCE_PREFIX", script)
+        self.assertIn(
+            'checkpoint_search_root="${continuation_source_root:-$READINESS_RECOVERY_PIPELINE_ROOT}"',
+            script,
+        )
+        self.assertIn(
+            'READINESS_APPROVED_WALLTIME="${READINESS_APPROVED_WALLTIME:-12:00:00}"',
+            script,
+        )
+        self.assertIn(
+            'READINESS_FINALIZATION_RESERVE_SECONDS="${READINESS_FINALIZATION_RESERVE_SECONDS:-5400}"',
+            script,
+        )
+        self.assertIn("continuation source and destination partition roots must differ", script)
         self.assertIn(
             'READINESS_INITIAL_CANDIDATE_FILE_LIST="${READINESS_INITIAL_CANDIDATE_FILE_LIST:-$latest_verified_round/candidate-files.txt}"',
             script,

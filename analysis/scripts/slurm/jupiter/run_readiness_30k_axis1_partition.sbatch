@@ -16,7 +16,8 @@ set -euo pipefail
 umask 077
 
 : "${GEODML_EXPECTED_COMMIT:?Export the exact pushed Git commit before sbatch}"
-: "${READINESS_WORK_PARTITION_INDEX:?Submit once with index 0 and once with index 1}"
+export READINESS_WORK_PARTITION_INDEX="${READINESS_WORK_PARTITION_INDEX:-${SLURM_ARRAY_TASK_ID:-}}"
+: "${READINESS_WORK_PARTITION_INDEX:?Set a partition index or submit array 0-1}"
 export READINESS_WORK_PARTITION_COUNT="2"
 export READINESS_WORK_PARTITION_SALT="axis1-30330-two-way-v1"
 [[ "$READINESS_WORK_PARTITION_INDEX" == "0" || "$READINESS_WORK_PARTITION_INDEX" == "1" ]] || {
@@ -47,14 +48,29 @@ export READINESS_30K_PIPELINE_POINTER="$READINESS_PARTITION_COORDINATION_ROOT/pa
 
 # Read only the earlier shared cache tree.  Each live partition writes its own
 # cache, preventing concurrent cache discovery or mutation across producers.
-export READINESS_VALIDATION_CACHE_SEARCH_ROOTS="$READINESS_RECOVERY_PIPELINE_ROOT"
+continuation_source_prefix="${READINESS_CONTINUATION_SOURCE_PREFIX:-}"
+continuation_source_root=""
+validation_cache_search_roots="$READINESS_RECOVERY_PIPELINE_ROOT"
+if [[ -n "$continuation_source_prefix" ]]; then
+    continuation_source_root="$continuation_source_prefix-partition-$READINESS_WORK_PARTITION_INDEX-of-2"
+    [[ -d "$continuation_source_root" ]] || {
+        echo "continuation source partition is missing: $continuation_source_root" >&2
+        exit 2
+    }
+    [[ "$continuation_source_root" != "$READINESS_30K_PIPELINE_ROOT" ]] || {
+        echo "continuation source and destination partition roots must differ" >&2
+        exit 2
+    }
+    validation_cache_search_roots="$validation_cache_search_roots:$continuation_source_root"
+fi
+export READINESS_VALIDATION_CACHE_SEARCH_ROOTS="${READINESS_VALIDATION_CACHE_SEARCH_ROOTS:-$validation_cache_search_roots}"
 
 export GEODML_GENERATOR_VENV="${GEODML_GENERATOR_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-generators-transformers562}"
 export QWEN_LLM2VEC_VENV="${QWEN_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-torch291}"
 export MISTRAL_LLM2VEC_VENV="${MISTRAL_LLM2VEC_VENV:-$GEODML_CACHE_ROOT/python/.venv-readiness-hf-llm2vec-mistral-torch291}"
 
-export READINESS_APPROVED_WALLTIME="12:00:00"
-export READINESS_ALLOCATION_ESTIMATE="Freshly approved 2026-08-24 retry of partition $READINESS_WORK_PARTITION_INDEX after jobs 1471643 and 1471645 failed during checkpoint preflight before GPU generation: one JUPITER Booster node, 4 H100 GPUs for 12 hours, maximum 48 GPU-hours for this job and 96 GPU-hours across both jobs. The retry starts from the exact 29944-candidate verified checkpoint; stable target ownership prevents duplicate refinement tasks, and a global final strict selection combines both checkpoints. Estimated productive generation and per-partition verification: 10.5-12 hours including a 90-minute finalization reserve."
+export READINESS_APPROVED_WALLTIME="${READINESS_APPROVED_WALLTIME:-12:00:00}"
+export READINESS_ALLOCATION_ESTIMATE="${READINESS_ALLOCATION_ESTIMATE:-Freshly approved 2026-08-24 retry of partition $READINESS_WORK_PARTITION_INDEX after jobs 1471643 and 1471645 failed during checkpoint preflight before GPU generation: one JUPITER Booster node, 4 H100 GPUs for 12 hours, maximum 48 GPU-hours for this job and 96 GPU-hours across both jobs. The retry starts from the exact 29944-candidate verified checkpoint; stable target ownership prevents duplicate refinement tasks, and a global final strict selection combines both checkpoints. Estimated productive generation and per-partition verification: 10.5-12 hours including a 90-minute finalization reserve.}"
 export READINESS_ALLOCATED_GPU_COUNT="4"
 export READINESS_VALIDATION_SHARD_COUNT="4"
 export READINESS_VALIDATION_BATCH_SIZE="16"
@@ -63,7 +79,7 @@ export READINESS_LLM2VEC_ATTENTION_IMPLEMENTATION="eager"
 export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="1024"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="4"
 export READINESS_GENERATION_SECONDS="10800"
-export READINESS_FINALIZATION_RESERVE_SECONDS="5400"
+export READINESS_FINALIZATION_RESERVE_SECONDS="${READINESS_FINALIZATION_RESERVE_SECONDS:-5400}"
 export READINESS_MAX_REFINEMENT_ROUNDS="1000"
 export READINESS_MASTER_SEED="20260820"
 export READINESS_DISTANCE_TOLERANCE="0.017"
@@ -86,12 +102,13 @@ export READINESS_BATTERY_ROOT="${READINESS_BATTERY_ROOT:-$READINESS_SUBSPACE_ROO
 [[ -d "$READINESS_RECOVERY_PIPELINE_ROOT" ]]
 [[ -s "$READINESS_BATTERY_ROOT/battery_manifest.json" ]]
 
+checkpoint_search_root="${continuation_source_root:-$READINESS_RECOVERY_PIPELINE_ROOT}"
 latest_verified_summary="$({
-    find "$READINESS_RECOVERY_PIPELINE_ROOT" -mindepth 2 -maxdepth 2 \
+    find "$checkpoint_search_root" -mindepth 2 -maxdepth 2 \
         -path '*/round-*/verified_round_summary.json' -type f -print
 } | sort -V | tail -n 1)"
 [[ -s "$latest_verified_summary" ]] || {
-    echo "recovery pipeline has no verified round summary" >&2
+    echo "checkpoint source has no verified round summary: $checkpoint_search_root" >&2
     exit 2
 }
 latest_verified_round="$(dirname "$latest_verified_summary")"
@@ -118,6 +135,8 @@ echo "FOUR-GPU STRICT AXIS-ONE PARTITION"
 echo "commit=$GEODML_EXPECTED_COMMIT"
 echo "job=$SLURM_JOB_ID"
 echo "partition=$READINESS_WORK_PARTITION_INDEX/$READINESS_WORK_PARTITION_COUNT"
+echo "checkpoint_source=$checkpoint_search_root"
+echo "checkpoint_round=$latest_verified_round"
 echo "pipeline=$READINESS_30K_PIPELINE_ROOT"
 echo "coordination=$READINESS_PARTITION_COORDINATION_ROOT"
 
