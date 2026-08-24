@@ -306,6 +306,10 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('READINESS_MAX_REFINEMENT_ROUNDS="1000"', script)
         self.assertIn('READINESS_STOP_AFTER_PHYSICAL_ROUND="19"', script)
         self.assertIn("READINESS_END_TO_END_RUNNER", script)
+        self.assertIn(
+            '"$orchestrator_repository/analysis/scripts/slurm/jupiter/run_readiness_30k_axis1_strict_loop.sh"',
+            script,
+        )
         self.assertIn("recover_partition 0", script)
         self.assertIn("recover_partition 1", script)
         self.assertIn("round-19", script)

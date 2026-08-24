@@ -226,7 +226,7 @@ recover_partition() {
 
     echo "===== RECOVER PARTITION $partition_index ====="
     set +e
-    "$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_axis1_strict_loop.sh"
+    "$orchestrator_repository/analysis/scripts/slurm/jupiter/run_readiness_30k_axis1_strict_loop.sh"
     producer_exit="$?"
     set -e
     if [[ "$producer_exit" -ne 0 && "$producer_exit" -ne 3 ]]; then
