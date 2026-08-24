@@ -42,6 +42,12 @@ READINESS_30K_AXIS1_STRICT_LOOP = (
 READINESS_30K_AXIS1_8GPU_RESUME = (
     JUPITER_ROOT / "run_readiness_30k_axis1_8gpu_resume.sbatch"
 )
+READINESS_30K_AXIS1_PARTITION = (
+    JUPITER_ROOT / "run_readiness_30k_axis1_partition.sbatch"
+)
+READINESS_30K_PARTITION_FINALIZER = (
+    JUPITER_ROOT / "finalize_readiness_30k_partitions.sh"
+)
 READINESS_AXIS1_CHECKPOINT_AUDIT = (
     JUPITER_ROOT / "run_readiness_axis1_checkpoint_audit.sh"
 )
@@ -69,6 +75,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_PIPELINE_STAGE,
             READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_30K_AXIS1_8GPU_RESUME,
+            READINESS_30K_AXIS1_PARTITION,
+            READINESS_30K_PARTITION_FINALIZER,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
             with self.subTest(script=script.name):
@@ -129,8 +137,12 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('math.isclose(increment, 0.001', script)
         self.assertNotIn('READINESS_DISTANCE_TOLERANCE:-0.22', script)
         self.assertIn("prepare_refinement_task_batch", script)
-        self.assertIn("stable-hash-generator-round-robin-v1", script)
-        self.assertIn("REFINEMENT BATCH", script)
+        self.assertIn("partition_readiness_refinement_tasks.py", script)
+        partitioner = (
+            REPOSITORY_ROOT
+            / "analysis/scripts/partition_readiness_refinement_tasks.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("REFINEMENT BATCH", partitioner)
         self.assertIn("flock -n 9", script)
         self.assertIn("another controller already owns this pipeline root", script)
         self.assertIn(".strict-selection-attempt-", script)
@@ -232,6 +244,29 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_INITIAL_PROJECTION_ROOT", script)
         self.assertIn("READINESS_INITIAL_VALIDATION_OUTPUT", script)
         self.assertIn("latest_verified_summary", script)
+
+    def test_axis1_partition_jobs_are_disjoint_and_finalize_the_exact_union(self) -> None:
+        script = READINESS_30K_AXIS1_PARTITION.read_text(encoding="utf-8")
+        finalizer = READINESS_30K_PARTITION_FINALIZER.read_text(encoding="utf-8")
+
+        self.assertIn("#SBATCH --nodes=1", script)
+        self.assertIn("#SBATCH --ntasks=4", script)
+        self.assertIn("#SBATCH --gres=gpu:4", script)
+        self.assertIn("#SBATCH --time=12:00:00", script)
+        self.assertIn('READINESS_WORK_PARTITION_COUNT="2"', script)
+        self.assertIn("axis1-30330-two-way-v1", script)
+        self.assertIn("partition-$READINESS_WORK_PARTITION_INDEX-latest.txt", script)
+        self.assertIn('READINESS_FINALIZATION_RESERVE_SECONDS="5400"', script)
+        self.assertIn('f"producer-{index}.ready.json"', script)
+        self.assertIn("finalize_readiness_30k_partitions.sh", script)
+
+        self.assertIn("merge_readiness_partition_checkpoints.py", finalizer)
+        self.assertIn("compare-projections", finalizer)
+        self.assertIn("spatial-select", finalizer)
+        self.assertIn("--require-both-views-within-tolerance", finalizer)
+        self.assertIn("--require-delexicalized-template-uniqueness", finalizer)
+        self.assertIn("final-latest.txt", finalizer)
+        self.assertIn("PARTITION FINALIZER COMPLETE", finalizer)
         self.assertIn("verified_round_summary.json", script)
         self.assertIn("SLURM_JOB_NUM_NODES", script)
         self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)

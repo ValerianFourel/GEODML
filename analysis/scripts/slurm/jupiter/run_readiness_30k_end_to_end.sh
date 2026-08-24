@@ -250,6 +250,17 @@ export READINESS_INITIAL_PROJECTION_ROOT="$initial_projection_root"
 export READINESS_INITIAL_VALIDATION_OUTPUT="$initial_validation_output"
 export READINESS_MAX_REFINEMENT_ROUNDS="${READINESS_MAX_REFINEMENT_ROUNDS:-1000}"
 export READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND="${READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND:-128}"
+export READINESS_WORK_PARTITION_COUNT="${READINESS_WORK_PARTITION_COUNT:-1}"
+export READINESS_WORK_PARTITION_INDEX="${READINESS_WORK_PARTITION_INDEX:-0}"
+export READINESS_WORK_PARTITION_SALT="${READINESS_WORK_PARTITION_SALT:-readiness-target-partition-v1}"
+[[ "$READINESS_WORK_PARTITION_COUNT" -ge 1 ]] || {
+    echo "READINESS_WORK_PARTITION_COUNT must be positive" >&2
+    exit 2
+}
+[[ "$READINESS_WORK_PARTITION_INDEX" -ge 0 && "$READINESS_WORK_PARTITION_INDEX" -lt "$READINESS_WORK_PARTITION_COUNT" ]] || {
+    echo "work partition must satisfy 0 <= index < count" >&2
+    exit 2
+}
 [[ -z "$source_pilot" || -z "$initial_candidate_root" ]] || {
     echo "configure either a source pilot or an initial checkpoint, not both" >&2
     exit 2
@@ -385,6 +396,9 @@ identity = {
     "master_seed": int(os.environ["READINESS_MASTER_SEED"]),
     "maximum_refinement_rounds": int(os.environ["READINESS_MAX_REFINEMENT_ROUNDS"]),
     "refinement_task_limit_per_round": int(os.environ["READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND"]),
+    "work_partition_count": int(os.environ["READINESS_WORK_PARTITION_COUNT"]),
+    "work_partition_index": int(os.environ["READINESS_WORK_PARTITION_INDEX"]),
+    "work_partition_salt": os.environ["READINESS_WORK_PARTITION_SALT"],
     "validation_shard_count": int(os.environ["READINESS_VALIDATION_SHARD_COUNT"]),
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],
@@ -616,85 +630,13 @@ assert row["reviewed_count"] == row["candidate_count"]
 
 prepare_refinement_task_batch() {
     local source_tasks="$1" batch_tasks="$2" limit="$3"
-    python - "$source_tasks" "$batch_tasks" "$limit" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-source = pathlib.Path(sys.argv[1]).resolve()
-output = pathlib.Path(sys.argv[2]).resolve()
-limit = int(sys.argv[3])
-manifest_path = output.with_suffix(output.suffix + ".manifest.json")
-source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
-rows = [
-    json.loads(line)
-    for line in source.read_text().splitlines()
-    if line.strip()
-]
-if len({row["task_id"] for row in rows}) != len(rows):
-    raise SystemExit("refinement task source contains duplicate task ids")
-
-# A stable hash avoids repeatedly favoring the first keywords. Round-robin
-# generator interleaving keeps the one-GPU generation workers useful.
-grouped = {}
-for row in rows:
-    grouped.setdefault(row["generator_id"], []).append(row)
-for generator_rows in grouped.values():
-    generator_rows.sort(
-        key=lambda row: hashlib.sha256(
-            f'{source_sha256}:{row["task_id"]}'.encode()
-        ).hexdigest()
-    )
-selected = []
-generators = sorted(grouped)
-while len(selected) < min(limit, len(rows)):
-    progressed = False
-    for generator_id in generators:
-        if grouped[generator_id] and len(selected) < limit:
-            selected.append(grouped[generator_id].pop(0))
-            progressed = True
-    if not progressed:
-        break
-
-identity = {
-    "format_version": "readiness-refinement-task-batch-v1",
-    "source_path": str(source),
-    "source_sha256": source_sha256,
-    "source_task_count": len(rows),
-    "task_limit": limit,
-    "selected_task_count": len(selected),
-    "selected_task_ids": [row["task_id"] for row in selected],
-    "selection_method": "stable-hash-generator-round-robin-v1",
-}
-if output.exists() or manifest_path.exists():
-    if not output.is_file() or not manifest_path.is_file():
-        raise SystemExit(f"partial refinement task batch: {output}")
-    existing = json.loads(manifest_path.read_text())
-    if existing != identity:
-        raise SystemExit(f"immutable refinement task batch differs: {output}")
-    actual_ids = [
-        json.loads(line)["task_id"]
-        for line in output.read_text().splitlines()
-        if line.strip()
-    ]
-    if actual_ids != identity["selected_task_ids"]:
-        raise SystemExit(f"refinement task batch content differs: {output}")
-else:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_suffix(output.suffix + ".tmp")
-    temporary.write_text(
-        "".join(json.dumps(row, sort_keys=True) + "\n" for row in selected)
-    )
-    temporary.replace(output)
-    temporary_manifest = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
-    temporary_manifest.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n")
-    temporary_manifest.replace(manifest_path)
-print(
-    f"REFINEMENT BATCH: selected={len(selected)}/{len(rows)} "
-    f"limit={limit} output={output}"
-)
-PY
+    python analysis/scripts/partition_readiness_refinement_tasks.py \
+        --source-tasks "$source_tasks" \
+        --output "$batch_tasks" \
+        --limit "$limit" \
+        --partition-count "$READINESS_WORK_PARTITION_COUNT" \
+        --partition-index "$READINESS_WORK_PARTITION_INDEX" \
+        --partition-salt "$READINESS_WORK_PARTITION_SALT"
 }
 
 run_generation_round() {
@@ -798,7 +740,12 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     else
         if [[ "$round_index" -eq 0 ]]; then
             source_tasks="$READINESS_30K_PLAN_ROOT/generation_tasks_round_00.jsonl"
-            tasks="$source_tasks"
+            if [[ "$READINESS_WORK_PARTITION_COUNT" -gt 1 ]]; then
+                tasks="$round_root/generation-task-batch.jsonl"
+                prepare_refinement_task_batch "$source_tasks" "$tasks" "$refinement_task_limit"
+            else
+                tasks="$source_tasks"
+            fi
         else
             source_tasks="$previous_selection/generation_tasks_round_$(printf '%02d' "$logical_round_index").jsonl"
             tasks="$round_root/refinement-task-batch.jsonl"
@@ -806,7 +753,11 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         fi
         test -e "$tasks"
         if [[ ! -s "$tasks" ]]; then
-            pipeline_status="pass"
+            if [[ "$READINESS_WORK_PARTITION_COUNT" -gt 1 ]]; then
+                pipeline_status="partition-complete"
+            else
+                pipeline_status="pass"
+            fi
             break
         fi
         set +e
