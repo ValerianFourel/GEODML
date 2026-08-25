@@ -54,6 +54,12 @@ READINESS_30K_AXIS1_ONE_NODE_GLOBAL = (
 READINESS_30K_AXIS1_KEYWORD_SECTION = (
     JUPITER_ROOT / "run_readiness_30k_axis1_keyword_section.sbatch"
 )
+READINESS_30K_REPARTITION_KEYWORD_SECTIONS = (
+    JUPITER_ROOT / "run_readiness_30k_repartition_keyword_sections.sbatch"
+)
+READINESS_30K_REPARTITION_SUBMITTER = (
+    JUPITER_ROOT / "submit_readiness_30k_repartition_keyword_sections.sh"
+)
 READINESS_30K_PARTITION_FINALIZER = (
     JUPITER_ROOT / "finalize_readiness_30k_partitions.sh"
 )
@@ -88,6 +94,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_AXIS1_ONE_NODE_RECOVERY,
             READINESS_30K_AXIS1_ONE_NODE_GLOBAL,
             READINESS_30K_AXIS1_KEYWORD_SECTION,
+            READINESS_30K_REPARTITION_KEYWORD_SECTIONS,
+            READINESS_30K_REPARTITION_SUBMITTER,
             READINESS_30K_PARTITION_FINALIZER,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
@@ -411,6 +419,38 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("readiness-keyword-section-checkpoint-v1", script)
         self.assertNotIn("finalize_readiness_30k_partitions.sh", script)
         self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)
+
+    def test_keyword_sections_are_globally_repartitioned_before_resubmission(self) -> None:
+        merge_job = READINESS_30K_REPARTITION_KEYWORD_SECTIONS.read_text(
+            encoding="utf-8"
+        )
+        submitter = READINESS_30K_REPARTITION_SUBMITTER.read_text(encoding="utf-8")
+
+        self.assertIn("#SBATCH --nodes=1", merge_job)
+        self.assertIn("#SBATCH --ntasks=1", merge_job)
+        self.assertIn("#SBATCH --cpus-per-task=32", merge_job)
+        self.assertIn("#SBATCH --mem=128G", merge_job)
+        self.assertIn("#SBATCH --gres=none", merge_job)
+        self.assertNotIn("#SBATCH --time=", merge_job)
+        self.assertIn("READINESS_APPROVED_WALLTIME", merge_job)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", merge_job)
+        self.assertIn("expected exactly ten source section roots", merge_job)
+        self.assertIn("merge_readiness_partition_checkpoints.py", merge_job)
+        self.assertIn("compare-projections", merge_job)
+        self.assertIn("spatial-select", merge_job)
+        self.assertIn("audit_fully_compliant_readiness_prompts.py", merge_job)
+        self.assertIn("prepare_readiness_keyword_sections.py", merge_job)
+        self.assertIn("--section-count 10", merge_job)
+        self.assertIn("readiness-30k-ten-section-repartition-run-v1", merge_job)
+
+        self.assertIn("READINESS_MERGE_APPROVED_WALLTIME", submitter)
+        self.assertIn("READINESS_SECTION_APPROVED_WALLTIME", submitter)
+        self.assertIn("--dependency=\"afterok:$merge_job_id\"", submitter)
+        self.assertIn("for index in {0..9}", submitter)
+        self.assertIn("maximum_gpu_hours\": 320", submitter)
+        self.assertIn("run_readiness_30k_repartition_keyword_sections.sbatch", submitter)
+        self.assertIn("run_readiness_30k_axis1_keyword_section.sbatch", submitter)
+        self.assertIn("submission_manifest.json", submitter)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:
         script = READINESS_AXIS1_CHECKPOINT_AUDIT.read_text(encoding="utf-8")

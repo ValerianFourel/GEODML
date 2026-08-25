@@ -210,7 +210,8 @@ def merge_partition_checkpoints(
         "initial_logical_round_index",
     )
     for key in stable_keys:
-        if pipeline_manifests[0].get(key) != pipeline_manifests[1].get(key):
+        reference = pipeline_manifests[0].get(key)
+        if any(row.get(key) != reference for row in pipeline_manifests[1:]):
             raise ValueError(f"partition pipeline manifests differ on {key}")
     round_roots = [_latest_verified_round(root) for root in roots]
 

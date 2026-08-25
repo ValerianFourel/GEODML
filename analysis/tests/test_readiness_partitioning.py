@@ -264,6 +264,25 @@ class ReadinessPartitioningTests(unittest.TestCase):
                 "readiness-partition-checkpoint-union-v2",
             )
 
+    def test_checkpoint_merge_checks_every_ten_section_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sections = [
+                self._partition_fixture(
+                    root,
+                    index=index,
+                    unique_id=f"section-{index}",
+                    partition_count=10,
+                )
+                for index in range(10)
+            ]
+            manifest_path = sections[-1] / "pipeline_manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["distance_tolerance"] = 0.5
+            _write_json(manifest_path, manifest)
+            with self.assertRaisesRegex(ValueError, "differ on distance_tolerance"):
+                merge_partition_checkpoints(sections, root / "mismatched-ten")
+
     def test_checkpoint_merge_rejects_an_incomplete_ten_section_set(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
