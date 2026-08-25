@@ -132,6 +132,7 @@ class ReadinessPartitioningTests(unittest.TestCase):
         *,
         index: int,
         unique_id: str,
+        partition_count: int = 2,
     ) -> Path:
         partition = root / f"partition-{index}"
         round_root = partition / "round-00"
@@ -148,7 +149,7 @@ class ReadinessPartitioningTests(unittest.TestCase):
                 "disagreement_weight": 0.1,
                 "refinement_candidates_per_task": 4,
                 "master_seed": 7,
-                "work_partition_count": 2,
+                "work_partition_count": partition_count,
                 "work_partition_index": index,
                 "work_partition_salt": "test-salt",
             },
@@ -239,6 +240,44 @@ class ReadinessPartitioningTests(unittest.TestCase):
                 allow_pickle=False,
             ) as payload:
                 self.assertEqual(set(payload["candidate_ids"]), ids)
+
+    def test_checkpoint_merge_accepts_one_complete_ten_section_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sections = [
+                self._partition_fixture(
+                    root,
+                    index=index,
+                    unique_id=f"section-{index}",
+                    partition_count=10,
+                )
+                for index in range(10)
+            ]
+            manifest = merge_partition_checkpoints(
+                sections,
+                root / "merged-ten",
+            )
+            self.assertEqual(manifest["partition_count"], 10)
+            self.assertEqual(manifest["candidate_count"], 11)
+            self.assertEqual(
+                manifest["format_version"],
+                "readiness-partition-checkpoint-union-v2",
+            )
+
+    def test_checkpoint_merge_rejects_an_incomplete_ten_section_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sections = [
+                self._partition_fixture(
+                    root,
+                    index=index,
+                    unique_id=f"section-{index}",
+                    partition_count=10,
+                )
+                for index in range(2)
+            ]
+            with self.assertRaisesRegex(ValueError, "complete indexed set"):
+                merge_partition_checkpoints(sections, root / "incomplete")
 
 
 if __name__ == "__main__":

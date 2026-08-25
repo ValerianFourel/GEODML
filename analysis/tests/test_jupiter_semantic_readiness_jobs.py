@@ -51,6 +51,9 @@ READINESS_30K_AXIS1_ONE_NODE_RECOVERY = (
 READINESS_30K_AXIS1_ONE_NODE_GLOBAL = (
     JUPITER_ROOT / "run_readiness_30k_axis1_one_node_global.sbatch"
 )
+READINESS_30K_AXIS1_KEYWORD_SECTION = (
+    JUPITER_ROOT / "run_readiness_30k_axis1_keyword_section.sbatch"
+)
 READINESS_30K_PARTITION_FINALIZER = (
     JUPITER_ROOT / "finalize_readiness_30k_partitions.sh"
 )
@@ -84,6 +87,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_AXIS1_PARTITION,
             READINESS_30K_AXIS1_ONE_NODE_RECOVERY,
             READINESS_30K_AXIS1_ONE_NODE_GLOBAL,
+            READINESS_30K_AXIS1_KEYWORD_SECTION,
             READINESS_30K_PARTITION_FINALIZER,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
         ):
@@ -150,6 +154,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn('READINESS_DISTANCE_TOLERANCE:-0.22', script)
         self.assertIn("prepare_refinement_task_batch", script)
         self.assertIn("partition_readiness_refinement_tasks.py", script)
+        self.assertIn("keyword_section_plan_sha256", script)
         partitioner = (
             REPOSITORY_ROOT
             / "analysis/scripts/partition_readiness_refinement_tasks.py"
@@ -381,6 +386,30 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('READINESS_WORK_PARTITION_COUNT="1"', script)
         self.assertIn("empty-validation-cache-source", script)
         self.assertIn("geodml-readiness-global-latest.txt", script)
+        self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)
+
+    def test_axis1_keyword_section_is_independent_and_uses_frozen_plan(self) -> None:
+        script = READINESS_30K_AXIS1_KEYWORD_SECTION.read_text(encoding="utf-8")
+
+        self.assertIn("#SBATCH --nodes=1", script)
+        self.assertIn("#SBATCH --ntasks=4", script)
+        self.assertIn("#SBATCH --gres=gpu:4", script)
+        self.assertNotIn("#SBATCH --time=", script)
+        self.assertIn("Wall time is supplied by sbatch", script)
+        self.assertIn("READINESS_APPROVED_WALLTIME", script)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
+        self.assertIn("READINESS_KEYWORD_SECTION_PLAN", script)
+        self.assertIn("READINESS_TEN_SECTION_RUN_ROOT", script)
+        self.assertIn("--verify-plan", script)
+        self.assertIn("READINESS_WORK_PARTITION_COUNT", script)
+        self.assertIn("READINESS_WORK_PARTITION_INDEX", script)
+        self.assertIn("READINESS_WORK_PARTITION_SALT", script)
+        self.assertIn('section_name="section-$READINESS_WORK_PARTITION_INDEX-of-$READINESS_WORK_PARTITION_COUNT"', script)
+        self.assertIn("empty-validation-cache-source", script)
+        self.assertIn("READINESS_INITIAL_CANDIDATE_FILE_LIST", script)
+        self.assertIn("READINESS_INITIAL_LOGICAL_ROUND_INDEX", script)
+        self.assertIn("readiness-keyword-section-checkpoint-v1", script)
+        self.assertNotIn("finalize_readiness_30k_partitions.sh", script)
         self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)
 
     def test_axis1_checkpoint_audit_uses_all_four_gpus_and_preserves_semantics(self) -> None:

@@ -386,6 +386,7 @@ initial_candidate_file_list = sys.argv[6] or None
 initial_projections = sys.argv[7] or None
 initial_validation = sys.argv[8] or None
 validation_cache_root = sys.argv[9]
+keyword_section_plan = os.getenv("READINESS_KEYWORD_SECTION_PLAN") or None
 manifest_path = root / "pipeline_manifest.json"
 identity = {
     "format_version": "readiness-30k-end-to-end-v1",
@@ -417,6 +418,12 @@ identity = {
     "work_partition_count": int(os.environ["READINESS_WORK_PARTITION_COUNT"]),
     "work_partition_index": int(os.environ["READINESS_WORK_PARTITION_INDEX"]),
     "work_partition_salt": os.environ["READINESS_WORK_PARTITION_SALT"],
+    "keyword_section_plan": keyword_section_plan,
+    "keyword_section_plan_sha256": (
+        hashlib.sha256(pathlib.Path(keyword_section_plan).read_bytes()).hexdigest()
+        if keyword_section_plan
+        else None
+    ),
     "validation_shard_count": int(os.environ["READINESS_VALIDATION_SHARD_COUNT"]),
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],

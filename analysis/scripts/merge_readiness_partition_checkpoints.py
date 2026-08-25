@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strictly union two disjoint readiness-generation partition checkpoints."""
+"""Strictly union a complete set of disjoint readiness partition checkpoints."""
 
 from __future__ import annotations
 
@@ -177,16 +177,21 @@ def merge_partition_checkpoints(
 ) -> dict[str, object]:
     roots = [Path(value).resolve() for value in partition_roots]
     output = Path(output_directory).resolve()
-    if len(roots) != 2 or len(set(roots)) != 2:
-        raise ValueError("exactly two distinct partition roots are required")
+    if len(roots) < 2 or len(set(roots)) != len(roots):
+        raise ValueError("at least two distinct partition roots are required")
     if output.exists():
         raise ValueError(f"refusing to overwrite partition merge: {output}")
     pipeline_manifests = [read_json(root / "pipeline_manifest.json") for root in roots]
     partition_counts = {int(row.get("work_partition_count", 1)) for row in pipeline_manifests}
     partition_indices = {int(row.get("work_partition_index", 0)) for row in pipeline_manifests}
     partition_salts = {str(row.get("work_partition_salt", "")) for row in pipeline_manifests}
-    if partition_counts != {2} or partition_indices != {0, 1} or len(partition_salts) != 1:
-        raise ValueError("partition manifests do not form the exact 0/2 and 1/2 pair")
+    partition_count = len(roots)
+    if (
+        partition_counts != {partition_count}
+        or partition_indices != set(range(partition_count))
+        or len(partition_salts) != 1
+    ):
+        raise ValueError("partition manifests do not form one complete indexed set")
     stable_keys = (
         "git_commit_sha",
         "plan_manifest_sha256",
@@ -200,6 +205,9 @@ def merge_partition_checkpoints(
         "master_seed",
         "work_partition_count",
         "work_partition_salt",
+        "keyword_section_plan_sha256",
+        "initial_candidate_file_list_sha256",
+        "initial_logical_round_index",
     )
     for key in stable_keys:
         if pipeline_manifests[0].get(key) != pipeline_manifests[1].get(key):
@@ -275,10 +283,10 @@ def merge_partition_checkpoints(
         )
 
     manifest = {
-        "format_version": "readiness-two-partition-checkpoint-union-v1",
+        "format_version": "readiness-partition-checkpoint-union-v2",
         "created_at": _now(),
         "git_commit_sha": pipeline_manifests[0]["git_commit_sha"],
-        "partition_count": 2,
+        "partition_count": partition_count,
         "partition_salt": partition_salts.pop(),
         "partition_roots": [str(root) for root in roots],
         "partition_pipeline_manifests": [
