@@ -22,6 +22,9 @@ from .readiness_embedding_map import ReadinessEmbeddingMap
 
 
 READINESS_PROMPT_POPULATION_VERSION = "readiness-question-population-v2"
+SEARCH_ACCEPTANCE_CONTRACTS = frozenset(
+    {"question-v1", "search-trigger-v2"}
+)
 AXIS_1_ONLY_TARGET_DESIGNS = frozenset(
     {"axis-1-linear", "axis-1-quantized-uniform"}
 )
@@ -151,6 +154,46 @@ class SearchQuestionReview:
     relevance_score_1_5: int
     accepted: bool
     concise_reason: str
+
+
+def search_review_passes_contract(
+    review: SearchQuestionReview | Mapping[str, object],
+    *,
+    contract: str = "question-v1",
+) -> bool:
+    """Evaluate a stored search review under a versioned text contract.
+
+    ``question-v1`` is the historical Gold contract. ``search-trigger-v2`` is
+    a diagnostic counterfactual: it retains topicality, search intent, web
+    answerability, natural language, and the relevance threshold, while it
+    does not require the exact keyword string, question punctuation, or
+    standalone interpretation. The latter must not silently replace the Gold
+    contract in existing runs.
+    """
+
+    if contract not in SEARCH_ACCEPTANCE_CONTRACTS:
+        raise ValueError(f"unsupported search acceptance contract: {contract}")
+
+    def value(name: str) -> object:
+        if isinstance(review, Mapping):
+            return review.get(name)
+        return getattr(review, name)
+
+    common = (
+        bool(value("topic_relevant"))
+        and bool(value("search_intent"))
+        and bool(value("web_answerable"))
+        and bool(value("natural_language"))
+        and int(value("relevance_score_1_5")) >= 4
+    )
+    if contract == "search-trigger-v2":
+        return common
+    return (
+        common
+        and bool(value("exact_keyword_present"))
+        and bool(value("single_question"))
+        and bool(value("standalone"))
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1303,7 +1346,12 @@ def _surface_realization_instruction(seed: int) -> str:
     return variants[seed % len(variants)]
 
 
-def delexicalize_question(question: str, keyword: str) -> str:
+def delexicalize_question(
+    question: str,
+    keyword: str,
+    *,
+    require_keyword: bool = True,
+) -> str:
     """Normalize a question after replacing its topic phrase with one sentinel."""
 
     if not question.strip() or not keyword.strip():
@@ -1311,8 +1359,10 @@ def delexicalize_question(question: str, keyword: str) -> str:
     replaced, count = re.subn(
         re.escape(keyword), " topicplaceholder ", question, flags=re.IGNORECASE
     )
-    if count == 0:
+    if count == 0 and require_keyword:
         raise ValueError("question does not contain its keyword")
+    if count == 0:
+        replaced = question
     tokens = re.findall(r"[a-z]+(?:'[a-z]+)?|\d+", replaced.casefold())
     normalized = ["numberplaceholder" if token.isdigit() else token for token in tokens]
     return " ".join(normalized)
@@ -1545,11 +1595,19 @@ def parse_search_question_review(
     reason = reason[:240].rstrip()
     exact_keyword = candidate.keyword in candidate.question
     single_question = candidate.question.endswith("?") and candidate.question.count("?") == 1
-    accepted = (
-        exact_keyword
-        and single_question
-        and all(bool(payload[name]) for name in required_booleans)
-        and score >= 4
+    review_fields = {
+        "exact_keyword_present": exact_keyword,
+        "single_question": single_question,
+        "topic_relevant": payload["topic_relevant"],
+        "search_intent": payload["search_intent"],
+        "web_answerable": payload["web_answerable"],
+        "standalone": payload["standalone"],
+        "natural_language": payload["natural_language"],
+        "relevance_score_1_5": score,
+    }
+    accepted = search_review_passes_contract(
+        review_fields,
+        contract="question-v1",
     )
     return SearchQuestionReview(
         candidate_id=candidate.candidate_id,
@@ -1865,6 +1923,7 @@ def select_spatially_matched_questions(
     target_design: str = "rectangular-grid",
     require_both_views_within_tolerance: bool = False,
     require_delexicalized_template_uniqueness: bool = False,
+    allow_missing_keyword_for_template: bool = False,
     planned_keywords: Sequence[tuple[str, str]] | None = None,
 ) -> tuple[tuple[SpatiallySelectedReadinessQuestion, ...], dict[str, object]]:
     """Globally match validated candidates to planned two-view coordinates.
@@ -2115,7 +2174,12 @@ def select_spatially_matched_questions(
     template_groups: dict[str, list[SpatiallySelectedReadinessQuestion]] = {}
     for row in selected:
         template_groups.setdefault(
-            delexicalize_question(row.question, row.keyword), []
+            delexicalize_question(
+                row.question,
+                row.keyword,
+                require_keyword=not allow_missing_keyword_for_template,
+            ),
+            [],
         ).append(row)
     duplicate_groups = {
         template: rows
@@ -2249,7 +2313,11 @@ def select_spatially_matched_questions(
         "selected_delexicalized_templates_are_unique": len(selected)
         == len(
             {
-                delexicalize_question(row.question, row.keyword)
+                delexicalize_question(
+                    row.question,
+                    row.keyword,
+                    require_keyword=not allow_missing_keyword_for_template,
+                )
                 for row in selected
             }
         ),
