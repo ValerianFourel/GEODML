@@ -199,6 +199,8 @@ def merge_partition_checkpoints(
         "generator_models",
         "validator_id",
         "validator_model",
+        "text_contract",
+        "acceptance_contract_version",
         "distance_tolerance",
         "disagreement_weight",
         "refinement_candidates_per_task",
@@ -249,8 +251,17 @@ def merge_partition_checkpoints(
     ]
     judge_keys = ("judge_id", "judge_model", "judge_backend", "judge_precision")
     for key in judge_keys:
-        if any(row.get(key) != validation_manifests[0].get(key) for row in validation_manifests[1:]):
+        if any(
+            row.get(key) != validation_manifests[0].get(key)
+            for row in validation_manifests[1:]
+        ):
             raise ValueError(f"partition validation manifests differ on {key}")
+    acceptance_contracts = {
+        str(row.get("acceptance_contract_version", "question-v1"))
+        for row in validation_manifests
+    }
+    if len(acceptance_contracts) != 1:
+        raise ValueError("partition validation manifests differ on acceptance contract")
     validation_file = output / "validation.jsonl"
     atomic_jsonl(validation_file, validation_rows)
     atomic_json(
@@ -264,6 +275,7 @@ def merge_partition_checkpoints(
             "reviewed_count": len(validation_rows),
             "accepted_count": sum(bool(row["accepted"]) for row in validation_rows),
             **{key: validation_manifests[0][key] for key in judge_keys},
+            "acceptance_contract_version": acceptance_contracts.pop(),
             "acceptance_contract": validation_manifests[0]["acceptance_contract"],
             "partition_validation_manifests": [
                 _identity(path.with_suffix(path.suffix + ".manifest.json"))
@@ -287,6 +299,12 @@ def merge_partition_checkpoints(
         "format_version": "readiness-partition-checkpoint-union-v2",
         "created_at": _now(),
         "git_commit_sha": pipeline_manifests[0]["git_commit_sha"],
+        "text_contract": pipeline_manifests[0].get(
+            "text_contract", "question-v1"
+        ),
+        "acceptance_contract_version": pipeline_manifests[0].get(
+            "acceptance_contract_version", "question-v1"
+        ),
         "partition_count": partition_count,
         "partition_salt": partition_salts.pop(),
         "partition_roots": [str(root) for root in roots],

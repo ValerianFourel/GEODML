@@ -112,6 +112,8 @@ test -s "$READINESS_30K_PLAN_ROOT/target_design.json"
 
 export READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"
 export READINESS_DISAGREEMENT_WEIGHT="${READINESS_DISAGREEMENT_WEIGHT:-0.10}"
+export READINESS_TEXT_CONTRACT="${READINESS_TEXT_CONTRACT:-question-v1}"
+export READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-v1}"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
 export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
 export READINESS_VALIDATION_SHARD_COUNT="${READINESS_VALIDATION_SHARD_COUNT:-4}"
@@ -157,13 +159,25 @@ if design.get("pooled_target_count") != 30330:
 if design.get("occupied_lattice_point_count") != 1001:
     raise SystemExit("axis-1 target design must occupy all 1001 lattice points")
 tolerance = float(os.environ["READINESS_DISTANCE_TOLERANCE"])
-if not math.isclose(tolerance, 0.017, rel_tol=0.0, abs_tol=1e-12):
-    raise SystemExit(f"strict axis-1 tolerance must equal 0.017; found {tolerance!r}")
+text_contract = os.environ["READINESS_TEXT_CONTRACT"]
+acceptance_contract = os.environ["READINESS_ACCEPTANCE_CONTRACT"]
+contracts = {"question-v1", "search-trigger-v2"}
+if text_contract not in contracts or acceptance_contract not in contracts:
+    raise SystemExit("unsupported readiness text or acceptance contract")
+if text_contract != acceptance_contract:
+    raise SystemExit("readiness text and acceptance contracts must use one version")
+expected_tolerance = 0.017 if text_contract == "question-v1" else 0.035
+if not math.isclose(tolerance, expected_tolerance, rel_tol=0.0, abs_tol=1e-12):
+    raise SystemExit(
+        f"{text_contract} tolerance must equal {expected_tolerance:.3f}; "
+        f"found {tolerance!r}"
+    )
 if int(os.environ["READINESS_REFINEMENT_CANDIDATES_PER_TASK"]) <= 0:
     raise SystemExit("refinement candidates per task must be positive")
 print(
     "strict axis-1 plan preflight: PASS "
-    "keywords=1011 targets=30330 lattice=0.001 tolerance=0.017"
+    f"keywords=1011 targets=30330 lattice=0.001 "
+    f"tolerance={tolerance:.3f} contract={text_contract}"
 )
 PY
 
@@ -410,6 +424,8 @@ identity = {
     "validator_id": os.environ["READINESS_VALIDATOR_ID"],
     "validator_model": os.environ["READINESS_VALIDATOR_MODEL"],
     "distance_tolerance": float(os.environ["READINESS_DISTANCE_TOLERANCE"]),
+    "text_contract": os.environ["READINESS_TEXT_CONTRACT"],
+    "acceptance_contract_version": os.environ["READINESS_ACCEPTANCE_CONTRACT"],
     "disagreement_weight": float(os.environ["READINESS_DISAGREEMENT_WEIGHT"]),
     "refinement_candidates_per_task": int(os.environ["READINESS_REFINEMENT_CANDIDATES_PER_TASK"]),
     "master_seed": int(os.environ["READINESS_MASTER_SEED"]),
@@ -837,6 +853,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         set +e
         python analysis/scripts/build_readiness_prompt_population.py audit-diversity \
             --questions "${candidate_files[@]}" \
+            --text-contract "$READINESS_TEXT_CONTRACT" \
             --output-dir "$raw_diversity"
         raw_diversity_exit=$?
         set -e
@@ -1050,6 +1067,12 @@ for field in stable_fields:
 shard_salts = {manifest.get("shard_salt", "") for manifest in manifests}
 if len(shard_salts) != 1:
     raise SystemExit("validation shard salts differ")
+acceptance_contracts = {
+    manifest.get("acceptance_contract_version", "question-v1")
+    for manifest in manifests
+}
+if len(acceptance_contracts) != 1:
+    raise SystemExit("validation shard acceptance contracts differ")
 ordered = [rows[candidate_id] for candidate_id in sorted(rows)]
 temporary = output.with_suffix(output.suffix + ".tmp")
 temporary.write_text(
@@ -1083,6 +1106,7 @@ manifest = {
         for shard, shard_manifest in zip(shards, manifests)
     ],
     **{field: manifests[0][field] for field in stable_fields},
+    "acceptance_contract_version": acceptance_contracts.pop(),
     "acceptance_contract": manifests[0]["acceptance_contract"],
 }
 manifest_path = output.with_suffix(output.suffix + ".manifest.json")
@@ -1123,6 +1147,8 @@ PY
             --generator-ids "$READINESS_GENERATOR_A_ID,$READINESS_GENERATOR_B_ID" \
             --next-round-index "$((logical_round_index + 1))" \
             --distance-tolerance "$READINESS_DISTANCE_TOLERANCE" \
+            --text-contract "$READINESS_TEXT_CONTRACT" \
+            --acceptance-contract "$READINESS_ACCEPTANCE_CONTRACT" \
             --require-both-views-within-tolerance \
             --require-delexicalized-template-uniqueness \
             --disagreement-weight "$READINESS_DISAGREEMENT_WEIGHT" \
@@ -1140,6 +1166,7 @@ PY
             set +e
             python analysis/scripts/build_readiness_prompt_population.py audit-diversity \
                 --questions "$selected" \
+                --text-contract "$READINESS_TEXT_CONTRACT" \
                 --output-dir "$final_diversity"
             selected_diversity_exit=$?
             set -e
@@ -1171,6 +1198,10 @@ summary = {
     "refinement_task_count": selection["next_round_task_count"],
     "strict_dual_view_contract_enabled": selection["coordinate_acceptance_contract"]["enabled"],
     "delexicalized_template_uniqueness_enabled": selection["surface_acceptance_contract"]["enabled"],
+    "text_contract": selection.get("text_contract", "question-v1"),
+    "acceptance_contract_version": selection.get(
+        "acceptance_contract_version", "question-v1"
+    ),
     "selected_diversity_gate_passed": diversity_exit == 0,
     "spacing_gate_passed": diagnostics["overall_spacing_gate_passed"],
     "source_pilot_mode": source_pilot_mode,

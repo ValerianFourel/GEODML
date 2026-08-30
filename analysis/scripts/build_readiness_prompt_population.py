@@ -30,6 +30,8 @@ from interpretability.pipeline.readiness_hf_dataset import (  # noqa: E402
 )
 from interpretability.pipeline.readiness_prompt_population import (  # noqa: E402
     READINESS_PROMPT_POPULATION_VERSION,
+    SEARCH_ACCEPTANCE_CONTRACTS,
+    TEXT_GENERATION_CONTRACTS,
     FakeReadinessQuestionGenerator,
     LocalSearchQuestionValidator,
     LocalReadinessQuestionGenerator,
@@ -50,6 +52,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     load_readiness_embedding_map,
     project_questions,
     project_text_embeddings,
+    search_review_passes_contract,
     select_diverse_questions,
     select_spatially_matched_questions,
     validate_generated_question,
@@ -127,6 +130,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     generate.add_argument("--resume", action="store_true")
     generate.add_argument(
+        "--text-contract",
+        choices=tuple(sorted(TEXT_GENERATION_CONTRACTS)),
+        default="question-v1",
+        help=(
+            "versioned generator-side text contract; question-v1 preserves the "
+            "historical exact-keyword question pipeline"
+        ),
+    )
+    generate.add_argument(
         "--allow-failed-tasks",
         action="store_true",
         help=(
@@ -144,6 +156,11 @@ def _parser() -> argparse.ArgumentParser:
     imported.add_argument("--generator-id", required=True)
     imported.add_argument("--model", required=True)
     imported.add_argument("--proposal-kind", default="llm2vec-gen-decoded-proposal")
+    imported.add_argument(
+        "--text-contract",
+        choices=tuple(sorted(TEXT_GENERATION_CONTRACTS)),
+        default="question-v1",
+    )
     imported.add_argument("--output", required=True)
 
     validate = stages.add_parser(
@@ -179,6 +196,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     validate.add_argument("--resume", action="store_true")
+    validate.add_argument(
+        "--acceptance-contract",
+        choices=tuple(sorted(SEARCH_ACCEPTANCE_CONTRACTS)),
+        default="question-v1",
+        help=(
+            "versioned independent-review contract; search-trigger-v2 does not "
+            "gate on exact keyword, question punctuation, or standalone wording"
+        ),
+    )
 
     score = stages.add_parser(
         "score-select",
@@ -269,6 +295,24 @@ def _parser() -> argparse.ArgumentParser:
             "removing its keyword phrase"
         ),
     )
+    spatial.add_argument(
+        "--text-contract",
+        choices=tuple(sorted(TEXT_GENERATION_CONTRACTS)),
+        default="question-v1",
+    )
+    spatial.add_argument(
+        "--acceptance-contract",
+        choices=tuple(sorted(SEARCH_ACCEPTANCE_CONTRACTS)),
+        default="question-v1",
+    )
+    spatial.add_argument(
+        "--allow-missing-keyword-for-template",
+        action="store_true",
+        help=(
+            "normalize templates even when the assigned keyword is metadata-only; "
+            "enabled automatically by search-trigger-v2"
+        ),
+    )
     spatial.add_argument("--disagreement-weight", type=float, default=0.10)
     spatial.add_argument("--candidates-per-task", type=int, default=3)
     spatial.add_argument("--master-seed", type=int, default=20260820)
@@ -294,6 +338,11 @@ def _parser() -> argparse.ArgumentParser:
         "--maximum-opening-frame-fraction", type=float, default=0.05
     )
     diversity.add_argument("--opening-frame-tokens", type=int, default=5)
+    diversity.add_argument(
+        "--text-contract",
+        choices=tuple(sorted(TEXT_GENERATION_CONTRACTS)),
+        default="question-v1",
+    )
     return parser
 
 
@@ -454,11 +503,40 @@ def _plan(args) -> int:
 def _generate(args) -> int:
     started = time.monotonic()
     output = Path(args.output).resolve()
+    text_contract = str(getattr(args, "text_contract", "question-v1"))
     failure_output = output.with_suffix(output.suffix + ".failures.jsonl")
+    contract_path = output.with_suffix(output.suffix + ".contract.json")
     if output.exists() and not args.resume:
         raise ValueError(f"refusing to overwrite candidate file: {output}")
     if failure_output.exists() and not args.resume:
         raise ValueError(f"refusing to overwrite task-failure file: {failure_output}")
+    if contract_path.exists() and not args.resume:
+        raise ValueError(f"refusing to overwrite candidate contract: {contract_path}")
+    manifest_path = output.with_suffix(output.suffix + ".manifest.json")
+    if args.resume and (output.exists() or contract_path.exists()):
+        if contract_path.is_file():
+            prior_contract = str(read_json(contract_path)["text_contract"])
+        elif manifest_path.is_file():
+            prior_contract = str(
+                read_json(manifest_path).get("text_contract", "question-v1")
+            )
+        elif text_contract != "question-v1":
+            raise ValueError(
+                "cannot resume search-trigger-v2 candidates without a contract manifest"
+            )
+        else:
+            prior_contract = "question-v1"
+        if prior_contract != text_contract:
+            raise ValueError(
+                "resume output uses a different text generation contract"
+            )
+    atomic_json(
+        contract_path,
+        {
+            "format_version": READINESS_PROMPT_POPULATION_VERSION,
+            "text_contract": text_contract,
+        },
+    )
     tasks = [task for task in _read_tasks(args.tasks) if task.generator_id == args.generator_id]
     if (
         args.start_index < 0
@@ -476,7 +554,10 @@ def _generate(args) -> int:
     if not tasks:
         raise ValueError(f"no tasks assigned to generator {args.generator_id}")
     generator = (
-        FakeReadinessQuestionGenerator(args.generator_id)
+        FakeReadinessQuestionGenerator(
+            args.generator_id,
+            text_contract=text_contract,
+        )
         if args.backend == "fake"
         else LocalReadinessQuestionGenerator.from_model(
             args.model,
@@ -487,6 +568,7 @@ def _generate(args) -> int:
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
             maximum_attempts=args.maximum_attempts,
+            text_contract=text_contract,
         )
     )
     existing = tuple(
@@ -583,6 +665,13 @@ def _generate(args) -> int:
             "generator_model": generator.model_name,
             "generator_backend": args.backend,
             "generator_precision": args.precision,
+            "text_contract": text_contract,
+            "text_contract_rule": (
+                "One standalone question containing the exact keyword phrase."
+                if text_contract == "question-v1"
+                else "One online-search trigger associated with topic metadata; "
+                "question form, exact keyword, and standalone wording are optional."
+            ),
             "task_start_index": args.start_index,
             "task_limit": args.limit,
             "task_shard_index": args.shard_index,
@@ -613,6 +702,10 @@ def _generate(args) -> int:
 
 
 def _import_proposals(args) -> int:
+    text_contract = str(getattr(args, "text_contract", "question-v1"))
+    proposal_field = (
+        "question" if text_contract == "question-v1" else "search_trigger"
+    )
     tasks = {task.task_id: task for task in _read_tasks(args.tasks)}
     rows = []
     for slot, proposal in enumerate(read_jsonl(args.proposals)):
@@ -620,8 +713,12 @@ def _import_proposals(args) -> int:
         task = tasks.get(task_id)
         if task is None:
             raise ValueError(f"unknown proposal task_id: {task_id}")
-        question = " ".join(str(proposal.get("question", "")).split())
-        validate_generated_question(question, task.keyword)
+        question = " ".join(str(proposal.get(proposal_field, "")).split())
+        validate_generated_question(
+            question,
+            task.keyword,
+            text_contract=text_contract,
+        )
         identity = {
             "version": READINESS_PROMPT_POPULATION_VERSION,
             "task_id": task_id,
@@ -629,6 +726,8 @@ def _import_proposals(args) -> int:
             "model": args.model,
             "proposal_kind": args.proposal_kind,
         }
+        if text_contract != "question-v1":
+            identity["text_contract"] = text_contract
         digest = _stable_hash(identity)
         rows.append(
             ReadinessQuestionCandidate(
@@ -666,6 +765,7 @@ def _import_proposals(args) -> int:
             "generator_id": args.generator_id,
             "generator_model": args.model,
             "proposal_kind": args.proposal_kind,
+            "text_contract": text_contract,
             "candidate_count": len(rows),
         },
     )
@@ -676,8 +776,43 @@ def _import_proposals(args) -> int:
 def _validate_candidates(args) -> int:
     started = time.monotonic()
     output = Path(args.output).resolve()
+    acceptance_contract = str(
+        getattr(args, "acceptance_contract", "question-v1")
+    )
+    contract_path = output.with_suffix(output.suffix + ".contract.json")
     if output.exists() and not args.resume:
         raise ValueError(f"refusing to overwrite validation file: {output}")
+    if contract_path.exists() and not args.resume:
+        raise ValueError(f"refusing to overwrite validation contract: {contract_path}")
+    manifest_path = output.with_suffix(output.suffix + ".manifest.json")
+    if args.resume and (output.exists() or contract_path.exists()):
+        if contract_path.is_file():
+            prior_contract = str(
+                read_json(contract_path)["acceptance_contract_version"]
+            )
+        elif manifest_path.is_file():
+            prior_contract = str(
+                read_json(manifest_path).get(
+                    "acceptance_contract_version", "question-v1"
+                )
+            )
+        elif acceptance_contract != "question-v1":
+            raise ValueError(
+                "cannot resume search-trigger-v2 reviews without a contract manifest"
+            )
+        else:
+            prior_contract = "question-v1"
+        if prior_contract != acceptance_contract:
+            raise ValueError(
+                "resume output uses a different search acceptance contract"
+            )
+    atomic_json(
+        contract_path,
+        {
+            "format_version": READINESS_PROMPT_POPULATION_VERSION,
+            "acceptance_contract_version": acceptance_contract,
+        },
+    )
     all_candidates = tuple(
         ReadinessQuestionCandidate(**row)
         for path in args.candidates
@@ -717,6 +852,7 @@ def _validate_candidates(args) -> int:
     if not set(existing).issubset(candidate_ids):
         raise ValueError("existing validation contains unknown candidate ids")
     base_validation_identity = None
+    base_validation_reinterpreted_from_contract = None
     base_validation_value = getattr(args, "base_validation", None)
     if base_validation_value:
         base_validation = Path(base_validation_value).resolve()
@@ -726,6 +862,17 @@ def _validate_candidates(args) -> int:
         if not base_validation.is_file() or not base_manifest_path.is_file():
             raise ValueError("base validation and its manifest must both exist")
         base_manifest = read_json(base_manifest_path)
+        base_contract = str(
+            base_manifest.get("acceptance_contract_version", "question-v1")
+        )
+        reinterpret_base = (
+            base_contract == "question-v1"
+            and acceptance_contract == "search-trigger-v2"
+        )
+        if base_contract != acceptance_contract and not reinterpret_base:
+            raise ValueError(
+                "base validation uses a different search acceptance contract"
+            )
         stable_identity = {
             "judge_id": args.judge_id,
             "judge_model": args.model,
@@ -735,6 +882,18 @@ def _validate_candidates(args) -> int:
         if any(base_manifest.get(key) != value for key, value in stable_identity.items()):
             raise ValueError("base validation uses a different independent judge")
         base_rows = read_jsonl(base_validation)
+        if reinterpret_base:
+            base_rows = [
+                {
+                    **row,
+                    "accepted": search_review_passes_contract(
+                        row,
+                        contract=acceptance_contract,
+                    ),
+                }
+                for row in base_rows
+            ]
+            base_validation_reinterpreted_from_contract = base_contract
         base_by_id = {str(row["candidate_id"]): row for row in base_rows}
         if (
             len(base_by_id) != len(base_rows)
@@ -760,6 +919,7 @@ def _validate_candidates(args) -> int:
             backend=args.backend,
             precision=args.precision,
             maximum_attempts=args.maximum_attempts,
+            acceptance_contract=acceptance_contract,
         )
         for start in range(0, len(pending), inference_batch_size):
             batch = pending[start : start + inference_batch_size]
@@ -800,14 +960,22 @@ def _validate_candidates(args) -> int:
             "accepted_count": sum(bool(row["accepted"]) for row in rows),
             "inference_batch_size": inference_batch_size,
             "base_validation_manifest": base_validation_identity,
+            "base_validation_reinterpreted_from_contract": (
+                base_validation_reinterpreted_from_contract
+            ),
             "judge_id": args.judge_id,
             "judge_model": args.model,
             "judge_backend": args.backend,
             "judge_precision": args.precision,
             "elapsed_seconds": time.monotonic() - started,
+            "acceptance_contract_version": acceptance_contract,
             "acceptance_contract": (
                 "Exact keyword, one question, topic relevance, search intent, web "
                 "answerability, standalone wording, natural language, and score >= 4/5."
+                if acceptance_contract == "question-v1"
+                else "Topic relevance, search intent, web answerability, natural "
+                "language, and score >= 4/5; exact keyword, question form, and "
+                "standalone wording are measured but are not acceptance gates."
             ),
         },
     )
@@ -1286,6 +1454,14 @@ def _aligned_projection_rows(reference_root, candidate_root, battery_root):
 def _spatial_select(args) -> int:
     started = time.monotonic()
     output = Path(args.output_dir).resolve()
+    text_contract = str(getattr(args, "text_contract", "question-v1"))
+    acceptance_contract = str(
+        getattr(args, "acceptance_contract", "question-v1")
+    )
+    allow_missing_keyword_for_template = bool(
+        getattr(args, "allow_missing_keyword_for_template", False)
+        or text_contract == "search-trigger-v2"
+    )
     if output.exists():
         raise ValueError(f"refusing to overwrite spatial selection directory: {output}")
     plan = Path(args.plan_dir).resolve()
@@ -1372,6 +1548,7 @@ def _spatial_select(args) -> int:
         require_delexicalized_template_uniqueness=getattr(
             args, "require_delexicalized_template_uniqueness", False
         ),
+        allow_missing_keyword_for_template=allow_missing_keyword_for_template,
         planned_keywords=keywords,
     )
     generators = _csv(args.generator_ids)
@@ -1407,6 +1584,7 @@ def _spatial_select(args) -> int:
                         accepted_candidates_by_keyword.get(keyword_id, ()),
                         coordinates,
                         axis_1_only=axis_1_only,
+                        text_contract=text_contract,
                     )
                     feedback[(keyword_id, target.target_id)] = (
                         measured_feedback
@@ -1423,15 +1601,26 @@ def _spatial_select(args) -> int:
                     delta_1 = target.normalized_axis_1 - row.consensus_normalized_axis_1
                     delta_2 = target.normalized_axis_2 - row.consensus_normalized_axis_2
                     if axis_1_only:
-                        feedback[(keyword_id, target.target_id)] = (
-                            f"The closest validated question landed at axis 1 "
-                            f"{row.consensus_normalized_axis_1:.3f}; shift axis 1 by "
-                            f"{delta_1:+.3f}. Rewrite this closest question with the "
-                            f"smallest readiness-stage change, preserve the exact keyword, "
-                            f"and use a new question frame. "
-                            f"{_axis_1_refinement_target_instruction(target.normalized_axis_1)} "
-                            f"Closest question: {row.question}"
-                        )
+                        if text_contract == "search-trigger-v2":
+                            feedback[(keyword_id, target.target_id)] = (
+                                f"The closest validated search trigger landed at axis 1 "
+                                f"{row.consensus_normalized_axis_1:.3f}; shift axis 1 by "
+                                f"{delta_1:+.3f}. Make the smallest readiness-stage "
+                                f"change, preserve the assigned topic semantics, and use "
+                                f"a new search-trigger frame. "
+                                f"{_axis_1_refinement_target_instruction(target.normalized_axis_1)} "
+                                f"Closest search trigger: {row.question}"
+                            )
+                        else:
+                            feedback[(keyword_id, target.target_id)] = (
+                                f"The closest validated question landed at axis 1 "
+                                f"{row.consensus_normalized_axis_1:.3f}; shift axis 1 by "
+                                f"{delta_1:+.3f}. Rewrite this closest question with the "
+                                f"smallest readiness-stage change, preserve the exact keyword, "
+                                f"and use a new question frame. "
+                                f"{_axis_1_refinement_target_instruction(target.normalized_axis_1)} "
+                                f"Closest question: {row.question}"
+                            )
                     else:
                         feedback[(keyword_id, target.target_id)] = (
                             f"The closest validated question landed at "
@@ -1469,6 +1658,11 @@ def _spatial_select(args) -> int:
             "require_delexicalized_template_uniqueness": getattr(
                 args, "require_delexicalized_template_uniqueness", False
             ),
+            "text_contract": text_contract,
+            "acceptance_contract_version": acceptance_contract,
+            "allow_missing_keyword_for_template": (
+                allow_missing_keyword_for_template
+            ),
             "cross_embedding_agreement": agreement,
         }
     )
@@ -1496,6 +1690,8 @@ def _spatial_select(args) -> int:
             "selected_count": len(selected),
             "next_round_task_count": len(next_tasks),
             "elapsed_seconds": time.monotonic() - started,
+            "text_contract": text_contract,
+            "acceptance_contract_version": acceptance_contract,
             "coordinate_acceptance_contract": {
                 "version": (
                     "strict-dual-frozen-view-axis-1-verification-v1"
@@ -1522,12 +1718,20 @@ def _spatial_select(args) -> int:
                 ),
             },
             "surface_acceptance_contract": {
-                "version": "exact-delexicalized-template-uniqueness-v1",
+                "version": (
+                    "metadata-topic-template-uniqueness-v2"
+                    if allow_missing_keyword_for_template
+                    else "exact-delexicalized-template-uniqueness-v1"
+                ),
                 "enabled": getattr(
                     args, "require_delexicalized_template_uniqueness", False
                 ),
                 "rule": (
-                    "After replacing the exact keyword phrase with one sentinel "
+                    "After replacing the exact keyword phrase when present and "
+                    "normalizing case, punctuation, and numbers, no selected "
+                    "search-trigger template may occur more than once."
+                    if allow_missing_keyword_for_template
+                    else "After replacing the exact keyword phrase with one sentinel "
                     "and normalizing case, punctuation, and numbers, no selected "
                     "question template may occur more than once."
                 ),
@@ -1552,6 +1756,7 @@ def _dual_view_refinement_feedback(
     coordinates,
     *,
     axis_1_only: bool = False,
+    text_contract: str = "question-v1",
 ):
     """Describe the closest measured proposal without accepting it."""
 
@@ -1613,6 +1818,21 @@ def _dual_view_refinement_feedback(
     reference_delta = target_coordinate - reference
     second_view_delta = target_coordinate - second_view
     if axis_1_only:
+        if text_contract == "search-trigger-v2":
+            return (
+                f"The closest independently validated search trigger landed on "
+                f"frozen Qwen LLM2Vec axis 1 at {reference[0]:.3f} and on "
+                f"development-aligned Mistral LLM2Vec axis 1 at "
+                f"{second_view[0]:.3f}, while the axis-1 target is "
+                f"{target_coordinate[0]:.3f}. The Qwen-view shift needed is "
+                f"{reference_delta[0]:+.3f}; the aligned Mistral-view shift "
+                f"needed is {second_view_delta[0]:+.3f}. Make the smallest "
+                f"readiness-stage change that moves both views toward the target, "
+                f"preserve the assigned topic semantics, and do not reuse this "
+                f"search-trigger frame. "
+                f"{_axis_1_refinement_target_instruction(target.normalized_axis_1)} "
+                f"Closest search trigger: {candidate.question}"
+            )
         return (
             f"The closest independently validated question landed on frozen Qwen "
             f"LLM2Vec axis 1 at {reference[0]:.3f} and on development-aligned "
@@ -1675,6 +1895,7 @@ def _axis_1_refinement_target_instruction(value: float) -> str:
 def _audit_diversity(args) -> int:
     started = time.monotonic()
     output = Path(args.output_dir).resolve()
+    text_contract = str(getattr(args, "text_contract", "question-v1"))
     if output.exists():
         raise ValueError(f"refusing to overwrite diversity audit directory: {output}")
     question_paths = [Path(path).resolve() for path in args.questions]
@@ -1691,6 +1912,9 @@ def _audit_diversity(args) -> int:
         minimum_keyword_unique_fraction=args.minimum_keyword_unique_fraction,
         maximum_opening_frame_fraction=args.maximum_opening_frame_fraction,
         opening_frame_tokens=args.opening_frame_tokens,
+        allow_missing_keyword_for_template=(
+            text_contract == "search-trigger-v2"
+        ),
     )
     output.mkdir(parents=True)
     atomic_json(output / "question_diversity_audit.json", diagnostics)
@@ -1709,6 +1933,7 @@ def _audit_diversity(args) -> int:
             "row_count": diagnostics["row_count"],
             "keyword_count": diagnostics["keyword_count"],
             "all_checks_passed": diagnostics["all_checks_passed"],
+            "text_contract": text_contract,
             "elapsed_seconds": time.monotonic() - started,
             "scientific_guard": diagnostics["scientific_guard"],
         },

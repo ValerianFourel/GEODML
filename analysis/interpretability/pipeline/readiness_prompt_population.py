@@ -25,6 +25,7 @@ READINESS_PROMPT_POPULATION_VERSION = "readiness-question-population-v2"
 SEARCH_ACCEPTANCE_CONTRACTS = frozenset(
     {"question-v1", "search-trigger-v2"}
 )
+TEXT_GENERATION_CONTRACTS = SEARCH_ACCEPTANCE_CONTRACTS
 AXIS_1_ONLY_TARGET_DESIGNS = frozenset(
     {"axis-1-linear", "axis-1-quantized-uniform"}
 )
@@ -91,6 +92,12 @@ class ReadinessQuestionCandidate:
     question: str
     question_sha256: str
     proposal_kind: str
+
+    @property
+    def text(self) -> str:
+        """Return the candidate text under either versioned text contract."""
+
+        return self.question
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,9 +253,17 @@ class FakeReadinessQuestionGenerator:
 
     proposal_kind = "fake"
 
-    def __init__(self, generator_id: str = "fake-generator") -> None:
+    def __init__(
+        self,
+        generator_id: str = "fake-generator",
+        *,
+        text_contract: str = "question-v1",
+    ) -> None:
+        if text_contract not in TEXT_GENERATION_CONTRACTS:
+            raise ValueError(f"unsupported text generation contract: {text_contract}")
         self.generator_id = generator_id
         self.model_name = "fake-readiness-question-generator-v1"
+        self.text_contract = text_contract
 
     def generate(self, task: ReadinessGenerationTask) -> tuple[str, ...]:
         a1 = task.target.normalized_axis_1
@@ -282,11 +297,14 @@ class LocalReadinessQuestionGenerator:
         max_new_tokens: int = 180,
         temperature: float = 0.9,
         maximum_attempts: int = 5,
+        text_contract: str = "question-v1",
     ) -> None:
         if not generator_id.strip() or not model_name.strip():
             raise ValueError("generator_id and model_name must be nonempty")
         if max_new_tokens <= 0 or temperature < 0 or maximum_attempts <= 0:
             raise ValueError("invalid generator configuration")
+        if text_contract not in TEXT_GENERATION_CONTRACTS:
+            raise ValueError(f"unsupported text generation contract: {text_contract}")
         self._ranker = ranker
         self.generator_id = generator_id
         self.model_name = model_name
@@ -294,6 +312,7 @@ class LocalReadinessQuestionGenerator:
         self.max_new_tokens = max_new_tokens
         self.temperature = temperature
         self.maximum_attempts = maximum_attempts
+        self.text_contract = text_contract
 
     @classmethod
     def from_model(
@@ -307,6 +326,7 @@ class LocalReadinessQuestionGenerator:
         max_new_tokens: int = 180,
         temperature: float = 0.9,
         maximum_attempts: int = 5,
+        text_contract: str = "question-v1",
     ) -> "LocalReadinessQuestionGenerator":
         from ..utils import make_ranker
 
@@ -318,6 +338,7 @@ class LocalReadinessQuestionGenerator:
             max_new_tokens=max_new_tokens,
             temperature=temperature,
             maximum_attempts=maximum_attempts,
+            text_contract=text_contract,
         )
 
     def generate(self, task: ReadinessGenerationTask) -> tuple[str, ...]:
@@ -336,6 +357,8 @@ class LocalReadinessQuestionGenerator:
             "temperature": self.temperature,
             "max_new_tokens": self.max_new_tokens,
         }
+        if self.text_contract != "question-v1":
+            identity["text_contract"] = self.text_contract
         cache_key = _stable_hash(identity)
         cache_path = self.cache_directory / f"{cache_key}.json"
         accepted: list[str] = []
@@ -349,7 +372,11 @@ class LocalReadinessQuestionGenerator:
             if len(accepted) > task.requested_candidate_count:
                 raise ValueError(f"generation cache has too many questions: {cache_path}")
             for question in accepted:
-                validate_generated_question(question, task.keyword)
+                validate_generated_question(
+                    question,
+                    task.keyword,
+                    text_contract=self.text_contract,
+                )
             if len(set(accepted)) != len(accepted):
                 raise ValueError(f"generation cache contains duplicate questions: {cache_path}")
             if len(accepted) == task.requested_candidate_count:
@@ -358,11 +385,15 @@ class LocalReadinessQuestionGenerator:
         for slot in range(len(accepted), task.requested_candidate_count):
             for attempt in range(self.maximum_attempts):
                 seed = task.generation_seed + slot * 1009 + attempt
-                request = render_generation_request(task, candidate_slot=slot)
+                request = render_generation_request(
+                    task,
+                    candidate_slot=slot,
+                    text_contract=self.text_contract,
+                )
                 if attempt:
                     request += (
                         "\nYour previous output was invalid. Return only the required "
-                        "one-object JSON, with a new question."
+                        "one-object JSON, with a new candidate text."
                     )
                 raw = _generate_with_seed(
                     self._ranker,
@@ -372,8 +403,15 @@ class LocalReadinessQuestionGenerator:
                     temperature=self.temperature,
                 )
                 try:
-                    question = parse_generated_question(raw)
-                    validate_generated_question(question, task.keyword)
+                    question = parse_generated_question(
+                        raw,
+                        text_contract=self.text_contract,
+                    )
+                    validate_generated_question(
+                        question,
+                        task.keyword,
+                        text_contract=self.text_contract,
+                    )
                     if question in accepted:
                         raise ValueError("duplicate question within task")
                 except ValueError as exc:
@@ -446,6 +484,8 @@ class LocalReadinessQuestionGenerator:
             "max_new_tokens": self.max_new_tokens,
             "generation_mode": "per-task-padded-batch-v1",
         }
+        if self.text_contract != "question-v1":
+            identity["text_contract"] = self.text_contract
         cache_key = _stable_hash(identity)
         cache_path = self.cache_directory / f"{cache_key}.json"
         accepted_by_slot: dict[int, str] = {}
@@ -470,7 +510,11 @@ class LocalReadinessQuestionGenerator:
         if not set(accepted_by_slot).issubset(expected_slots):
             raise ValueError(f"generation cache has invalid slots: {cache_path}")
         for question in accepted_by_slot.values():
-            validate_generated_question(question, task.keyword)
+            validate_generated_question(
+                question,
+                task.keyword,
+                text_contract=self.text_contract,
+            )
         if len(set(accepted_by_slot.values())) != len(accepted_by_slot):
             raise ValueError(f"generation cache contains duplicate questions: {cache_path}")
         if set(accepted_by_slot) == expected_slots:
@@ -481,11 +525,15 @@ class LocalReadinessQuestionGenerator:
             prompts = []
             seeds = []
             for slot in pending_slots:
-                request = render_generation_request(task, candidate_slot=slot)
+                request = render_generation_request(
+                    task,
+                    candidate_slot=slot,
+                    text_contract=self.text_contract,
+                )
                 if attempt:
                     request += (
                         "\nYour previous output was invalid. Return only the required "
-                        "one-object JSON, with a new question."
+                        "one-object JSON, with a new candidate text."
                     )
                 prompts.append(request)
                 seeds.append(task.generation_seed + slot * 1009 + attempt)
@@ -503,8 +551,15 @@ class LocalReadinessQuestionGenerator:
             still_pending = []
             for slot, raw in zip(pending_slots, raw_values):
                 try:
-                    question = parse_generated_question(raw)
-                    validate_generated_question(question, task.keyword)
+                    question = parse_generated_question(
+                        raw,
+                        text_contract=self.text_contract,
+                    )
+                    validate_generated_question(
+                        question,
+                        task.keyword,
+                        text_contract=self.text_contract,
+                    )
                     if question in accepted_by_slot.values():
                         raise ValueError("duplicate question within task")
                 except ValueError as exc:
@@ -566,14 +621,20 @@ class LocalSearchQuestionValidator:
         model_name: str,
         cache_directory: str | Path,
         maximum_attempts: int = 3,
+        acceptance_contract: str = "question-v1",
     ) -> None:
         if not judge_id.strip() or not model_name.strip() or maximum_attempts <= 0:
             raise ValueError("invalid search-question validator configuration")
+        if acceptance_contract not in SEARCH_ACCEPTANCE_CONTRACTS:
+            raise ValueError(
+                f"unsupported search acceptance contract: {acceptance_contract}"
+            )
         self._ranker = ranker
         self.judge_id = judge_id
         self.model_name = model_name
         self.cache_directory = Path(cache_directory)
         self.maximum_attempts = maximum_attempts
+        self.acceptance_contract = acceptance_contract
 
     @classmethod
     def from_model(
@@ -585,6 +646,7 @@ class LocalSearchQuestionValidator:
         backend: str = "local",
         precision: str = "full",
         maximum_attempts: int = 3,
+        acceptance_contract: str = "question-v1",
     ) -> "LocalSearchQuestionValidator":
         from ..utils import make_ranker
 
@@ -594,6 +656,7 @@ class LocalSearchQuestionValidator:
             model_name=model_name,
             cache_directory=cache_directory,
             maximum_attempts=maximum_attempts,
+            acceptance_contract=acceptance_contract,
         )
 
     def review(self, candidate: ReadinessQuestionCandidate) -> SearchQuestionReview:
@@ -609,6 +672,7 @@ class LocalSearchQuestionValidator:
                             candidate,
                             judge_id=self.judge_id,
                             judge_model=self.model_name,
+                            acceptance_contract=self.acceptance_contract,
                         )
                     except ValueError:
                         continue
@@ -627,7 +691,10 @@ class LocalSearchQuestionValidator:
         for attempt in range(self.maximum_attempts):
             raw = _generate_with_seed(
                 self._ranker,
-                render_search_validation_request(candidate),
+                render_search_validation_request(
+                    candidate,
+                    acceptance_contract=self.acceptance_contract,
+                ),
                 seed=candidate.generation_seed + 900_001 + attempt,
                 max_new_tokens=220,
                 temperature=0.0,
@@ -638,6 +705,7 @@ class LocalSearchQuestionValidator:
                     candidate,
                     judge_id=self.judge_id,
                     judge_model=self.model_name,
+                    acceptance_contract=self.acceptance_contract,
                 )
             except ValueError as exc:
                 failures.append({"attempt": attempt, "error": str(exc), "raw": raw})
@@ -705,7 +773,13 @@ class LocalSearchQuestionValidator:
                 break
             raw_values = _generate_batch_with_seeds(
                 self._ranker,
-                [render_search_validation_request(candidate) for candidate in pending],
+                [
+                    render_search_validation_request(
+                        candidate,
+                        acceptance_contract=self.acceptance_contract,
+                    )
+                    for candidate in pending
+                ],
                 seeds=[
                     candidate.generation_seed + 900_001 + attempt
                     for candidate in pending
@@ -725,6 +799,7 @@ class LocalSearchQuestionValidator:
                         candidate,
                         judge_id=self.judge_id,
                         judge_model=self.model_name,
+                        acceptance_contract=self.acceptance_contract,
                     )
                 except ValueError as exc:
                     failures[candidate.candidate_id].append(
@@ -781,13 +856,16 @@ class LocalSearchQuestionValidator:
     def _cache_identity(
         self, candidate: ReadinessQuestionCandidate
     ) -> dict[str, object]:
-        return {
+        identity = {
             "version": READINESS_PROMPT_POPULATION_VERSION,
             "judge_id": self.judge_id,
             "judge_model": self.model_name,
             "candidate_id": candidate.candidate_id,
             "question_sha256": candidate.question_sha256,
         }
+        if self.acceptance_contract != "question-v1":
+            identity["acceptance_contract"] = self.acceptance_contract
+        return identity
 
 
 def load_readiness_embedding_map(path: str | Path) -> ReadinessEmbeddingMap:
@@ -1236,8 +1314,13 @@ def _targets_by_keyword(
 
 
 def render_generation_request(
-    task: ReadinessGenerationTask, *, candidate_slot: int
+    task: ReadinessGenerationTask,
+    *,
+    candidate_slot: int,
+    text_contract: str = "question-v1",
 ) -> str:
+    if text_contract not in TEXT_GENERATION_CONTRACTS:
+        raise ValueError(f"unsupported text generation contract: {text_contract}")
     support_aware = task.target.target_id.startswith("readiness-support-target:")
     axis_1_only = task.target.target_id.startswith("readiness-axis-1-target:")
     if support_aware or axis_1_only:
@@ -1281,6 +1364,43 @@ def render_generation_request(
         a2 = _axis_2_instruction(task.target.normalized_axis_2)
         continuous_control = "Use the requested semantic destination."
         surface_control = "Make the wording natural and distinct."
+    if text_contract == "search-trigger-v2":
+        a2 = a2.replace("question", "search trigger")
+        continuous_control = continuous_control.replace(
+            "question's", "search trigger's"
+        )
+        surface_control = _search_trigger_surface_instruction(
+            task.generation_seed + candidate_slot * 1009
+        )
+        return f"""Write one natural-language online-search trigger associated with the assigned topic below.
+
+Assigned search topic (metadata; it need not appear verbatim): {task.keyword}
+
+Semantic destination:
+- Readiness stage: {a1}
+- Decision mode: {a2}
+- Control rule: {continuous_control}
+- Surface realization: {surface_control}
+
+Iteration feedback: {task.feedback}
+Candidate slot: {candidate_slot}
+
+Contract precedence:
+- Any iteration feedback asking for the exact keyword or a question frame comes
+  from question-v1 and is superseded by search-trigger-v2.
+
+Hard constraints:
+- Express a genuine information need that warrants an online search about the
+  assigned topic when the topic metadata is supplied.
+- A question, imperative request, or concise search phrase is allowed.
+- Use 4 to 60 words and one normalized line.
+- The exact assigned topic phrase is optional, and hidden topic context is allowed.
+- Do not answer the information need.
+- Do not mention axes, coordinates, readiness scores, embeddings, reranking,
+  publishers, or source-preference policies.
+- Make this candidate materially different from obvious generic phrasings.
+
+Return only JSON: {{"search_trigger":"..."}}"""
     return f"""Write one standalone, natural search question about the exact keyword phrase below.
 
 Exact keyword phrase (must appear verbatim): {task.keyword}
@@ -1346,6 +1466,24 @@ def _surface_realization_instruction(seed: int) -> str:
     return variants[seed % len(variants)]
 
 
+def _search_trigger_surface_instruction(seed: int) -> str:
+    variants = (
+        "use a concise direct request without forcing interrogative punctuation",
+        "use a natural imperative that requests research, setup, or troubleshooting",
+        "use a compact search phrase with a concrete intended outcome",
+        "state the desired outcome first and the information need second",
+        "use a natural first-person request without inventing personal facts",
+        "use an impersonal search instruction with a concrete but generic scope",
+        "open with a practical obstacle and request the next useful information",
+        "request evidence needed to resolve the current uncertainty",
+        "contrast two plausible approaches without naming unsupported brands",
+        "request a sequence only when the semantic destination calls for action",
+        "use a diagnostic search trigger about causes or consequences",
+        "request criteria that distinguish a suitable from unsuitable approach",
+    )
+    return variants[seed % len(variants)]
+
+
 def delexicalize_question(
     question: str,
     keyword: str,
@@ -1377,6 +1515,7 @@ def audit_question_diversity(
     minimum_keyword_unique_fraction: float = 0.70,
     maximum_opening_frame_fraction: float = 0.05,
     opening_frame_tokens: int = 5,
+    allow_missing_keyword_for_template: bool = False,
 ) -> dict[str, object]:
     """Audit lexical/template diversity without using semantic-map coordinates.
 
@@ -1410,7 +1549,11 @@ def audit_question_diversity(
             raise ValueError(
                 f"diversity row {index} requires question, keyword, and keyword_id"
             )
-        template = delexicalize_question(question, keyword)
+        template = delexicalize_question(
+            question,
+            keyword,
+            require_keyword=not allow_missing_keyword_for_template,
+        )
         exact_questions.append(_single_line(question).casefold())
         templates.append(template)
         keyword_templates.setdefault(keyword_id, []).append(template)
@@ -1476,6 +1619,9 @@ def audit_question_diversity(
             "minimum_keyword_unique_fraction": minimum_keyword_unique_fraction,
             "maximum_opening_frame_fraction": maximum_opening_frame_fraction,
         },
+        "allow_missing_keyword_for_template": (
+            allow_missing_keyword_for_template
+        ),
         "checks": checks,
         "all_checks_passed": all(checks.values()),
         "top_delexicalized_templates": top_templates,
@@ -1487,28 +1633,48 @@ def audit_question_diversity(
     }
 
 
-def parse_generated_question(raw: str) -> str:
+def parse_generated_question(
+    raw: str,
+    *,
+    text_contract: str = "question-v1",
+) -> str:
+    if text_contract not in TEXT_GENERATION_CONTRACTS:
+        raise ValueError(f"unsupported text generation contract: {text_contract}")
+    field = "question" if text_contract == "question-v1" else "search_trigger"
     decoder = json.JSONDecoder()
     for match in re.finditer(r"\{", raw):
         try:
             value, _ = decoder.raw_decode(raw[match.start() :])
         except json.JSONDecodeError:
             continue
-        if isinstance(value, dict) and isinstance(value.get("question"), str):
-            return _single_line(value["question"])
-    raise ValueError("model output does not contain a JSON object with string question")
+        if isinstance(value, dict) and isinstance(value.get(field), str):
+            return _single_line(value[field])
+    raise ValueError(
+        f"model output does not contain a JSON object with string {field}"
+    )
 
 
-def validate_generated_question(question: str, keyword: str) -> None:
+def validate_generated_question(
+    question: str,
+    keyword: str,
+    *,
+    text_contract: str = "question-v1",
+) -> None:
+    if text_contract not in TEXT_GENERATION_CONTRACTS:
+        raise ValueError(f"unsupported text generation contract: {text_contract}")
     if question != _single_line(question):
-        raise ValueError("question must be one normalized line")
+        raise ValueError("candidate text must be one normalized line")
     words = question.split()
-    if not 8 <= len(words) <= 60:
-        raise ValueError("question must contain 8 to 60 words")
-    if question.count("?") != 1 or not question.endswith("?"):
-        raise ValueError("question must end with exactly one question mark")
-    if keyword not in question:
-        raise ValueError("question lost the exact keyword phrase")
+    minimum_words = 8 if text_contract == "question-v1" else 4
+    if not minimum_words <= len(words) <= 60:
+        raise ValueError(
+            f"candidate text must contain {minimum_words} to 60 words"
+        )
+    if text_contract == "question-v1":
+        if question.count("?") != 1 or not question.endswith("?"):
+            raise ValueError("question must end with exactly one question mark")
+        if keyword not in question:
+            raise ValueError("question lost the exact keyword phrase")
     lowered = question.casefold()
     forbidden = (
         "axis_1", "axis 1", "axis_2", "axis 2", "coordinate", "embedding",
@@ -1516,10 +1682,41 @@ def validate_generated_question(question: str, keyword: str) -> None:
         "{query}", "answer:",
     )
     if any(term in lowered for term in forbidden):
-        raise ValueError("question contains forbidden meta-policy language")
+        raise ValueError("candidate text contains forbidden meta-policy language")
 
 
-def render_search_validation_request(candidate: ReadinessQuestionCandidate) -> str:
+def render_search_validation_request(
+    candidate: ReadinessQuestionCandidate,
+    *,
+    acceptance_contract: str = "question-v1",
+) -> str:
+    if acceptance_contract not in SEARCH_ACCEPTANCE_CONTRACTS:
+        raise ValueError(
+            f"unsupported search acceptance contract: {acceptance_contract}"
+        )
+    if acceptance_contract == "search-trigger-v2":
+        return f"""Independently evaluate whether the candidate is a useful online-search trigger.
+
+Assigned search topic metadata: {candidate.keyword}
+Candidate trigger: {candidate.question}
+
+Judge the text together with its assigned topic metadata, not the generator. A valid candidate must:
+- remain semantically about the assigned topic; the exact topic phrase is optional;
+- express a genuine information need suitable for an online search;
+- be answerable using information that could reasonably be found on the web;
+- read as natural language rather than an answer, model-manipulation command, or
+  meta-comment about an experiment.
+
+The trigger may be a question, imperative request, or concise search phrase. It may
+depend on the supplied topic metadata and therefore need not stand alone. Still report
+whether it is standalone and whether it is a single question; those fields are measured
+but are not acceptance gates in search-trigger-v2.
+
+Return only one JSON object with exactly these fields:
+{{"topic_relevant":true,"search_intent":true,"web_answerable":true,
+"standalone":false,"natural_language":true,"relevance_score_1_5":5,
+"concise_reason":"short reason"}}
+"""
     return f"""Independently evaluate whether the candidate is a useful simulated online-search question.
 
 Required topic phrase: {candidate.keyword}
@@ -1546,7 +1743,12 @@ def parse_search_question_review(
     *,
     judge_id: str,
     judge_model: str,
+    acceptance_contract: str = "question-v1",
 ) -> SearchQuestionReview:
+    if acceptance_contract not in SEARCH_ACCEPTANCE_CONTRACTS:
+        raise ValueError(
+            f"unsupported search acceptance contract: {acceptance_contract}"
+        )
     raw = _normalize_byte_level_validator_text(raw)
     allowed_keys = (
         "topic_relevant",
@@ -1607,7 +1809,7 @@ def parse_search_question_review(
     }
     accepted = search_review_passes_contract(
         review_fields,
-        contract="question-v1",
+        contract=acceptance_contract,
     )
     return SearchQuestionReview(
         candidate_id=candidate.candidate_id,
@@ -1663,6 +1865,9 @@ def generate_question_candidates(
     tasks: Sequence[ReadinessGenerationTask],
     generator: ReadinessQuestionGenerator,
 ) -> tuple[ReadinessQuestionCandidate, ...]:
+    text_contract = str(getattr(generator, "text_contract", "question-v1"))
+    if text_contract not in TEXT_GENERATION_CONTRACTS:
+        raise ValueError(f"unsupported text generation contract: {text_contract}")
     rows = []
     for task in tasks:
         if task.generator_id != generator.generator_id:
@@ -1672,7 +1877,11 @@ def generate_question_candidates(
             raise ValueError(f"generator returned wrong candidate count for {task.task_id}")
         for slot, question in enumerate(questions):
             question = _single_line(question)
-            validate_generated_question(question, task.keyword)
+            validate_generated_question(
+                question,
+                task.keyword,
+                text_contract=text_contract,
+            )
             identity = {
                 "version": READINESS_PROMPT_POPULATION_VERSION,
                 "task_id": task.task_id,
@@ -1680,6 +1889,10 @@ def generate_question_candidates(
                 "question": question,
                 "model": generator.model_name,
             }
+            # Preserve every historical question-v1 candidate identity.  The
+            # opt-in v2 contract receives a separate identity namespace.
+            if text_contract != "question-v1":
+                identity["text_contract"] = text_contract
             digest = _stable_hash(identity)
             rows.append(
                 ReadinessQuestionCandidate(

@@ -151,8 +151,23 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_SOURCE_PILOT_ROOT", script)
         self.assertIn("READINESS_MAX_REFINEMENT_ROUNDS", script)
         self.assertIn("READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND", script)
-        self.assertIn('READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"', script)
-        self.assertIn("strict axis-1 tolerance must equal 0.017", script)
+        self.assertIn(
+            'READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"',
+            script,
+        )
+        self.assertIn(
+            'READINESS_TEXT_CONTRACT="${READINESS_TEXT_CONTRACT:-question-v1}"',
+            script,
+        )
+        self.assertIn(
+            'READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-v1}"',
+            script,
+        )
+        self.assertIn(
+            'expected_tolerance = 0.017 if text_contract == "question-v1" else 0.035',
+            script,
+        )
+        self.assertIn("readiness text and acceptance contracts must use one version", script)
         self.assertIn("strict axis-1 plan preflight: PASS", script)
         self.assertIn('manifest.get("target_design") != "axis-1-quantized-uniform"', script)
         self.assertIn('"keyword_count": 1011', script)
@@ -249,13 +264,20 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("--attention-implementation", worker)
         self.assertIn("--base-validation", worker)
         self.assertIn("READINESS_VALIDATION_BATCH_SIZE", worker)
+        self.assertIn("--text-contract", worker)
+        self.assertIn("--acceptance-contract", worker)
 
         strict_loop = READINESS_30K_AXIS1_STRICT_LOOP.read_text(encoding="utf-8")
         self.assertNotIn("salloc", strict_loop)
         self.assertNotIn("sbatch", strict_loop)
         self.assertIn("READINESS_APPROVED_WALLTIME", strict_loop)
         self.assertIn("READINESS_ALLOCATION_ESTIMATE", strict_loop)
-        self.assertIn('READINESS_DISTANCE_TOLERANCE="0.017"', strict_loop)
+        self.assertIn(
+            'READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"',
+            strict_loop,
+        )
+        self.assertIn("READINESS_TEXT_CONTRACT", strict_loop)
+        self.assertIn("READINESS_ACCEPTANCE_CONTRACT", strict_loop)
         self.assertIn(
             'READINESS_VALIDATION_SHARD_COUNT:-$READINESS_ALLOCATED_GPU_COUNT',
             strict_loop,

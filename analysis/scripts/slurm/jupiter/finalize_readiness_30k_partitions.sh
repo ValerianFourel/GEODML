@@ -20,6 +20,9 @@ umask 077
 : "${READINESS_REFINEMENT_CANDIDATES_PER_TASK:?candidate count is required}"
 : "${READINESS_MASTER_SEED:?master seed is required}"
 
+export READINESS_TEXT_CONTRACT="${READINESS_TEXT_CONTRACT:-question-v1}"
+export READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-v1}"
+
 coordination_root="$READINESS_PARTITION_COORDINATION_ROOT"
 marker_0="$coordination_root/producer-0.ready.json"
 marker_1="$coordination_root/producer-1.ready.json"
@@ -113,9 +116,30 @@ python analysis/scripts/merge_readiness_partition_checkpoints.py \
     --partition-root "$READINESS_PARTITION_ROOT_1" \
     --output-dir "$attempt/merged"
 
+python - "$attempt/merged/merge_manifest.json" <<'PY'
+import json
+import os
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+expected = (
+    os.environ["READINESS_TEXT_CONTRACT"],
+    os.environ["READINESS_ACCEPTANCE_CONTRACT"],
+)
+observed = (
+    manifest.get("text_contract", "question-v1"),
+    manifest.get("acceptance_contract_version", "question-v1"),
+)
+if observed != expected:
+    raise SystemExit(
+        f"merged contracts {observed!r} differ from requested {expected!r}"
+    )
+PY
+
 set +e
 python analysis/scripts/build_readiness_prompt_population.py audit-diversity \
     --questions "$attempt/merged/candidates.jsonl" \
+    --text-contract "$READINESS_TEXT_CONTRACT" \
     --output-dir "$attempt/raw-diversity"
 raw_diversity_exit=$?
 set -e
@@ -138,6 +162,8 @@ python analysis/scripts/build_readiness_prompt_population.py spatial-select \
     --generator-ids "$READINESS_GENERATOR_A_ID,$READINESS_GENERATOR_B_ID" \
     --next-round-index "$next_round_index" \
     --distance-tolerance "$READINESS_DISTANCE_TOLERANCE" \
+    --text-contract "$READINESS_TEXT_CONTRACT" \
+    --acceptance-contract "$READINESS_ACCEPTANCE_CONTRACT" \
     --require-both-views-within-tolerance \
     --require-delexicalized-template-uniqueness \
     --disagreement-weight "$READINESS_DISAGREEMENT_WEIGHT" \
@@ -151,6 +177,7 @@ if [[ -s "$selected" ]]; then
     set +e
     python analysis/scripts/build_readiness_prompt_population.py audit-diversity \
         --questions "$selected" \
+        --text-contract "$READINESS_TEXT_CONTRACT" \
         --output-dir "$attempt/selected-diversity"
     selected_diversity_exit=$?
     set -e
@@ -182,6 +209,10 @@ summary = {
     "delexicalized_template_uniqueness_enabled": selection[
         "surface_acceptance_contract"
     ]["enabled"],
+    "text_contract": selection.get("text_contract", "question-v1"),
+    "acceptance_contract_version": selection.get(
+        "acceptance_contract_version", "question-v1"
+    ),
     "selected_diversity_gate_passed": diversity_exit == 0,
     "spacing_gate_passed": diagnostics["overall_spacing_gate_passed"],
     "partition_count": 2,

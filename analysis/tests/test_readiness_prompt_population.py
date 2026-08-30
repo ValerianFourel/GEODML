@@ -409,6 +409,35 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertTrue(diagnostics["all_checks_passed"])
         self.assertEqual(diagnostics["delexicalized_unique_fraction"], 1.0)
 
+    def test_v2_diversity_allows_metadata_only_topic_assignment(self) -> None:
+        rows = (
+            {
+                "keyword_id": "keyword:one",
+                "keyword": "how to save money",
+                "question": "Set up automatic transfers into savings every payday",
+            },
+            {
+                "keyword_id": "keyword:one",
+                "keyword": "how to save money",
+                "question": "Compare account automation options before enabling one",
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "does not contain its keyword"):
+            audit_question_diversity(rows)
+
+        diagnostics = audit_question_diversity(
+            rows,
+            minimum_delexicalized_unique_fraction=1.0,
+            maximum_template_fraction=0.5,
+            minimum_median_keyword_unique_fraction=1.0,
+            minimum_keyword_unique_fraction=1.0,
+            maximum_opening_frame_fraction=0.5,
+            allow_missing_keyword_for_template=True,
+        )
+
+        self.assertTrue(diagnostics["all_checks_passed"])
+        self.assertTrue(diagnostics["allow_missing_keyword_for_template"])
+
     def test_support_design_scales_to_thirty_thousand_uniform_targets(self) -> None:
         coordinate_rows = [
             {
@@ -660,12 +689,17 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             ("fake",),
             requested_candidate_count=2,
         )[0]
-        rows = generate_question_candidates(
-            (task,), FakeReadinessQuestionGenerator("fake")
-        )
+        generator = FakeReadinessQuestionGenerator("fake")
+        rows = generate_question_candidates((task,), generator)
+        del generator.text_contract
+        legacy_rows = generate_question_candidates((task,), generator)
         self.assertEqual(len(rows), 2)
         self.assertTrue(all("abandoned cart recovery" in row.question for row in rows))
         self.assertEqual(len({row.candidate_id for row in rows}), 2)
+        self.assertEqual(
+            [row.candidate_id for row in rows],
+            [row.candidate_id for row in legacy_rows],
+        )
 
     def test_local_generator_retries_invalid_json_and_reuses_cache(self) -> None:
         target = build_target_grid(self.bounds)[0]
@@ -691,8 +725,10 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             )
             first = generator.generate(task)
             second = generator.generate(task)
+            cache = json.loads(next(Path(temporary).glob("*.json")).read_text())
         self.assertEqual(first, second)
         self.assertEqual(ranker.call_count, 2)
+        self.assertNotIn("text_contract", cache["identity"])
 
     def test_local_generator_batches_candidate_slots_and_retries_only_invalid_slots(self) -> None:
         target = build_target_grid(self.bounds)[0]
@@ -1027,6 +1063,130 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
             validate_generated_question(
                 "How can a team understand cart recovery before choosing a practical approach?",
                 "abandoned cart recovery",
+            )
+
+    def test_search_trigger_v2_generates_nonquestion_without_exact_keyword(self) -> None:
+        target = build_axis_1_target_grid(self.bounds)[-1]
+        task = build_generation_tasks(
+            (("keyword:one", "how to save money"),),
+            (target,),
+            ("model-a",),
+            requested_candidate_count=1,
+        )[0]
+        trigger = "Set up automatic transfers into savings every payday"
+        raw = json.dumps({"search_trigger": trigger})
+
+        request = render_generation_request(
+            task,
+            candidate_slot=0,
+            text_contract="search-trigger-v2",
+        )
+        self.assertIn('Return only JSON: {"search_trigger":"..."}', request)
+        self.assertIn("exact assigned topic phrase is optional", request)
+        parsed = parse_generated_question(
+            raw,
+            text_contract="search-trigger-v2",
+        )
+        validate_generated_question(
+            parsed,
+            task.keyword,
+            text_contract="search-trigger-v2",
+        )
+        with self.assertRaises(ValueError):
+            validate_generated_question(parsed, task.keyword)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            generator = LocalReadinessQuestionGenerator(
+                _StaticRanker([raw]),
+                generator_id="model-a",
+                model_name="model/a",
+                cache_directory=temporary,
+                maximum_attempts=1,
+                text_contract="search-trigger-v2",
+            )
+            candidate = generate_question_candidates((task,), generator)[0]
+            cache = json.loads(next(Path(temporary).glob("*.json")).read_text())
+
+        self.assertEqual(candidate.text, trigger)
+        self.assertNotIn(task.keyword, candidate.question)
+        self.assertFalse(candidate.question.endswith("?"))
+        self.assertNotIn("text_contract", asdict(candidate))
+        self.assertEqual(cache["identity"]["text_contract"], "search-trigger-v2")
+
+    def test_search_trigger_v2_review_ignores_v1_structural_gates(self) -> None:
+        target = build_axis_1_target_grid(self.bounds)[-1]
+        task = build_generation_tasks(
+            (("keyword:one", "how to save money"),),
+            (target,),
+            ("model-a",),
+            requested_candidate_count=1,
+        )[0]
+        with tempfile.TemporaryDirectory() as generation_cache:
+            generator = LocalReadinessQuestionGenerator(
+                _StaticRanker(
+                    [
+                        json.dumps(
+                            {
+                                "search_trigger": (
+                                    "Set up automatic transfers into savings every payday"
+                                )
+                            }
+                        )
+                    ]
+                ),
+                generator_id="model-a",
+                model_name="model/a",
+                cache_directory=generation_cache,
+                maximum_attempts=1,
+                text_contract="search-trigger-v2",
+            )
+            candidate = generate_question_candidates((task,), generator)[0]
+        raw_review = (
+            '{"topic_relevant":true,"search_intent":true,'
+            '"web_answerable":true,"standalone":false,'
+            '"natural_language":true,"relevance_score_1_5":5,'
+            '"concise_reason":"A useful metadata-associated search request."}'
+        )
+
+        historical = parse_search_question_review(
+            raw_review,
+            candidate,
+            judge_id="judge",
+            judge_model="model/judge",
+        )
+        relaxed = parse_search_question_review(
+            raw_review,
+            candidate,
+            judge_id="judge",
+            judge_model="model/judge",
+            acceptance_contract="search-trigger-v2",
+        )
+
+        self.assertFalse(historical.accepted)
+        self.assertTrue(relaxed.accepted)
+        self.assertFalse(relaxed.exact_keyword_present)
+        self.assertFalse(relaxed.single_question)
+        self.assertFalse(relaxed.standalone)
+        self.assertNotIn("acceptance_contract", asdict(relaxed))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            v1 = LocalSearchQuestionValidator(
+                _StaticRanker([]),
+                judge_id="judge",
+                model_name="model/judge",
+                cache_directory=temporary,
+            )
+            v2 = LocalSearchQuestionValidator(
+                _StaticRanker([]),
+                judge_id="judge",
+                model_name="model/judge",
+                cache_directory=temporary,
+                acceptance_contract="search-trigger-v2",
+            )
+            self.assertNotIn("acceptance_contract", v1._cache_identity(candidate))
+            self.assertEqual(
+                v2._cache_identity(candidate)["acceptance_contract"],
+                "search-trigger-v2",
             )
 
     def test_independent_search_validator_enforces_semantic_contract_and_cache(self) -> None:
@@ -1375,6 +1535,114 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                     "base_validation_manifest"
                 ]
             )
+
+    def test_v2_reinterprets_v1_base_reviews_without_rejudging_them(self) -> None:
+        targets = build_target_grid(self.bounds)[:2]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+        base_review = SearchQuestionReview(
+            candidate_id=candidates[0].candidate_id,
+            judge_id="independent-judge",
+            judge_model="model/judge",
+            exact_keyword_present=False,
+            single_question=False,
+            topic_relevant=True,
+            search_intent=True,
+            web_answerable=True,
+            standalone=False,
+            natural_language=True,
+            relevance_score_1_5=5,
+            accepted=False,
+            concise_reason="Useful only with assigned topic metadata.",
+        )
+
+        class CountingValidator:
+            def __init__(self):
+                self.reviewed = []
+
+            def review(self, candidate):
+                self.reviewed.append(candidate.candidate_id)
+                return replace(
+                    base_review,
+                    candidate_id=candidate.candidate_id,
+                    exact_keyword_present=True,
+                    single_question=True,
+                    standalone=True,
+                    accepted=True,
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate_path = root / "candidates.jsonl"
+            base = root / "base-validation.jsonl"
+            output = root / "validation.jsonl"
+            atomic_jsonl(candidate_path, (asdict(row) for row in candidates))
+            atomic_jsonl(base, (asdict(base_review),))
+            atomic_json(
+                base.with_suffix(".jsonl.manifest.json"),
+                {
+                    "reviewed_count": 1,
+                    "judge_id": "independent-judge",
+                    "judge_model": "model/judge",
+                    "judge_backend": "local",
+                    "judge_precision": "full",
+                    "acceptance_contract_version": "question-v1",
+                },
+            )
+            validator = CountingValidator()
+            args = SimpleNamespace(
+                output=str(output),
+                resume=True,
+                candidates=[str(candidate_path)],
+                shard_count=1,
+                shard_index=0,
+                shard_salt="",
+                base_validation=str(base),
+                model="model/judge",
+                judge_id="independent-judge",
+                cache_dir=str(root / "cache"),
+                backend="local",
+                precision="full",
+                maximum_attempts=3,
+                acceptance_contract="search-trigger-v2",
+            )
+            from unittest.mock import patch
+
+            with patch(
+                "analysis.scripts.build_readiness_prompt_population."
+                "LocalSearchQuestionValidator.from_model",
+                return_value=validator,
+            ):
+                _validate_candidates(args)
+
+            rows = [
+                json.loads(line)
+                for line in output.read_text().splitlines()
+                if line.strip()
+            ]
+            manifest = read_json(output.with_suffix(".jsonl.manifest.json"))
+
+        by_id = {row["candidate_id"]: row for row in rows}
+        self.assertTrue(by_id[candidates[0].candidate_id]["accepted"])
+        self.assertEqual(validator.reviewed, [candidates[1].candidate_id])
+        self.assertEqual(
+            manifest["base_validation_reinterpreted_from_contract"],
+            "question-v1",
+        )
+        self.assertEqual(
+            manifest["acceptance_contract_version"],
+            "search-trigger-v2",
+        )
 
     def test_generate_can_record_one_exhausted_task_and_finish_its_slice(self) -> None:
         targets = build_target_grid(self.bounds)[:2]

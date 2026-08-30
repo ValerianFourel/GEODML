@@ -230,6 +230,10 @@ class ReadinessPartitioningTests(unittest.TestCase):
             self.assertEqual(manifest["candidate_count"], 3)
             self.assertEqual(manifest["accepted_count"], 3)
             self.assertEqual(manifest["maximum_candidate_round_index"], 2)
+            self.assertEqual(manifest["text_contract"], "question-v1")
+            self.assertEqual(
+                manifest["acceptance_contract_version"], "question-v1"
+            )
             ids = {
                 json.loads(line)["candidate_id"]
                 for line in (output / "candidates.jsonl").read_text().splitlines()
@@ -282,6 +286,19 @@ class ReadinessPartitioningTests(unittest.TestCase):
             _write_json(manifest_path, manifest)
             with self.assertRaisesRegex(ValueError, "differ on distance_tolerance"):
                 merge_partition_checkpoints(sections, root / "mismatched-ten")
+
+    def test_checkpoint_merge_rejects_mixed_text_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            left = self._partition_fixture(root, index=0, unique_id="left")
+            right = self._partition_fixture(root, index=1, unique_id="right")
+            manifest_path = right / "pipeline_manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["text_contract"] = "search-trigger-v2"
+            _write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(ValueError, "differ on text_contract"):
+                merge_partition_checkpoints((left, right), root / "mixed")
 
     def test_checkpoint_merge_rejects_an_incomplete_ten_section_set(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

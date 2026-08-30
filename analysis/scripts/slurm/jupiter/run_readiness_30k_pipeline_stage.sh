@@ -83,6 +83,7 @@ case "$stage" in
             --temperature "${READINESS_GENERATION_TEMPERATURE:-0.9}" \
             --max-new-tokens "${READINESS_GENERATION_MAX_NEW_TOKENS:-180}" \
             --maximum-attempts "${READINESS_GENERATION_MAXIMUM_ATTEMPTS:-5}" \
+            --text-contract "${READINESS_TEXT_CONTRACT:-question-v1}" \
             --shard-count "${READINESS_GENERATION_SHARD_COUNT:-2}" \
             --shard-index "${READINESS_GENERATION_SHARD_INDEX:?READINESS_GENERATION_SHARD_INDEX is required}" \
             --maximum-runtime-seconds "${READINESS_GENERATION_SECONDS:?READINESS_GENERATION_SECONDS is required}" \
@@ -105,6 +106,7 @@ case "$stage" in
             --cache-dir "${READINESS_VALIDATION_CACHE:?READINESS_VALIDATION_CACHE is required}" \
             --output "${READINESS_VALIDATION_OUTPUT:?READINESS_VALIDATION_OUTPUT is required}" \
             --maximum-attempts "${READINESS_VALIDATION_MAXIMUM_ATTEMPTS:-3}" \
+            --acceptance-contract "${READINESS_ACCEPTANCE_CONTRACT:-question-v1}" \
             --inference-batch-size "${READINESS_VALIDATION_BATCH_SIZE:-8}" \
             --shard-count "${READINESS_VALIDATION_SHARD_COUNT:-1}" \
             --shard-index "${READINESS_VALIDATION_SHARD_INDEX:-0}" \

@@ -71,6 +71,8 @@ export READINESS_GENERATOR_A_ID="${READINESS_GENERATOR_A_ID:-qwen3-32b}"
 export READINESS_GENERATOR_B_ID="${READINESS_GENERATOR_B_ID:-gemma4-31b}"
 export READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"
 export READINESS_DISAGREEMENT_WEIGHT="${READINESS_DISAGREEMENT_WEIGHT:-0.10}"
+export READINESS_TEXT_CONTRACT="${READINESS_TEXT_CONTRACT:-question-v1}"
+export READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-v1}"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
 export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
 
@@ -138,9 +140,30 @@ if [[ ! -s "$final_root/verified_round_summary.json" ]]; then
         "${merge_arguments[@]}" \
         --output-dir "$attempt/merged"
 
+    python - "$attempt/merged/merge_manifest.json" <<'PY'
+import json
+import os
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+expected = (
+    os.environ["READINESS_TEXT_CONTRACT"],
+    os.environ["READINESS_ACCEPTANCE_CONTRACT"],
+)
+observed = (
+    manifest.get("text_contract", "question-v1"),
+    manifest.get("acceptance_contract_version", "question-v1"),
+)
+if observed != expected:
+    raise SystemExit(
+        f"merged contracts {observed!r} differ from requested {expected!r}"
+    )
+PY
+
     set +e
     python analysis/scripts/build_readiness_prompt_population.py audit-diversity \
         --questions "$attempt/merged/candidates.jsonl" \
+        --text-contract "$READINESS_TEXT_CONTRACT" \
         --output-dir "$attempt/raw-diversity"
     raw_diversity_exit=$?
     set -e
@@ -167,6 +190,8 @@ print(json.load(open(sys.argv[1]))["maximum_candidate_round_index"] + 1)
         --generator-ids "$READINESS_GENERATOR_A_ID,$READINESS_GENERATOR_B_ID" \
         --next-round-index "$next_round_index" \
         --distance-tolerance "$READINESS_DISTANCE_TOLERANCE" \
+        --text-contract "$READINESS_TEXT_CONTRACT" \
+        --acceptance-contract "$READINESS_ACCEPTANCE_CONTRACT" \
         --require-both-views-within-tolerance \
         --require-delexicalized-template-uniqueness \
         --disagreement-weight "$READINESS_DISAGREEMENT_WEIGHT" \
@@ -180,6 +205,7 @@ print(json.load(open(sys.argv[1]))["maximum_candidate_round_index"] + 1)
         set +e
         python analysis/scripts/build_readiness_prompt_population.py audit-diversity \
             --questions "$selected" \
+            --text-contract "$READINESS_TEXT_CONTRACT" \
             --output-dir "$attempt/selected-diversity"
         selected_diversity_exit=$?
         set -e
@@ -220,6 +246,10 @@ summary = {
     "delexicalized_template_uniqueness_enabled": selection[
         "surface_acceptance_contract"
     ]["enabled"],
+    "text_contract": selection.get("text_contract", "question-v1"),
+    "acceptance_contract_version": selection.get(
+        "acceptance_contract_version", "question-v1"
+    ),
     "selected_diversity_gate_passed": diversity_exit == 0,
     "spacing_gate_passed": diagnostics["overall_spacing_gate_passed"],
     "partition_count": merged["partition_count"],

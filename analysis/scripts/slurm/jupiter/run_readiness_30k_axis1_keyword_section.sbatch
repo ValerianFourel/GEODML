@@ -111,8 +111,10 @@ export READINESS_GENERATION_SECONDS="${READINESS_GENERATION_SECONDS:-3000}"
 export READINESS_FINALIZATION_RESERVE_SECONDS="${READINESS_FINALIZATION_RESERVE_SECONDS:-1800}"
 export READINESS_MAX_REFINEMENT_ROUNDS="${READINESS_MAX_REFINEMENT_ROUNDS:-1000}"
 export READINESS_MASTER_SEED="20260820"
-export READINESS_DISTANCE_TOLERANCE="0.017"
+export READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"
 export READINESS_DISAGREEMENT_WEIGHT="0.10"
+export READINESS_TEXT_CONTRACT="${READINESS_TEXT_CONTRACT:-question-v1}"
+export READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-v1}"
 export READINESS_GENERATOR_A_ID="qwen3-32b"
 export READINESS_GENERATOR_B_ID="gemma4-31b"
 
@@ -134,6 +136,9 @@ echo "checkpoint=$checkpoint"
 echo "section=$READINESS_WORK_PARTITION_INDEX/$READINESS_WORK_PARTITION_COUNT"
 echo "partition_salt=$READINESS_WORK_PARTITION_SALT"
 echo "pipeline=$READINESS_30K_PIPELINE_ROOT"
+echo "text_contract=$READINESS_TEXT_CONTRACT"
+echo "acceptance_contract=$READINESS_ACCEPTANCE_CONTRACT"
+echo "distance_tolerance=$READINESS_DISTANCE_TOLERANCE"
 
 set +e
 "$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_axis1_strict_loop.sh"
@@ -181,6 +186,9 @@ payload = {
     "pipeline_root": str(pipeline),
     "verified_summary": str(summary),
     "section_exit_code": section_exit,
+    "text_contract": os.environ["READINESS_TEXT_CONTRACT"],
+    "acceptance_contract_version": os.environ["READINESS_ACCEPTANCE_CONTRACT"],
+    "distance_tolerance": float(os.environ["READINESS_DISTANCE_TOLERANCE"]),
 }
 output = coordination / f"section-{index}-of-{count}.ready.json"
 temporary = output.with_suffix(output.suffix + f".{os.environ['SLURM_JOB_ID']}.tmp")
