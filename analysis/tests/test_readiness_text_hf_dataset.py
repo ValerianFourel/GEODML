@@ -109,6 +109,17 @@ class ReadinessTextHfDatasetTests(unittest.TestCase):
             output = root / "dataset"
             _likert_fixture(likert)
             _fixture(population)
+            candidate_path = population / "merged/candidates.jsonl"
+            candidates = [
+                json.loads(line)
+                for line in candidate_path.read_text(encoding="utf-8").splitlines()
+            ]
+            for index, candidate in enumerate(candidates):
+                candidate["generation_seed"] = 2**63 + index
+            candidate_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in candidates),
+                encoding="utf-8",
+            )
 
             manifest = finalize_text_dataset(
                 likert_dataset_root=likert,
@@ -134,6 +145,15 @@ class ReadinessTextHfDatasetTests(unittest.TestCase):
             self.assertFalse(manifest["generated_candidates_are_likert_graded"])
             self.assertFalse(any(output.rglob("*.jsonl")))
             self.assertFalse(any(output.rglob("*.npz")))
+            generated_rows = []
+            for path in sorted(
+                (output / "data/generated_candidates").glob("*.parquet")
+            ):
+                generated_rows.extend(pq.read_table(path).to_pylist())
+            self.assertEqual(
+                [row["generation_seed"] for row in generated_rows],
+                [str(2**63 + index) for index in range(3)],
+            )
             self.assertIn(
                 "generated candidates are not Likert graded",
                 (output / "README.md").read_text(encoding="utf-8"),
@@ -217,6 +237,18 @@ class ReadinessTextSanitizationTests(unittest.TestCase):
         self.assertEqual(row["generator_model"], "qwen/Qwen3-32B")
         self.assertEqual(row["split"], "data")
         self.assertNotIn("/e/project", json.dumps(row))
+
+    def test_serializes_hash_derived_seeds_as_exact_decimal_strings(self) -> None:
+        value = 2**64 + 1009
+
+        row = _sanitize_model_fields(
+            {
+                "candidate_id": "candidate:one",
+                "generation_seed": value,
+            }
+        )
+
+        self.assertEqual(row["generation_seed"], str(value))
 
 
 if __name__ == "__main__":

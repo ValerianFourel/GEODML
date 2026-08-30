@@ -147,6 +147,17 @@ def _population_sources(root: Path) -> tuple[list[Path], Path, Path]:
 
 def _sanitize_model_fields(row: Mapping[str, object]) -> dict[str, object]:
     sanitized = dict(row)
+    for field, value in tuple(sanitized.items()):
+        if (
+            field.endswith("_seed")
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+        ):
+            # Hash-derived generation seeds may occupy the full unsigned
+            # 64-bit range (and candidate-slot offsets can exceed it).  A
+            # decimal string preserves the exact deterministic value across
+            # Arrow implementations without signed-integer overflow.
+            sanitized[field] = str(value)
     for field in ("generator_model", "judge_model", "model"):
         value = sanitized.get(field)
         if value:
@@ -340,6 +351,8 @@ def _write_dataset_card(
             "verified Likert publisher. Raw caches and `restricted-local` NPZ",
             "embeddings are not",
             "part of this text-only dataset.",
+            "Hash-derived `*_seed` fields are stored as base-10 strings to preserve",
+            "their exact values beyond the signed 64-bit integer range.",
         ]
     )
     (output / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -440,6 +453,9 @@ def finalize_text_dataset(
             "publication_safe": True,
             "text_only": True,
             "generated_candidates_are_likert_graded": False,
+            "field_encodings": {
+                "*_seed": "base-10 string preserving arbitrary-size integer",
+            },
             "likert_source_manifest_sha256": _sha256(
                 likert_root / "dataset_manifest.json"
             ),
