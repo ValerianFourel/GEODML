@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -26,9 +27,21 @@ from analysis.scripts.build_readiness_hf_dataset import (  # noqa: E402
     _publish as _publish_likert_dataset,
     _verify_dataset as _verify_likert_dataset,
 )
+from analysis.interpretability.pipeline.readiness_prompt_population import (  # noqa: E402
+    delexicalize_question,
+    search_review_passes_contract,
+)
 
 
 FORMAT_VERSION = "axisgeo-readiness-text-hf-v1"
+COUNTERFACTUAL_FORMAT_VERSION = "axisgeo-readiness-text-hf-v2"
+SUPPORTED_FORMAT_VERSIONS = frozenset(
+    {FORMAT_VERSION, COUNTERFACTUAL_FORMAT_VERSION}
+)
+COUNTERFACTUAL_SCENARIO = "search_trigger_v2_relaxed_tolerance"
+COUNTERFACTUAL_CONFIG = "fully_compliant_prompts_relaxed_0035"
+COUNTERFACTUAL_CONTRACT = "search-trigger-v2"
+COUNTERFACTUAL_TOLERANCE = 0.035
 LIKERT_CONFIGS = (
     "sources",
     "prompts",
@@ -52,6 +65,12 @@ def _parser() -> argparse.ArgumentParser:
     finalize.add_argument("--output-dir", required=True)
     finalize.add_argument("--rows-per-shard", type=int, default=100_000)
     finalize.add_argument("--git-commit-sha")
+    annotate = commands.add_parser("annotate-counterfactual")
+    annotate.add_argument("--dataset-dir", required=True)
+    annotate.add_argument("--counterfactual-root", required=True)
+    annotate.add_argument("--output-dir", required=True)
+    annotate.add_argument("--rows-per-shard", type=int, default=100_000)
+    annotate.add_argument("--git-commit-sha")
     verify = commands.add_parser("verify")
     verify.add_argument("--dataset-dir", required=True)
     publish = commands.add_parser("publish")
@@ -300,6 +319,8 @@ def _write_dataset_card(
     output: Path,
     configs: Sequence[tuple[str, Mapping[str, Sequence[str]], bool]],
     counts: Mapping[str, int],
+    *,
+    counterfactual_variants: Mapping[str, Mapping[str, object]] | None = None,
 ) -> None:
     lines = [
         "---",
@@ -355,6 +376,27 @@ def _write_dataset_card(
             "their exact values beyond the signed 64-bit integer range.",
         ]
     )
+    for config_name, variant in sorted((counterfactual_variants or {}).items()):
+        lines.extend(
+            [
+                "",
+                f"## Existing-candidate counterfactual: `{config_name}`",
+                "",
+                f"This configuration contains `{int(variant['selected_count']):,}`",
+                "globally selected prompts recomputed over the existing candidate",
+                "union. It did not generate or embed new prompt text.",
+                "",
+                f"- Acceptance contract: `{variant['acceptance_contract_version']}`.",
+                f"- Frozen dual-view tolerance: `{float(variant['distance_tolerance']):.3f}`.",
+                f"- Historical selected count: `{int(variant['historical_selected_count']):,}`.",
+                f"- Remaining target cells: `{int(variant['missing_count']):,}`.",
+                "- Source texts retain their historical `question-v1` generation contract.",
+                "",
+                "This is a versioned prompt-space counterfactual, not a replacement",
+                "for the historical Gold selection and not a definition of randomized",
+                "policy variable `B`.",
+            ]
+        )
     (output / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -501,6 +543,255 @@ def finalize_text_dataset(
     return _read_json(output / "dataset_manifest.json")
 
 
+def _discover_dataset_configs(
+    root: Path,
+) -> list[tuple[str, dict[str, list[str]], bool]]:
+    configs = []
+    for directory in sorted((root / "data").iterdir()):
+        if not directory.is_dir():
+            continue
+        paths_by_split: dict[str, list[str]] = {}
+        for path in sorted(directory.glob("*.parquet")):
+            split = path.stem.rsplit("-", 1)[0]
+            paths_by_split.setdefault(split, []).append(
+                str(path.relative_to(root))
+            )
+        if paths_by_split:
+            configs.append(
+                (directory.name, paths_by_split, directory.name == "likert_prompts")
+            )
+    return configs
+
+
+def _parquet_rows_for_ids(
+    directory: Path,
+    candidate_ids: set[str],
+    columns: Sequence[str],
+) -> dict[str, dict[str, object]]:
+    _, pq = _pyarrow()
+    rows: dict[str, dict[str, object]] = {}
+    for path in sorted(directory.glob("*.parquet")):
+        for row in pq.read_table(path, columns=list(columns)).to_pylist():
+            candidate_id = str(row["candidate_id"])
+            if candidate_id not in candidate_ids:
+                continue
+            if candidate_id in rows:
+                raise ValueError(
+                    f"duplicate candidate_id in {directory.name}: {candidate_id}"
+                )
+            rows[candidate_id] = dict(row)
+    missing = candidate_ids - set(rows)
+    if missing:
+        raise ValueError(
+            f"{directory.name} omits selected candidate: {min(missing)}"
+        )
+    return rows
+
+
+def _counterfactual_selection(
+    dataset_root: Path,
+    counterfactual_root: Path,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    summary_path = counterfactual_root / "counterfactual_summary.json"
+    scenario_root = counterfactual_root / "scenarios" / COUNTERFACTUAL_SCENARIO
+    scenario_summary_path = scenario_root / "summary.json"
+    selected_path = scenario_root / "selected.jsonl"
+    summary = _read_json(summary_path)
+    scenario_summary = _read_json(scenario_summary_path)
+    if summary.get("format_version") != "readiness-search-trigger-counterfactual-v1":
+        raise ValueError("unexpected counterfactual audit format")
+    stored_scenario = summary.get("scenarios", {}).get(COUNTERFACTUAL_SCENARIO)
+    if stored_scenario != scenario_summary:
+        raise ValueError("counterfactual scenario summary identity differs")
+    tolerance = float(scenario_summary.get("distance_tolerance", -1.0))
+    if not math.isclose(tolerance, COUNTERFACTUAL_TOLERANCE, abs_tol=1e-12):
+        raise ValueError("counterfactual selection does not use tolerance 0.035")
+    if scenario_summary.get("require_template_uniqueness") is not True:
+        raise ValueError("counterfactual selection omits template uniqueness")
+    diagnostics = scenario_summary.get("selection_diagnostics", {})
+    required_checks = (
+        "require_both_views_within_tolerance",
+        "require_delexicalized_template_uniqueness",
+        "selected_delexicalized_templates_are_unique",
+    )
+    if any(diagnostics.get(key) is not True for key in required_checks):
+        raise ValueError("counterfactual selection diagnostics fail a global contract")
+
+    dataset_manifest = _read_json(dataset_root / "dataset_manifest.json")
+    candidate_count = int(dataset_manifest["table_counts"]["generated_candidates"])
+    if int(summary.get("candidate_count", -1)) != candidate_count:
+        raise ValueError("counterfactual candidate population differs from dataset")
+    selected = list(_iter_jsonl((selected_path,)))
+    selected_count = int(scenario_summary.get("selected_count", -1))
+    if not selected or len(selected) != selected_count:
+        raise ValueError("counterfactual selected row count differs")
+    if int(diagnostics.get("selected_count", -1)) != selected_count:
+        raise ValueError("counterfactual selection diagnostics count differs")
+    if int(diagnostics.get("verified_selected_count", -1)) != selected_count:
+        raise ValueError("counterfactual selection is not fully dual-view verified")
+
+    selected_ids: set[str] = set()
+    target_pairs: set[tuple[str, str]] = set()
+    templates: set[str] = set()
+    for row in selected:
+        candidate_id = str(row.get("candidate_id", ""))
+        keyword_id = str(row.get("keyword_id", ""))
+        target_id = str(row.get("target_id", ""))
+        keyword = str(row.get("keyword", ""))
+        question = str(row.get("question", ""))
+        if not candidate_id or candidate_id in selected_ids:
+            raise ValueError("counterfactual candidate ids are not unique")
+        selected_ids.add(candidate_id)
+        target_pair = (keyword_id, target_id)
+        if not all(target_pair) or target_pair in target_pairs:
+            raise ValueError("counterfactual target assignments are not unique")
+        target_pairs.add(target_pair)
+        if row.get("both_views_within_tolerance") is not True:
+            raise ValueError("counterfactual row fails the dual-view contract")
+        for field in (
+            "reference_target_distance",
+            "candidate_aligned_target_distance",
+        ):
+            if float(row.get(field, math.inf)) > tolerance:
+                raise ValueError(f"counterfactual row exceeds {field}")
+        template = delexicalize_question(
+            question,
+            keyword,
+            require_keyword=False,
+        )
+        if template in templates:
+            raise ValueError("counterfactual selected templates are not unique")
+        templates.add(template)
+
+    candidate_rows = _parquet_rows_for_ids(
+        dataset_root / "data/generated_candidates",
+        selected_ids,
+        ("candidate_id", "keyword_id", "keyword", "question"),
+    )
+    review_rows = _parquet_rows_for_ids(
+        dataset_root / "data/candidate_compliance_annotations",
+        selected_ids,
+        (
+            "candidate_id",
+            "topic_relevant",
+            "search_intent",
+            "web_answerable",
+            "natural_language",
+            "relevance_score_1_5",
+        ),
+    )
+    for row in selected:
+        candidate_id = str(row["candidate_id"])
+        candidate = candidate_rows[candidate_id]
+        for field in ("keyword_id", "keyword", "question"):
+            if str(row[field]) != str(candidate[field]):
+                raise ValueError(
+                    f"counterfactual {field} differs from candidate: {candidate_id}"
+                )
+        if not search_review_passes_contract(
+            review_rows[candidate_id],
+            contract=COUNTERFACTUAL_CONTRACT,
+        ):
+            raise ValueError(
+                f"counterfactual candidate fails search-trigger-v2: {candidate_id}"
+            )
+
+    historical = summary.get("scenarios", {}).get("question_v1_historical", {})
+    target_count = selected_count + int(scenario_summary.get("missing_count", -1))
+    metadata = {
+        "scenario": COUNTERFACTUAL_SCENARIO,
+        "acceptance_contract_version": COUNTERFACTUAL_CONTRACT,
+        "source_text_contract": "question-v1",
+        "distance_tolerance": tolerance,
+        "selected_count": selected_count,
+        "missing_count": int(scenario_summary["missing_count"]),
+        "target_count": target_count,
+        "historical_selected_count": int(historical.get("selected_count", -1)),
+        "incremental_selected_count": selected_count
+        - int(historical.get("selected_count", -1)),
+        "existing_candidates_only": True,
+        "new_generation_performed": False,
+        "validation_recovered_count": int(summary["validation_recovered_count"]),
+        "source_counterfactual_summary": _source_identity(summary_path),
+        "source_scenario_summary": _source_identity(scenario_summary_path),
+        "source_selection": _source_identity(selected_path),
+    }
+    return selected, metadata
+
+
+def annotate_counterfactual_variant(
+    *,
+    dataset_dir: str | Path,
+    counterfactual_root: str | Path,
+    output_dir: str | Path,
+    rows_per_shard: int = 100_000,
+    git_commit_sha: str | None = None,
+) -> dict[str, object]:
+    source = Path(dataset_dir).resolve()
+    counterfactual = Path(counterfactual_root).resolve()
+    output = Path(output_dir).resolve()
+    if output.exists():
+        raise ValueError(f"refusing to overwrite text dataset: {output}")
+    verify_text_dataset(source)
+    selected, variant = _counterfactual_selection(source, counterfactual)
+    temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+    if temporary.exists():
+        raise ValueError(f"temporary output already exists: {temporary}")
+    source_manifest_path = source / "dataset_manifest.json"
+    try:
+        shutil.copytree(source, temporary)
+        annotated_rows = []
+        for source_row in selected:
+            row = dict(source_row)
+            row.update(
+                {
+                    "acceptance_contract_version": COUNTERFACTUAL_CONTRACT,
+                    "source_text_contract": "question-v1",
+                    "selection_scenario": COUNTERFACTUAL_SCENARIO,
+                    "selection_distance_tolerance": COUNTERFACTUAL_TOLERANCE,
+                    "existing_candidates_only": True,
+                    "new_generation_performed": False,
+                }
+            )
+            annotated_rows.append(row)
+        paths, count = _write_streaming_parquet(
+            output=temporary,
+            config_name=COUNTERFACTUAL_CONFIG,
+            rows=(_sanitize_model_fields(row) for row in annotated_rows),
+            rows_per_shard=rows_per_shard,
+        )
+        if count != int(variant["selected_count"]):
+            raise ValueError("annotated counterfactual count differs")
+        manifest = _read_json(temporary / "dataset_manifest.json")
+        manifest["format_version"] = COUNTERFACTUAL_FORMAT_VERSION
+        manifest["created_at"] = _now()
+        manifest["git_commit_sha"] = git_commit_sha or _git_commit_sha()
+        manifest["derived_from_dataset_manifest"] = _source_identity(
+            source_manifest_path
+        )
+        manifest["counterfactual_prompt_variants"] = {
+            COUNTERFACTUAL_CONFIG: variant
+        }
+        manifest["table_counts"][COUNTERFACTUAL_CONFIG] = count
+        configs = _discover_dataset_configs(temporary)
+        if not any(name == COUNTERFACTUAL_CONFIG for name, _, _ in configs):
+            raise ValueError("annotated counterfactual configuration is missing")
+        _write_dataset_card(
+            temporary,
+            configs,
+            manifest["table_counts"],
+            counterfactual_variants=manifest["counterfactual_prompt_variants"],
+        )
+        _atomic_json(temporary / "dataset_manifest.json", manifest)
+        _atomic_json(temporary / "checksums.json", _dataset_checksums(temporary))
+        verify_text_dataset(temporary)
+        temporary.replace(output)
+    except Exception:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    return _read_json(output / "dataset_manifest.json")
+
+
 def _parquet_count(directory: Path) -> int:
     _, pq = _pyarrow()
     return sum(
@@ -531,10 +822,20 @@ def _require_true_column(directory: Path, field: str) -> None:
             raise ValueError(f"{directory.name} contains a false {field}")
 
 
+def _require_exact_column(directory: Path, field: str, expected: object) -> None:
+    _, pq = _pyarrow()
+    for path in sorted(directory.glob("*.parquet")):
+        table = pq.read_table(path, columns=[field])
+        if any(value != expected for value in table[field].to_pylist()):
+            raise ValueError(
+                f"{directory.name} contains an unexpected {field}"
+            )
+
+
 def verify_text_dataset(dataset_dir: str | Path) -> None:
     root = Path(dataset_dir).resolve()
     manifest = _read_json(root / "dataset_manifest.json")
-    if manifest.get("format_version") != FORMAT_VERSION:
+    if manifest.get("format_version") not in SUPPORTED_FORMAT_VERSIONS:
         raise ValueError("unexpected text dataset format")
     if manifest.get("publication_safe") is not True:
         raise ValueError("text dataset is not marked publication safe")
@@ -579,6 +880,112 @@ def verify_text_dataset(dataset_dir: str | Path) -> None:
         root / "data/fully_compliant_prompts",
         "both_views_within_tolerance",
     )
+    variants = manifest.get("counterfactual_prompt_variants", {})
+    if manifest.get("format_version") == COUNTERFACTUAL_FORMAT_VERSION:
+        if not isinstance(variants, dict) or not variants:
+            raise ValueError("annotated dataset omits counterfactual variants")
+    elif variants:
+        raise ValueError("v1 dataset unexpectedly declares counterfactual variants")
+    for config_name, variant in variants.items():
+        if config_name != COUNTERFACTUAL_CONFIG or not isinstance(variant, dict):
+            raise ValueError("unsupported counterfactual prompt variant")
+        directory = root / "data" / config_name
+        variant_ids = _parquet_id_set(directory, "candidate_id")
+        if not variant_ids.issubset(candidates):
+            raise ValueError("counterfactual prompt identities differ")
+        if len(variant_ids) != int(variant.get("selected_count", -1)):
+            raise ValueError("counterfactual prompt count differs")
+        if variant.get("acceptance_contract_version") != COUNTERFACTUAL_CONTRACT:
+            raise ValueError("counterfactual acceptance contract differs")
+        if variant.get("source_text_contract") != "question-v1":
+            raise ValueError("counterfactual source text contract differs")
+        if not math.isclose(
+            float(variant.get("distance_tolerance", -1.0)),
+            COUNTERFACTUAL_TOLERANCE,
+            abs_tol=1e-12,
+        ):
+            raise ValueError("counterfactual distance tolerance differs")
+        if variant.get("existing_candidates_only") is not True:
+            raise ValueError("counterfactual is not existing-candidates-only")
+        if variant.get("new_generation_performed") is not False:
+            raise ValueError("counterfactual generation provenance differs")
+        _require_true_column(directory, "both_views_within_tolerance")
+        _require_true_column(directory, "existing_candidates_only")
+        _require_exact_column(
+            directory,
+            "acceptance_contract_version",
+            COUNTERFACTUAL_CONTRACT,
+        )
+        _require_exact_column(
+            directory,
+            "source_text_contract",
+            "question-v1",
+        )
+        _require_exact_column(
+            directory,
+            "selection_scenario",
+            COUNTERFACTUAL_SCENARIO,
+        )
+        _require_exact_column(
+            directory,
+            "selection_distance_tolerance",
+            COUNTERFACTUAL_TOLERANCE,
+        )
+        variant_rows = _parquet_rows_for_ids(
+            directory,
+            variant_ids,
+            (
+                "candidate_id",
+                "keyword_id",
+                "keyword",
+                "question",
+                "reference_target_distance",
+                "candidate_aligned_target_distance",
+            ),
+        )
+        candidate_rows = _parquet_rows_for_ids(
+            root / "data/generated_candidates",
+            variant_ids,
+            ("candidate_id", "keyword_id", "keyword", "question"),
+        )
+        review_rows = _parquet_rows_for_ids(
+            root / "data/candidate_compliance_annotations",
+            variant_ids,
+            (
+                "candidate_id",
+                "topic_relevant",
+                "search_intent",
+                "web_answerable",
+                "natural_language",
+                "relevance_score_1_5",
+            ),
+        )
+        templates = set()
+        for candidate_id, row in variant_rows.items():
+            candidate = candidate_rows[candidate_id]
+            if any(
+                str(row[field]) != str(candidate[field])
+                for field in ("keyword_id", "keyword", "question")
+            ):
+                raise ValueError("counterfactual text differs from candidate")
+            if max(
+                float(row["reference_target_distance"]),
+                float(row["candidate_aligned_target_distance"]),
+            ) > COUNTERFACTUAL_TOLERANCE:
+                raise ValueError("counterfactual row exceeds tolerance")
+            if not search_review_passes_contract(
+                review_rows[candidate_id],
+                contract=COUNTERFACTUAL_CONTRACT,
+            ):
+                raise ValueError("counterfactual row fails independent review")
+            template = delexicalize_question(
+                str(row["question"]),
+                str(row["keyword"]),
+                require_keyword=False,
+            )
+            if template in templates:
+                raise ValueError("counterfactual templates are not unique")
+            templates.add(template)
 
 
 def _git_commit_sha() -> str:
@@ -602,6 +1009,24 @@ def main() -> int:
     if args.command == "publish":
         verify_text_dataset(args.dataset_dir)
         return _publish_likert_dataset(args)
+    if args.command == "annotate-counterfactual":
+        manifest = annotate_counterfactual_variant(
+            dataset_dir=args.dataset_dir,
+            counterfactual_root=args.counterfactual_root,
+            output_dir=args.output_dir,
+            rows_per_shard=args.rows_per_shard,
+            git_commit_sha=args.git_commit_sha,
+        )
+        print(f"output: {Path(args.output_dir).resolve()}")
+        print(
+            f"{COUNTERFACTUAL_CONFIG}="
+            f"{manifest['table_counts'][COUNTERFACTUAL_CONFIG]}"
+        )
+        print(
+            "READINESS TEXT HF COUNTERFACTUAL ANNOTATION: PASS "
+            "(no upload performed)"
+        )
+        return 0
     manifest = finalize_text_dataset(
         likert_dataset_root=args.likert_dataset_root,
         prompt_population_root=args.prompt_population_root,

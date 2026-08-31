@@ -10,9 +10,11 @@ import unittest
 from unittest.mock import patch
 
 from analysis.scripts.build_readiness_text_hf_dataset import (
+    COUNTERFACTUAL_CONFIG,
     _atomic_json,
     _dataset_checksums,
     _sanitize_model_fields,
+    annotate_counterfactual_variant,
     finalize_text_dataset,
     main,
     verify_text_dataset,
@@ -97,6 +99,52 @@ def _likert_fixture(root: Path) -> None:
         },
     )
     _atomic_json(root / "checksums.json", _dataset_checksums(root))
+
+
+def _counterfactual_fixture(
+    root: Path,
+    selected: list[dict[str, object]],
+    *,
+    candidate_count: int,
+) -> None:
+    scenario = "search_trigger_v2_relaxed_tolerance"
+    selected_path = root / "scenarios" / scenario / "selected.jsonl"
+    selected_path.parent.mkdir(parents=True)
+    selected_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in selected),
+        encoding="utf-8",
+    )
+    diagnostics = {
+        "selected_count": len(selected),
+        "verified_selected_count": len(selected),
+        "require_both_views_within_tolerance": True,
+        "require_delexicalized_template_uniqueness": True,
+        "selected_delexicalized_templates_are_unique": True,
+    }
+    scenario_summary = {
+        "selected_count": len(selected),
+        "missing_count": 3 - len(selected),
+        "accepted_candidate_count": len(selected),
+        "distance_tolerance": 0.035,
+        "require_template_uniqueness": True,
+        "selection_diagnostics": diagnostics,
+    }
+    _atomic_json(selected_path.parent / "summary.json", scenario_summary)
+    _atomic_json(
+        root / "counterfactual_summary.json",
+        {
+            "format_version": "readiness-search-trigger-counterfactual-v1",
+            "candidate_count": candidate_count,
+            "validation_recovered_count": 1,
+            "scenarios": {
+                "question_v1_historical": {
+                    "selected_count": 2,
+                    "missing_count": 1,
+                },
+                scenario: scenario_summary,
+            },
+        },
+    )
 
 
 @unittest.skipUnless(pa is not None, "pyarrow is required")
@@ -190,6 +238,128 @@ class ReadinessTextHfDatasetTests(unittest.TestCase):
                     likert_dataset_root=Path(directory) / "unused-likert",
                     prompt_population_root=Path(directory) / "unused-population",
                     output_dir=output,
+                )
+
+    def test_adds_an_existing_candidate_counterfactual_configuration(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            likert = root / "likert"
+            population = root / "population"
+            base = root / "base"
+            output = root / "annotated"
+            counterfactual = root / "counterfactual"
+            _likert_fixture(likert)
+            selected, validation = _fixture(population)
+            candidate_path = population / "merged/candidates.jsonl"
+            candidates = [
+                json.loads(line)
+                for line in candidate_path.read_text(encoding="utf-8").splitlines()
+            ]
+            candidates[2]["question"] = "Investigate likely causes and practical fixes"
+            validation[2].update(
+                {
+                    "accepted": False,
+                    "exact_keyword_present": False,
+                    "single_question": False,
+                    "topic_relevant": True,
+                    "search_intent": True,
+                    "web_answerable": True,
+                    "standalone": False,
+                    "natural_language": True,
+                    "relevance_score_1_5": 5,
+                }
+            )
+            candidate_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in candidates),
+                encoding="utf-8",
+            )
+            validation_path = population / "merged/validation.jsonl"
+            validation_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in validation),
+                encoding="utf-8",
+            )
+            relaxed = list(selected)
+            relaxed.append(
+                {
+                    "candidate_id": "candidate:three",
+                    "keyword_id": "keyword:three",
+                    "keyword": "gamma",
+                    "target_id": "target:three",
+                    "generator_id": "generator:three",
+                    "generator_model": "model:three",
+                    "question": "Investigate likely causes and practical fixes",
+                    "both_views_within_tolerance": True,
+                    "target_distance": 0.020,
+                    "reference_target_distance": 0.025,
+                    "candidate_aligned_target_distance": 0.030,
+                }
+            )
+            finalize_text_dataset(
+                likert_dataset_root=likert,
+                prompt_population_root=population,
+                output_dir=base,
+                git_commit_sha="4" * 40,
+            )
+            _counterfactual_fixture(
+                counterfactual,
+                relaxed,
+                candidate_count=3,
+            )
+
+            manifest = annotate_counterfactual_variant(
+                dataset_dir=base,
+                counterfactual_root=counterfactual,
+                output_dir=output,
+                rows_per_shard=2,
+                git_commit_sha="5" * 40,
+            )
+
+            verify_text_dataset(output)
+            self.assertEqual(manifest["table_counts"][COUNTERFACTUAL_CONFIG], 3)
+            variant = manifest["counterfactual_prompt_variants"][
+                COUNTERFACTUAL_CONFIG
+            ]
+            self.assertTrue(variant["existing_candidates_only"])
+            self.assertFalse(variant["new_generation_performed"])
+            self.assertEqual(variant["historical_selected_count"], 2)
+            self.assertEqual(variant["incremental_selected_count"], 1)
+            readme = (output / "README.md").read_text(encoding="utf-8")
+            self.assertIn(COUNTERFACTUAL_CONFIG, readme)
+            self.assertIn("did not generate or embed new prompt text", readme)
+
+    def test_rejects_counterfactual_row_that_fails_v2_review(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            likert = root / "likert"
+            population = root / "population"
+            base = root / "base"
+            counterfactual = root / "counterfactual"
+            _likert_fixture(likert)
+            selected, _ = _fixture(population)
+            finalize_text_dataset(
+                likert_dataset_root=likert,
+                prompt_population_root=population,
+                output_dir=base,
+                git_commit_sha="6" * 40,
+            )
+            rejected = dict(selected[0])
+            rejected["candidate_id"] = "candidate:three"
+            rejected["keyword_id"] = "keyword:three"
+            rejected["keyword"] = "gamma"
+            rejected["target_id"] = "target:three"
+            rejected["question"] = "What is gamma?"
+            _counterfactual_fixture(
+                counterfactual,
+                [rejected],
+                candidate_count=3,
+            )
+
+            with self.assertRaisesRegex(ValueError, "fails search-trigger-v2"):
+                annotate_counterfactual_variant(
+                    dataset_dir=base,
+                    counterfactual_root=counterfactual,
+                    output_dir=root / "annotated",
+                    git_commit_sha="7" * 40,
                 )
 
     def test_publish_requires_exact_repository_confirmation(self) -> None:
