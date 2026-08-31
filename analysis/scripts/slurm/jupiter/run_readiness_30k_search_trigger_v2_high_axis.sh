@@ -150,4 +150,7 @@ echo "baseline_selected=$READINESS_HIGH_AXIS_BASELINE_SELECTED"
 
 driver="${GEODML_REPOSITORY:?Set the exact repository checkout}/analysis/scripts/slurm/jupiter/run_readiness_30k_search_trigger_v2.sh"
 test -s "$driver"
-exec "$driver"
+# Preserve the module stack bootstrapped above. Executing the file directly
+# would honor its login-shell shebang and could replace LD_LIBRARY_PATH before
+# the v2 driver's first Python preflight.
+exec bash "$driver"

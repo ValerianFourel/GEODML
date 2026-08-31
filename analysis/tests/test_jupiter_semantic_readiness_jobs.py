@@ -341,6 +341,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_HIGH_AXIS_BASELINE_SELECTED", script)
         self.assertIn("search_trigger_v2_relaxed_tolerance", script)
         self.assertIn("run_readiness_30k_search_trigger_v2.sh", script)
+        self.assertIn('exec bash "$driver"', script)
         self.assertIn("Prompt embeddings diagnose generated text", script)
 
     def test_axis1_eight_gpu_resume_records_approved_budget_and_reuses_work(self) -> None:
