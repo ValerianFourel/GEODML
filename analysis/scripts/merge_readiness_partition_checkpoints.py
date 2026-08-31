@@ -100,6 +100,7 @@ def _merge_projection_view(
     view: str,
     candidate_ids: set[str],
     candidate_file: Path,
+    include_embedding_arrays: bool,
 ) -> dict[str, object]:
     roots = [round_root / "projections" / view for round_root in round_roots]
     manifests = [read_json(root / "projection_manifest.json") for root in roots]
@@ -121,37 +122,46 @@ def _merge_projection_view(
         key="candidate_id",
         expected_ids=candidate_ids,
     )
-    embedding_by_id: dict[str, np.ndarray] = {}
-    for root in roots:
-        with np.load(
-            root / "question_embeddings.restricted-local.npz",
-            allow_pickle=False,
-        ) as payload:
-            ids = [str(value) for value in payload["candidate_ids"]]
-            values = np.asarray(payload["embeddings"], dtype=np.float32)
-        if len(ids) != len(values) or len(set(ids)) != len(ids):
-            raise ValueError(f"partition {view} embedding identities are inconsistent")
-        for candidate_id, embedding in zip(ids, values):
-            existing = embedding_by_id.get(candidate_id)
-            if existing is not None and not np.array_equal(existing, embedding):
-                raise ValueError(
-                    f"partition {view} embeddings conflict for {candidate_id}"
-                )
-            embedding_by_id[candidate_id] = embedding
-    if set(embedding_by_id) != candidate_ids:
-        raise ValueError(f"merged {view} embeddings do not equal candidate identities")
-
     output.mkdir(parents=True)
     atomic_jsonl(output / "question_projections.jsonl", projection_rows)
-    ordered_ids = sorted(candidate_ids)
-    atomic_npz(
-        output / "question_embeddings.restricted-local.npz",
-        candidate_ids=np.asarray(ordered_ids),
-        embeddings=np.asarray(
-            [embedding_by_id[candidate_id] for candidate_id in ordered_ids],
-            dtype=np.float32,
-        ),
-    )
+    source_embedding_archives = [
+        root / "question_embeddings.restricted-local.npz" for root in roots
+    ]
+    if any(
+        not path.is_file() or path.stat().st_size == 0
+        for path in source_embedding_archives
+    ):
+        raise ValueError(f"partition {view} embedding archives are incomplete")
+    if include_embedding_arrays:
+        embedding_by_id: dict[str, np.ndarray] = {}
+        for archive in source_embedding_archives:
+            with np.load(archive, allow_pickle=False) as payload:
+                ids = [str(value) for value in payload["candidate_ids"]]
+                values = np.asarray(payload["embeddings"], dtype=np.float32)
+            if len(ids) != len(values) or len(set(ids)) != len(ids):
+                raise ValueError(
+                    f"partition {view} embedding identities are inconsistent"
+                )
+            for candidate_id, embedding in zip(ids, values):
+                existing = embedding_by_id.get(candidate_id)
+                if existing is not None and not np.array_equal(existing, embedding):
+                    raise ValueError(
+                        f"partition {view} embeddings conflict for {candidate_id}"
+                    )
+                embedding_by_id[candidate_id] = embedding
+        if set(embedding_by_id) != candidate_ids:
+            raise ValueError(
+                f"merged {view} embeddings do not equal candidate identities"
+            )
+        ordered_ids = sorted(candidate_ids)
+        atomic_npz(
+            output / "question_embeddings.restricted-local.npz",
+            candidate_ids=np.asarray(ordered_ids),
+            embeddings=np.asarray(
+                [embedding_by_id[candidate_id] for candidate_id in ordered_ids],
+                dtype=np.float32,
+            ),
+        )
     manifest = {
         "format_version": manifests[0]["format_version"],
         "created_at": _now(),
@@ -162,10 +172,22 @@ def _merge_projection_view(
         "candidate_files": [_identity(candidate_file)],
         "candidate_count": len(candidate_ids),
         "embedding": embeddings_config[0],
+        "embedding_arrays_included": include_embedding_arrays,
+        "source_embedding_archives": [
+            {
+                "path": str(path.resolve()),
+                "size_bytes": path.stat().st_size,
+            }
+            for path in source_embedding_archives
+        ],
         "partition_projection_manifests": [
             _identity(root / "projection_manifest.json") for root in roots
         ],
-        "merge_contract": "exact-id-union-with-identical-overlap-v1",
+        "merge_contract": (
+            "exact-id-union-with-identical-overlap-v1"
+            if include_embedding_arrays
+            else "exact-coordinate-id-union-source-embedding-archives-retained-v1"
+        ),
     }
     atomic_json(output / "projection_manifest.json", manifest)
     return manifest
@@ -174,6 +196,8 @@ def _merge_projection_view(
 def merge_partition_checkpoints(
     partition_roots: Sequence[str | Path],
     output_directory: str | Path,
+    *,
+    include_embedding_arrays: bool = True,
 ) -> dict[str, object]:
     roots = [Path(value).resolve() for value in partition_roots]
     output = Path(output_directory).resolve()
@@ -293,6 +317,7 @@ def merge_partition_checkpoints(
             view=view,
             candidate_ids=candidate_ids,
             candidate_file=candidate_file,
+            include_embedding_arrays=include_embedding_arrays,
         )
 
     manifest = {
@@ -319,9 +344,18 @@ def merge_partition_checkpoints(
         "accepted_count": sum(bool(row["accepted"]) for row in validation_rows),
         "qwen_map_id": projection_manifests["qwen"]["map_id"],
         "mistral_map_id": projection_manifests["mistral"]["map_id"],
+        "embedding_arrays_included": include_embedding_arrays,
         "scientific_guard": (
             "Rows are unioned by immutable candidate id; overlapping candidate, "
-            "validation, projection, and embedding records must be exactly equal."
+            "validation, and projection records must be exactly equal. "
+            + (
+                "Embedding records are also exact-unioned into consolidated archives."
+                if include_embedding_arrays
+                else (
+                    "Restricted-local embedding arrays are not reconstructed; their "
+                    "source archives remain in the immutable partition checkpoints."
+                )
+            )
         ),
     }
     atomic_json(output / "merge_manifest.json", manifest)
@@ -332,12 +366,25 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--partition-root", action="append", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--omit-embedding-arrays",
+        action="store_true",
+        help=(
+            "Exact-merge candidates, validations, and both projection-coordinate "
+            "views without reconstructing consolidated restricted-local embedding "
+            "arrays. Source archives remain in the partition checkpoints."
+        ),
+    )
     return parser
 
 
 def main() -> int:
     args = _parser().parse_args()
-    manifest = merge_partition_checkpoints(args.partition_root, args.output_dir)
+    manifest = merge_partition_checkpoints(
+        args.partition_root,
+        args.output_dir,
+        include_embedding_arrays=not args.omit_embedding_arrays,
+    )
     print(
         f"partition_candidates={manifest['candidate_count']} "
         f"accepted={manifest['accepted_count']} output={args.output_dir}"

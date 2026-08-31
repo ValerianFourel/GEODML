@@ -268,6 +268,41 @@ class ReadinessPartitioningTests(unittest.TestCase):
                 "readiness-partition-checkpoint-union-v2",
             )
 
+    def test_checkpoint_merge_can_retain_partition_embedding_archives(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            left = self._partition_fixture(root, index=0, unique_id="left")
+            right = self._partition_fixture(root, index=1, unique_id="right")
+            output = root / "merged-coordinates"
+            manifest = merge_partition_checkpoints(
+                (left, right),
+                output,
+                include_embedding_arrays=False,
+            )
+            self.assertFalse(manifest["embedding_arrays_included"])
+            for view in ("qwen", "mistral"):
+                projection = output / "projections" / view
+                self.assertTrue(
+                    (projection / "question_projections.jsonl").is_file()
+                )
+                self.assertFalse(
+                    (projection / "question_embeddings.restricted-local.npz").exists()
+                )
+                projection_manifest = json.loads(
+                    (projection / "projection_manifest.json").read_text()
+                )
+                self.assertFalse(
+                    projection_manifest["embedding_arrays_included"]
+                )
+                self.assertEqual(
+                    len(projection_manifest["source_embedding_archives"]),
+                    2,
+                )
+                self.assertEqual(
+                    projection_manifest["candidate_count"],
+                    3,
+                )
+
     def test_checkpoint_merge_checks_every_ten_section_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
