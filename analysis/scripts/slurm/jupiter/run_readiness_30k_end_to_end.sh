@@ -117,6 +117,11 @@ export READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
 export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
 export READINESS_VALIDATION_SHARD_COUNT="${READINESS_VALIDATION_SHARD_COUNT:-4}"
+export READINESS_COORDINATE_ONLY_PROJECTION_REUSE="${READINESS_COORDINATE_ONLY_PROJECTION_REUSE:-0}"
+[[ "$READINESS_COORDINATE_ONLY_PROJECTION_REUSE" == "0" || "$READINESS_COORDINATE_ONLY_PROJECTION_REUSE" == "1" ]] || {
+    echo "READINESS_COORDINATE_ONLY_PROJECTION_REUSE must equal 0 or 1" >&2
+    exit 2
+}
 
 python3 - "$READINESS_30K_PLAN_ROOT" <<'PY'
 import collections
@@ -441,6 +446,7 @@ identity = {
         else None
     ),
     "validation_shard_count": int(os.environ["READINESS_VALIDATION_SHARD_COUNT"]),
+    "coordinate_only_projection_reuse": os.environ["READINESS_COORDINATE_ONLY_PROJECTION_REUSE"] == "1",
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],
     "slurm_job_id": os.environ["SLURM_JOB_ID"],
@@ -612,13 +618,22 @@ projection_artifact_matches() {
     local expected_attention="${READINESS_LLM2VEC_ATTENTION_IMPLEMENTATION:-eager}"
     [[ -s "$root/projection_manifest.json" ]] || return 1
     [[ -s "$root/question_projections.jsonl" ]] || return 1
-    [[ -s "$root/question_embeddings.restricted-local.npz" ]] || return 1
+    if [[ "$READINESS_COORDINATE_ONLY_PROJECTION_REUSE" != "1" ]]; then
+        [[ -s "$root/question_embeddings.restricted-local.npz" ]] || return 1
+    fi
+    local coordinate_args=()
+    if [[ "$READINESS_COORDINATE_ONLY_PROJECTION_REUSE" == "1" ]]; then
+        python -c 'import json,sys; assert json.load(open(sys.argv[1]))["embedding_arrays_included"] is False' \
+            "$root/projection_manifest.json" || return 1
+        coordinate_args+=(--allow-coordinate-only)
+    fi
     python \
         "$GEODML_REPOSITORY/analysis/scripts/verify_readiness_projection_checkpoint.py" \
         --projection-manifest "$root/projection_manifest.json" \
         --expected-count "$expected" \
         --candidate-file-list "$candidates" \
-        --expected-attention "$expected_attention"
+        --expected-attention "$expected_attention" \
+        "${coordinate_args[@]}"
 }
 
 recover_projection_attempt() {

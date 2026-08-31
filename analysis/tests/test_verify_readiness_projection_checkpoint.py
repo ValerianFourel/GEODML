@@ -87,6 +87,37 @@ class VerifyReadinessProjectionCheckpointTests(unittest.TestCase):
                     expected_attention="flash_attention_2",
                 )
 
+    def test_coordinate_only_checkpoint_requires_explicit_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest, listing, _ = self._fixture(Path(temporary))
+            row = json.loads(manifest.read_text(encoding="utf-8"))
+            row["embedding_arrays_included"] = False
+            archive = Path(temporary) / "source.restricted-local.npz"
+            archive.write_bytes(b"immutable-embedding-archive")
+            row["source_embedding_archives"] = [
+                {
+                    "path": str(archive),
+                    "size_bytes": archive.stat().st_size,
+                }
+            ]
+            manifest.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError, "omits consolidated embedding arrays"
+            ):
+                verify_projection_checkpoint(
+                    manifest,
+                    expected_count=1,
+                    candidate_file_list=listing,
+                    expected_attention="eager",
+                )
+            verify_projection_checkpoint(
+                manifest,
+                expected_count=1,
+                candidate_file_list=listing,
+                expected_attention="eager",
+                allow_coordinate_only=True,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

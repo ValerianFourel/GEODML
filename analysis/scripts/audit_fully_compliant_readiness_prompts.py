@@ -21,6 +21,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from analysis.interpretability.pipeline.readiness_prompt_population import (
     audit_question_diversity,
     delexicalize_question,
+    search_review_passes_contract,
 )
 
 
@@ -71,22 +72,15 @@ def _finite_distance_within(row: Mapping[str, object], key: str, limit: float) -
     return math.isfinite(value) and 0.0 <= value <= limit
 
 
-def _validation_acceptance_is_consistent(row: Mapping[str, object]) -> bool:
-    required_true = (
-        "accepted",
-        "exact_keyword_present",
-        "single_question",
-        "topic_relevant",
-        "search_intent",
-        "web_answerable",
-        "standalone",
-        "natural_language",
-    )
+def _validation_acceptance_is_consistent(
+    row: Mapping[str, object], *, contract: str
+) -> bool:
     try:
-        score = int(row.get("relevance_score_1_5", 0))
+        return row.get("accepted") is True and search_review_passes_contract(
+            row, contract=contract
+        )
     except (TypeError, ValueError):
         return False
-    return all(row.get(key) is True for key in required_true) and score >= 4
 
 
 def _candidate_matches_selection(
@@ -229,6 +223,15 @@ def audit_fully_compliant_prompts(
         raise ValueError(
             "strict coordinate contract is not enabled with a positive tolerance"
         )
+    text_contract = str(selection_manifest.get("text_contract", "question-v1"))
+    acceptance_contract = str(
+        selection_manifest.get("acceptance_contract_version", "question-v1")
+    )
+    if text_contract not in {"question-v1", "search-trigger-v2"}:
+        raise ValueError(f"unsupported selected text contract: {text_contract}")
+    if acceptance_contract != text_contract:
+        raise ValueError("selected text and acceptance contracts differ")
+    relaxed_surface = text_contract == "search-trigger-v2"
 
     failures: list[set[str]] = [set() for _ in selected]
     candidate_id_indices: dict[str, list[int]] = defaultdict(list)
@@ -255,13 +258,20 @@ def audit_fully_compliant_prompts(
         question_indices[" ".join(question.split()).casefold()].append(index)
         if keyword and question:
             try:
-                template_indices[delexicalize_question(question, keyword)].append(index)
+                template_indices[
+                    delexicalize_question(
+                        question,
+                        keyword,
+                        require_keyword=not relaxed_surface,
+                    )
+                ].append(index)
             except ValueError:
                 failures[index].add("question_contains_exact_keyword")
-        if keyword not in question:
-            failures[index].add("question_contains_exact_keyword")
-        if not question.endswith("?") or question.count("?") != 1:
-            failures[index].add("single_question")
+        if not relaxed_surface:
+            if keyword not in question:
+                failures[index].add("question_contains_exact_keyword")
+            if not question.endswith("?") or question.count("?") != 1:
+                failures[index].add("single_question")
         if row.get("both_views_within_tolerance") is not True:
             failures[index].add("both_views_within_tolerance")
         for key in (
@@ -332,7 +342,9 @@ def audit_fully_compliant_prompts(
                     failures[index].add("question_sha256_matches_merged_candidate")
             if validation is None:
                 failures[index].add("independent_validation_present")
-            elif not _validation_acceptance_is_consistent(validation):
+            elif not _validation_acceptance_is_consistent(
+                validation, contract=acceptance_contract
+            ):
                 failures[index].add("independent_acceptance_contract")
 
     global_checks: dict[str, bool] = {}
@@ -406,6 +418,34 @@ def audit_fully_compliant_prompts(
         "strict_dual_view_diagnostics_contract_enabled",
         diagnostics.get("require_both_views_within_tolerance") is True,
     )
+    expected_tolerance = 0.035 if relaxed_surface else 0.017
+    check(
+        "recorded_tolerance_matches_contract",
+        math.isclose(tolerance, expected_tolerance, rel_tol=0.0, abs_tol=1e-12),
+    )
+    check(
+        "summary_text_contract_matches",
+        summary.get("text_contract", "question-v1") == text_contract,
+    )
+    check(
+        "summary_acceptance_contract_matches",
+        summary.get("acceptance_contract_version", "question-v1")
+        == acceptance_contract,
+    )
+    check(
+        "diagnostics_text_contract_matches",
+        diagnostics.get("text_contract", "question-v1") == text_contract,
+    )
+    check(
+        "diagnostics_acceptance_contract_matches",
+        diagnostics.get("acceptance_contract_version", "question-v1")
+        == acceptance_contract,
+    )
+    check(
+        "validation_acceptance_contract_matches",
+        validation_manifest.get("acceptance_contract_version", "question-v1")
+        == acceptance_contract,
+    )
     surface_contract = selection_manifest.get("surface_acceptance_contract")
     check(
         "delexicalized_uniqueness_selection_contract_enabled",
@@ -443,6 +483,7 @@ def audit_fully_compliant_prompts(
             recomputed_diversity = audit_question_diversity(
                 selected,
                 **_diversity_thresholds(stored_diversity),
+                allow_missing_keyword_for_template=relaxed_surface,
             )
             check(
                 "recomputed_diversity_passes",
@@ -508,6 +549,8 @@ def audit_fully_compliant_prompts(
         "validation_count": validation_count,
         "independently_accepted_candidate_count": accepted_count,
         "distance_tolerance": tolerance,
+        "text_contract": text_contract,
+        "acceptance_contract_version": acceptance_contract,
         "global_contracts_passed": global_contracts_passed,
         "global_checks": global_checks,
         "failed_global_checks": sorted(
@@ -524,11 +567,11 @@ def audit_fully_compliant_prompts(
         "recomputed_diversity_error": recomputed_diversity_error,
         "definition": (
             "A fully compliant prompt exactly matches its immutable merged candidate, "
-            "satisfies every independent-validator acceptance field, lies within the "
-            "preregistered tolerance in both frozen embedding views, has unique IDs, "
-            "keyword-target assignment, exact wording, and delexicalized template, "
-            "and belongs to a selected set whose diversity and artifact contracts "
-            "are independently recomputed and consistent."
+            f"satisfies the {acceptance_contract} independent-review contract, lies "
+            "within the recorded tolerance in both frozen embedding views, has "
+            "unique IDs, keyword-target assignment, exact wording, and normalized "
+            "template, and belongs to a selected set whose diversity and artifact "
+            "contracts are independently recomputed and consistent."
         ),
     }
 

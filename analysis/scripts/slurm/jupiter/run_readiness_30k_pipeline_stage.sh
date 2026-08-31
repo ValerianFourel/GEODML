@@ -119,7 +119,11 @@ case "$stage" in
         activate_runtime "${QWEN_LLM2VEC_VENV:?QWEN_LLM2VEC_VENV is required}"
         projection_reuse_args=()
         if [[ -n "${READINESS_BASE_PROJECTION_ROOT:-}" ]]; then
-            projection_reuse_args+=(--base-projections "$READINESS_BASE_PROJECTION_ROOT")
+            if [[ "${READINESS_COORDINATE_ONLY_PROJECTION_REUSE:-0}" == "1" ]]; then
+                projection_reuse_args+=(--base-coordinate-projections "$READINESS_BASE_PROJECTION_ROOT")
+            else
+                projection_reuse_args+=(--base-projections "$READINESS_BASE_PROJECTION_ROOT")
+            fi
         fi
         python analysis/scripts/build_readiness_prompt_population.py project-candidates \
             --candidates "${candidate_files[@]}" \
@@ -139,7 +143,11 @@ case "$stage" in
         activate_runtime "${MISTRAL_LLM2VEC_VENV:?MISTRAL_LLM2VEC_VENV is required}"
         projection_reuse_args=()
         if [[ -n "${READINESS_BASE_PROJECTION_ROOT:-}" ]]; then
-            projection_reuse_args+=(--base-projections "$READINESS_BASE_PROJECTION_ROOT")
+            if [[ "${READINESS_COORDINATE_ONLY_PROJECTION_REUSE:-0}" == "1" ]]; then
+                projection_reuse_args+=(--base-coordinate-projections "$READINESS_BASE_PROJECTION_ROOT")
+            else
+                projection_reuse_args+=(--base-projections "$READINESS_BASE_PROJECTION_ROOT")
+            fi
         fi
         python analysis/scripts/build_readiness_prompt_population.py project-candidates \
             --candidates "${candidate_files[@]}" \

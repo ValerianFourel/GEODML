@@ -28,6 +28,7 @@ def verify_projection_checkpoint(
     expected_count: int,
     candidate_file_list: str | Path,
     expected_attention: str,
+    allow_coordinate_only: bool = False,
 ) -> None:
     """Fail unless a projection matches candidate content and embedding settings.
 
@@ -67,6 +68,45 @@ def verify_projection_checkpoint(
     attention = str(embedding.get("attention_implementation", "eager"))
     if attention != expected_attention:
         raise ValueError("projection attention implementation differs")
+    coordinate_only = manifest.get("embedding_arrays_included") is False
+    if coordinate_only and not allow_coordinate_only:
+        raise ValueError("projection checkpoint omits consolidated embedding arrays")
+    if coordinate_only:
+        archives = manifest.get("source_embedding_archives")
+        if not isinstance(archives, list) or not archives:
+            raise ValueError(
+                "coordinate-only projection lacks source embedding archives"
+            )
+        for row in archives:
+            if not isinstance(row, dict):
+                raise ValueError("source embedding archive inventory is invalid")
+            path = Path(str(row.get("path", "")))
+            try:
+                expected_size = int(row.get("size_bytes", -1))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "source embedding archive inventory is invalid"
+                ) from exc
+            if (
+                not path.is_file()
+                or expected_size <= 0
+                or path.stat().st_size != expected_size
+            ):
+                raise ValueError(
+                    f"source embedding archive is missing or changed: {path}"
+                )
+        incremental = manifest.get("incremental_reuse", {})
+        embedded_count = (
+            int(incremental.get("embedded_candidate_count", 0))
+            if isinstance(incremental, dict)
+            else 0
+        )
+        new_archive = manifest.get("new_embedding_archive")
+        if embedded_count > 0:
+            if not isinstance(new_archive, dict) or new_archive not in archives:
+                raise ValueError(
+                    "coordinate-only projection lacks its new embedding archive"
+                )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -75,6 +115,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-count", type=int, required=True)
     parser.add_argument("--candidate-file-list", required=True)
     parser.add_argument("--expected-attention", required=True)
+    parser.add_argument("--allow-coordinate-only", action="store_true")
     return parser
 
 
@@ -86,6 +127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_count=args.expected_count,
             candidate_file_list=args.candidate_file_list,
             expected_attention=args.expected_attention,
+            allow_coordinate_only=args.allow_coordinate_only,
         )
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from error

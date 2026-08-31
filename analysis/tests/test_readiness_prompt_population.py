@@ -930,6 +930,129 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                 projected_ids, {candidate.candidate_id for candidate in candidates}
             )
 
+    def test_coordinate_only_projection_reuse_embeds_only_new_candidates(self) -> None:
+        targets = build_target_grid(self.bounds)[:2]
+        tasks = build_generation_tasks(
+            (("keyword:one", "abandoned cart recovery"),),
+            targets,
+            ("fake",),
+            requested_candidate_count=1,
+        )
+        candidates = tuple(
+            generate_question_candidates(
+                (task,), FakeReadinessQuestionGenerator("fake")
+            )[0]
+            for task in tasks
+        )
+
+        class CoordinateRecordingEmbedder:
+            calls = []
+
+            def __init__(self, *args, **kwargs):
+                del args, kwargs
+
+            def embed(self, texts):
+                self.calls.append(list(texts))
+                return np.asarray(
+                    [[0.1 + len(self.calls), 0.2, 0.3] for _ in texts],
+                    dtype=np.float32,
+                )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            model = root / "revision"
+            model.mkdir()
+            map_path = root / "map.json"
+            atomic_json(
+                map_path,
+                asdict(replace(_map(), embedding_model="synthetic@revision")),
+            )
+            reference = root / "reference.jsonl"
+            atomic_jsonl(
+                reference,
+                (
+                    {
+                        "split": "development",
+                        "axis_1": index / 9,
+                        "axis_2": 1.0 - index / 9,
+                    }
+                    for index in range(10)
+                ),
+            )
+            base_candidates = root / "base-candidates.jsonl"
+            new_candidates = root / "new-candidates.jsonl"
+            atomic_jsonl(base_candidates, (asdict(candidates[0]),))
+            atomic_jsonl(new_candidates, (asdict(candidates[1]),))
+            common = {
+                "map": str(map_path),
+                "reference_coordinates": str(reference),
+                "embedding_model": str(model),
+                "mntp_model": None,
+                "peft_model": None,
+                "embedding_batch_size": 8,
+                "embedding_max_length": 512,
+            }
+            from unittest.mock import patch
+
+            with patch(
+                "analysis.scripts.build_readiness_prompt_population."
+                "LLM2VecPromptEmbedder",
+                CoordinateRecordingEmbedder,
+            ):
+                base_output = root / "base-projections"
+                _project_candidates(
+                    SimpleNamespace(
+                        **common,
+                        candidates=[str(base_candidates)],
+                        base_projections=None,
+                        base_coordinate_projections=None,
+                        output_dir=str(base_output),
+                    )
+                )
+                (base_output / "question_embeddings.restricted-local.npz").unlink()
+                base_manifest_path = base_output / "projection_manifest.json"
+                base_manifest = read_json(base_manifest_path)
+                base_manifest["embedding_arrays_included"] = False
+                base_manifest["source_embedding_archives"] = [
+                    {"path": "/immutable/source.npz", "size_bytes": 123}
+                ]
+                atomic_json(base_manifest_path, base_manifest)
+
+                output = root / "coordinate-only-projections"
+                _project_candidates(
+                    SimpleNamespace(
+                        **common,
+                        candidates=[str(base_candidates), str(new_candidates)],
+                        base_projections=None,
+                        base_coordinate_projections=str(base_output),
+                        output_dir=str(output),
+                    )
+                )
+
+            manifest = read_json(output / "projection_manifest.json")
+            self.assertEqual(
+                [len(call) for call in CoordinateRecordingEmbedder.calls],
+                [1, 1],
+            )
+            self.assertEqual(
+                CoordinateRecordingEmbedder.calls[1], [candidates[1].question]
+            )
+            self.assertFalse(manifest["embedding_arrays_included"])
+            self.assertTrue(manifest["incremental_reuse"]["coordinate_only"])
+            self.assertEqual(
+                manifest["incremental_reuse"]["reused_candidate_count"], 1
+            )
+            self.assertEqual(
+                manifest["incremental_reuse"]["embedded_candidate_count"], 1
+            )
+            self.assertFalse(
+                (output / "question_embeddings.restricted-local.npz").exists()
+            )
+            self.assertTrue(
+                (output / "new_question_embeddings.restricted-local.npz").is_file()
+            )
+            self.assertEqual(len(manifest["source_embedding_archives"]), 2)
+
     def test_projection_matches_frozen_map_formula(self) -> None:
         target = build_target_grid(self.bounds)[0]
         task = build_generation_tasks(

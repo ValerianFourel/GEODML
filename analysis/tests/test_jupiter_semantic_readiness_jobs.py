@@ -36,6 +36,9 @@ READINESS_30K_END_TO_END = JUPITER_ROOT / "run_readiness_30k_end_to_end.sh"
 READINESS_30K_PIPELINE_STAGE = (
     JUPITER_ROOT / "run_readiness_30k_pipeline_stage.sh"
 )
+READINESS_30K_SEARCH_TRIGGER_V2 = (
+    JUPITER_ROOT / "run_readiness_30k_search_trigger_v2.sh"
+)
 READINESS_30K_AXIS1_STRICT_LOOP = (
     JUPITER_ROOT / "run_readiness_30k_axis1_strict_loop.sh"
 )
@@ -88,6 +91,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_GENERATOR_INSTALLER,
             READINESS_30K_END_TO_END,
             READINESS_30K_PIPELINE_STAGE,
+            READINESS_30K_SEARCH_TRIGGER_V2,
             READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_30K_AXIS1_8GPU_RESUME,
             READINESS_30K_AXIS1_PARTITION,
@@ -238,6 +242,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             'get("attention_implementation", "eager")', projection_verifier
         )
         self.assertIn("READINESS_BASE_PROJECTION_ROOT", script)
+        self.assertIn("READINESS_COORDINATE_ONLY_PROJECTION_REUSE", script)
+        self.assertIn("--base-coordinate-projections", worker)
         self.assertIn("READINESS_BASE_VALIDATION_OUTPUT", script)
         self.assertIn("recovered completed projection", script)
         self.assertIn("merge_readiness_validation_caches.py", script)
@@ -285,6 +291,29 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND:-1024', strict_loop)
         self.assertIn("READINESS_VALIDATION_CACHE_SEARCH_ROOTS", strict_loop)
         self.assertIn("run_readiness_30k_end_to_end.sh", strict_loop)
+
+    def test_search_trigger_v2_runner_is_additive_and_never_allocates(self) -> None:
+        script = READINESS_30K_SEARCH_TRIGGER_V2.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotIn("sbatch", script)
+        self.assertNotIn("#SBATCH", script)
+        self.assertIn("SLURM_JOB_ID", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME" == "04:00:00"', script)
+        self.assertIn('READINESS_ALLOCATED_GPU_COUNT:-4', script)
+        self.assertIn("maximum_gpu_hours\": 16", script)
+        self.assertIn("scheduler_allocated_cpus\": 288", script)
+        self.assertIn('READINESS_TEXT_CONTRACT="search-trigger-v2"', script)
+        self.assertIn('READINESS_ACCEPTANCE_CONTRACT="search-trigger-v2"', script)
+        self.assertIn('READINESS_DISTANCE_TOLERANCE="0.035"', script)
+        self.assertIn('READINESS_COORDINATE_ONLY_PROJECTION_REUSE="1"', script)
+        self.assertIn("READINESS_INITIAL_CANDIDATE_FILE_LIST", script)
+        self.assertIn("READINESS_INITIAL_PROJECTION_ROOT", script)
+        self.assertIn("READINESS_INITIAL_VALIDATION_OUTPUT", script)
+        self.assertIn("maximum_candidate_round_index", script)
+        self.assertIn("READINESS_FINALIZATION_RESERVE_SECONDS", script)
+        self.assertIn('SLURM_MPI_TYPE="none"', script)
+        self.assertIn("Prompt embeddings describe generated text", script)
 
     def test_axis1_eight_gpu_resume_records_approved_budget_and_reuses_work(self) -> None:
         script = READINESS_30K_AXIS1_8GPU_RESUME.read_text(encoding="utf-8")

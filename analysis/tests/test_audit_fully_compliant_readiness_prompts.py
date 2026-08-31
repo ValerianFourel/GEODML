@@ -202,6 +202,78 @@ class FullyCompliantPromptAuditTests(unittest.TestCase):
             self.assertEqual(report["fully_compliant_prompt_count"], 2)
             self.assertEqual(report["ready_to_export_count"], 2)
 
+    def test_audits_relaxed_search_triggers_without_keyword_or_question_form(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "round-00"
+            selected, validation = _fixture(root)
+            questions = (
+                "Find causes and practical fixes for this issue",
+                "Compare the evidence and choose a workable approach",
+            )
+            candidates_path = root / "merged/candidates.jsonl"
+            candidates = [
+                json.loads(line)
+                for line in candidates_path.read_text(encoding="utf-8").splitlines()
+            ]
+            for index, question in enumerate(questions):
+                selected[index]["question"] = question
+                candidates[index]["question"] = question
+                candidates[index]["question_sha256"] = hashlib.sha256(
+                    question.encode("utf-8")
+                ).hexdigest()
+                validation[index]["exact_keyword_present"] = False
+                validation[index]["single_question"] = False
+                validation[index]["standalone"] = False
+            _write_jsonl(
+                root / "strict-selection/spatially_selected_questions.jsonl",
+                selected,
+            )
+            _write_jsonl(candidates_path, candidates)
+            _write_jsonl(root / "merged/validation.jsonl", validation)
+
+            for path in (
+                root / "strict-selection/run_manifest.json",
+                root / "strict-selection/spatial_coverage_diagnostics.json",
+                root / "verified_round_summary.json",
+            ):
+                row = json.loads(path.read_text(encoding="utf-8"))
+                row["text_contract"] = "search-trigger-v2"
+                row["acceptance_contract_version"] = "search-trigger-v2"
+                if path.name == "run_manifest.json":
+                    row["coordinate_acceptance_contract"][
+                        "distance_tolerance"
+                    ] = 0.035
+                _write_json(path, row)
+            validation_manifest_path = (
+                root / "merged/validation.jsonl.manifest.json"
+            )
+            validation_manifest = json.loads(
+                validation_manifest_path.read_text(encoding="utf-8")
+            )
+            validation_manifest["acceptance_contract_version"] = (
+                "search-trigger-v2"
+            )
+            _write_json(validation_manifest_path, validation_manifest)
+
+            diversity = audit_question_diversity(
+                selected,
+                maximum_template_fraction=0.5,
+                maximum_opening_frame_fraction=0.5,
+                allow_missing_keyword_for_template=True,
+            )
+            self.assertTrue(diversity["all_checks_passed"])
+            _write_json(
+                root / "selected-diversity/question_diversity_audit.json",
+                diversity,
+            )
+
+            report = audit_fully_compliant_prompts(root)
+
+            self.assertTrue(report["audit_passed"])
+            self.assertEqual(report["text_contract"], "search-trigger-v2")
+            self.assertEqual(report["fully_compliant_prompt_count"], 2)
+            self.assertEqual(report["ready_to_export_count"], 2)
+
     def test_allows_spatial_selection_to_reassign_a_candidate_target(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory) / "final"

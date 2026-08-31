@@ -248,11 +248,21 @@ def _parser() -> argparse.ArgumentParser:
             "the same backend (legacy manifests are treated as eager)"
         ),
     )
-    project.add_argument(
+    projection_reuse = project.add_mutually_exclusive_group()
+    projection_reuse.add_argument(
         "--base-projections",
         help=(
             "reuse immutable embeddings and projections for an exact candidate "
             "subset, embedding only newly appended candidates"
+        ),
+    )
+    projection_reuse.add_argument(
+        "--base-coordinate-projections",
+        help=(
+            "reuse immutable projection coordinates for an exact candidate "
+            "subset when a consolidated base embedding archive was deliberately "
+            "omitted; only newly appended candidates are embedded and their "
+            "restricted-local embeddings are checkpointed"
         ),
     )
     project.add_argument("--output-dir", required=True)
@@ -1144,9 +1154,19 @@ def _project_candidates(args) -> int:
     if not candidates or len({row.candidate_id for row in candidates}) != len(candidates):
         raise ValueError("projection candidates must be nonempty and uniquely identified")
     base_root_value = getattr(args, "base_projections", None)
+    base_coordinate_root_value = getattr(
+        args, "base_coordinate_projections", None
+    )
+    coordinate_only_reuse = bool(base_coordinate_root_value)
+    if base_root_value and base_coordinate_root_value:
+        raise ValueError(
+            "configure either full or coordinate-only base projections, not both"
+        )
+    base_root_value = base_root_value or base_coordinate_root_value
     base_projection_by_id = {}
     base_embedding_by_id = {}
     base_identity = None
+    inherited_embedding_archives = []
     attention_implementation = str(
         getattr(args, "attention_implementation", "eager")
     )
@@ -1157,11 +1177,10 @@ def _project_candidates(args) -> int:
         base_embedding_path = (
             base_root / "question_embeddings.restricted-local.npz"
         )
-        for required in (
-            base_manifest_path,
-            base_projection_path,
-            base_embedding_path,
-        ):
+        required_paths = [base_manifest_path, base_projection_path]
+        if not coordinate_only_reuse:
+            required_paths.append(base_embedding_path)
+        for required in required_paths:
             if not required.is_file():
                 raise ValueError(f"base projection artifact is missing: {required}")
         base_manifest = read_json(base_manifest_path)
@@ -1197,17 +1216,47 @@ def _project_candidates(args) -> int:
         if len({row["candidate_id"] for row in base_rows}) != len(base_rows):
             raise ValueError("base projections contain duplicate candidate ids")
         base_projection_by_id = {row["candidate_id"]: row for row in base_rows}
-        with np.load(base_embedding_path, allow_pickle=False) as payload:
-            base_candidate_ids = [str(value) for value in payload["candidate_ids"]]
-            base_embeddings = np.asarray(payload["embeddings"], dtype=np.float32)
-        if (
-            len(base_candidate_ids) != len(base_embeddings)
-            or len(set(base_candidate_ids)) != len(base_candidate_ids)
-            or set(base_candidate_ids) != set(base_projection_by_id)
-            or int(base_manifest.get("candidate_count", -1)) != len(base_candidate_ids)
+        if int(base_manifest.get("candidate_count", -1)) != len(
+            base_projection_by_id
         ):
-            raise ValueError("base projection artifacts disagree on candidate identity")
-        base_embedding_by_id = dict(zip(base_candidate_ids, base_embeddings))
+            raise ValueError(
+                "base projection manifest and coordinate identities disagree"
+            )
+        if coordinate_only_reuse:
+            inherited = base_manifest.get("source_embedding_archives", [])
+            if not isinstance(inherited, list) or not all(
+                isinstance(row, dict) for row in inherited
+            ):
+                raise ValueError(
+                    "coordinate-only base has invalid source embedding inventory"
+                )
+            inherited_embedding_archives = list(inherited)
+            if base_embedding_path.is_file():
+                inherited_embedding_archives.append(
+                    {
+                        "path": str(base_embedding_path),
+                        "size_bytes": base_embedding_path.stat().st_size,
+                    }
+                )
+        else:
+            with np.load(base_embedding_path, allow_pickle=False) as payload:
+                base_candidate_ids = [
+                    str(value) for value in payload["candidate_ids"]
+                ]
+                base_embeddings = np.asarray(
+                    payload["embeddings"], dtype=np.float32
+                )
+            if (
+                len(base_candidate_ids) != len(base_embeddings)
+                or len(set(base_candidate_ids)) != len(base_candidate_ids)
+                or set(base_candidate_ids) != set(base_projection_by_id)
+            ):
+                raise ValueError(
+                    "base projection artifacts disagree on candidate identity"
+                )
+            base_embedding_by_id = dict(
+                zip(base_candidate_ids, base_embeddings)
+            )
         current_by_id = {row.candidate_id: row for row in candidates}
         if not set(base_projection_by_id).issubset(current_by_id):
             raise ValueError("base projections are not a subset of current candidates")
@@ -1265,15 +1314,6 @@ def _project_candidates(args) -> int:
             for candidate_id, row in new_projection_by_id.items()
         },
     }
-    embeddings = np.asarray(
-        [
-            base_embedding_by_id.get(candidate.candidate_id)
-            if candidate.candidate_id in base_embedding_by_id
-            else new_embedding_by_id[candidate.candidate_id]
-            for candidate in candidates
-        ],
-        dtype=np.float32,
-    )
     atomic_jsonl(
         output / "question_projections.jsonl",
         (
@@ -1284,11 +1324,46 @@ def _project_candidates(args) -> int:
             for candidate in candidates
         ),
     )
-    atomic_npz(
-        output / "question_embeddings.restricted-local.npz",
-        candidate_ids=np.asarray([row.candidate_id for row in candidates]),
-        embeddings=np.asarray(embeddings, dtype=np.float32),
-    )
+    new_embedding_archive = None
+    if coordinate_only_reuse:
+        if new_candidates:
+            new_embedding_path = (
+                output / "new_question_embeddings.restricted-local.npz"
+            )
+            atomic_npz(
+                new_embedding_path,
+                candidate_ids=np.asarray(
+                    [row.candidate_id for row in new_candidates]
+                ),
+                embeddings=np.asarray(
+                    [
+                        new_embedding_by_id[row.candidate_id]
+                        for row in new_candidates
+                    ],
+                    dtype=np.float32,
+                ),
+            )
+            new_embedding_archive = _file_identity(new_embedding_path)
+    else:
+        embeddings = np.asarray(
+            [
+                base_embedding_by_id.get(candidate.candidate_id)
+                if candidate.candidate_id in base_embedding_by_id
+                else new_embedding_by_id[candidate.candidate_id]
+                for candidate in candidates
+            ],
+            dtype=np.float32,
+        )
+        atomic_npz(
+            output / "question_embeddings.restricted-local.npz",
+            candidate_ids=np.asarray(
+                [row.candidate_id for row in candidates]
+            ),
+            embeddings=embeddings,
+        )
+    source_embedding_archives = list(inherited_embedding_archives)
+    if new_embedding_archive is not None:
+        source_embedding_archives.append(new_embedding_archive)
     atomic_json(
         output / "projection_manifest.json",
         {
@@ -1305,7 +1380,11 @@ def _project_candidates(args) -> int:
                 "base_projection_manifest": base_identity,
                 "reused_candidate_count": len(base_projection_by_id),
                 "embedded_candidate_count": len(new_candidates),
+                "coordinate_only": coordinate_only_reuse,
             },
+            "embedding_arrays_included": not coordinate_only_reuse,
+            "source_embedding_archives": source_embedding_archives,
+            "new_embedding_archive": new_embedding_archive,
             "embedding": {
                 "model": str(Path(args.embedding_model).resolve()),
                 "mntp_model": str(Path(args.mntp_model).resolve()) if args.mntp_model else None,
