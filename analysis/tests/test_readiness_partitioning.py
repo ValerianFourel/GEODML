@@ -126,6 +126,62 @@ class ReadinessPartitioningTests(unittest.TestCase):
                 first["selected_task_count"], first["owned_source_task_count"]
             )
 
+    def test_high_axis_batch_filters_and_prioritizes_descending_targets(self) -> None:
+        rows = []
+        for index, value in enumerate((0.65, 0.72, 0.81, 0.93, 0.99)):
+            rows.append(
+                {
+                    "task_id": f"task-{index}",
+                    "keyword_id": f"keyword-{index}",
+                    "generator_id": "a" if index % 2 == 0 else "b",
+                    "target": {
+                        "target_id": f"target-{index}",
+                        "normalized_axis_1": value,
+                    },
+                }
+            )
+        selected = select_partition_batch(
+            rows,
+            source_sha256="abc",
+            limit=3,
+            partition_count=1,
+            partition_index=0,
+            partition_salt="high-axis",
+            minimum_target_axis_1=0.70,
+            task_priority="descending-axis-1",
+        )
+        self.assertEqual(len(selected), 3)
+        self.assertTrue(
+            all(float(row["target"]["normalized_axis_1"]) >= 0.70 for row in selected)
+        )
+        by_generator: dict[str, list[float]] = {}
+        for row in selected:
+            by_generator.setdefault(str(row["generator_id"]), []).append(
+                float(row["target"]["normalized_axis_1"])
+            )
+        self.assertTrue(
+            all(values == sorted(values, reverse=True) for values in by_generator.values())
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "tasks.jsonl"
+            output = root / "batch.jsonl"
+            _write_jsonl(source, rows)
+            manifest = prepare_partition_batch(
+                source,
+                output,
+                limit=3,
+                partition_count=1,
+                partition_index=0,
+                partition_salt="high-axis",
+                minimum_target_axis_1=0.70,
+                task_priority="descending-axis-1",
+            )
+        self.assertEqual(manifest["format_version"], "readiness-refinement-task-batch-v4")
+        self.assertEqual(manifest["eligible_source_task_count"], 4)
+        self.assertEqual(manifest["minimum_target_axis_1"], 0.70)
+
     def _partition_fixture(
         self,
         root: Path,

@@ -32,6 +32,7 @@ from interpretability.pipeline.readiness_prompt_population import (  # noqa: E40
     READINESS_PROMPT_POPULATION_VERSION,
     SEARCH_ACCEPTANCE_CONTRACTS,
     TEXT_GENERATION_CONTRACTS,
+    TEXT_GENERATION_PROFILES,
     FakeReadinessQuestionGenerator,
     LocalSearchQuestionValidator,
     LocalReadinessQuestionGenerator,
@@ -136,6 +137,15 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "versioned generator-side text contract; question-v1 preserves the "
             "historical exact-keyword question pipeline"
+        ),
+    )
+    generate.add_argument(
+        "--generation-profile",
+        choices=tuple(sorted(TEXT_GENERATION_PROFILES)),
+        default="balanced-v1",
+        help=(
+            "generator prompt profile; high-axis-action-v1 targets action-enabling "
+            "search triggers at readiness axis 1 >= 0.70"
         ),
     )
     generate.add_argument(
@@ -514,6 +524,9 @@ def _generate(args) -> int:
     started = time.monotonic()
     output = Path(args.output).resolve()
     text_contract = str(getattr(args, "text_contract", "question-v1"))
+    generation_profile = str(
+        getattr(args, "generation_profile", "balanced-v1")
+    )
     failure_output = output.with_suffix(output.suffix + ".failures.jsonl")
     contract_path = output.with_suffix(output.suffix + ".contract.json")
     if output.exists() and not args.resume:
@@ -540,11 +553,24 @@ def _generate(args) -> int:
             raise ValueError(
                 "resume output uses a different text generation contract"
             )
+        if contract_path.is_file():
+            prior_profile = str(
+                read_json(contract_path).get("generation_profile", "balanced-v1")
+            )
+        elif manifest_path.is_file():
+            prior_profile = str(
+                read_json(manifest_path).get("generation_profile", "balanced-v1")
+            )
+        else:
+            prior_profile = "balanced-v1"
+        if prior_profile != generation_profile:
+            raise ValueError("resume output uses a different generation profile")
     atomic_json(
         contract_path,
         {
             "format_version": READINESS_PROMPT_POPULATION_VERSION,
             "text_contract": text_contract,
+            "generation_profile": generation_profile,
         },
     )
     tasks = [task for task in _read_tasks(args.tasks) if task.generator_id == args.generator_id]
@@ -567,6 +593,7 @@ def _generate(args) -> int:
         FakeReadinessQuestionGenerator(
             args.generator_id,
             text_contract=text_contract,
+            generation_profile=generation_profile,
         )
         if args.backend == "fake"
         else LocalReadinessQuestionGenerator.from_model(
@@ -579,6 +606,7 @@ def _generate(args) -> int:
             temperature=args.temperature,
             maximum_attempts=args.maximum_attempts,
             text_contract=text_contract,
+            generation_profile=generation_profile,
         )
     )
     existing = tuple(
@@ -676,6 +704,7 @@ def _generate(args) -> int:
             "generator_backend": args.backend,
             "generator_precision": args.precision,
             "text_contract": text_contract,
+            "generation_profile": generation_profile,
             "text_contract_rule": (
                 "One standalone question containing the exact keyword phrase."
                 if text_contract == "question-v1"

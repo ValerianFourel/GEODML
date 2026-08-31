@@ -1236,6 +1236,71 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
         self.assertNotIn("text_contract", asdict(candidate))
         self.assertEqual(cache["identity"]["text_contract"], "search-trigger-v2")
 
+    def test_high_axis_action_profile_preserves_search_boundary(self) -> None:
+        high_target = build_axis_1_target_grid(self.bounds)[-1]
+        high_task = build_generation_tasks(
+            (("keyword:one", "how to save money"),),
+            (high_target,),
+            ("model-a",),
+            requested_candidate_count=1,
+        )[0]
+        request = render_generation_request(
+            high_task,
+            candidate_slot=2,
+            text_contract="search-trigger-v2",
+            generation_profile="high-axis-action-v1",
+        )
+        self.assertIn("High-axis action calibration", request)
+        self.assertIn("immediate next action", request)
+        self.assertIn("still an online-search trigger", request)
+        self.assertIn("do not add cost, safety", request)
+
+        with self.assertRaisesRegex(ValueError, "requires the search-trigger-v2"):
+            render_generation_request(
+                high_task,
+                candidate_slot=0,
+                generation_profile="high-axis-action-v1",
+            )
+
+        low_task = replace(
+            high_task,
+            target=replace(high_task.target, normalized_axis_1=0.60),
+        )
+        with self.assertRaisesRegex(ValueError, "target >= 0.70"):
+            render_generation_request(
+                low_task,
+                candidate_slot=0,
+                text_contract="search-trigger-v2",
+                generation_profile="high-axis-action-v1",
+            )
+
+    def test_high_axis_profile_is_part_of_generation_cache_identity(self) -> None:
+        target = build_axis_1_target_grid(self.bounds)[-1]
+        task = build_generation_tasks(
+            (("keyword:one", "how to save money"),),
+            (target,),
+            ("model-a",),
+            requested_candidate_count=1,
+        )[0]
+        raw = json.dumps(
+            {"search_trigger": "Configure automatic savings transfers and verify the schedule"}
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            generator = LocalReadinessQuestionGenerator(
+                _StaticRanker([raw]),
+                generator_id="model-a",
+                model_name="model/a",
+                cache_directory=temporary,
+                maximum_attempts=1,
+                text_contract="search-trigger-v2",
+                generation_profile="high-axis-action-v1",
+            )
+            generate_question_candidates((task,), generator)
+            cache = json.loads(next(Path(temporary).glob("*.json")).read_text())
+        self.assertEqual(
+            cache["identity"]["generation_profile"], "high-axis-action-v1"
+        )
+
     def test_search_trigger_v2_review_ignores_v1_structural_gates(self) -> None:
         target = build_axis_1_target_grid(self.bounds)[-1]
         task = build_generation_tasks(

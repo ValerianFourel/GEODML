@@ -14,10 +14,24 @@ umask 077
 : "${READINESS_SUBSPACE_ROOT:?Set the frozen readiness subspace root}"
 : "${READINESS_30K_PIPELINE_ROOT:?Set a persistent, fresh v2 pipeline root}"
 
-[[ "$READINESS_APPROVED_WALLTIME" == "04:00:00" ]] || {
-    echo "this invocation was approved specifically for 04:00:00" >&2
-    exit 2
-}
+approved_walltime_seconds="$(python3 - "$READINESS_APPROVED_WALLTIME" <<'PY'
+import re
+import sys
+
+value = sys.argv[1]
+match = re.fullmatch(r"(?:(\d+)-)?(\d+):(\d{2}):(\d{2})", value)
+if match is None:
+    raise SystemExit("approved walltime must use [days-]HH:MM:SS")
+days, hours, minutes, seconds = (int(item or 0) for item in match.groups())
+if minutes >= 60 or seconds >= 60:
+    raise SystemExit("approved walltime contains an invalid minute or second")
+total = days * 86400 + hours * 3600 + minutes * 60 + seconds
+if total <= 0:
+    raise SystemExit("approved walltime must be positive")
+print(total)
+PY
+)"
+export READINESS_APPROVED_WALLTIME_SECONDS="$approved_walltime_seconds"
 
 export GEODML_PROJECT_ROOT="${GEODML_PROJECT_ROOT:-$PROJECT/$USER/geodml}"
 export GEODML_CACHE_ROOT="${GEODML_CACHE_ROOT:-$FSCRATCH/$USER/geodml}"
@@ -117,11 +131,24 @@ record = {
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],
     "nodes": 1,
     "gpus": 4,
-    "maximum_gpu_hours": 16,
-    "scheduler_allocated_cpus": 288,
+    "maximum_gpu_hours": (
+        4 * int(os.environ["READINESS_APPROVED_WALLTIME_SECONDS"]) / 3600
+    ),
+    "scheduler_allocated_cpus": int(os.environ.get("SLURM_CPUS_ON_NODE", "288")),
     "distance_tolerance": 0.035,
     "text_contract": "search-trigger-v2",
     "acceptance_contract_version": "search-trigger-v2",
+    "generation_profile": os.environ.get(
+        "READINESS_GENERATION_PROFILE", "balanced-v1"
+    ),
+    "refinement_minimum_target_axis_1": (
+        float(os.environ["READINESS_REFINEMENT_MIN_TARGET_AXIS_1"])
+        if os.environ.get("READINESS_REFINEMENT_MIN_TARGET_AXIS_1")
+        else None
+    ),
+    "refinement_task_priority": os.environ.get(
+        "READINESS_REFINEMENT_TASK_PRIORITY", "stable-hash"
+    ),
     "global_coordinate_root": os.environ["READINESS_GLOBAL_COORDINATE_ROOT"],
     "baseline_candidate_count": int(os.environ["READINESS_BASELINE_CANDIDATE_COUNT"]),
     "baseline_maximum_round": int(os.environ["READINESS_INITIAL_LOGICAL_ROUND_INDEX"]),
@@ -132,6 +159,9 @@ record = {
 }
 if path.exists():
     existing = json.loads(path.read_text(encoding="utf-8"))
+    existing.setdefault("generation_profile", "balanced-v1")
+    existing.setdefault("refinement_minimum_target_axis_1", None)
+    existing.setdefault("refinement_task_priority", "stable-hash")
     stable = set(record) - {"created_at", "slurm_job_id"}
     if any(existing.get(key) != record[key] for key in stable):
         raise SystemExit("existing v2 allocation record has a different identity")

@@ -39,6 +39,9 @@ READINESS_30K_PIPELINE_STAGE = (
 READINESS_30K_SEARCH_TRIGGER_V2 = (
     JUPITER_ROOT / "run_readiness_30k_search_trigger_v2.sh"
 )
+READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS = (
+    JUPITER_ROOT / "run_readiness_30k_search_trigger_v2_high_axis.sh"
+)
 READINESS_30K_AXIS1_STRICT_LOOP = (
     JUPITER_ROOT / "run_readiness_30k_axis1_strict_loop.sh"
 )
@@ -92,6 +95,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_END_TO_END,
             READINESS_30K_PIPELINE_STAGE,
             READINESS_30K_SEARCH_TRIGGER_V2,
+            READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS,
             READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_30K_AXIS1_8GPU_RESUME,
             READINESS_30K_AXIS1_PARTITION,
@@ -299,10 +303,10 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn("sbatch", script)
         self.assertNotIn("#SBATCH", script)
         self.assertIn("SLURM_JOB_ID", script)
-        self.assertIn('READINESS_APPROVED_WALLTIME" == "04:00:00"', script)
+        self.assertIn("READINESS_APPROVED_WALLTIME_SECONDS", script)
         self.assertIn('READINESS_ALLOCATED_GPU_COUNT:-4', script)
-        self.assertIn("maximum_gpu_hours\": 16", script)
-        self.assertIn("scheduler_allocated_cpus\": 288", script)
+        self.assertIn('"maximum_gpu_hours"', script)
+        self.assertIn('"scheduler_allocated_cpus"', script)
         self.assertIn('READINESS_TEXT_CONTRACT="search-trigger-v2"', script)
         self.assertIn('READINESS_ACCEPTANCE_CONTRACT="search-trigger-v2"', script)
         self.assertIn('READINESS_DISTANCE_TOLERANCE="0.035"', script)
@@ -314,6 +318,22 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_FINALIZATION_RESERVE_SECONDS", script)
         self.assertIn('SLURM_MPI_TYPE="none"', script)
         self.assertIn("Prompt embeddings describe generated text", script)
+
+    def test_high_axis_v2_harness_targets_action_end_without_allocating(self) -> None:
+        script = READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS.read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("salloc", script)
+        self.assertNotIn("sbatch", script)
+        self.assertNotIn("#SBATCH", script)
+        self.assertIn("SLURM_JOB_ID", script)
+        self.assertIn('READINESS_GENERATION_PROFILE="high-axis-action-v1"', script)
+        self.assertIn("READINESS_REFINEMENT_MIN_TARGET_AXIS_1", script)
+        self.assertIn('READINESS_REFINEMENT_TASK_PRIORITY="descending-axis-1"', script)
+        self.assertIn("READINESS_HIGH_AXIS_BASELINE_SELECTED", script)
+        self.assertIn("search_trigger_v2_relaxed_tolerance", script)
+        self.assertIn("run_readiness_30k_search_trigger_v2.sh", script)
+        self.assertIn("Prompt embeddings diagnose generated text", script)
 
     def test_axis1_eight_gpu_resume_records_approved_budget_and_reuses_work(self) -> None:
         script = READINESS_30K_AXIS1_8GPU_RESUME.read_text(encoding="utf-8")

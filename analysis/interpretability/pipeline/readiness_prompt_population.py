@@ -26,6 +26,9 @@ SEARCH_ACCEPTANCE_CONTRACTS = frozenset(
     {"question-v1", "search-trigger-v2"}
 )
 TEXT_GENERATION_CONTRACTS = SEARCH_ACCEPTANCE_CONTRACTS
+TEXT_GENERATION_PROFILES = frozenset(
+    {"balanced-v1", "high-axis-action-v1"}
+)
 AXIS_1_ONLY_TARGET_DESIGNS = frozenset(
     {"axis-1-linear", "axis-1-quantized-uniform"}
 )
@@ -258,12 +261,15 @@ class FakeReadinessQuestionGenerator:
         generator_id: str = "fake-generator",
         *,
         text_contract: str = "question-v1",
+        generation_profile: str = "balanced-v1",
     ) -> None:
         if text_contract not in TEXT_GENERATION_CONTRACTS:
             raise ValueError(f"unsupported text generation contract: {text_contract}")
+        _validate_generation_profile(text_contract, generation_profile)
         self.generator_id = generator_id
         self.model_name = "fake-readiness-question-generator-v1"
         self.text_contract = text_contract
+        self.generation_profile = generation_profile
 
     def generate(self, task: ReadinessGenerationTask) -> tuple[str, ...]:
         a1 = task.target.normalized_axis_1
@@ -298,6 +304,7 @@ class LocalReadinessQuestionGenerator:
         temperature: float = 0.9,
         maximum_attempts: int = 5,
         text_contract: str = "question-v1",
+        generation_profile: str = "balanced-v1",
     ) -> None:
         if not generator_id.strip() or not model_name.strip():
             raise ValueError("generator_id and model_name must be nonempty")
@@ -305,6 +312,7 @@ class LocalReadinessQuestionGenerator:
             raise ValueError("invalid generator configuration")
         if text_contract not in TEXT_GENERATION_CONTRACTS:
             raise ValueError(f"unsupported text generation contract: {text_contract}")
+        _validate_generation_profile(text_contract, generation_profile)
         self._ranker = ranker
         self.generator_id = generator_id
         self.model_name = model_name
@@ -313,6 +321,7 @@ class LocalReadinessQuestionGenerator:
         self.temperature = temperature
         self.maximum_attempts = maximum_attempts
         self.text_contract = text_contract
+        self.generation_profile = generation_profile
 
     @classmethod
     def from_model(
@@ -327,6 +336,7 @@ class LocalReadinessQuestionGenerator:
         temperature: float = 0.9,
         maximum_attempts: int = 5,
         text_contract: str = "question-v1",
+        generation_profile: str = "balanced-v1",
     ) -> "LocalReadinessQuestionGenerator":
         from ..utils import make_ranker
 
@@ -339,6 +349,7 @@ class LocalReadinessQuestionGenerator:
             temperature=temperature,
             maximum_attempts=maximum_attempts,
             text_contract=text_contract,
+            generation_profile=generation_profile,
         )
 
     def generate(self, task: ReadinessGenerationTask) -> tuple[str, ...]:
@@ -359,6 +370,8 @@ class LocalReadinessQuestionGenerator:
         }
         if self.text_contract != "question-v1":
             identity["text_contract"] = self.text_contract
+        if self.generation_profile != "balanced-v1":
+            identity["generation_profile"] = self.generation_profile
         cache_key = _stable_hash(identity)
         cache_path = self.cache_directory / f"{cache_key}.json"
         accepted: list[str] = []
@@ -389,6 +402,7 @@ class LocalReadinessQuestionGenerator:
                     task,
                     candidate_slot=slot,
                     text_contract=self.text_contract,
+                    generation_profile=self.generation_profile,
                 )
                 if attempt:
                     request += (
@@ -486,6 +500,8 @@ class LocalReadinessQuestionGenerator:
         }
         if self.text_contract != "question-v1":
             identity["text_contract"] = self.text_contract
+        if self.generation_profile != "balanced-v1":
+            identity["generation_profile"] = self.generation_profile
         cache_key = _stable_hash(identity)
         cache_path = self.cache_directory / f"{cache_key}.json"
         accepted_by_slot: dict[int, str] = {}
@@ -529,6 +545,7 @@ class LocalReadinessQuestionGenerator:
                     task,
                     candidate_slot=slot,
                     text_contract=self.text_contract,
+                    generation_profile=self.generation_profile,
                 )
                 if attempt:
                     request += (
@@ -1318,9 +1335,11 @@ def render_generation_request(
     *,
     candidate_slot: int,
     text_contract: str = "question-v1",
+    generation_profile: str = "balanced-v1",
 ) -> str:
     if text_contract not in TEXT_GENERATION_CONTRACTS:
         raise ValueError(f"unsupported text generation contract: {text_contract}")
+    _validate_generation_profile(text_contract, generation_profile)
     support_aware = task.target.target_id.startswith("readiness-support-target:")
     axis_1_only = task.target.target_id.startswith("readiness-axis-1-target:")
     if support_aware or axis_1_only:
@@ -1372,6 +1391,12 @@ def render_generation_request(
         surface_control = _search_trigger_surface_instruction(
             task.generation_seed + candidate_slot * 1009
         )
+        high_axis_control = ""
+        if generation_profile == "high-axis-action-v1":
+            high_axis_control = _high_axis_action_control(
+                task.target.normalized_axis_1,
+                candidate_slot=candidate_slot,
+            )
         return f"""Write one natural-language online-search trigger associated with the assigned topic below.
 
 Assigned search topic (metadata; it need not appear verbatim): {task.keyword}
@@ -1381,6 +1406,7 @@ Semantic destination:
 - Decision mode: {a2}
 - Control rule: {continuous_control}
 - Surface realization: {surface_control}
+{high_axis_control}
 
 Iteration feedback: {task.feedback}
 Candidate slot: {candidate_slot}
@@ -1392,6 +1418,8 @@ Contract precedence:
 Hard constraints:
 - Express a genuine information need that warrants an online search about the
   assigned topic when the topic metadata is supplied.
+- At the high-readiness end, request action-enabling instructions needed to act
+  now; do not pretend that the search system has already performed the action.
 - A question, imperative request, or concise search phrase is allowed.
 - Use 4 to 60 words and one normalized line.
 - The exact assigned topic phrase is optional, and hidden topic context is allowed.
@@ -1482,6 +1510,60 @@ def _search_trigger_surface_instruction(seed: int) -> str:
         "request criteria that distinguish a suitable from unsuitable approach",
     )
     return variants[seed % len(variants)]
+
+
+def _validate_generation_profile(text_contract: str, generation_profile: str) -> None:
+    if generation_profile not in TEXT_GENERATION_PROFILES:
+        raise ValueError(f"unsupported text generation profile: {generation_profile}")
+    if (
+        generation_profile == "high-axis-action-v1"
+        and text_contract != "search-trigger-v2"
+    ):
+        raise ValueError(
+            "high-axis-action-v1 requires the search-trigger-v2 text contract"
+        )
+
+
+def _high_axis_action_control(value: float, *, candidate_slot: int) -> str:
+    """Make high readiness action-enabling without changing topic semantics."""
+
+    if not 0.70 <= value <= 1.0:
+        raise ValueError("high-axis-action-v1 requires an axis-1 target >= 0.70")
+    if value < 0.80:
+        stage = (
+            "The choice is imminent. Request a concrete commitment, preparation "
+            "plan, prerequisite check, or ordered checklist, but do not ask for "
+            "background explanation or another comparison of options."
+        )
+    elif value < 0.90:
+        stage = (
+            "Treat the approach as already chosen. Request exact ordered steps to "
+            "set up, configure, apply, or implement it, including the first action "
+            "and a practical completion check."
+        )
+    else:
+        stage = (
+            "Treat execution as immediate or already blocked. Request the precise "
+            "next action, command-like procedure, corrective step, or troubleshooting "
+            "sequence and how to verify that it worked."
+        )
+    realizations = (
+        "Use an imperative request for an ordered procedure and its first executable step.",
+        "Frame a current operational obstacle and request diagnosis, correction, and verification.",
+        "Request the immediate next action, required inputs, and a concrete success check.",
+        "Request a compact implementation checklist that ends in execution, not option selection.",
+    )
+    realization = realizations[candidate_slot % len(realizations)]
+    return f"""
+High-axis action calibration (mandatory for this generation profile):
+- {stage}
+- {realization}
+- This is still an online-search trigger: it requests information that enables
+  imminent action. It must not merely request an overview, definition, evidence
+  survey, list of options, pros and cons, or a recommendation about what is best.
+- Preserve only the assigned topic and readiness stage; do not add cost, safety,
+  brand, speed, quality, or any other ranking criterion unless the topic itself
+  explicitly contains it."""
 
 
 def delexicalize_question(

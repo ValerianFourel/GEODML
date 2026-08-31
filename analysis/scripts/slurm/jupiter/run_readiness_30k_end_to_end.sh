@@ -114,7 +114,10 @@ export READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"
 export READINESS_DISAGREEMENT_WEIGHT="${READINESS_DISAGREEMENT_WEIGHT:-0.10}"
 export READINESS_TEXT_CONTRACT="${READINESS_TEXT_CONTRACT:-question-v1}"
 export READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-v1}"
+export READINESS_GENERATION_PROFILE="${READINESS_GENERATION_PROFILE:-balanced-v1}"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
+export READINESS_REFINEMENT_MIN_TARGET_AXIS_1="${READINESS_REFINEMENT_MIN_TARGET_AXIS_1:-}"
+export READINESS_REFINEMENT_TASK_PRIORITY="${READINESS_REFINEMENT_TASK_PRIORITY:-stable-hash}"
 export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
 export READINESS_VALIDATION_SHARD_COUNT="${READINESS_VALIDATION_SHARD_COUNT:-4}"
 export READINESS_COORDINATE_ONLY_PROJECTION_REUSE="${READINESS_COORDINATE_ONLY_PROJECTION_REUSE:-0}"
@@ -167,10 +170,31 @@ tolerance = float(os.environ["READINESS_DISTANCE_TOLERANCE"])
 text_contract = os.environ["READINESS_TEXT_CONTRACT"]
 acceptance_contract = os.environ["READINESS_ACCEPTANCE_CONTRACT"]
 contracts = {"question-v1", "search-trigger-v2"}
+generation_profile = os.environ["READINESS_GENERATION_PROFILE"]
+profiles = {"balanced-v1", "high-axis-action-v1"}
 if text_contract not in contracts or acceptance_contract not in contracts:
     raise SystemExit("unsupported readiness text or acceptance contract")
 if text_contract != acceptance_contract:
     raise SystemExit("readiness text and acceptance contracts must use one version")
+if generation_profile not in profiles:
+    raise SystemExit(f"unsupported readiness generation profile: {generation_profile}")
+if generation_profile == "high-axis-action-v1" and text_contract != "search-trigger-v2":
+    raise SystemExit("high-axis-action-v1 requires search-trigger-v2")
+minimum_axis = os.environ["READINESS_REFINEMENT_MIN_TARGET_AXIS_1"]
+if minimum_axis:
+    minimum_axis = float(minimum_axis)
+    if not 0.0 <= minimum_axis <= 1.0:
+        raise SystemExit("refinement minimum target axis 1 must lie in [0, 1]")
+if generation_profile == "high-axis-action-v1" and (
+    minimum_axis == "" or minimum_axis < 0.70
+):
+    raise SystemExit(
+        "high-axis-action-v1 requires refinement minimum target axis 1 >= 0.70"
+    )
+if os.environ["READINESS_REFINEMENT_TASK_PRIORITY"] not in {
+    "stable-hash", "descending-axis-1"
+}:
+    raise SystemExit("unsupported readiness refinement task priority")
 expected_tolerance = 0.017 if text_contract == "question-v1" else 0.035
 if not math.isclose(tolerance, expected_tolerance, rel_tol=0.0, abs_tol=1e-12):
     raise SystemExit(
@@ -183,6 +207,7 @@ print(
     "strict axis-1 plan preflight: PASS "
     f"keywords=1011 targets=30330 lattice=0.001 "
     f"tolerance={tolerance:.3f} contract={text_contract}"
+    f" profile={generation_profile}"
 )
 PY
 
@@ -406,6 +431,7 @@ initial_projections = sys.argv[7] or None
 initial_validation = sys.argv[8] or None
 validation_cache_root = sys.argv[9]
 keyword_section_plan = os.getenv("READINESS_KEYWORD_SECTION_PLAN") or None
+high_axis_baseline = os.getenv("READINESS_HIGH_AXIS_BASELINE_SELECTED") or None
 manifest_path = root / "pipeline_manifest.json"
 identity = {
     "format_version": "readiness-30k-end-to-end-v1",
@@ -431,11 +457,24 @@ identity = {
     "distance_tolerance": float(os.environ["READINESS_DISTANCE_TOLERANCE"]),
     "text_contract": os.environ["READINESS_TEXT_CONTRACT"],
     "acceptance_contract_version": os.environ["READINESS_ACCEPTANCE_CONTRACT"],
+    "generation_profile": os.environ["READINESS_GENERATION_PROFILE"],
     "disagreement_weight": float(os.environ["READINESS_DISAGREEMENT_WEIGHT"]),
     "refinement_candidates_per_task": int(os.environ["READINESS_REFINEMENT_CANDIDATES_PER_TASK"]),
     "master_seed": int(os.environ["READINESS_MASTER_SEED"]),
     "maximum_refinement_rounds": int(os.environ["READINESS_MAX_REFINEMENT_ROUNDS"]),
     "refinement_task_limit_per_round": int(os.environ["READINESS_REFINEMENT_TASK_LIMIT_PER_ROUND"]),
+    "refinement_minimum_target_axis_1": (
+        float(os.environ["READINESS_REFINEMENT_MIN_TARGET_AXIS_1"])
+        if os.environ["READINESS_REFINEMENT_MIN_TARGET_AXIS_1"]
+        else None
+    ),
+    "refinement_task_priority": os.environ["READINESS_REFINEMENT_TASK_PRIORITY"],
+    "high_axis_baseline_selected": high_axis_baseline,
+    "high_axis_baseline_selected_sha256": (
+        hashlib.sha256(pathlib.Path(high_axis_baseline).read_bytes()).hexdigest()
+        if high_axis_baseline
+        else None
+    ),
     "work_partition_count": int(os.environ["READINESS_WORK_PARTITION_COUNT"]),
     "work_partition_index": int(os.environ["READINESS_WORK_PARTITION_INDEX"]),
     "work_partition_salt": os.environ["READINESS_WORK_PARTITION_SALT"],
@@ -454,6 +493,11 @@ identity = {
 }
 if manifest_path.exists():
     existing = json.loads(manifest_path.read_text())
+    existing.setdefault("generation_profile", "balanced-v1")
+    existing.setdefault("refinement_minimum_target_axis_1", None)
+    existing.setdefault("refinement_task_priority", "stable-hash")
+    existing.setdefault("high_axis_baseline_selected", None)
+    existing.setdefault("high_axis_baseline_selected_sha256", None)
     stable_keys = set(identity) - {
         "approved_walltime",
         "allocation_estimate",
@@ -700,13 +744,21 @@ assert row["reviewed_count"] == row["candidate_count"]
 
 prepare_refinement_task_batch() {
     local source_tasks="$1" batch_tasks="$2" limit="$3"
+    local targeting_args=()
+    if [[ -n "$READINESS_REFINEMENT_MIN_TARGET_AXIS_1" ]]; then
+        targeting_args+=(
+            --minimum-target-axis-1 "$READINESS_REFINEMENT_MIN_TARGET_AXIS_1"
+        )
+    fi
+    targeting_args+=(--task-priority "$READINESS_REFINEMENT_TASK_PRIORITY")
     python analysis/scripts/partition_readiness_refinement_tasks.py \
         --source-tasks "$source_tasks" \
         --output "$batch_tasks" \
         --limit "$limit" \
         --partition-count "$READINESS_WORK_PARTITION_COUNT" \
         --partition-index "$READINESS_WORK_PARTITION_INDEX" \
-        --partition-salt "$READINESS_WORK_PARTITION_SALT"
+        --partition-salt "$READINESS_WORK_PARTITION_SALT" \
+        "${targeting_args[@]}"
 }
 
 run_generation_round() {
@@ -840,7 +892,9 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         fi
         test -e "$tasks"
         if [[ ! -s "$tasks" ]]; then
-            if [[ "$READINESS_WORK_PARTITION_COUNT" -gt 1 ]]; then
+            if [[ -n "$READINESS_REFINEMENT_MIN_TARGET_AXIS_1" ]]; then
+                pipeline_status="targeted-scope-complete"
+            elif [[ "$READINESS_WORK_PARTITION_COUNT" -gt 1 ]]; then
                 pipeline_status="partition-complete"
             else
                 pipeline_status="pass"
@@ -1034,6 +1088,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 import pathlib
 import sys
 
@@ -1194,6 +1249,7 @@ PY
     round_elapsed_seconds="$((SECONDS - round_started_seconds))"
     python - "$round_root" "$candidate_count" "$selected_diversity_exit" "$source_pilot" "$round_elapsed_seconds" <<'PY'
 import json
+import os
 import pathlib
 import sys
 
@@ -1217,6 +1273,9 @@ summary = {
     "acceptance_contract_version": selection.get(
         "acceptance_contract_version", "question-v1"
     ),
+    "generation_profile": os.environ.get(
+        "READINESS_GENERATION_PROFILE", "balanced-v1"
+    ),
     "selected_diversity_gate_passed": diversity_exit == 0,
     "spacing_gate_passed": diagnostics["overall_spacing_gate_passed"],
     "source_pilot_mode": source_pilot_mode,
@@ -1232,6 +1291,48 @@ summary = {
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
     echo "ROUND COMPLETE: round=$round_name elapsed_seconds=$round_elapsed_seconds candidates=$candidate_count"
+
+    if [[ -n "${READINESS_HIGH_AXIS_BASELINE_SELECTED:-}" && "$round_index" -eq 0 ]]; then
+        python - "$READINESS_HIGH_AXIS_BASELINE_SELECTED" "$selected" <<'PY'
+import json
+import pathlib
+import sys
+
+def cells(path):
+    rows = [
+        json.loads(line)
+        for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return {
+        (str(row["keyword_id"]), str(row["target_id"])): str(row["candidate_id"])
+        for row in rows
+    }
+
+baseline = cells(sys.argv[1])
+observed = cells(sys.argv[2])
+if observed != baseline:
+    raise SystemExit(
+        "round-00 v2 selection does not reproduce the registered high-axis baseline: "
+        f"baseline={len(baseline)} observed={len(observed)}"
+    )
+print(f"HIGH_AXIS_BASELINE_REPRODUCTION=PASS selected={len(observed)}")
+PY
+    fi
+
+    if [[ -n "${READINESS_HIGH_AXIS_BASELINE_SELECTED:-}" && -s "$round_root/refinement-task-batch.jsonl" ]]; then
+        test -s "$READINESS_HIGH_AXIS_BASELINE_SELECTED" || {
+            echo "missing high-axis baseline selection: $READINESS_HIGH_AXIS_BASELINE_SELECTED" >&2
+            exit 2
+        }
+        high_axis_yield="$round_root/high-axis-yield"
+        python analysis/scripts/audit_readiness_high_axis_generation_yield.py \
+            --baseline-selected "$READINESS_HIGH_AXIS_BASELINE_SELECTED" \
+            --round-root "$round_root" \
+            --output-dir "$high_axis_yield" \
+            --minimum-target-axis-1 "$READINESS_REFINEMENT_MIN_TARGET_AXIS_1"
+        cat "$high_axis_yield/high_axis_yield.md"
+    fi
 
     if [[ -n "$stop_after_physical_round" && "$round_index" -ge "$stop_after_physical_round" ]]; then
         pipeline_status="operational-checkpoint"
@@ -1266,7 +1367,10 @@ printf '%s\n' "$pipeline_status" > "$pipeline_root/status.txt"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$pipeline_root/updated-at.txt"
 echo "PIPELINE_ROOT=$pipeline_root"
 echo "PIPELINE_STATUS=$pipeline_status"
-if [[ "$pipeline_status" != "pass" ]]; then
+if [[ "$pipeline_status" == "targeted-scope-complete" ]]; then
+    echo "TARGETED HIGH-AXIS SCOPE: COMPLETE"
+    echo "STRICT VERIFIED POPULATION: INCOMPLETE OUTSIDE TARGETED SCOPE"
+elif [[ "$pipeline_status" != "pass" ]]; then
     echo "STRICT VERIFIED POPULATION: REFINE" >&2
     exit 3
 fi

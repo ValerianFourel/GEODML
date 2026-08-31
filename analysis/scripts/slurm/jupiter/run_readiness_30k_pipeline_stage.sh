@@ -84,6 +84,7 @@ case "$stage" in
             --max-new-tokens "${READINESS_GENERATION_MAX_NEW_TOKENS:-180}" \
             --maximum-attempts "${READINESS_GENERATION_MAXIMUM_ATTEMPTS:-5}" \
             --text-contract "${READINESS_TEXT_CONTRACT:-question-v1}" \
+            --generation-profile "${READINESS_GENERATION_PROFILE:-balanced-v1}" \
             --shard-count "${READINESS_GENERATION_SHARD_COUNT:-2}" \
             --shard-index "${READINESS_GENERATION_SHARD_INDEX:?READINESS_GENERATION_SHARD_INDEX is required}" \
             --maximum-runtime-seconds "${READINESS_GENERATION_SECONDS:?READINESS_GENERATION_SECONDS is required}" \
