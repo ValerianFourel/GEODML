@@ -327,6 +327,14 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn("sbatch", script)
         self.assertNotIn("#SBATCH", script)
         self.assertIn("SLURM_JOB_ID", script)
+        self.assertIn("clear_inherited_python_runtime", script)
+        self.assertIn("load_control_stack", script)
+        self.assertLess(
+            script.index("load_control_stack\n"),
+            script.index("counterfactual_root="),
+        )
+        self.assertIn("module load PyTorch/2.9.1", script)
+        self.assertIn("HIGH_AXIS_CONTROL_RUNTIME=PASS", script)
         self.assertIn('READINESS_GENERATION_PROFILE="high-axis-action-v1"', script)
         self.assertIn("READINESS_REFINEMENT_MIN_TARGET_AXIS_1", script)
         self.assertIn('READINESS_REFINEMENT_TASK_PRIORITY="descending-axis-1"', script)

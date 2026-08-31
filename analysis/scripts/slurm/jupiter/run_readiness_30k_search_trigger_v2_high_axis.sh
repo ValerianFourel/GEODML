@@ -13,6 +13,43 @@ umask 077
 : "${READINESS_SEARCH_TRIGGER_COUNTERFACTUAL_ROOT:?Set the completed existing-candidate counterfactual root}"
 : "${READINESS_30K_PIPELINE_ROOT:?Set a persistent high-axis pipeline root}"
 
+clear_inherited_python_runtime() {
+    local inherited="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin}" cleaned="" entry
+    local entries=()
+    if [[ -n "$inherited" ]]; then
+        IFS=: read -r -a entries <<< "$PATH"
+        for entry in "${entries[@]}"; do
+            [[ "$entry" == "$inherited" ]] && continue
+            cleaned="${cleaned:+$cleaned:}$entry"
+        done
+        export PATH="$cleaned"
+    fi
+    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV
+    hash -r
+}
+
+load_control_stack() {
+    if ! type module >/dev/null 2>&1; then
+        set +u
+        source /etc/profile
+        set -u
+    fi
+    module --force purge
+    module load Stages/2026
+    module load GCCcore/14.3.0
+    module load SciPy-Stack/2025b
+    module load git
+    module load PyTorch/2.9.1
+    jutil env activate -p "${JUPITER_PROJECT:-scifi}"
+    hash -r
+    python3 -c 'import json, pathlib; print("HIGH_AXIS_CONTROL_RUNTIME=PASS")'
+}
+
+# `bash "$HARNESS"` ignores the login-shell shebang. Compute shells are also
+# commonly opened with --noprofile --norc, so bootstrap Python before preflight.
+clear_inherited_python_runtime
+load_control_stack
+
 export READINESS_GENERATION_PROFILE="high-axis-action-v1"
 export READINESS_REFINEMENT_MIN_TARGET_AXIS_1="${READINESS_REFINEMENT_MIN_TARGET_AXIS_1:-0.700}"
 export READINESS_REFINEMENT_TASK_PRIORITY="descending-axis-1"
