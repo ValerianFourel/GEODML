@@ -789,7 +789,7 @@ run_generation_round() {
                 READINESS_GENERATION_SHARD_COUNT="$shard_count" \
                 READINESS_GENERATION_SHARD_INDEX="$shard" \
                 READINESS_GENERATION_SECONDS="$generation_slice_seconds" \
-                srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
+                srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 --cpu-bind=none \
                     "$worker" generate >> "$log" 2>&1 &
                 pids+=("$!")
                 active_srun_pids+=("$!")
@@ -960,7 +960,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
         READINESS_VALIDATION_SHARD_INDEX="$shard_index" \
         READINESS_VALIDATION_SHARD_SALT="$validation_shard_salt" \
         READINESS_BASE_VALIDATION_OUTPUT="$previous_validation_output" \
-        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
+        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 --cpu-bind=none \
             "$worker" validate > "$round_root/logs/validate-shard-$shard_index.log" 2>&1 &
         validation_pids+=("$!")
         validation_names+=("validate-shard-$shard_index")
@@ -1006,7 +1006,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     if [[ "$qwen_projection_launched" -eq 1 ]]; then
         READINESS_BASE_PROJECTION_ROOT="$previous_qwen_projection_root" \
         QWEN_PROJECTION_ROOT="$qwen_projection_temporary" \
-        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
+        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 --cpu-bind=none \
             "$worker" project-qwen > "$round_root/logs/project-qwen.log" 2>&1 &
         projection_pids+=("$!"); projection_names+=("project-qwen")
         active_srun_pids+=("$!")
@@ -1014,7 +1014,7 @@ for ((round_index=0; round_index<=max_rounds; round_index++)); do
     if [[ "$mistral_projection_launched" -eq 1 ]]; then
         READINESS_BASE_PROJECTION_ROOT="$previous_mistral_projection_root" \
         MISTRAL_PROJECTION_ROOT="$mistral_projection_temporary" \
-        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 \
+        srun --exact --exclusive --nodes=1 --ntasks=1 --cpus-per-task=8 --gres=gpu:1 --cpu-bind=none \
             "$worker" project-mistral > "$round_root/logs/project-mistral.log" 2>&1 &
         projection_pids+=("$!"); projection_names+=("project-mistral")
         active_srun_pids+=("$!")

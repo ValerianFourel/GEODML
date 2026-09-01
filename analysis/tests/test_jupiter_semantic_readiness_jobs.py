@@ -301,6 +301,20 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_VALIDATION_CACHE_SEARCH_ROOTS", strict_loop)
         self.assertIn("run_readiness_30k_end_to_end.sh", strict_loop)
 
+    def test_30k_end_to_end_disables_inherited_cpu_binding_for_gpu_steps(
+        self,
+    ) -> None:
+        script = READINESS_30K_END_TO_END.read_text(encoding="utf-8")
+        gpu_launches = [
+            line.strip()
+            for line in script.splitlines()
+            if "srun --exact --exclusive" in line and "--gres=gpu:1" in line
+        ]
+
+        self.assertEqual(len(gpu_launches), 4)
+        for launch in gpu_launches:
+            self.assertIn("--cpu-bind=none", launch)
+
     def test_search_trigger_v2_runner_is_additive_and_never_allocates(self) -> None:
         script = READINESS_30K_SEARCH_TRIGGER_V2.read_text(encoding="utf-8")
 
