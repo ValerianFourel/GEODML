@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
+import tempfile
+import textwrap
 import unittest
 
 
@@ -33,6 +36,7 @@ READINESS_GENERATOR_INSTALLER = (
     JUPITER_ROOT / "install_readiness_generator_runtime.sh"
 )
 READINESS_30K_END_TO_END = JUPITER_ROOT / "run_readiness_30k_end_to_end.sh"
+READINESS_JUPITER_RUNTIME = JUPITER_ROOT / "readiness_jupiter_runtime.sh"
 READINESS_30K_PIPELINE_STAGE = (
     JUPITER_ROOT / "run_readiness_30k_pipeline_stage.sh"
 )
@@ -93,6 +97,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_PILOT,
             READINESS_GENERATOR_INSTALLER,
             READINESS_30K_END_TO_END,
+            READINESS_JUPITER_RUNTIME,
             READINESS_30K_PIPELINE_STAGE,
             READINESS_30K_SEARCH_TRIGGER_V2,
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS,
@@ -317,6 +322,12 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("maximum_candidate_round_index", script)
         self.assertIn("READINESS_FINALIZATION_RESERVE_SECONDS", script)
         self.assertIn('SLURM_MPI_TYPE="none"', script)
+        self.assertIn("readiness_jupiter_runtime.sh", script)
+        self.assertLess(
+            script.index("readiness_bootstrap_jupiter_control_runtime"),
+            script.index("approved_walltime_seconds="),
+        )
+        self.assertIn("SEARCH_TRIGGER_V2_CONTROL_RUNTIME=PASS", script)
         self.assertIn("Prompt embeddings describe generated text", script)
 
     def test_high_axis_v2_harness_targets_action_end_without_allocating(self) -> None:
@@ -327,13 +338,12 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn("sbatch", script)
         self.assertNotIn("#SBATCH", script)
         self.assertIn("SLURM_JOB_ID", script)
-        self.assertIn("clear_inherited_python_runtime", script)
-        self.assertIn("load_control_stack", script)
+        self.assertIn("readiness_jupiter_runtime.sh", script)
+        self.assertIn("readiness_bootstrap_jupiter_control_runtime", script)
         self.assertLess(
-            script.index("load_control_stack\n"),
+            script.index("readiness_bootstrap_jupiter_control_runtime"),
             script.index("counterfactual_root="),
         )
-        self.assertIn("module load PyTorch/2.9.1", script)
         self.assertIn("HIGH_AXIS_CONTROL_RUNTIME=PASS", script)
         self.assertIn('READINESS_GENERATION_PROFILE="high-axis-action-v1"', script)
         self.assertIn("READINESS_REFINEMENT_MIN_TARGET_AXIS_1", script)
@@ -341,8 +351,89 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_HIGH_AXIS_BASELINE_SELECTED", script)
         self.assertIn("search_trigger_v2_relaxed_tolerance", script)
         self.assertIn("run_readiness_30k_search_trigger_v2.sh", script)
-        self.assertIn('exec bash "$driver"', script)
+        self.assertIn('exec "$driver"', script)
         self.assertIn("Prompt embeddings diagnose generated text", script)
+
+    def test_shared_jupiter_runtime_clears_inherited_venv_and_loads_stack(self) -> None:
+        runtime = READINESS_JUPITER_RUNTIME.read_text(encoding="utf-8")
+
+        self.assertIn("readiness_clear_inherited_python_runtime", runtime)
+        self.assertIn("readiness_load_jupiter_stack", runtime)
+        self.assertIn("readiness_bootstrap_jupiter_control_runtime", runtime)
+        self.assertIn("unset PYTHONHOME PYTHONPATH VIRTUAL_ENV", runtime)
+        self.assertIn("module load PyTorch/2.9.1", runtime)
+        self.assertIn('jutil env activate -p', runtime)
+
+        end_to_end = READINESS_30K_END_TO_END.read_text(encoding="utf-8")
+        self.assertIn("readiness_jupiter_runtime.sh", end_to_end)
+        self.assertNotIn("clear_runtime()", end_to_end)
+        self.assertNotIn("load_stack()", end_to_end)
+
+    def test_shared_jupiter_runtime_executes_with_clean_python(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            inherited_bin = temporary / "inherited-venv/bin"
+            inherited_bin.mkdir(parents=True)
+            inherited_python = inherited_bin / "python3"
+            inherited_python.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+            inherited_python.chmod(0o755)
+            runtime_log = temporary / "runtime.log"
+
+            command = textwrap.dedent(
+                """
+                set -euo pipefail
+                module() {
+                    printf 'module %s\n' "$*" >> "$RUNTIME_LOG"
+                }
+                jutil() {
+                    printf 'jutil %s\n' "$*" >> "$RUNTIME_LOG"
+                }
+                source "$RUNTIME_HELPER"
+                readiness_bootstrap_jupiter_control_runtime \
+                    "MOCK_JUPITER_RUNTIME=PASS"
+                printf 'VIRTUAL_ENV=%s\n' "${VIRTUAL_ENV-unset}"
+                printf 'PYTHONHOME=%s\n' "${PYTHONHOME-unset}"
+                printf 'PYTHONPATH=%s\n' "${PYTHONPATH-unset}"
+                command -v python3
+                """
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{inherited_bin}:{environment['PATH']}",
+                    "PYTHONHOME": "/invalid/python-home",
+                    "PYTHONPATH": "/invalid/python-path",
+                    "RUNTIME_HELPER": str(READINESS_JUPITER_RUNTIME),
+                    "RUNTIME_LOG": str(runtime_log),
+                    "VIRTUAL_ENV": str(inherited_bin.parent),
+                }
+            )
+            result = subprocess.run(
+                ["bash", "--noprofile", "--norc", "-c", command],
+                capture_output=True,
+                check=False,
+                env=environment,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("MOCK_JUPITER_RUNTIME=PASS", result.stdout)
+            self.assertIn("VIRTUAL_ENV=unset", result.stdout)
+            self.assertIn("PYTHONHOME=unset", result.stdout)
+            self.assertIn("PYTHONPATH=unset", result.stdout)
+            self.assertNotIn(str(inherited_python), result.stdout)
+            self.assertEqual(
+                runtime_log.read_text(encoding="utf-8").splitlines(),
+                [
+                    "module --force purge",
+                    "module load Stages/2026",
+                    "module load GCCcore/14.3.0",
+                    "module load SciPy-Stack/2025b",
+                    "module load git",
+                    "module load PyTorch/2.9.1",
+                    "jutil env activate -p scifi",
+                ],
+            )
 
     def test_axis1_eight_gpu_resume_records_approved_budget_and_reuses_work(self) -> None:
         script = READINESS_30K_AXIS1_8GPU_RESUME.read_text(encoding="utf-8")

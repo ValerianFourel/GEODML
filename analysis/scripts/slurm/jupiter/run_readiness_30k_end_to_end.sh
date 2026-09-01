@@ -11,31 +11,6 @@ umask 077
 : "${READINESS_ALLOCATION_ESTIMATE:?Record the estimate supporting the allocation}"
 export GEODML_EXPECTED_COMMIT READINESS_APPROVED_WALLTIME READINESS_ALLOCATION_ESTIMATE SLURM_JOB_ID
 
-clear_runtime() {
-    local inherited="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin}" cleaned="" entry
-    local entries=()
-    if [[ -n "$inherited" ]]; then
-        IFS=: read -r -a entries <<< "$PATH"
-        for entry in "${entries[@]}"; do
-            [[ "$entry" == "$inherited" ]] && continue
-            cleaned="${cleaned:+$cleaned:}$entry"
-        done
-        export PATH="$cleaned"
-    fi
-    unset PYTHONHOME PYTHONPATH VIRTUAL_ENV
-    hash -r
-}
-
-load_stack() {
-    module --force purge
-    module load Stages/2026
-    module load GCCcore/14.3.0
-    module load SciPy-Stack/2025b
-    module load git
-    module load PyTorch/2.9.1
-    jutil env activate -p "${JUPITER_PROJECT:-scifi}"
-}
-
 activate_control_runtime() {
     local module_pythonpath="${PYTHONPATH:-}" python_prefix
     python_prefix="$(python3 -c 'import sys; print(sys.base_prefix)')"
@@ -47,8 +22,10 @@ activate_control_runtime() {
     export PYTHONUNBUFFERED=1
 }
 
-clear_runtime
-load_stack
+jupiter_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$jupiter_dir/readiness_jupiter_runtime.sh"
+readiness_bootstrap_jupiter_control_runtime \
+    "READINESS_END_TO_END_CONTROL_RUNTIME=PASS"
 
 export GEODML_PROJECT_ROOT="${GEODML_PROJECT_ROOT:-$PROJECT/$USER/geodml}"
 export GEODML_MODELS_ROOT="${GEODML_MODELS_ROOT:-$GEODML_PROJECT_ROOT/models}"

@@ -14,6 +14,11 @@ umask 077
 : "${READINESS_SUBSPACE_ROOT:?Set the frozen readiness subspace root}"
 : "${READINESS_30K_PIPELINE_ROOT:?Set a persistent, fresh v2 pipeline root}"
 
+jupiter_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$jupiter_dir/readiness_jupiter_runtime.sh"
+readiness_bootstrap_jupiter_control_runtime \
+    "SEARCH_TRIGGER_V2_CONTROL_RUNTIME=PASS"
+
 approved_walltime_seconds="$(python3 - "$READINESS_APPROVED_WALLTIME" <<'PY'
 import re
 import sys
