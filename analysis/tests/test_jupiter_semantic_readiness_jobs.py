@@ -49,6 +49,9 @@ READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS = (
 READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION = (
     JUPITER_ROOT / "run_readiness_30k_search_trigger_v2_high_axis_section.sh"
 )
+READINESS_30K_HIGH_AXIS_TEN_TMUX = (
+    JUPITER_ROOT / "launch_readiness_30k_high_axis_ten_tmux.sh"
+)
 READINESS_30K_MERGE_AND_HF_FINALIZE = (
     JUPITER_ROOT / "run_readiness_30k_merge_and_hf_finalize.sh"
 )
@@ -115,6 +118,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_SEARCH_TRIGGER_V2,
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS,
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION,
+            READINESS_30K_HIGH_AXIS_TEN_TMUX,
             READINESS_30K_MERGE_AND_HF_FINALIZE,
             READINESS_30K_CHECKPOINT_HF_FINALIZE,
             READINESS_30K_CHECKPOINT_MERGE_TMUX,
@@ -642,6 +646,24 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("READINESS_HIGH_AXIS_BASELINE_SELECTED", script)
         self.assertIn('[[ "$section_count" == "10" ]]', script)
         self.assertIn("run_readiness_30k_axis1_keyword_section.sbatch", script)
+
+    def test_high_axis_ten_tmux_launcher_uses_ten_interactive_five_hour_nodes(self) -> None:
+        script = READINESS_30K_HIGH_AXIS_TEN_TMUX.read_text(encoding="utf-8")
+
+        self.assertIn("tmux new-session", script)
+        self.assertEqual(script.count("for index in {0..9}"), 2)
+        self.assertIn("salloc --account=scifi --partition=booster", script)
+        self.assertNotRegex(script, r"(^|\s)sbatch(\s|$)")
+        self.assertIn("--nodes=1 --ntasks=4 --ntasks-per-node=4", script)
+        self.assertIn("--cpus-per-task=8 --gres=gpu:4 --time=05:00:00", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME" == "05:00:00"', script)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
+        self.assertIn("--section-count 10", script)
+        self.assertIn("--verify-plan", script)
+        self.assertIn("geodml-axis-v2-ten-section-latest.env", script)
+        self.assertIn("run_readiness_30k_search_trigger_v2_high_axis_section.sh", script)
+        self.assertNotIn("/e/project1", script)
+        self.assertNotIn("/e/fscratch", script)
 
     def test_approved_merge_finalizes_one_counted_unified_dataset(self) -> None:
         script = READINESS_30K_MERGE_AND_HF_FINALIZE.read_text(encoding="utf-8")
