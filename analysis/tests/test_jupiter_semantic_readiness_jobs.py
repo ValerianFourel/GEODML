@@ -49,6 +49,10 @@ READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS = (
 READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION = (
     JUPITER_ROOT / "run_readiness_30k_search_trigger_v2_high_axis_section.sh"
 )
+READINESS_30K_MERGE_AND_HF_FINALIZE = (
+    JUPITER_ROOT / "run_readiness_30k_merge_and_hf_finalize.sh"
+)
+READINESS_TEXT_HF_PUBLISH = JUPITER_ROOT / "publish_readiness_text_hf_dataset.sh"
 READINESS_30K_AXIS1_STRICT_LOOP = (
     JUPITER_ROOT / "run_readiness_30k_axis1_strict_loop.sh"
 )
@@ -105,6 +109,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_SEARCH_TRIGGER_V2,
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS,
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION,
+            READINESS_30K_MERGE_AND_HF_FINALIZE,
+            READINESS_TEXT_HF_PUBLISH,
             READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_30K_AXIS1_8GPU_RESUME,
             READINESS_30K_AXIS1_PARTITION,
@@ -629,6 +635,37 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('[[ "$section_count" == "10" ]]', script)
         self.assertIn("run_readiness_30k_axis1_keyword_section.sbatch", script)
 
+    def test_approved_merge_finalizes_one_counted_unified_dataset(self) -> None:
+        script = READINESS_30K_MERGE_AND_HF_FINALIZE.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotRegex(script, r"(^|\s)sbatch(\s|$)")
+        self.assertNotIn("#SBATCH", script)
+        self.assertIn("SLURM_JOB_ID", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME" == "03:00:00"', script)
+        self.assertIn("expected exactly ten ready section markers", script)
+        self.assertIn("run_readiness_30k_repartition_keyword_sections.sbatch", script)
+        self.assertIn("build_readiness_text_hf_dataset.py finalize", script)
+        self.assertIn("build_readiness_text_hf_dataset.py verify", script)
+        self.assertIn('"generated_candidates": candidate_count', script)
+        self.assertIn('"fully_compliant_prompts": selected_count', script)
+        self.assertNotIn(" publish ", script)
+
+    def test_hf_publisher_verifies_remote_manifests_and_stays_private(self) -> None:
+        script = READINESS_TEXT_HF_PUBLISH.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotRegex(script, r"(^|\s)sbatch(\s|$)")
+        self.assertNotIn("#SBATCH", script)
+        self.assertIn("build_readiness_text_hf_dataset.py\" verify", script)
+        self.assertIn("build_readiness_text_hf_dataset.py\" publish", script)
+        self.assertIn("--confirm-repo-id", script)
+        self.assertIn("get_token", script)
+        self.assertIn("hf_hub_download", script)
+        self.assertIn("dataset_manifest.json", script)
+        self.assertIn("checksums.json", script)
+        self.assertNotIn("--public", script)
+
     def test_keyword_sections_are_globally_repartitioned_before_resubmission(self) -> None:
         merge_job = READINESS_30K_REPARTITION_KEYWORD_SECTIONS.read_text(
             encoding="utf-8"
@@ -654,6 +691,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("audit_fully_compliant_readiness_prompts.py", merge_job)
         self.assertIn("prepare_readiness_keyword_sections.py", merge_job)
         self.assertIn("--section-count 10", merge_job)
+        self.assertIn('if [[ "$remaining_task_count" -gt 0 ]]', merge_job)
         self.assertIn("readiness-30k-ten-section-repartition-run-v1", merge_job)
 
         self.assertIn("READINESS_MERGE_APPROVED_WALLTIME", submitter)

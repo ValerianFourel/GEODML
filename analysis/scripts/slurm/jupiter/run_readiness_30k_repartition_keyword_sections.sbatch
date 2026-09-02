@@ -313,15 +313,23 @@ if not report["audit_passed"]:
 print(f"merged_fully_compliant_prompts={report['fully_compliant_prompt_count']}")
 PY
 
-if [[ ! -s "$section_plan" ]]; then
-    python analysis/scripts/prepare_readiness_keyword_sections.py \
-        --checkpoint-root "$final_root" \
-        --output "$section_plan" \
-        --section-count 10 \
-        --partition-salt "$READINESS_NEW_PARTITION_SALT"
+remaining_task_count="$(python -c '
+import json, sys
+print(int(json.load(open(sys.argv[1]))["refinement_task_count"]))
+' "$final_root/verified_round_summary.json")"
+if [[ "$remaining_task_count" -gt 0 ]]; then
+    if [[ ! -s "$section_plan" ]]; then
+        python analysis/scripts/prepare_readiness_keyword_sections.py \
+            --checkpoint-root "$final_root" \
+            --output "$section_plan" \
+            --section-count 10 \
+            --partition-salt "$READINESS_NEW_PARTITION_SALT"
+    else
+        python analysis/scripts/prepare_readiness_keyword_sections.py \
+            --verify-plan "$section_plan"
+    fi
 else
-    python analysis/scripts/prepare_readiness_keyword_sections.py \
-        --verify-plan "$section_plan"
+    section_plan=""
 fi
 
 if [[ ! -s "$repartition_root/run_manifest.json" ]]; then
@@ -336,7 +344,7 @@ import sys
 
 output = pathlib.Path(sys.argv[1])
 checkpoint = pathlib.Path(sys.argv[2]).resolve()
-plan = pathlib.Path(sys.argv[3]).resolve()
+plan = pathlib.Path(sys.argv[3]).resolve() if sys.argv[3] else None
 source = pathlib.Path(sys.argv[4]).resolve()
 payload = {
     "format_version": "readiness-30k-ten-section-repartition-run-v1",
@@ -356,8 +364,10 @@ payload = {
     ],
     "source_ten_section_run_root": str(source),
     "checkpoint_root": str(checkpoint),
-    "keyword_section_plan": str(plan),
-    "keyword_section_plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+    "keyword_section_plan": str(plan) if plan else None,
+    "keyword_section_plan_sha256": (
+        hashlib.sha256(plan.read_bytes()).hexdigest() if plan else None
+    ),
     "partition_salt": os.environ["READINESS_NEW_PARTITION_SALT"],
 }
 temporary = output.with_suffix(output.suffix + ".tmp")
@@ -367,7 +377,10 @@ PY
 fi
 
 printf '%s\n' "$final_root" > "$repartition_root/checkpoint-latest.txt"
-printf '%s\n' "$section_plan" > "$repartition_root/keyword-section-plan-latest.txt"
+if [[ -n "$section_plan" ]]; then
+    printf '%s\n' "$section_plan" > "$repartition_root/keyword-section-plan-latest.txt"
+fi
 echo "REPARTITION COMPLETE"
 echo "checkpoint=$final_root"
-echo "section_plan=$section_plan"
+echo "remaining_tasks=$remaining_task_count"
+[[ -z "$section_plan" ]] || echo "section_plan=$section_plan"
