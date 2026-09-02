@@ -52,6 +52,12 @@ READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION = (
 READINESS_30K_MERGE_AND_HF_FINALIZE = (
     JUPITER_ROOT / "run_readiness_30k_merge_and_hf_finalize.sh"
 )
+READINESS_30K_CHECKPOINT_HF_FINALIZE = (
+    JUPITER_ROOT / "run_readiness_30k_checkpoint_hf_finalize.sh"
+)
+READINESS_30K_CHECKPOINT_MERGE_TMUX = (
+    JUPITER_ROOT / "launch_readiness_30k_checkpoint_merge_tmux.sh"
+)
 READINESS_TEXT_HF_PUBLISH = JUPITER_ROOT / "publish_readiness_text_hf_dataset.sh"
 READINESS_30K_AXIS1_STRICT_LOOP = (
     JUPITER_ROOT / "run_readiness_30k_axis1_strict_loop.sh"
@@ -110,6 +116,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS,
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION,
             READINESS_30K_MERGE_AND_HF_FINALIZE,
+            READINESS_30K_CHECKPOINT_HF_FINALIZE,
+            READINESS_30K_CHECKPOINT_MERGE_TMUX,
             READINESS_TEXT_HF_PUBLISH,
             READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_30K_AXIS1_8GPU_RESUME,
@@ -665,6 +673,37 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("dataset_manifest.json", script)
         self.assertIn("checksums.json", script)
         self.assertNotIn("--public", script)
+
+    def test_checkpoint_merge_audits_and_counts_one_cumulative_population(self) -> None:
+        script = READINESS_30K_CHECKPOINT_HF_FINALIZE.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", script)
+        self.assertNotRegex(script, r"(^|\s)sbatch(\s|$)")
+        self.assertNotIn("#SBATCH", script)
+        self.assertIn("SLURM_JOB_ID", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME" == "03:00:00"', script)
+        self.assertIn("READINESS_PROMPT_POPULATION_ROOT", script)
+        self.assertIn("audit_fully_compliant_readiness_prompts.py", script)
+        self.assertIn("build_readiness_text_hf_dataset.py finalize", script)
+        self.assertIn("build_readiness_text_hf_dataset.py verify", script)
+        self.assertIn('"generated_candidates": candidate_count', script)
+        self.assertIn('"fully_compliant_prompts": selected_count', script)
+
+    def test_checkpoint_merge_launcher_uses_one_approved_cpu_tmux_allocation(self) -> None:
+        script = READINESS_30K_CHECKPOINT_MERGE_TMUX.read_text(encoding="utf-8")
+
+        self.assertIn("tmux new-session", script)
+        self.assertIn("salloc --account=scifi --partition=booster", script)
+        self.assertIn("--nodes=1 --ntasks=1 --cpus-per-task=32", script)
+        self.assertIn("--mem=128G --gres=none --time=03:00:00", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME" == "03:00:00"', script)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", script)
+        self.assertIn("geodml-axis-v2-secondary-latest.env", script)
+        self.assertIn("READINESS_HF_REPO_ID", script)
+        self.assertIn("READINESS_HF_PUBLISH_RECEIPT", script)
+        self.assertIn("run_readiness_30k_checkpoint_hf_finalize.sh", script)
+        self.assertNotIn("/e/project1", script)
+        self.assertNotIn("/e/fscratch", script)
 
     def test_keyword_sections_are_globally_repartitioned_before_resubmission(self) -> None:
         merge_job = READINESS_30K_REPARTITION_KEYWORD_SECTIONS.read_text(
