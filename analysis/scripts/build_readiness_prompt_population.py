@@ -1259,7 +1259,17 @@ def _project_candidates(args) -> int:
                 raise ValueError(
                     "coordinate-only base has invalid source embedding inventory"
                 )
-            inherited_embedding_archives = list(inherited)
+            inherited_embedding_archives = [
+                {
+                    **row,
+                    "path": str(
+                        _resolve_manifest_path(
+                            base_manifest_path, row.get("path", "")
+                        )
+                    ),
+                }
+                for row in inherited
+            ]
             if base_embedding_path.is_file():
                 inherited_embedding_archives.append(
                     {
@@ -1373,6 +1383,7 @@ def _project_candidates(args) -> int:
                 ),
             )
             new_embedding_archive = _file_identity(new_embedding_path)
+            new_embedding_archive["path"] = new_embedding_path.name
     else:
         embeddings = np.asarray(
             [
@@ -2371,6 +2382,13 @@ def _file_identity(path: str | Path) -> dict[str, object]:
         "sha256": sha256_file(resolved),
         "size_bytes": resolved.stat().st_size,
     }
+
+
+def _resolve_manifest_path(manifest_path: str | Path, value: object) -> Path:
+    path = Path(str(value))
+    if not path.is_absolute():
+        path = Path(manifest_path).resolve().parent / path
+    return path.resolve()
 
 
 def _slurm_environment() -> dict[str, str | None]:

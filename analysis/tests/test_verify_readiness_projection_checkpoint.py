@@ -118,6 +118,45 @@ class VerifyReadinessProjectionCheckpointTests(unittest.TestCase):
                 allow_coordinate_only=True,
             )
 
+    def test_coordinate_archive_survives_atomic_projection_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, listing, _ = self._fixture(root)
+            archive = (
+                root
+                / "round-01/projections/qwen"
+                / "new_question_embeddings.restricted-local.npz"
+            )
+            archive.parent.mkdir(parents=True)
+            archive.write_bytes(b"immutable-embedding-archive")
+            stale_path = archive.parent.parent / ".qwen-attempt-123" / archive.name
+            archive_identity = _identity(archive)
+            archive_identity["path"] = str(stale_path)
+            row = json.loads(manifest.read_text(encoding="utf-8"))
+            row["embedding_arrays_included"] = False
+            row["source_embedding_archives"] = [archive_identity]
+            row["new_embedding_archive"] = archive_identity
+            manifest.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+            verify_projection_checkpoint(
+                manifest,
+                expected_count=1,
+                candidate_file_list=listing,
+                expected_attention="eager",
+                allow_coordinate_only=True,
+            )
+            archive.write_bytes(b"changed---embedding-archive")
+            with self.assertRaisesRegex(
+                ValueError, "source embedding archive is missing or changed"
+            ):
+                verify_projection_checkpoint(
+                    manifest,
+                    expected_count=1,
+                    candidate_file_list=listing,
+                    expected_attention="eager",
+                    allow_coordinate_only=True,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

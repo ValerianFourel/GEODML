@@ -1013,8 +1013,13 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                 base_manifest_path = base_output / "projection_manifest.json"
                 base_manifest = read_json(base_manifest_path)
                 base_manifest["embedding_arrays_included"] = False
+                inherited_archive = root / "inherited.restricted-local.npz"
+                inherited_archive.write_bytes(b"immutable-embedding-archive")
                 base_manifest["source_embedding_archives"] = [
-                    {"path": "/immutable/source.npz", "size_bytes": 123}
+                    {
+                        "path": str(inherited_archive),
+                        "size_bytes": inherited_archive.stat().st_size,
+                    }
                 ]
                 atomic_json(base_manifest_path, base_manifest)
 
@@ -1052,6 +1057,24 @@ class ReadinessPromptPopulationTests(unittest.TestCase):
                 (output / "new_question_embeddings.restricted-local.npz").is_file()
             )
             self.assertEqual(len(manifest["source_embedding_archives"]), 2)
+
+            relocated = root / "relocated-coordinate-only-projections"
+            output.rename(relocated)
+            candidate_file_list = root / "candidate-files.txt"
+            candidate_file_list.write_text(
+                f"{base_candidates}\n{new_candidates}\n", encoding="utf-8"
+            )
+            from analysis.scripts.verify_readiness_projection_checkpoint import (
+                verify_projection_checkpoint,
+            )
+
+            verify_projection_checkpoint(
+                relocated / "projection_manifest.json",
+                expected_count=2,
+                candidate_file_list=candidate_file_list,
+                expected_attention="eager",
+                allow_coordinate_only=True,
+            )
 
     def test_projection_matches_frozen_map_formula(self) -> None:
         target = build_target_grid(self.bounds)[0]

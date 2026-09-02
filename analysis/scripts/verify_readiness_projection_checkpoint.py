@@ -22,6 +22,40 @@ def _manifest_content_identity(row: Mapping[str, object]) -> tuple[str, int]:
     return sha256, int(size_bytes)
 
 
+def _archive_locator_candidates(
+    manifest_path: Path, row: Mapping[str, object]
+) -> tuple[Path, ...]:
+    declared = Path(str(row.get("path", "")))
+    if not declared.is_absolute():
+        declared = manifest_path.resolve().parent / declared
+    candidates = [declared]
+    attempt_name = declared.parent.name
+    for view in ("qwen", "mistral"):
+        if attempt_name.startswith(f".{view}-attempt-"):
+            candidates.append(declared.parent.parent / view / declared.name)
+            break
+    return tuple(candidates)
+
+
+def _archive_content_matches(path: Path, row: Mapping[str, object]) -> bool:
+    try:
+        expected_size = int(row.get("size_bytes", -1))
+    except (TypeError, ValueError):
+        return False
+    if (
+        not path.is_file()
+        or expected_size <= 0
+        or path.stat().st_size != expected_size
+    ):
+        return False
+    expected_sha256 = str(row.get("sha256", ""))
+    if expected_sha256:
+        if len(expected_sha256) != 64:
+            return False
+        return hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
+    return True
+
+
 def verify_projection_checkpoint(
     projection_manifest: str | Path,
     *,
@@ -80,20 +114,11 @@ def verify_projection_checkpoint(
         for row in archives:
             if not isinstance(row, dict):
                 raise ValueError("source embedding archive inventory is invalid")
-            path = Path(str(row.get("path", "")))
-            try:
-                expected_size = int(row.get("size_bytes", -1))
-            except (TypeError, ValueError) as exc:
+            locators = _archive_locator_candidates(manifest_path, row)
+            if not any(_archive_content_matches(path, row) for path in locators):
                 raise ValueError(
-                    "source embedding archive inventory is invalid"
-                ) from exc
-            if (
-                not path.is_file()
-                or expected_size <= 0
-                or path.stat().st_size != expected_size
-            ):
-                raise ValueError(
-                    f"source embedding archive is missing or changed: {path}"
+                    "source embedding archive is missing or changed: "
+                    f"{locators[0]}"
                 )
         incremental = manifest.get("incremental_reuse", {})
         embedded_count = (
