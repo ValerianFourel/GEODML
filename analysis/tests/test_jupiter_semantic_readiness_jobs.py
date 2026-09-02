@@ -641,6 +641,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn('READINESS_TEXT_CONTRACT="search-trigger-v2"', script)
         self.assertIn('READINESS_ACCEPTANCE_CONTRACT="search-trigger-v2"', script)
         self.assertIn('READINESS_DISTANCE_TOLERANCE="0.035"', script)
+        self.assertIn('READINESS_COORDINATE_ONLY_PROJECTION_REUSE="1"', script)
         self.assertIn('READINESS_REFINEMENT_MIN_TARGET_AXIS_1="0.700"', script)
         self.assertIn('READINESS_REFINEMENT_TASK_PRIORITY="descending-axis-1"', script)
         self.assertIn("READINESS_HIGH_AXIS_BASELINE_SELECTED", script)
