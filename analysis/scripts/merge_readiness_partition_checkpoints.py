@@ -225,9 +225,12 @@ def merge_partition_checkpoints(
         "validator_model",
         "text_contract",
         "acceptance_contract_version",
+        "generation_profile",
         "distance_tolerance",
         "disagreement_weight",
         "refinement_candidates_per_task",
+        "refinement_minimum_target_axis_1",
+        "refinement_task_priority",
         "master_seed",
         "work_partition_count",
         "work_partition_salt",
@@ -329,6 +332,15 @@ def merge_partition_checkpoints(
         ),
         "acceptance_contract_version": pipeline_manifests[0].get(
             "acceptance_contract_version", "question-v1"
+        ),
+        "generation_profile": pipeline_manifests[0].get(
+            "generation_profile", "balanced-v1"
+        ),
+        "refinement_minimum_target_axis_1": pipeline_manifests[0].get(
+            "refinement_minimum_target_axis_1"
+        ),
+        "refinement_task_priority": pipeline_manifests[0].get(
+            "refinement_task_priority", "stable-hash"
         ),
         "partition_count": partition_count,
         "partition_salt": partition_salts.pop(),

@@ -201,9 +201,14 @@ class ReadinessPartitioningTests(unittest.TestCase):
                 "generator_models": ["model-a", "model-b"],
                 "validator_id": "judge",
                 "validator_model": "judge-model",
+                "text_contract": "question-v1",
+                "acceptance_contract_version": "question-v1",
+                "generation_profile": "balanced-v1",
                 "distance_tolerance": 0.017,
                 "disagreement_weight": 0.1,
                 "refinement_candidates_per_task": 4,
+                "refinement_minimum_target_axis_1": None,
+                "refinement_task_priority": "stable-hash",
                 "master_seed": 7,
                 "work_partition_count": partition_count,
                 "work_partition_index": index,
@@ -390,6 +395,19 @@ class ReadinessPartitioningTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "differ on text_contract"):
                 merge_partition_checkpoints((left, right), root / "mixed")
+
+    def test_checkpoint_merge_rejects_mixed_generation_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            left = self._partition_fixture(root, index=0, unique_id="left")
+            right = self._partition_fixture(root, index=1, unique_id="right")
+            manifest_path = right / "pipeline_manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["generation_profile"] = "high-axis-action-v1"
+            _write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(ValueError, "differ on generation_profile"):
+                merge_partition_checkpoints((left, right), root / "mixed-profile")
 
     def test_checkpoint_merge_rejects_an_incomplete_ten_section_set(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

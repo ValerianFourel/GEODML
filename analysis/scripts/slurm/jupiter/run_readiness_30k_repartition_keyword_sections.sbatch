@@ -73,6 +73,9 @@ export READINESS_DISTANCE_TOLERANCE="${READINESS_DISTANCE_TOLERANCE:-0.017}"
 export READINESS_DISAGREEMENT_WEIGHT="${READINESS_DISAGREEMENT_WEIGHT:-0.10}"
 export READINESS_TEXT_CONTRACT="${READINESS_TEXT_CONTRACT:-question-v1}"
 export READINESS_ACCEPTANCE_CONTRACT="${READINESS_ACCEPTANCE_CONTRACT:-question-v1}"
+export READINESS_GENERATION_PROFILE="${READINESS_GENERATION_PROFILE:-balanced-v1}"
+export READINESS_REFINEMENT_MIN_TARGET_AXIS_1="${READINESS_REFINEMENT_MIN_TARGET_AXIS_1:-}"
+export READINESS_REFINEMENT_TASK_PRIORITY="${READINESS_REFINEMENT_TASK_PRIORITY:-stable-hash}"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
 export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
 
@@ -146,13 +149,20 @@ import os
 import sys
 
 manifest = json.load(open(sys.argv[1]))
+minimum = os.environ["READINESS_REFINEMENT_MIN_TARGET_AXIS_1"]
 expected = (
     os.environ["READINESS_TEXT_CONTRACT"],
     os.environ["READINESS_ACCEPTANCE_CONTRACT"],
+    os.environ["READINESS_GENERATION_PROFILE"],
+    None if not minimum else float(minimum),
+    os.environ["READINESS_REFINEMENT_TASK_PRIORITY"],
 )
 observed = (
     manifest.get("text_contract", "question-v1"),
     manifest.get("acceptance_contract_version", "question-v1"),
+    manifest.get("generation_profile", "balanced-v1"),
+    manifest.get("refinement_minimum_target_axis_1"),
+    manifest.get("refinement_task_priority", "stable-hash"),
 )
 if observed != expected:
     raise SystemExit(
@@ -250,6 +260,13 @@ summary = {
     "acceptance_contract_version": selection.get(
         "acceptance_contract_version", "question-v1"
     ),
+    "generation_profile": merged.get("generation_profile", "balanced-v1"),
+    "refinement_minimum_target_axis_1": merged.get(
+        "refinement_minimum_target_axis_1"
+    ),
+    "refinement_task_priority": merged.get(
+        "refinement_task_priority", "stable-hash"
+    ),
     "selected_diversity_gate_passed": diversity_exit == 0,
     "spacing_gate_passed": diagnostics["overall_spacing_gate_passed"],
     "partition_count": merged["partition_count"],
@@ -328,6 +345,15 @@ payload = {
     "slurm_job_id": os.environ["SLURM_JOB_ID"],
     "approved_walltime": os.environ["READINESS_APPROVED_WALLTIME"],
     "allocation_estimate": os.environ["READINESS_ALLOCATION_ESTIMATE"],
+    "generation_profile": os.environ["READINESS_GENERATION_PROFILE"],
+    "refinement_minimum_target_axis_1": (
+        float(os.environ["READINESS_REFINEMENT_MIN_TARGET_AXIS_1"])
+        if os.environ["READINESS_REFINEMENT_MIN_TARGET_AXIS_1"]
+        else None
+    ),
+    "refinement_task_priority": os.environ[
+        "READINESS_REFINEMENT_TASK_PRIORITY"
+    ],
     "source_ten_section_run_root": str(source),
     "checkpoint_root": str(checkpoint),
     "keyword_section_plan": str(plan),

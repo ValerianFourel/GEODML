@@ -46,6 +46,9 @@ READINESS_30K_SEARCH_TRIGGER_V2 = (
 READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS = (
     JUPITER_ROOT / "run_readiness_30k_search_trigger_v2_high_axis.sh"
 )
+READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION = (
+    JUPITER_ROOT / "run_readiness_30k_search_trigger_v2_high_axis_section.sh"
+)
 READINESS_30K_AXIS1_STRICT_LOOP = (
     JUPITER_ROOT / "run_readiness_30k_axis1_strict_loop.sh"
 )
@@ -101,6 +104,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_PIPELINE_STAGE,
             READINESS_30K_SEARCH_TRIGGER_V2,
             READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS,
+            READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION,
             READINESS_30K_AXIS1_STRICT_LOOP,
             READINESS_30K_AXIS1_8GPU_RESUME,
             READINESS_30K_AXIS1_PARTITION,
@@ -605,6 +609,26 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn("finalize_readiness_30k_partitions.sh", script)
         self.assertIn("run_readiness_30k_axis1_strict_loop.sh", script)
 
+    def test_high_axis_v2_section_preserves_the_approved_parallel_contract(self) -> None:
+        script = READINESS_30K_SEARCH_TRIGGER_V2_HIGH_AXIS_SECTION.read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("salloc", script)
+        self.assertNotRegex(script, r"(^|\s)sbatch(\s|$)")
+        self.assertNotIn("#SBATCH", script)
+        self.assertIn("SLURM_JOB_ID", script)
+        self.assertIn('READINESS_APPROVED_WALLTIME" == "05:00:00"', script)
+        self.assertIn('READINESS_GENERATION_PROFILE="high-axis-action-v1"', script)
+        self.assertIn('READINESS_TEXT_CONTRACT="search-trigger-v2"', script)
+        self.assertIn('READINESS_ACCEPTANCE_CONTRACT="search-trigger-v2"', script)
+        self.assertIn('READINESS_DISTANCE_TOLERANCE="0.035"', script)
+        self.assertIn('READINESS_REFINEMENT_MIN_TARGET_AXIS_1="0.700"', script)
+        self.assertIn('READINESS_REFINEMENT_TASK_PRIORITY="descending-axis-1"', script)
+        self.assertIn("READINESS_HIGH_AXIS_BASELINE_SELECTED", script)
+        self.assertIn('[[ "$section_count" == "10" ]]', script)
+        self.assertIn("run_readiness_30k_axis1_keyword_section.sbatch", script)
+
     def test_keyword_sections_are_globally_repartitioned_before_resubmission(self) -> None:
         merge_job = READINESS_30K_REPARTITION_KEYWORD_SECTIONS.read_text(
             encoding="utf-8"
@@ -619,6 +643,10 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertNotIn("#SBATCH --time=", merge_job)
         self.assertIn("READINESS_APPROVED_WALLTIME", merge_job)
         self.assertIn("READINESS_ALLOCATION_ESTIMATE", merge_job)
+        self.assertIn("READINESS_GENERATION_PROFILE", merge_job)
+        self.assertIn("READINESS_REFINEMENT_MIN_TARGET_AXIS_1", merge_job)
+        self.assertIn("READINESS_REFINEMENT_TASK_PRIORITY", merge_job)
+        self.assertIn('manifest.get("generation_profile", "balanced-v1")', merge_job)
         self.assertIn("expected exactly ten source section roots", merge_job)
         self.assertIn("merge_readiness_partition_checkpoints.py", merge_job)
         self.assertIn("compare-projections", merge_job)
