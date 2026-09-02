@@ -661,6 +661,8 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
         self.assertIn("--section-count 10", script)
         self.assertIn("--verify-plan", script)
         self.assertIn("geodml-axis-v2-ten-section-latest.env", script)
+        self.assertIn('READINESS_TMUX_LAUNCH_MODE" == "manual"', script)
+        self.assertIn("TEN_INTERACTIVE_MANUAL_PREPARE=PASS", script)
         self.assertIn("run_readiness_30k_search_trigger_v2_high_axis_section.sh", script)
         self.assertNotIn("/e/project1", script)
         self.assertNotIn("/e/fscratch", script)

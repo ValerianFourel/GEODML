@@ -121,6 +121,29 @@ PY
 python3 "$GEODML_REPOSITORY/analysis/scripts/prepare_readiness_keyword_sections.py" \
     --verify-plan "$READINESS_KEYWORD_SECTION_PLAN"
 
+export READINESS_TMUX_LAUNCH_MODE="${READINESS_TMUX_LAUNCH_MODE:-automatic}"
+[[ "$READINESS_TMUX_LAUNCH_MODE" == "automatic" || \
+    "$READINESS_TMUX_LAUNCH_MODE" == "manual" ]] || {
+    echo "READINESS_TMUX_LAUNCH_MODE must be automatic or manual" >&2
+    exit 2
+}
+
+declare -px \
+    GEODML_EXPECTED_COMMIT GEODML_PROJECT_ROOT GEODML_CACHE_ROOT \
+    GEODML_REPOSITORY AXIS_V2_CHECKPOINT AXIS_V2_WAVE_ROOT \
+    READINESS_KEYWORD_SECTION_PLAN READINESS_TEN_SECTION_RUN_ROOT \
+    AXIS_V2_TMUX_PREFIX READINESS_APPROVED_WALLTIME \
+    READINESS_ALLOCATION_ESTIMATE READINESS_TMUX_LAUNCH_MODE \
+    AXIS_V2_STATE_FILE > "$AXIS_V2_STATE_FILE"
+chmod 600 "$AXIS_V2_STATE_FILE"
+
+if [[ "$READINESS_TMUX_LAUNCH_MODE" == "manual" ]]; then
+    echo "TEN_INTERACTIVE_MANUAL_PREPARE=PASS"
+    echo "wave=$AXIS_V2_WAVE_ROOT"
+    echo "state=$AXIS_V2_STATE_FILE"
+    exit 0
+fi
+
 collision_count=0
 for index in {0..9}; do
     session="$(printf '%s-%02d' "$AXIS_V2_TMUX_PREFIX" "$index")"
@@ -133,14 +156,6 @@ done
     echo "launch stopped because $collision_count tmux sessions already exist" >&2
     exit 2
 }
-
-declare -px \
-    GEODML_EXPECTED_COMMIT GEODML_PROJECT_ROOT GEODML_CACHE_ROOT \
-    GEODML_REPOSITORY AXIS_V2_CHECKPOINT AXIS_V2_WAVE_ROOT \
-    READINESS_KEYWORD_SECTION_PLAN READINESS_TEN_SECTION_RUN_ROOT \
-    AXIS_V2_TMUX_PREFIX READINESS_APPROVED_WALLTIME \
-    READINESS_ALLOCATION_ESTIMATE AXIS_V2_STATE_FILE > "$AXIS_V2_STATE_FILE"
-chmod 600 "$AXIS_V2_STATE_FILE"
 
 worker="$GEODML_REPOSITORY/analysis/scripts/slurm/jupiter/run_readiness_30k_search_trigger_v2_high_axis_section.sh"
 [[ -x "$worker" ]]
