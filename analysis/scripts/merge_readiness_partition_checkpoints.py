@@ -93,6 +93,101 @@ def _normalized_embedding_manifest(manifest: Mapping[str, object]) -> dict[str, 
     return embedding
 
 
+def _archive_locator_candidates(
+    manifest_path: Path,
+    row: Mapping[str, object],
+) -> tuple[Path, ...]:
+    declared = Path(str(row.get("path", "")))
+    if not declared.is_absolute():
+        declared = manifest_path.resolve().parent / declared
+    candidates = [declared]
+    attempt_name = declared.parent.name
+    for view in ("qwen", "mistral"):
+        if attempt_name.startswith(f".{view}-attempt-"):
+            candidates.append(declared.parent.parent / view / declared.name)
+            break
+    return tuple(candidates)
+
+
+def _resolve_embedding_archive(
+    manifest_path: Path,
+    row: Mapping[str, object],
+    *,
+    sha256_cache: dict[Path, str],
+) -> dict[str, object]:
+    try:
+        expected_size = int(row.get("size_bytes", -1))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("embedding archive inventory is invalid") from exc
+    expected_sha256 = str(row.get("sha256", ""))
+    if expected_size <= 0 or (expected_sha256 and len(expected_sha256) != 64):
+        raise ValueError("embedding archive inventory is invalid")
+    for candidate in _archive_locator_candidates(manifest_path, row):
+        path = candidate.resolve()
+        if not path.is_file() or path.stat().st_size != expected_size:
+            continue
+        if expected_sha256:
+            observed_sha256 = sha256_cache.get(path)
+            if observed_sha256 is None:
+                observed_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+                sha256_cache[path] = observed_sha256
+            if observed_sha256 != expected_sha256:
+                continue
+        normalized = {
+            "path": str(path),
+            "size_bytes": expected_size,
+        }
+        if expected_sha256:
+            normalized["sha256"] = expected_sha256
+        return normalized
+    raise ValueError(
+        f"embedding archive is missing or changed: "
+        f"{_archive_locator_candidates(manifest_path, row)[0]}"
+    )
+
+
+def _source_embedding_archives(
+    roots: Sequence[Path],
+    manifests: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    archives: dict[tuple[object, ...], dict[str, object]] = {}
+    sha256_cache: dict[Path, str] = {}
+    for root, manifest in zip(roots, manifests):
+        manifest_path = root / "projection_manifest.json"
+        if bool(manifest.get("embedding_arrays_included", True)):
+            consolidated = root / "question_embeddings.restricted-local.npz"
+            rows: Sequence[Mapping[str, object]] = (
+                {
+                    "path": str(consolidated),
+                    "size_bytes": consolidated.stat().st_size
+                    if consolidated.is_file()
+                    else -1,
+                },
+            )
+        else:
+            inventory = manifest.get("source_embedding_archives", [])
+            if not isinstance(inventory, list) or not inventory or not all(
+                isinstance(row, dict) for row in inventory
+            ):
+                raise ValueError(
+                    "coordinate-only projection has invalid embedding archive inventory"
+                )
+            rows = inventory
+        for row in rows:
+            normalized = _resolve_embedding_archive(
+                manifest_path,
+                row,
+                sha256_cache=sha256_cache,
+            )
+            identity = (
+                ("sha256", normalized["sha256"], normalized["size_bytes"])
+                if "sha256" in normalized
+                else ("path", normalized["path"], normalized["size_bytes"])
+            )
+            archives.setdefault(identity, normalized)
+    return list(archives.values())
+
+
 def _merge_projection_view(
     round_roots: Sequence[Path],
     output: Path,
@@ -124,18 +219,11 @@ def _merge_projection_view(
     )
     output.mkdir(parents=True)
     atomic_jsonl(output / "question_projections.jsonl", projection_rows)
-    source_embedding_archives = [
-        root / "question_embeddings.restricted-local.npz" for root in roots
-    ]
-    if any(
-        not path.is_file() or path.stat().st_size == 0
-        for path in source_embedding_archives
-    ):
-        raise ValueError(f"partition {view} embedding archives are incomplete")
+    source_embedding_archives = _source_embedding_archives(roots, manifests)
     if include_embedding_arrays:
         embedding_by_id: dict[str, np.ndarray] = {}
         for archive in source_embedding_archives:
-            with np.load(archive, allow_pickle=False) as payload:
+            with np.load(str(archive["path"]), allow_pickle=False) as payload:
                 ids = [str(value) for value in payload["candidate_ids"]]
                 values = np.asarray(payload["embeddings"], dtype=np.float32)
             if len(ids) != len(values) or len(set(ids)) != len(ids):
@@ -173,13 +261,7 @@ def _merge_projection_view(
         "candidate_count": len(candidate_ids),
         "embedding": embeddings_config[0],
         "embedding_arrays_included": include_embedding_arrays,
-        "source_embedding_archives": [
-            {
-                "path": str(path.resolve()),
-                "size_bytes": path.stat().st_size,
-            }
-            for path in source_embedding_archives
-        ],
+        "source_embedding_archives": source_embedding_archives,
         "partition_projection_manifests": [
             _identity(root / "projection_manifest.json") for root in roots
         ],

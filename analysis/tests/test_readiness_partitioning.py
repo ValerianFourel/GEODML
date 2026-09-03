@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -189,6 +190,7 @@ class ReadinessPartitioningTests(unittest.TestCase):
         index: int,
         unique_id: str,
         partition_count: int = 2,
+        coordinate_only_projections: bool = False,
     ) -> Path:
         partition = root / f"partition-{index}"
         round_root = partition / "round-00"
@@ -254,13 +256,45 @@ class ReadinessPartitioningTests(unittest.TestCase):
             ]
             _write_jsonl(projection / "question_projections.jsonl", projection_rows)
             projection.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(
-                projection / "question_embeddings.restricted-local.npz",
-                candidate_ids=np.asarray(["shared", unique_id]),
-                embeddings=np.asarray(
-                    [[1.0, 2.0], [3.0 + index, 4.0]], dtype=np.float32
-                ),
-            )
+            source_embedding_archives = []
+            if coordinate_only_projections:
+                shared_archive = root / f"shared-{view}.npz"
+                if not shared_archive.exists():
+                    np.savez_compressed(
+                        shared_archive,
+                        candidate_ids=np.asarray(["shared"]),
+                        embeddings=np.asarray([[1.0, 2.0]], dtype=np.float32),
+                    )
+                unique_archive = (
+                    projection / "new_question_embeddings.restricted-local.npz"
+                )
+                np.savez_compressed(
+                    unique_archive,
+                    candidate_ids=np.asarray([unique_id]),
+                    embeddings=np.asarray(
+                        [[3.0 + index, 4.0]], dtype=np.float32
+                    ),
+                )
+                source_embedding_archives = [
+                    {
+                        "path": str(shared_archive.resolve()),
+                        "sha256": hashlib.sha256(shared_archive.read_bytes()).hexdigest(),
+                        "size_bytes": shared_archive.stat().st_size,
+                    },
+                    {
+                        "path": unique_archive.name,
+                        "sha256": hashlib.sha256(unique_archive.read_bytes()).hexdigest(),
+                        "size_bytes": unique_archive.stat().st_size,
+                    },
+                ]
+            else:
+                np.savez_compressed(
+                    projection / "question_embeddings.restricted-local.npz",
+                    candidate_ids=np.asarray(["shared", unique_id]),
+                    embeddings=np.asarray(
+                        [[1.0, 2.0], [3.0 + index, 4.0]], dtype=np.float32
+                    ),
+                )
             _write_json(
                 projection / "projection_manifest.json",
                 {
@@ -277,6 +311,8 @@ class ReadinessPartitioningTests(unittest.TestCase):
                         "max_length": 512,
                         "attention_implementation": "eager",
                     },
+                    "embedding_arrays_included": not coordinate_only_projections,
+                    "source_embedding_archives": source_embedding_archives,
                 },
             )
         return partition
@@ -362,6 +398,50 @@ class ReadinessPartitioningTests(unittest.TestCase):
                 self.assertEqual(
                     projection_manifest["candidate_count"],
                     3,
+                )
+
+    def test_checkpoint_merge_retains_coordinate_only_archive_inventories(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            left = self._partition_fixture(
+                root,
+                index=0,
+                unique_id="left",
+                coordinate_only_projections=True,
+            )
+            right = self._partition_fixture(
+                root,
+                index=1,
+                unique_id="right",
+                coordinate_only_projections=True,
+            )
+            output = root / "merged-coordinate-only"
+            manifest = merge_partition_checkpoints(
+                (left, right),
+                output,
+                include_embedding_arrays=False,
+            )
+            self.assertEqual(manifest["candidate_count"], 3)
+            self.assertFalse(manifest["embedding_arrays_included"])
+            for view in ("qwen", "mistral"):
+                projection = output / "projections" / view
+                projection_manifest = json.loads(
+                    (projection / "projection_manifest.json").read_text()
+                )
+                self.assertFalse(
+                    projection_manifest["embedding_arrays_included"]
+                )
+                self.assertEqual(
+                    len(projection_manifest["source_embedding_archives"]),
+                    3,
+                )
+                self.assertTrue(
+                    all(
+                        Path(row["path"]).is_file()
+                        for row in projection_manifest[
+                            "source_embedding_archives"
+                        ]
+                    )
                 )
 
     def test_checkpoint_merge_checks_every_ten_section_manifest(self) -> None:

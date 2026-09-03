@@ -79,6 +79,7 @@ export READINESS_GENERATION_PROFILE="high-axis-action-v1"
 export READINESS_DISTANCE_TOLERANCE="0.035"
 export READINESS_REFINEMENT_MIN_TARGET_AXIS_1="0.700"
 export READINESS_REFINEMENT_TASK_PRIORITY="descending-axis-1"
+export READINESS_MERGE_OMIT_EMBEDDING_ARRAYS="1"
 
 bash "$jupiter_dir/run_readiness_30k_repartition_keyword_sections.sbatch"
 

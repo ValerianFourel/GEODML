@@ -78,6 +78,12 @@ export READINESS_REFINEMENT_MIN_TARGET_AXIS_1="${READINESS_REFINEMENT_MIN_TARGET
 export READINESS_REFINEMENT_TASK_PRIORITY="${READINESS_REFINEMENT_TASK_PRIORITY:-stable-hash}"
 export READINESS_REFINEMENT_CANDIDATES_PER_TASK="${READINESS_REFINEMENT_CANDIDATES_PER_TASK:-4}"
 export READINESS_MASTER_SEED="${READINESS_MASTER_SEED:-20260820}"
+export READINESS_MERGE_OMIT_EMBEDDING_ARRAYS="${READINESS_MERGE_OMIT_EMBEDDING_ARRAYS:-0}"
+[[ "$READINESS_MERGE_OMIT_EMBEDDING_ARRAYS" == "0" || \
+    "$READINESS_MERGE_OMIT_EMBEDDING_ARRAYS" == "1" ]] || {
+    echo "READINESS_MERGE_OMIT_EMBEDDING_ARRAYS must be 0 or 1" >&2
+    exit 2
+}
 
 subspace_pointer="${READINESS_SUBSPACE_POINTER:-$HOME/geodml-readiness-subspace-latest.txt}"
 [[ -s "$subspace_pointer" ]]
@@ -139,6 +145,9 @@ if [[ ! -s "$final_root/verified_round_summary.json" ]]; then
     for partition_root in "${partition_roots[@]}"; do
         merge_arguments+=(--partition-root "$partition_root")
     done
+    if [[ "$READINESS_MERGE_OMIT_EMBEDDING_ARRAYS" == "1" ]]; then
+        merge_arguments+=(--omit-embedding-arrays)
+    fi
     python analysis/scripts/merge_readiness_partition_checkpoints.py \
         "${merge_arguments[@]}" \
         --output-dir "$attempt/merged"
@@ -267,6 +276,7 @@ summary = {
     "refinement_task_priority": merged.get(
         "refinement_task_priority", "stable-hash"
     ),
+    "embedding_arrays_included": merged["embedding_arrays_included"],
     "selected_diversity_gate_passed": diversity_exit == 0,
     "spacing_gate_passed": diagnostics["overall_spacing_gate_passed"],
     "partition_count": merged["partition_count"],
