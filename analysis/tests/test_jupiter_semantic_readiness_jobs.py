@@ -92,6 +92,9 @@ READINESS_30K_PARTITION_FINALIZER = (
 READINESS_AXIS1_CHECKPOINT_AUDIT = (
     JUPITER_ROOT / "run_readiness_axis1_checkpoint_audit.sh"
 )
+READINESS_FINAL_AUDIT_4GPU = (
+    JUPITER_ROOT / "run_readiness_final_audit_4gpu.sh"
+)
 
 
 class JupiterSemanticReadinessJobTests(unittest.TestCase):
@@ -133,6 +136,7 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
             READINESS_30K_REPARTITION_SUBMITTER,
             READINESS_30K_PARTITION_FINALIZER,
             READINESS_AXIS1_CHECKPOINT_AUDIT,
+            READINESS_FINAL_AUDIT_4GPU,
         ):
             with self.subTest(script=script.name):
                 result = subprocess.run(
@@ -142,6 +146,17 @@ class JupiterSemanticReadinessJobTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_final_audit_runner_is_resumable_and_never_allocates(self) -> None:
+        runner = READINESS_FINAL_AUDIT_4GPU.read_text(encoding="utf-8")
+
+        self.assertNotIn("salloc", runner)
+        self.assertNotIn("sbatch", runner)
+        self.assertNotIn("srun", runner)
+        self.assertIn("READINESS_APPROVED_WALLTIME", runner)
+        self.assertIn("READINESS_ALLOCATION_ESTIMATE", runner)
+        self.assertIn("--shard-count", runner)
+        self.assertIn("READINESS_PROJECTION_SHARD_COUNT:-8", runner)
 
     def test_30k_pilot_preflights_models_and_retains_exhausted_tasks(self) -> None:
         script = READINESS_30K_PILOT.read_text(encoding="utf-8")
