@@ -47,6 +47,22 @@ class AclArrPilotClusterScriptTests(unittest.TestCase):
         self.assertNotIn("salloc", source)
         self.assertNotIn("sbatch", source)
 
+    def test_every_cluster_venv_activation_loads_the_python_module(self) -> None:
+        activation_scripts = (
+            JUPITER_ROOT / "run_acl_arr_pilot_model_setup.sh",
+            JUPITER_ROOT / "check_acl_arr_pilot_model_setup.sh",
+            JUPITER_ROOT / "prepare_acl_arr_pilot_plan.sh",
+            JUPITER_ROOT / "run_acl_arr_document_pilot_4gpu.sh",
+        )
+        for script in activation_scripts:
+            with self.subTest(script=script.name):
+                source = script.read_text(encoding="utf-8")
+                module_position = source.index("module load Stages/2026 GCC Python CUDA")
+                activation_position = source.index(
+                    'source "$ACL_ARR_VENV/bin/activate"'
+                )
+                self.assertLess(module_position, activation_position)
+
     def test_environment_stage_writes_a_sourceable_commit_scoped_file(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

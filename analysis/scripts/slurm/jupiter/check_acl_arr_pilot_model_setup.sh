@@ -27,6 +27,7 @@ if [[ ! -s "$MARKER" ]]; then
     exit 3
 fi
 
+module load Stages/2026 GCC Python CUDA
 source "$ACL_ARR_VENV/bin/activate"
 python3 "$GEODML_REPOSITORY/analysis/scripts/download_acl_arr_pilot_models.py" \
     --run-root "$ACL_ARR_RUN_ROOT" \

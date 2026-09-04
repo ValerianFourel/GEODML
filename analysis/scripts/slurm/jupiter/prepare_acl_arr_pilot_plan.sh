@@ -16,6 +16,7 @@ CURRENT_COMMIT="$(git -C "$GEODML_REPOSITORY" rev-parse HEAD)"
 [[ -s "$ACL_ARR_RUN_ROOT/models.json" ]]
 [[ -x "$ACL_ARR_VENV/bin/python" ]]
 
+module load Stages/2026 GCC Python CUDA
 source "$ACL_ARR_VENV/bin/activate"
 cd "$GEODML_REPOSITORY"
 export PYTHONPATH="$GEODML_REPOSITORY:$GEODML_REPOSITORY/analysis"
