@@ -4,6 +4,21 @@ Date: 2026-08-21
 Repository snapshot: `84e36dd5acc9210563a7c17c3a2a6aa0f825f0f6`  
 Branch: `codex/semantic-readiness-phase2-jupiter`
 
+## ACL ARR architecture update
+
+The current ACL ARR design is specified in
+[`analysis/docs/acl_arr_position_bias_semantic_displacement_architecture.md`](../analysis/docs/acl_arr_position_bias_semantic_displacement_architecture.md).
+It adds a four-model panel, paired Natural/Ablated/Shuffled document inputs,
+separate reranking and answer-generation pipelines, blinded realized-use
+judging, a single-node four-GH200 serving plan, and an asynchronous vLLM client
+structure.
+
+That document supersedes the old four-model answer panel for this ARR cycle.
+Historical model lists below remain part of the implementation record. They are
+not the model freeze for the new run. The official inventory does not contain
+the requested Qwen3.8-72B checkpoint. Valerian approved
+`Qwen/Qwen2.5-72B-Instruct` as the dense 72B pilot arm.
+
 ## Purpose
 
 This document compares the implementation in this repository with the workspace

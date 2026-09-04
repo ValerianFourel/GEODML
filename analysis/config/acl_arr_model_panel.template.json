@@ -1,0 +1,48 @@
+{
+  "models": [
+    {
+      "model_id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+      "model_revision": "REPLACE_WITH_40_CHARACTER_HUGGING_FACE_COMMIT_SHA",
+      "architecture": "moe",
+      "total_parameters_b": 109.0,
+      "active_parameters_b": 17.0,
+      "precision": "bfloat16",
+      "rerank_max_tokens": 256,
+      "answer_max_tokens": 768,
+      "temperature": 0.0
+    },
+    {
+      "model_id": "Qwen/Qwen2.5-72B-Instruct",
+      "model_revision": "REPLACE_WITH_40_CHARACTER_HUGGING_FACE_COMMIT_SHA",
+      "architecture": "dense",
+      "total_parameters_b": 72.0,
+      "active_parameters_b": 72.0,
+      "precision": "bfloat16",
+      "rerank_max_tokens": 256,
+      "answer_max_tokens": 768,
+      "temperature": 0.0
+    },
+    {
+      "model_id": "mistralai/Mistral-Small-4-119B-2603",
+      "model_revision": "REPLACE_WITH_40_CHARACTER_HUGGING_FACE_COMMIT_SHA",
+      "architecture": "moe",
+      "total_parameters_b": 119.0,
+      "active_parameters_b": 6.5,
+      "precision": "bfloat16",
+      "rerank_max_tokens": 256,
+      "answer_max_tokens": 768,
+      "temperature": 0.0
+    },
+    {
+      "model_id": "Qwen/Qwen3.8-27B",
+      "model_revision": "REPLACE_WITH_40_CHARACTER_HUGGING_FACE_COMMIT_SHA",
+      "architecture": "dense",
+      "total_parameters_b": 27.0,
+      "active_parameters_b": 27.0,
+      "precision": "bfloat16",
+      "rerank_max_tokens": 256,
+      "answer_max_tokens": 768,
+      "temperature": 0.0
+    }
+  ]
+}
