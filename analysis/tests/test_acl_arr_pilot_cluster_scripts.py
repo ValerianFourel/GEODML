@@ -121,6 +121,74 @@ class AclArrPilotClusterScriptTests(unittest.TestCase):
             )
             self.assertEqual(sourced, f"{commit}\n{expected_run_root}")
 
+    def test_environment_stage_finds_the_jupiter_scratch_dataset(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repository), "config", "user.name", "Test"],
+                check=True,
+            )
+            (repository / "tracked.txt").write_text("test\n")
+            subprocess.run(["git", "-C", str(repository), "add", "tracked.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "commit", "-qm", "test"],
+                check=True,
+            )
+            commit = subprocess.check_output(
+                ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+            ).strip()
+            audit = root / "audit"
+            audit.mkdir()
+            (audit / "compliant-candidates.jsonl").write_text("{}\n")
+            (audit / "final-axis-map.jsonl").write_text("{}\n")
+            scratch = root / "scratch"
+            snapshot = (
+                scratch
+                / "test-user/archive/geodml_data/data/serp/phase0_top20_searxng.parquet"
+            )
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_bytes(b"parquet-test")
+            environment_file = root / "pilot.env"
+            environment = os.environ.copy()
+            for name in (
+                "ACL_ARR_SEARCH_SNAPSHOT",
+                "GEODML_DATA_ROOT",
+                "ACL_ARR_PILOT_RUN_ROOT",
+            ):
+                environment.pop(name, None)
+            environment.update(
+                {
+                    "HOME": str(root),
+                    "USER": "test-user",
+                    "SCRATCH": str(scratch),
+                    "GEODML_REPOSITORY": str(repository),
+                    "GEODML_PROJECT_ROOT": str(root / "project"),
+                    "GEODML_CACHE_ROOT": str(root / "cache"),
+                    "AUDIT_ROOT": str(audit),
+                    "ACL_ARR_ENVIRONMENT_FILE": str(environment_file),
+                }
+            )
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(JUPITER_ROOT / "prepare_acl_arr_pilot_environment.sh"),
+                    commit,
+                ],
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"search_snapshot={snapshot}", result.stdout)
+
     def test_allocation_launcher_freezes_the_approved_budget(self) -> None:
         source = (JUPITER_ROOT / "launch_acl_arr_document_pilot_tmux.sh").read_text()
         self.assertEqual(source.count("salloc "), 1)

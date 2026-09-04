@@ -46,6 +46,10 @@ fi
 for CANDIDATE in \
     "$GEODML_REPOSITORY/geodml_data/data/serp/phase0_top20_searxng.parquet" \
     "${PROJECT:-/path-not-set}/$USER/GEODML_Analysis/geodml_data/data/serp/phase0_top20_searxng.parquet" \
+    "${SCRATCH:-/path-not-set}/$USER/data/serp/phase0_top20_searxng.parquet" \
+    "${SCRATCH:-/path-not-set}/data/serp/phase0_top20_searxng.parquet" \
+    "/e/scratch/scifi/$USER/data/serp/phase0_top20_searxng.parquet" \
+    "/p/scratch/scifi/$USER/data/serp/phase0_top20_searxng.parquet" \
     "${FSCRATCH:-/path-not-set}/$USER/geodml_data/data/serp/phase0_top20_searxng.parquet" \
     "$GEODML_CACHE_ROOT/geodml_data/data/serp/phase0_top20_searxng.parquet"
 do
@@ -53,6 +57,26 @@ do
         SEARCH_SNAPSHOT="$CANDIDATE"
     fi
 done
+if [[ -z "$SEARCH_SNAPSHOT" ]]; then
+    for SEARCH_ROOT in \
+        "${SCRATCH:-/path-not-set}/$USER" \
+        "${SCRATCH:-/path-not-set}" \
+        "/e/scratch/scifi/$USER" \
+        "/p/scratch/scifi/$USER" \
+        "$GEODML_PROJECT_ROOT" \
+        "$GEODML_CACHE_ROOT"
+    do
+        [[ -d "$SEARCH_ROOT" ]] || continue
+        CANDIDATE="$(
+            find "$SEARCH_ROOT" -maxdepth 8 -type f \
+                -name phase0_top20_searxng.parquet -print -quit 2>/dev/null || true
+        )"
+        if [[ -n "$CANDIDATE" ]]; then
+            SEARCH_SNAPSHOT="$CANDIDATE"
+            break
+        fi
+    done
+fi
 if [[ -z "$SEARCH_SNAPSHOT" ]]; then
     echo "ERROR: could not find phase0_top20_searxng.parquet" >&2
     exit 2
