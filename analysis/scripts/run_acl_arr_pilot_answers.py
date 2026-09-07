@@ -100,7 +100,7 @@ async def run_answers(items, output, *, client, source_hashes, metadata, stop_at
                 "attempted_this_invocation": 0, "failed_this_invocation": 0,
                 "unattempted_count": len(pending), "started_at": _now(), "finished_at": None,
                 "max_concurrency": max_concurrency, "request_timeout_seconds": 300,
-                "maximum_http_attempts": 1, "answer_protocol": "unchanged-primary-answer-v1"}
+                "maximum_http_attempts": 1, "answer_protocol": metadata.get("answer_protocol", "unchanged-primary-answer-v1")}
     manifest_path = output / "answer_manifest.json"
     _atomic_json(manifest_path, manifest)
     with outcome_path.open("a", buffering=1) as outcomes, \
