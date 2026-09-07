@@ -174,6 +174,7 @@ def _documents(case: SearchCase, condition: str) -> list[dict[str, str]]:
 
 
 def answer_schema() -> dict[str, Any]:
+    # vLLM/xgrammar rejects uniqueItems. _ids still enforces citation uniqueness.
     return {"type": "object", "additionalProperties": False,
         "required": ["status", "claims", "uncertainty"], "properties": {
             "status": {"type": "string", "enum": ["answered", "partial", "insufficient_evidence"]},
@@ -181,7 +182,7 @@ def answer_schema() -> dict[str, Any]:
                 "required": ["claim_id", "text", "cited_document_ids"], "properties": {
                     "claim_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"},
                     "text": {"type": "string", "minLength": 1},
-                    "cited_document_ids": {"type": "array", "uniqueItems": True,
+                    "cited_document_ids": {"type": "array",
                         "items": {"type": "string"}}}}},
             "uncertainty": {"type": "string"}}}
 

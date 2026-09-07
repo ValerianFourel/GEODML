@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import hashlib
+import importlib.util
 import json
 import unittest
 
@@ -48,6 +49,24 @@ def fixture():
 
 
 class SearchExperienceTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec("vllm"), "requires cluster vLLM installation")
+    def test_installed_backend_accepts_all_search_schemas(self):
+        from analysis.scripts.check_search_experience_grammar import main
+        self.assertEqual(main(), 0)
+
+    def test_citation_uniqueness_is_validated_outside_generation_schema(self):
+        from analysis.interpretability.pipeline.search_experience import answer_schema
+        citations = answer_schema()["properties"]["claims"]["items"]["properties"]["cited_document_ids"]
+        # vLLM 0.28 rejects uniqueItems even when set to false.
+        self.assertNotIn("uniqueItems", citations)
+        _, _, answer = fixture()
+        answer["claims"][0]["cited_document_ids"] = ["C003", "C003"]
+        with self.assertRaises(ValueError):
+            validate_answer_output(json.dumps(answer), allowed_document_ids=["C003"])
+        answer["claims"][0]["cited_document_ids"] = ["C001"]
+        with self.assertRaises(ValueError):
+            validate_answer_output(json.dumps(answer), allowed_document_ids=["C003"])
+
     def test_frozen_capture_and_query_intents(self):
         plan, capture, _ = fixture()
         capture["raw_results"].append(deepcopy(capture["raw_results"][0]))
