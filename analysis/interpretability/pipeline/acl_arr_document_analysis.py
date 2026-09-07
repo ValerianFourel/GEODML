@@ -45,6 +45,13 @@ def analyze_acl_arr_outcomes(
 ) -> AclArrAnalysis:
     """Audit complete paired cells and calculate preregisterable contrasts."""
 
+    if any(
+        row.get("scientific_result") is False
+        or row.get("eligible_for_analysis") is False
+        for row in (*rerank_outcomes, *answer_outcomes, *judge_outcomes)
+    ):
+        raise ValueError("pilot or non-scientific outputs are not eligible for analysis")
+
     expected_rerank = {
         task.task_id
         for task in iter_experiment_tasks(plan)

@@ -115,6 +115,7 @@ class AclArrAnalysisTests(unittest.TestCase):
             allow_fake=True,
         )
         self.assertEqual(analysis.summary["result"], "PASS")
+        self.assertFalse(analysis.summary["scientific_result"])
         self.assertEqual(analysis.summary["paired_prompt_model_count"], 1)
         self.assertEqual(len(analysis.paired_rows), 1)
         row = analysis.paired_rows[0]
@@ -131,6 +132,45 @@ class AclArrAnalysisTests(unittest.TestCase):
                 plan=plan,
                 allow_fake=True,
             )
+
+    def test_explicit_non_scientific_outcomes_are_rejected(self) -> None:
+        for pipeline in ("rerank", "answer", "judge"):
+            for flag in ("scientific_result", "eligible_for_analysis"):
+                for allow_fake in (False, True):
+                    with self.subTest(
+                        pipeline=pipeline, flag=flag, allow_fake=allow_fake
+                    ):
+                        plan, rerank, answers, judgments, mappings = self._fixture()
+                        rows_by_pipeline = {
+                            "rerank": rerank,
+                            "answer": answers,
+                            "judge": judgments,
+                        }
+                        for rows in rows_by_pipeline.values():
+                            for row in rows:
+                                row["fake_backend"] = False
+                        rows_by_pipeline[pipeline][0][flag] = False
+                        with self.assertRaisesRegex(
+                            ValueError, "non-scientific.*not eligible"
+                        ):
+                            analyze_acl_arr_outcomes(
+                                rerank,
+                                answers,
+                                judgments,
+                                mappings,
+                                plan=plan,
+                                allow_fake=allow_fake,
+                            )
+
+    def test_legacy_real_outcomes_without_eligibility_flags_remain_supported(self) -> None:
+        plan, rerank, answers, judgments, mappings = self._fixture()
+        for row in (*rerank, *answers, *judgments):
+            row["fake_backend"] = False
+        analysis = analyze_acl_arr_outcomes(
+            rerank, answers, judgments, mappings, plan=plan
+        )
+        self.assertEqual(analysis.summary["result"], "PASS")
+        self.assertTrue(analysis.summary["scientific_result"])
 
 
 if __name__ == "__main__":
