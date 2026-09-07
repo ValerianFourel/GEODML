@@ -418,6 +418,8 @@ def parser():
             sub.add_argument("--max-concurrency", type=int, default=8)
             sub.add_argument("--max-tasks", type=int, default=0)
             sub.add_argument("--resume", action="store_true")
+            sub.add_argument("--preflight-only", action="store_true",
+                             help="Validate inputs and saved work without writes or HTTP; exit 0 complete, 3 pending")
         if name == "run-primary":
             sub.add_argument("--model-configuration-id", required=True)
             sub.add_argument("--server-model-revision", required=True)
@@ -454,7 +456,12 @@ def main(argv=None):
         else:
             items, identity, hashes = judge_items(args.bundle_dir, args.primary_output,
                 args.judge_model_id, args.judge_model_revision, judge_contract=args.judge_contract)
-        preflight_run(items, args.output_dir, identity, hashes, resume=args.resume)
+        completed = preflight_run(items, args.output_dir, identity, hashes, resume=args.resume)
+        if args.preflight_only:
+            print(json.dumps({"status": "complete" if len(completed) == len(items) else "pending",
+                              "task_count": len(items), "completed_count": len(completed),
+                              "remaining_count": len(items) - len(completed)}, sort_keys=True))
+            return 0 if len(completed) == len(items) else 3
         bundle, _, _, _ = load_bundle(args.bundle_dir)
         if bundle["synthetic_inputs"]:
             raise ValueError("synthetic bundles are for injected-client tests, not real endpoint execution")

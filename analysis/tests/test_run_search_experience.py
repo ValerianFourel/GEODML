@@ -233,6 +233,19 @@ class SearchRuntimeTests(unittest.TestCase):
             runtime.preflight_run(judges, quote_output, judge_identity, judge_hashes, resume=True)
         self.assertEqual(saved_quote, {p.name: p.read_bytes() for p in quote_output.iterdir()})
         self.assertEqual(frozen_primary, {p.name: p.read_bytes() for p in primary.iterdir()})
+        check_args = ["run-judge", "--bundle-dir", str(bundle), "--primary-output", str(primary),
+            "--judge-model-id", "independent/model", "--judge-model-revision", "c" * 40,
+            "--judge-contract", contract.QUOTE_JUDGE_CONTRACT, "--base-url", "http://127.0.0.1:1/v1",
+            "--output-dir", str(quote_output), "--resume", "--preflight-only"]
+        with patch.object(runtime, "VllmChatClient") as client_factory:
+            self.assertEqual(runtime.main(check_args), 0)
+            fresh_args = list(check_args)
+            fresh_args[fresh_args.index(str(quote_output))] = str(self.root / "fresh-judge")
+            fresh_args.remove("--resume")
+            self.assertEqual(runtime.main(fresh_args), 3)
+            self.assertFalse((self.root / "fresh-judge").exists())
+            client_factory.assert_not_called()
+        self.assertEqual(saved_quote, {p.name: p.read_bytes() for p in quote_output.iterdir()})
 
         # A failed independent ranking must not block nine complete answers.
         ranking = next(i for i in items if i["base"]["pipeline"] == "rerank")
