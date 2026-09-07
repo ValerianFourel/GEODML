@@ -33,6 +33,13 @@ class NativePreflightTests(unittest.TestCase):
             supported = ['NativeWrapper', 'NativeBackbone']
             result = check(root, config_loader=loader, supported_architectures=supported)
             self.assertFalse(result['weights_loaded'])
+            root.joinpath('consolidated.safetensors').unlink()
+            result = check(root, config_loader=loader, supported_architectures=supported, config_only=True)
+            self.assertFalse(result['native_weights_present'])
+            self.assertTrue(result['config_only'])
+            with self.assertRaisesRegex(ValueError, 'safetensors missing'):
+                check(root, config_loader=loader, supported_architectures=supported)
+            root.joinpath('consolidated.safetensors').write_bytes(b'fixture-not-real-weights')
             text.architectures = None
             with self.assertRaisesRegex(ValueError, 'unresolved'):
                 check(root, config_loader=loader, supported_architectures=supported)
