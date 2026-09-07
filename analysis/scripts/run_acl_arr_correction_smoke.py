@@ -49,11 +49,15 @@ def main():
     parser.add_argument('--repair-results', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--stop-submit-epoch', type=float, required=True)
-    parser.add_argument('--approved-walltime', choices=['00:20:00'], required=True)
+    parser.add_argument('--approved-walltime', choices=['00:20:00', '00:15:00'], required=True)
+    parser.add_argument('--budget-seconds', type=int, default=1200)
     parser.add_argument('--allocation-estimate', required=True)
     parser.add_argument('--base-url', default='http://127.0.0.1:8003/v1')
     parser.add_argument('--preflight-only', action='store_true')
     args = parser.parse_args()
+    cap = 900 if args.approved_walltime == '00:15:00' else 1200
+    if not 240 <= args.budget_seconds <= cap:
+        parser.error('budget must be at least four minutes and within approved cap')
     if not os.getenv('SLURM_JOB_ID') or not os.getenv('SLURM_STEP_ID'):
         parser.error('requires a step in the approved existing allocation')
     if args.output_dir.exists():
@@ -118,7 +122,8 @@ def main():
     metadata.update(execution_git_commit=subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
         correction_policy='pilot-model-correction-smoke-v1', answer_protocol='pilot-model-correction-smoke-v1', approved_walltime=args.approved_walltime,
         allocation_estimate=args.allocation_estimate, slurm_job_id=os.environ['SLURM_JOB_ID'],
-        slurm_step_id=os.environ['SLURM_STEP_ID'], max_model_len=49152, gpu_hour_cap=4/3,
+        slurm_step_id=os.environ['SLURM_STEP_ID'], max_model_len=49152,
+        budget_seconds=args.budget_seconds, gpu_hour_cap=4*args.budget_seconds/3600,
         resources={'gpus': 4, 'cpus': 32, 'nodes': 1, 'memory': '512G'})
     async def execute():
         async with VllmChatClient(base_url=args.base_url, api_key=None, server_model_name=metadata['model_id'],

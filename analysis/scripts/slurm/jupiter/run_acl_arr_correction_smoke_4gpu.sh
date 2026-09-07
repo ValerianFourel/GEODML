@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 step_start_epoch="$(date +%s)"
-stop_submit_epoch=$((step_start_epoch + 900))
+correction_budget="${ACL_ARR_CORRECTION_BUDGET_SECONDS:-1200}"
+[[ "$correction_budget" =~ ^[0-9]+$ ]]
+(( correction_budget >= 240 && correction_budget <= 1200 ))
+stop_submit_epoch=$((step_start_epoch + correction_budget - 180))
+if (( correction_budget > 1080 )); then
+    stop_submit_epoch=$((step_start_epoch + 900))
+fi
 
 # Invoke with bash in a job step of the existing approved allocation. Never source
 # this worker in the allocation-owning shell. Cleanup owns only its vLLM group.
@@ -15,9 +21,13 @@ stop_submit_epoch=$((step_start_epoch + 900))
 : "${ACL_ARR_CORRECTION_ESTIMATE:?set the approved answer estimate}"
 : "${GEODML_CORRECTION_COMMIT:?set the answer checkout commit}"
 
-if [[ "$ACL_ARR_CORRECTION_APPROVED_WALLTIME" != "00:20:00" ]]; then
+if [[ "$ACL_ARR_CORRECTION_APPROVED_WALLTIME" != "00:20:00" &&
+      "$ACL_ARR_CORRECTION_APPROVED_WALLTIME" != "00:15:00" ]]; then
     echo "ERROR: this answer step was approved only for 00:20:00" >&2
     exit 2
+fi
+if [[ "$ACL_ARR_CORRECTION_APPROVED_WALLTIME" == "00:15:00" ]]; then
+    (( correction_budget <= 900 ))
 fi
 if [[ "${SLURM_JOB_ID:-}" != "$ACL_ARR_CORRECTION_JOB_ID" ||
       -z "${SLURM_STEP_ID:-}" ]]; then
@@ -64,6 +74,7 @@ answer_args=(
     --repair-results "$ACL_ARR_CORRECTION_REPAIR"
     --stop-submit-epoch "$stop_submit_epoch"
     --approved-walltime "$ACL_ARR_CORRECTION_APPROVED_WALLTIME"
+    --budget-seconds "$correction_budget"
     --allocation-estimate "$ACL_ARR_CORRECTION_ESTIMATE"
 )
 
@@ -164,8 +175,7 @@ set +m
 setsid "$ACL_ARR_VENV/bin/vllm" "${server_args[@]}" > "$SERVER_LOG" 2>&1 &
 server_pid=$!
 server_ready=0
-server_deadline=$((SECONDS + 900))
-while (( SECONDS < server_deadline )); do
+while (( $(date +%s) < stop_submit_epoch )); do
     if ! kill -0 "$server_pid" 2>/dev/null; then
         echo "ERROR: answer vLLM exited while loading" >&2
         tail -n 120 "$SERVER_LOG" >&2
