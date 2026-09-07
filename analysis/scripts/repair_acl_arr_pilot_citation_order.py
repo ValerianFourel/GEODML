@@ -17,10 +17,16 @@ from analysis.scripts.run_acl_arr_pilot_answers import load_answers, verify_hash
 from analysis.scripts.run_acl_arr_vllm import _sha256, _read_jsonl, _atomic_json, _now
 
 
-def repair_output(raw, allowed, *, grouped=False):
+def repair_output(raw, allowed, *, grouped=False, formatting=False):
     if not isinstance(raw, str):
         return None
     try:
+        unwrapped = False
+        if formatting:
+            fence = re.fullmatch(r'\s*```(?:json)?\s*\n(.*?)\n```\s*', raw, re.DOTALL)
+            if fence:
+                raw = fence[1]
+                unwrapped = True
         value = json.loads(raw)
         if not isinstance(value, dict) or set(value) != {'answer', 'cited_document_ids'}:
             return None
@@ -37,6 +43,8 @@ def repair_output(raw, allowed, *, grouped=False):
                 return None
             citation_ids = []
             for content in brackets:
+                if formatting:
+                    content = content.strip()
                 if not re.fullmatch(r'[A-Za-z0-9_.:-]+(?:\s*,\s*[A-Za-z0-9_.:-]+)*', content):
                     return None
                 ids = [part.strip() for part in content.split(',')]
@@ -47,7 +55,8 @@ def repair_output(raw, allowed, *, grouped=False):
                 lambda match: ''.join('[' + part.strip() + ']' for part in match[1].split(',')), answer)
         else:
             inline = list(dict.fromkeys(re.findall(r'\[([A-Za-z0-9_.:-]+)\]', answer)))
-        if not inline or (declared == inline and not has_group) or len(declared) != len(set(declared)):
+        if not inline or (declared == inline and not has_group and not unwrapped
+                          and validation_answer == answer) or len(declared) != len(set(declared)):
             return None
         if set(declared) != set(inline) or not set(inline) <= set(allowed):
             return None
@@ -59,7 +68,7 @@ def repair_output(raw, allowed, *, grouped=False):
         return None
 
 
-def audit_and_repair(source, output, *, grouped=False):
+def audit_and_repair(source, output, *, grouped=False, formatting=False):
     source, output = Path(source).resolve(), Path(output).resolve()
     if output.exists() or source == output or source in output.parents:
         raise ValueError('output must be a fresh directory outside the source results')
@@ -87,8 +96,10 @@ def audit_and_repair(source, output, *, grouped=False):
             raise ValueError('duplicate successful task')
         done.add(task_id)
     repairs, unresolved, seen = [], [], set()
-    order_count, grouped_count = 0, 0
+    order_count, grouped_count, formatting_count = 0, 0, 0
     policy = 'pilot-only-citation-order-and-groups-v1' if grouped else 'pilot-only-citation-order-v1'
+    if formatting:
+        policy = 'pilot-only-citation-formatting-v1'
     for row in _read_jsonl(paths[2]):
         task_id = row['task_id']
         if task_id in seen or task_id in done or task_id not in prepared:
@@ -107,12 +118,16 @@ def audit_and_repair(source, output, *, grouped=False):
         if repaired is None and grouped:
             repaired = repair_output(raw, item['base']['input_document_ids'], grouped=True)
             repair_kind = 'grouped_citations'
+        if repaired is None and formatting:
+            repaired = repair_output(raw, item['base']['input_document_ids'], grouped=True, formatting=True)
+            repair_kind = 'whitespace_or_json_fence'
         if repaired is None:
             unresolved.append({'task_id': task_id, 'original_error': row.get('error'),
                                'scientific_result': False, 'eligible_for_analysis': False})
         else:
             order_count += repair_kind == 'order_only'
             grouped_count += repair_kind == 'grouped_citations'
+            formatting_count += repair_kind == 'whitespace_or_json_fence'
             repairs.append({'task_id': task_id, 'source_failure': row,
                             'repair_policy': policy, 'repair_kind': repair_kind,
                             'repaired_output': repaired, 'scientific_result': False,
@@ -134,6 +149,7 @@ def audit_and_repair(source, output, *, grouped=False):
               'execution_git_commit': subprocess.check_output(['git', '-C', str(REPOSITORY_ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
               'repair_policy': policy, 'order_only_repaired_count': order_count,
               'grouped_citation_repaired_count': grouped_count,
+              'formatting_repaired_count': formatting_count,
               'counts_scope': 'cumulative over original failures; do not add earlier repair counts',
               'scientific_result': False, 'eligible_for_analysis': False,
               'original_valid_count': len(done), 'repaired_count': len(repairs),
@@ -151,6 +167,8 @@ if __name__ == '__main__':
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--approve-pilot-only-citation-order-repair', action='store_true', required=True)
     parser.add_argument('--approve-pilot-only-grouped-citations', action='store_true')
+    parser.add_argument('--approve-pilot-only-formatting', action='store_true')
     args = parser.parse_args()
     audit_and_repair(args.source_results, args.output_dir,
-                     grouped=args.approve_pilot_only_grouped_citations)
+                     grouped=args.approve_pilot_only_grouped_citations,
+                     formatting=args.approve_pilot_only_formatting)

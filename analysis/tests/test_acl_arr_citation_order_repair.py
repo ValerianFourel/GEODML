@@ -9,6 +9,14 @@ from analysis.scripts.repair_acl_arr_pilot_citation_order import repair_output, 
 
 
 class CitationOrderRepairTests(unittest.TestCase):
+    def test_formatting_only_preserves_answer_and_rejects_prose_and_bad_ids(self):
+        answer = 'Use [ C002 , C001 ].'
+        raw = '```json\n' + json.dumps({'answer': answer, 'cited_document_ids': ['C001', 'C002']}) + '\n```'
+        self.assertEqual(repair_output(raw, ['C001', 'C002'], grouped=True, formatting=True),
+                         {'answer': answer, 'cited_document_ids': ['C002', 'C001']})
+        self.assertIsNone(repair_output('Here is the answer: ' + raw, ['C001', 'C002'], grouped=True, formatting=True))
+        self.assertIsNone(repair_output(raw, ['C001'], grouped=True, formatting=True))
+
     def test_grouped_citations_preserve_answer_and_require_opt_in(self):
         answer = 'Evidence [C002]. More [C001, C003, C002].'
         raw = json.dumps({'answer': answer, 'cited_document_ids': ['C001', 'C002', 'C003']})

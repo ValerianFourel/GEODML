@@ -5,15 +5,25 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from dataclasses import asdict
+from contextlib import aclosing, contextmanager, ExitStack
+from contextvars import ContextVar
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import sys
 import tempfile
+import time
+import uuid
 from typing import Any, Mapping, Sequence
+
+_TASK_CONTEXT = ContextVar("acl_arr_task_context", default={})
+
+
+class AuditWriteError(RuntimeError):
+    """An audit failure must never cause another inference request."""
 
 
 ANALYSIS_ROOT = Path(__file__).resolve().parents[1]
@@ -79,24 +89,6 @@ def _atomic_json(path: Path, value: object) -> None:
 
 def _append(stream, value: Mapping[str, Any]) -> None:
     stream.write(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n")
-
-
-def _read_completed(path: Path, id_field: str) -> set[str]:
-    completed: set[str] = set()
-    if not path.exists():
-        return completed
-    with path.open(encoding="utf-8") as stream:
-        for line in stream:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            value = row.get(id_field) if isinstance(row, dict) else None
-            if isinstance(value, str) and value:
-                completed.add(value)
-    return completed
 
 
 def _verify_primary_task_file(manifest: Mapping[str, Any], tasks_path: Path) -> None:
@@ -255,6 +247,7 @@ class VllmChatClient:
         server_model_name: str,
         timeout_seconds: float,
         maximum_attempts: int,
+        audit_callback=None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -262,6 +255,14 @@ class VllmChatClient:
         self.timeout_seconds = timeout_seconds
         self.maximum_attempts = maximum_attempts
         self.session = None
+        self.audit_callback = audit_callback
+
+    def _audit(self, event):
+        if self.audit_callback is not None:
+            try:
+                self.audit_callback({"task_context": dict(_TASK_CONTEXT.get()), **event})
+            except Exception as exc:
+                raise AuditWriteError(str(exc)) from exc
 
     async def __aenter__(self):
         try:
@@ -275,7 +276,11 @@ class VllmChatClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
         self.session = aiohttp.ClientSession(headers=headers, timeout=timeout)
-        await self.verify_server_identity()
+        try:
+            await self.verify_server_identity()
+        except BaseException:
+            await self.session.close()
+            raise
         return self
 
     async def __aexit__(self, exc_type, exc, traceback):
@@ -327,11 +332,22 @@ class VllmChatClient:
         }
         last_error: Exception | None = None
         for attempt in range(1, self.maximum_attempts + 1):
+            started = time.monotonic()
+            event = {"attempt": attempt, "started_at": _now(),
+                     "request": {k: payload[k] for k in ("model", "temperature", "max_tokens", "seed", "response_format")},
+                     "rendered_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest()}
+            self._audit({**event, "event": "start"})
+            status_code = None
+            content = None
+            usage = {}
+            error = None
+            body = None
             try:
                 async with self.session.post(
                     f"{self.base_url}/chat/completions", json=payload
                 ) as response:
                     body = await response.text()
+                    status_code = response.status
                     if response.status != 200:
                         raise RuntimeError(f"HTTP {response.status}: {body[:1000]}")
                     value = json.loads(body)
@@ -339,13 +355,83 @@ class VllmChatClient:
                 if not isinstance(content, str):
                     raise RuntimeError("vLLM response content is not text")
                 usage = value.get("usage", {})
-                return content, usage if isinstance(usage, dict) else {}
+                usage = usage if isinstance(usage, dict) else {}
             except Exception as exc:
                 last_error = exc
-                if attempt < self.maximum_attempts:
-                    await asyncio.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+                error = f"{type(exc).__name__}: {exc}"
+            except BaseException as exc:
+                self._audit({**event, "event": "end", "finished_at": _now(),
+                             "duration_seconds": time.monotonic() - started,
+                             "status_code": status_code, "error": type(exc).__name__})
+                raise
+            self._audit({**event, "event": "end", "finished_at": _now(),
+                         "duration_seconds": time.monotonic() - started,
+                         "status_code": status_code, "error": error,
+                         "raw_output": content, "usage": usage, "response_body": body})
+            if error is None:
+                return content, usage
+            if attempt < self.maximum_attempts:
+                await asyncio.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
         assert last_error is not None
         raise last_error
+
+
+def _request_sha256(item):
+    request = {"prompt": str(item["prompt"]), "schema_name": str(item["schema_name"]),
+               "schema": item["schema"], "temperature": float(item["temperature"]),
+               "max_tokens": int(item["max_tokens"]), "seed": int(item["seed"])}
+    return hashlib.sha256(json.dumps(request, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+async def _execute_one(item, *, client, fake):
+    started = time.monotonic()
+    result = {"base": item["base"], "started_at": _now(), "raw_output": None, "usage": {},
+              "request_sha256": _request_sha256(item)}
+    token = _TASK_CONTEXT.set(item["base"])
+    try:
+        if fake:
+            raw, usage = str(item["fake_output"]), {}
+        else:
+            raw, usage = await client.complete(
+                prompt=str(item["prompt"]), schema_name=str(item["schema_name"]),
+                schema=item["schema"], temperature=float(item["temperature"]),
+                max_tokens=int(item["max_tokens"]), seed=int(item["seed"]),
+            )
+        result.update(raw_output=raw, usage=dict(usage))
+        result.update(parsed_output=item["validator"](raw), ok=True)
+    except AuditWriteError:
+        raise
+    except Exception as exc:
+        result.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+    finally:
+        _TASK_CONTEXT.reset(token)
+    result.update(finished_at=_now(), duration_seconds=time.monotonic() - started)
+    return result
+
+
+async def _iter_execute(prepared, *, client, maximum_concurrency, fake):
+    """Yield completed requests with at most C prepared tasks in flight."""
+    if maximum_concurrency <= 0:
+        raise ValueError("maximum_concurrency must be positive")
+    source = iter(prepared)
+    active = set()
+    try:
+        while True:
+            while len(active) < maximum_concurrency:
+                item = next(source, None)
+                if item is None:
+                    break
+                active.add(asyncio.create_task(_execute_one(item, client=client, fake=fake)))
+            if not active:
+                break
+            done, _ = await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
+            for future in done:
+                active.remove(future)
+                yield future.result()
+    finally:
+        for future in active:
+            future.cancel()
+        await asyncio.gather(*active, return_exceptions=True)
 
 
 async def _execute(
@@ -357,43 +443,17 @@ async def _execute(
 ) -> list[dict[str, Any]]:
     semaphore = asyncio.Semaphore(maximum_concurrency)
 
-    async def one(item: dict[str, Any]) -> dict[str, Any]:
-        started_at = _now()
-        try:
-            if fake:
-                raw = str(item["fake_output"])
-                usage: Mapping[str, Any] = {}
-            else:
-                assert client is not None
-                async with semaphore:
-                    raw, usage = await client.complete(
-                        prompt=str(item["prompt"]),
-                        schema_name=str(item["schema_name"]),
-                        schema=item["schema"],
-                        temperature=float(item["temperature"]),
-                        max_tokens=int(item["max_tokens"]),
-                        seed=int(item["seed"]),
-                    )
-            parsed = item["validator"](raw)
-            return {
-                "ok": True,
-                "base": item["base"],
-                "raw_output": raw,
-                "parsed_output": parsed,
-                "usage": dict(usage),
-                "started_at": started_at,
-                "finished_at": _now(),
-            }
-        except Exception as exc:  # Preserve every per-task failure for retry.
-            return {
-                "ok": False,
-                "base": item["base"],
-                "error": f"{type(exc).__name__}: {exc}",
-                "started_at": started_at,
-                "finished_at": _now(),
-            }
+    async def one(item):
+        async with semaphore:
+            return await _execute_one(item, client=client, fake=fake)
 
-    return await asyncio.gather(*(one(item) for item in prepared))
+    active = [asyncio.create_task(one(item)) for item in prepared]
+    try:
+        return await asyncio.gather(*active)
+    finally:
+        for future in active:
+            future.cancel()
+        await asyncio.gather(*active, return_exceptions=True)
 
 
 def _prepare_primary(
@@ -500,15 +560,106 @@ def _prepare_judge(
     }
 
 
+def _journal_rows(path):
+    if not path.exists():
+        return
+    with path.open('rb') as stream:
+        for number, line in enumerate(stream, 1):
+            if not line.endswith(b'\n'):
+                raise ValueError(f"unterminated journal tail; original preserved: {path}")
+            if not line.strip():
+                raise ValueError(f"blank journal record at {path}:{number}")
+            try:
+                row = json.loads(line)
+            except (ValueError, UnicodeError) as exc:
+                raise ValueError(f"corrupt journal at {path}:{number}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"non-object journal at {path}:{number}")
+            yield row
+
+
+def _validate_resume(output, identity, tasks, prepare, id_field):
+    manifest_path = output / "run_manifest.json"
+    journals = [output / name for name in ("outcomes.jsonl", "failures.jsonl", "attempts.jsonl")]
+    if not manifest_path.exists():
+        if any(p.exists() for p in journals):
+            raise ValueError("resume journals lack a run manifest; originals preserved")
+        return set()
+    previous = json.loads(manifest_path.read_text())
+    if previous.get("resume_identity") != identity:
+        raise ValueError("resume identity mismatch or legacy provenance; use a fresh output directory")
+    if (any(previous.get(key) != identity[key] for key in
+            ("pipeline", "model_id", "model_revision", "fake_backend", "pilot_only", "maximum_attempts"))
+            or previous.get("tasks", {}).get("sha256") != identity["tasks_sha256"]):
+        raise ValueError("resume manifest identity fields disagree")
+    if not all(p.exists() for p in journals):
+        raise ValueError("resume is missing an outcome, failure, or attempt journal")
+    indexed = {getattr(task, id_field): task for task in tasks}
+    completed = set()
+    for path in journals:
+        for row in _journal_rows(path):
+            base = row.get("task_context", {}) if path.name == "attempts.jsonl" else row
+            task_id = base.get(id_field)
+            if task_id not in indexed:
+                raise ValueError(f"unknown resume task in {path}")
+            item = prepare(indexed[task_id])
+            expected = {**item["base"], "fake_backend": identity["fake_backend"]}
+            if any(base.get(k) != v for k, v in expected.items()):
+                raise ValueError(f"resume task identity mismatch in {path}")
+            if path.name == "attempts.jsonl":
+                attempt = row.get("attempt")
+                if row.get("event") not in ("start", "end") or type(attempt) is not int or not 1 <= attempt <= identity["maximum_attempts"]:
+                    raise ValueError("invalid HTTP attempt journal record")
+            elif path.name == "failures.jsonl":
+                if not isinstance(row.get("error"), str):
+                    raise ValueError("invalid failure journal record")
+            else:
+                if task_id in completed:
+                    raise ValueError("duplicate resume outcome task ID")
+                if identity["pilot_only"] and (row.get("scientific_result") is not False or row.get("eligible_for_analysis") is not False):
+                    raise ValueError("pilot resume flags mismatch")
+                if row.get("request_sha256") != _request_sha256(item):
+                    raise ValueError("resume request fingerprint mismatch")
+                raw = row.get("raw_output")
+                if not isinstance(raw, str) or hashlib.sha256(raw.encode()).hexdigest() != row.get("raw_output_sha256"):
+                    raise ValueError("resume raw output hash mismatch")
+                if item["validator"](raw) != row.get("parsed_output"):
+                    raise ValueError("resume output validation mismatch")
+                completed.add(task_id)
+    return completed
+
+
+@contextmanager
+def _writer_lock(output):
+    import fcntl
+    descriptor = os.open(output, os.O_RDONLY)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ValueError("another writer owns this output directory") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
 async def _run(args) -> int:
+    with ExitStack() as ownership:
+        return await _run_locked(args, ownership)
+
+
+async def _run_locked(args, ownership) -> int:
     tasks_path = Path(args.tasks).resolve()
     output = Path(args.output_dir).resolve()
-    output.mkdir(parents=True, exist_ok=True)
     outcomes_path = output / "outcomes.jsonl"
     failures_path = output / "failures.jsonl"
+    attempts_path = output / "attempts.jsonl"
     run_manifest_path = output / "run_manifest.json"
     if not args.resume and any(
-        path.exists() for path in (outcomes_path, failures_path, run_manifest_path)
+        path.exists() for path in (outcomes_path, failures_path, attempts_path, run_manifest_path)
     ):
         raise ValueError("output exists; use --resume or a new output directory")
 
@@ -544,7 +695,15 @@ async def _run(args) -> int:
         )
         source_manifest = str(Path(args.judge_manifest).resolve())
 
-    completed = _read_completed(outcomes_path, id_field) if args.resume else set()
+    task_ids = [getattr(task, id_field) for task in tasks]
+    if len(set(task_ids)) != len(task_ids):
+        raise ValueError("task file contains duplicate task IDs")
+    identity = {"tasks_sha256": _sha256(tasks_path),
+                "source_manifest_sha256": _sha256(Path(source_manifest)),
+                "pipeline": pipeline, "model_id": model_id, "model_revision": model_revision,
+                "fake_backend": args.fake, "pilot_only": args.pilot_only,
+                "maximum_attempts": args.max_attempts, "request_timeout": args.request_timeout}
+    completed = _validate_resume(output, identity, tasks, prepare, id_field) if args.resume else set()
     pending = [task for task in tasks if getattr(task, id_field) not in completed]
     if args.max_tasks:
         pending = pending[: args.max_tasks]
@@ -562,6 +721,10 @@ async def _run(args) -> int:
     manifest = {
         "format_version": "acl-arr-vllm-run-v1",
         "run_id": run_id,
+        "invocation_id": uuid.uuid4().hex,
+        "resume_identity": identity,
+        "scheduler": args.scheduler,
+        "pilot_only": args.pilot_only,
         "status": "running",
         "scientific_result": False,
         "eligible_for_analysis": False,
@@ -595,6 +758,13 @@ async def _run(args) -> int:
             )
         },
     }
+    output.mkdir(parents=True, exist_ok=True)
+    ownership.enter_context(_writer_lock(output))
+    if args.resume:
+        if _validate_resume(output, identity, tasks, prepare, id_field) != completed:
+            raise ValueError("resume changed while acquiring writer ownership; retry")
+    elif any(path.exists() for path in (outcomes_path, failures_path, attempts_path, run_manifest_path)):
+        raise ValueError("output exists; use --resume or a new output directory")
     _atomic_json(run_manifest_path, manifest)
 
     api_key = args.api_key or os.getenv("VLLM_API_KEY")
@@ -614,23 +784,41 @@ async def _run(args) -> int:
     with (
         outcomes_path.open("a", encoding="utf-8", buffering=1) as outcomes,
         failures_path.open("a", encoding="utf-8", buffering=1) as failures,
+        attempts_path.open("a", encoding="utf-8", buffering=1) as attempts,
     ):
+        def persist(stream, row):
+            _append(stream, row)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        if client_context is not None:
+            client_context.audit_callback = lambda event: persist(attempts, {
+                **event, "run_id": run_id, "invocation_id": manifest["invocation_id"]})
+
+        async def results(client):
+            if args.scheduler == "rolling":
+                async with aclosing(_iter_execute((prepare(task) for task in pending),
+                        client=client, maximum_concurrency=args.max_concurrency, fake=args.fake)) as stream:
+                    async for result in stream:
+                        yield result
+            else:
+                for offset in range(0, len(pending), chunk_size):
+                    for result in await _execute([prepare(t) for t in pending[offset:offset + chunk_size]],
+                            client=client, maximum_concurrency=args.max_concurrency, fake=args.fake):
+                        yield result
+
         async def process(client):
             nonlocal succeeded, failed
-            for offset in range(0, len(pending), chunk_size):
-                chunk = pending[offset : offset + chunk_size]
-                results = await _execute(
-                    [prepare(task) for task in chunk],
-                    client=client,
-                    maximum_concurrency=args.max_concurrency,
-                    fake=args.fake,
-                )
-                for result in results:
+            async with aclosing(results(client)) as stream:
+                async for result in stream:
                     base = dict(result["base"])
                     base["fake_backend"] = args.fake
+                    base["invocation_id"] = manifest["invocation_id"]
+                    if args.pilot_only:
+                        base.update(scientific_result=False, eligible_for_analysis=False)
                     if result["ok"]:
                         raw = str(result["raw_output"])
-                        _append(
+                        persist(
                             outcomes,
                             {
                                 **base,
@@ -643,47 +831,56 @@ async def _run(args) -> int:
                                 "usage": result["usage"],
                                 "started_at": result["started_at"],
                                 "finished_at": result["finished_at"],
+                                "duration_seconds": result["duration_seconds"],
+                                "request_sha256": result["request_sha256"],
                             },
                         )
                         succeeded += 1
+                        completed.add(base[id_field])
                     else:
-                        _append(
+                        persist(
                             failures,
                             {
                                 **base,
                                 "run_id": run_id,
                                 "error": result["error"],
+                                "raw_output": result["raw_output"],
+                                "usage": result["usage"],
+                                "duration_seconds": result["duration_seconds"],
+                                "request_sha256": result["request_sha256"],
                                 "started_at": result["started_at"],
                                 "finished_at": result["finished_at"],
                             },
                         )
                         failed += 1
-                outcomes.flush()
-                failures.flush()
-                os.fsync(outcomes.fileno())
-                os.fsync(failures.fileno())
-                print(
-                    f"PROGRESS={min(offset + len(chunk), len(pending))}/{len(pending)} "
-                    f"SUCCEEDED={succeeded} FAILED={failed}",
-                    flush=True,
-                )
+                    manifest.update(completed_count=len(completed), remaining_count=len(tasks) - len(completed))
+                    _atomic_json(run_manifest_path, manifest)
+                    print(f"PROGRESS={succeeded + failed}/{len(pending)} SUCCEEDED={succeeded} FAILED={failed}", flush=True)
 
-        if client_context is None:
-            await process(None)
-        else:
-            async with client_context as client:
-                await process(client)
+        try:
+            if client_context is None or not pending:
+                await process(None)
+            else:
+                async with client_context as client:
+                    await process(client)
+        except BaseException:
+            manifest.update(status="interrupted_or_error", finished_at=_now(),
+                            completed_count=len(completed), remaining_count=len(tasks) - len(completed))
+            _atomic_json(run_manifest_path, manifest)
+            raise
 
     manifest.update(
         {
-            "status": "complete" if failed == 0 else "complete_with_failures",
-            "scientific_result": not args.fake,
-            "eligible_for_analysis": not args.fake and failed == 0,
+            "status": "complete" if len(completed) == len(tasks) else "complete_with_failures" if failed else "checkpointed",
+            "scientific_result": not args.fake and not args.pilot_only and len(completed) == len(tasks),
+            "eligible_for_analysis": not args.fake and not args.pilot_only and len(completed) == len(tasks),
+            "completed_count": len(completed), "remaining_count": len(tasks) - len(completed),
             "finished_at": _now(),
             "outcomes_written_this_invocation": succeeded,
             "failures_written_this_invocation": failed,
             "outcomes_sha256": _sha256(outcomes_path),
             "failures_sha256": _sha256(failures_path),
+            "attempts_sha256": _sha256(attempts_path),
         }
     )
     _atomic_json(run_manifest_path, manifest)
@@ -691,7 +888,7 @@ async def _run(args) -> int:
     print(f"OUTCOMES={succeeded}")
     print(f"FAILURES={failed}")
     print(f"MANIFEST={run_manifest_path}")
-    return 0 if failed == 0 else 2
+    return 0 if len(completed) == len(tasks) else 2 if failed else 3
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
@@ -710,6 +907,8 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-attempts", type=int, default=3)
     parser.add_argument("--max-tasks", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--scheduler", choices=("chunked", "rolling"), default="rolling")
+    parser.add_argument("--pilot-only", action="store_true")
     parser.add_argument(
         "--fake",
         action="store_true",
@@ -733,7 +932,7 @@ def main() -> int:
     args = _parser().parse_args()
     if args.max_concurrency <= 0:
         raise SystemExit("--max-concurrency must be positive")
-    if args.request_timeout <= 0 or args.max_attempts <= 0:
+    if not math.isfinite(args.request_timeout) or args.request_timeout <= 0 or args.max_attempts <= 0:
         raise SystemExit("timeout and attempts must be positive")
     if args.max_tasks < 0:
         raise SystemExit("--max-tasks must be non-negative")
