@@ -7,6 +7,31 @@ import unittest
 
 
 class JudgeWorkerTests(unittest.TestCase):
+    def test_mistral_complete_skips_loading(self):
+        worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'bin').mkdir()
+            (root / 'bin/activate').write_text('true\n')
+            startup = root / 'startup'
+            startup.write_text('''
+module() { return 0; }
+git() { if [[ "$1" == rev-parse ]]; then echo fixture; fi; }
+python3() {
+  if [[ "$*" == *--preflight-only* ]]; then return 0; fi
+  echo UNEXPECTED_LOADING >&2
+  return 99
+}
+''')
+            result = subprocess.run(['bash', str(worker)], capture_output=True, text=True,
+                env=dict(os.environ, BASH_ENV=str(startup), ACL_ARR_VENV=str(root),
+                         GEODML_EXECUTION_COMMIT='fixture', SLURM_JOB_ID='fixture',
+                         GEODML_EXPECTED_JOB_ID='fixture', SEARCH_PILOT_ROOT=str(root / 'pilot')))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('ALREADY_COMPLETE', result.stdout)
+            self.assertNotIn('UNEXPECTED_LOADING', result.stderr)
+            self.assertFalse((root / 'pilot').exists())
+
     def test_complete_skips_engine_and_invalid_preflight_fails(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'
         with tempfile.TemporaryDirectory() as directory:
