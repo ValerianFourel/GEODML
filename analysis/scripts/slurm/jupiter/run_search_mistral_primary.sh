@@ -54,12 +54,15 @@ if [[ "$geodml_help" != *"--language-model-only"* ]]; then
   exit 2
 fi
 printf 'TEXT_ONLY_CLI=PASS; no multimodal inputs permitted\n'
+geodml_native_report="$(python3 analysis/scripts/check_search_mistral_native.py --model-snapshots "${ACL_ARR_RUN_ROOT:?}/model-snapshots.json")"
+printf 'NATIVE_CONFIG_PREFLIGHT=PASS; no model weights loaded\n'
 python3 analysis/scripts/check_search_experience_grammar.py
 command -v setsid >/dev/null
 command -v curl >/dev/null
 mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
+printf '%s\n' "$geodml_native_report" > "$geodml_log.native-config.json"
 printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nTP=4\nDTYPE=bfloat16\nCONCURRENCY=8\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" > "$geodml_log.settings"
 geodml_pid=""
 cleanup() {
@@ -81,6 +84,7 @@ printf 'SERVER_LOG=%s\n' "$geodml_log"
 setsid "$ACL_ARR_VENV/bin/vllm" serve "$geodml_model" \
   --revision "$geodml_revision" --served-model-name "$geodml_model" \
   --language-model-only --tokenizer-mode mistral --attention-backend FLASH_ATTN_MLA \
+  --config-format mistral --load-format mistral \
   --host 127.0.0.1 --port 8010 --tensor-parallel-size 4 \
   --dtype bfloat16 --max-model-len 41472 --gpu-memory-utilization 0.90 \
   --enable-prefix-caching --no-enable-log-requests --trust-remote-code \

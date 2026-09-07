@@ -27,3 +27,20 @@ the caller must supply the approved step budget.
 Local shell syntax and runner tests do not verify GPU initialization. The next
 cluster run must establish that text-only startup bypasses the processor error
 and that outputs pass validation. No successful Mistral inference is claimed.
+
+## Native configuration follow-up
+
+The cluster confirmed text-only mode, then failed because the HF `text_config`
+had no architecture. vLLM's native adapter derives its architecture from native
+MoE/MLA parameters rather than requiring a class named Mistral4. Source:
+https://github.com/vllm-project/vllm/blob/main/vllm/transformers_utils/configs/mistral.py
+
+The worker now explicitly uses native config and load formats as well as the
+already-native tokenizer. It first requires `params.json` and nonempty native
+consolidated safetensors in the pinned snapshot, calls the installed native
+config parser, checks registry names and core dimensions, and records the full
+adapted configuration. It does not invent an architecture override, edit cached
+files, fetch weights, or change quantization settings. Native checkpoint file
+availability on JUPITER is still unverified. Missing native files block execution
+before model loading. File presence does not prove tensor compatibility; the
+subsequent bounded GPU startup remains necessary.
