@@ -18,6 +18,21 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     exit 2
 fi
 
+# Compute nodes do not provide the login node's system Git. Initialize modules
+# before repository detection, and do not continue after a failed module load.
+if ! type module >/dev/null 2>&1; then
+    set +u
+    source /etc/profile
+    set -u
+fi
+module load Stages/2026 GCC Python CUDA
+module load git
+hash -r
+if ! command -v git >/dev/null 2>&1; then
+    echo "ERROR: git is unavailable after loading the git module" >&2
+    exit 2
+fi
+
 REPOSITORY_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPOSITORY_ROOT"
 PLAN_ROOT="$ACL_ARR_RUN_ROOT/plan"
@@ -39,7 +54,6 @@ test -x "$ACL_ARR_VENV/bin/python"
 test -x "$ACL_ARR_VENV/bin/vllm"
 mkdir -p "$RESULTS_ROOT" "$LOG_ROOT"
 
-module load Stages/2026 GCC Python CUDA >/dev/null 2>&1 || true
 source "$ACL_ARR_VENV/bin/activate"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -130,7 +144,7 @@ start_server() {
         --max-model-len "$MAX_MODEL_LEN" \
         --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
         --enable-prefix-caching \
-        --disable-log-requests \
+        --no-enable-log-requests \
         --trust-remote-code \
         "${extra_args[@]}" >"$server_log" 2>&1 &
     server_pid=$!
