@@ -17,7 +17,7 @@ from analysis.scripts.run_acl_arr_pilot_answers import load_answers, verify_hash
 from analysis.scripts.run_acl_arr_vllm import _sha256, _read_jsonl, _atomic_json, _now
 
 
-def repair_output(raw, allowed):
+def repair_output(raw, allowed, *, grouped=False):
     if not isinstance(raw, str):
         return None
     try:
@@ -29,18 +29,37 @@ def repair_output(raw, allowed):
             return None
         if any(not isinstance(item, str) for item in declared):
             return None
-        inline = list(dict.fromkeys(re.findall(r'\[([A-Za-z0-9_.:-]+)\]', answer)))
-        if not inline or declared == inline or len(declared) != len(set(declared)):
+        validation_answer = answer
+        has_group = False
+        if grouped:
+            brackets = re.findall(r'\[([^\[\]]*)\]', answer)
+            if len(brackets) != answer.count('[') or len(brackets) != answer.count(']'):
+                return None
+            citation_ids = []
+            for content in brackets:
+                if not re.fullmatch(r'[A-Za-z0-9_.:-]+(?:\s*,\s*[A-Za-z0-9_.:-]+)*', content):
+                    return None
+                ids = [part.strip() for part in content.split(',')]
+                has_group |= len(ids) > 1
+                citation_ids.extend(ids)
+            inline = list(dict.fromkeys(citation_ids))
+            validation_answer = re.sub(r'\[([^\[\]]*)\]',
+                lambda match: ''.join('[' + part.strip() + ']' for part in match[1].split(',')), answer)
+        else:
+            inline = list(dict.fromkeys(re.findall(r'\[([A-Za-z0-9_.:-]+)\]', answer)))
+        if not inline or (declared == inline and not has_group) or len(declared) != len(set(declared)):
             return None
         if set(declared) != set(inline) or not set(inline) <= set(allowed):
             return None
         repaired = {'answer': answer, 'cited_document_ids': inline}
-        return validate_answer_output(json.dumps(repaired), allowed_document_ids=allowed)
+        validate_answer_output(json.dumps({'answer': validation_answer, 'cited_document_ids': inline}),
+                               allowed_document_ids=allowed)
+        return repaired
     except (ValueError, TypeError):
         return None
 
 
-def audit_and_repair(source, output):
+def audit_and_repair(source, output, *, grouped=False):
     source, output = Path(source).resolve(), Path(output).resolve()
     if output.exists() or source == output or source in output.parents:
         raise ValueError('output must be a fresh directory outside the source results')
@@ -68,6 +87,8 @@ def audit_and_repair(source, output):
             raise ValueError('duplicate successful task')
         done.add(task_id)
     repairs, unresolved, seen = [], [], set()
+    order_count, grouped_count = 0, 0
+    policy = 'pilot-only-citation-order-and-groups-v1' if grouped else 'pilot-only-citation-order-v1'
     for row in _read_jsonl(paths[2]):
         task_id = row['task_id']
         if task_id in seen or task_id in done or task_id not in prepared:
@@ -82,12 +103,18 @@ def audit_and_repair(source, output):
         if isinstance(raw, str) and hashlib.sha256(raw.encode()).hexdigest() != row.get('raw_output_sha256'):
             raise ValueError('failed raw output hash mismatch')
         repaired = repair_output(raw, item['base']['input_document_ids'])
+        repair_kind = 'order_only'
+        if repaired is None and grouped:
+            repaired = repair_output(raw, item['base']['input_document_ids'], grouped=True)
+            repair_kind = 'grouped_citations'
         if repaired is None:
             unresolved.append({'task_id': task_id, 'original_error': row.get('error'),
                                'scientific_result': False, 'eligible_for_analysis': False})
         else:
+            order_count += repair_kind == 'order_only'
+            grouped_count += repair_kind == 'grouped_citations'
             repairs.append({'task_id': task_id, 'source_failure': row,
-                            'repair_policy': 'pilot-only-citation-order-v1',
+                            'repair_policy': policy, 'repair_kind': repair_kind,
                             'repaired_output': repaired, 'scientific_result': False,
                             'eligible_for_analysis': False})
     if len(done) != manifest['completed_count'] or len(done | seen) != manifest['task_count']:
@@ -101,10 +128,13 @@ def audit_and_repair(source, output):
             stream.flush()
             os.fsync(stream.fileno())
     verify_hashes(hashes)
-    result = {'format_version': 'acl-arr-pilot-citation-order-repair-v1', 'status': 'complete',
+    result = {'format_version': ('acl-arr-pilot-citation-groups-repair-v1' if grouped
+                                else 'acl-arr-pilot-citation-order-repair-v1'), 'status': 'complete',
               'created_at': _now(), 'source_artifacts_sha256': hashes,
               'execution_git_commit': subprocess.check_output(['git', '-C', str(REPOSITORY_ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
-              'repair_policy': 'pilot-only-citation-order-v1',
+              'repair_policy': policy, 'order_only_repaired_count': order_count,
+              'grouped_citation_repaired_count': grouped_count,
+              'counts_scope': 'cumulative over original failures; do not add earlier repair counts',
               'scientific_result': False, 'eligible_for_analysis': False,
               'original_valid_count': len(done), 'repaired_count': len(repairs),
               'unresolved_count': len(unresolved), 'inference_requests': 0,
@@ -120,5 +150,7 @@ if __name__ == '__main__':
     parser.add_argument('--source-results', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--approve-pilot-only-citation-order-repair', action='store_true', required=True)
+    parser.add_argument('--approve-pilot-only-grouped-citations', action='store_true')
     args = parser.parse_args()
-    audit_and_repair(args.source_results, args.output_dir)
+    audit_and_repair(args.source_results, args.output_dir,
+                     grouped=args.approve_pilot_only_grouped_citations)
