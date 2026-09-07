@@ -28,6 +28,14 @@ and shuffled document conditions.
 - Keep JUPITER and HoreKa work in committed, reproducible Slurm scripts.
 - Never submit or retry a Slurm allocation without a fresh runtime estimate and
   explicit wall-time approval from Valerian.
+- Preserve every live `salloc` allocation unless Valerian explicitly asks to
+  release it. Do not recommend or execute `exit`, Ctrl-D, `scancel`, termination
+  of the allocation-owning process, or closure of its shell to switch context,
+  update code, recover from an inference failure, or finish a task. Keep that
+  shell open and use a separate login terminal for updates or monitoring.
+- Keep strict-mode launch commands inside a child shell so a failed job step
+  does not close the allocation-owning shell. Natural expiration of the approved
+  wall-time does not authorize an extension or replacement.
 - Do not make cluster-only source changes. GitHub is the handoff boundary.
 - Avoid hard-coded usernames and machine-specific paths in committed code.
 - Add focused tests for every new behavioral contract.
