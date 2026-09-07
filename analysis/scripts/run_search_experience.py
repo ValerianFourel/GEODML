@@ -281,7 +281,12 @@ def validate_judge_model(generator_model, judge_model):
         raise ValueError("an independent judge model is required; self-judgment cannot be the sole score")
 
 
-def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_revision):
+def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_revision, *,
+                judge_contract="search-experience-judge-v1"):
+    contract = _contract()
+    if judge_contract not in (contract.JUDGE_CONTRACT, contract.QUOTE_JUDGE_CONTRACT):
+        raise ValueError("unknown judge contract")
+    quotes_only = judge_contract == contract.QUOTE_JUDGE_CONTRACT
     if re.fullmatch(r"[0-9a-f]{40}", judge_model_revision) is None:
         raise ValueError("judge revision must be an immutable 40-character SHA")
     primary, rows, manifest, hashes = _validated_primary(bundle_directory, primary_output)
@@ -302,19 +307,27 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
         judge_input = contract.prepare_judge_input(cases[row["prompt_id"]], row["condition"], row["parsed_output"],
             source_task_id=row["task_id"], master_seed=plan.master_seed)
         task_id = "search-judge-" + _digest({"source": row["task_id"], "input": judge_input,
-            "model": judge_model_id, "revision": judge_model_revision, "contract": contract.JUDGE_CONTRACT})[:24]
+            "model": judge_model_id, "revision": judge_model_revision, "contract": judge_contract})[:24]
         items.append({"base": {"task_id": task_id, "pipeline": "judge", "source_task_id": row["task_id"],
             "bundle_id": bundle["bundle_id"], "judge_model_id": judge_model_id,
             "judge_model_revision": judge_model_revision, "fake_backend": manifest["fake_backend"]},
-            "prompt": contract.render_judge_prompt(judge_input), "schema": contract.judge_schema(),
-            "schema_name": "search_experience_judge_v1", "temperature": 0.0, "max_tokens": 2048,
+            "prompt": (contract.render_quote_judge_prompt(judge_input) if quotes_only
+                       else contract.render_judge_prompt(judge_input)),
+            "schema": contract.judge_quote_schema(judge_input) if quotes_only else contract.judge_schema(),
+            "schema_name": "search_experience_judge_quotes_v2" if quotes_only else "search_experience_judge_v1",
+            "temperature": 0.0, "max_tokens": 2048,
             "seed": int(hashlib.sha256(task_id.encode()).hexdigest()[:8], 16),
-            "validator": lambda raw, value=judge_input: contract.validate_judge_output(raw, judge_input=value)})
+            "validator": lambda raw, value=judge_input: (
+                contract.validate_quote_judge_output(raw, judge_input=value) if quotes_only
+                else contract.validate_judge_output(raw, judge_input=value))})
     if not items:
         raise ValueError("no validated answers available for judgment")
-    return items, {"model_id": judge_model_id, "model_revision": judge_model_revision,
+    identity = {"model_id": judge_model_id, "model_revision": judge_model_revision,
         "pipeline": "search-judge-v1", "source_manifest_sha256": _digest(hashes),
-        "fake_backend": manifest["fake_backend"], "pilot_only": True, "maximum_attempts": 3}, hashes
+        "fake_backend": manifest["fake_backend"], "pilot_only": True, "maximum_attempts": 3}
+    if quotes_only:
+        identity.update(pipeline="search-judge-quotes-v2", judge_contract=judge_contract)
+    return items, identity, hashes
 
 
 def inspect_bundle(bundle_directory, primary_output, judge_output, output):
@@ -325,7 +338,8 @@ def inspect_bundle(bundle_directory, primary_output, judge_output, output):
         judge_path = Path(judge_output)
         judge_manifest = json.loads((judge_path / "run_manifest.json").read_text())
         prepared, identity, _ = judge_items(bundle_directory, primary_output,
-            judge_manifest["model_id"], judge_manifest["model_revision"])
+            judge_manifest["model_id"], judge_manifest["model_revision"],
+            judge_contract=judge_manifest.get("judge_contract", _contract().JUDGE_CONTRACT))
         _resume(judge_path, prepared, _run_identity(prepared, identity))
         judgments = {r["source_task_id"]: r["parsed_output"] for r in _journal_rows(judge_path / "outcomes.jsonl")}
     indexed = {(r["prompt_id"], r["condition"], r["pipeline"]): r for r in rows}
@@ -408,6 +422,9 @@ def parser():
             sub.add_argument("--model-configuration-id", required=True)
             sub.add_argument("--server-model-revision", required=True)
         elif name == "run-judge":
+            sub.add_argument("--judge-contract", choices=(
+                _contract().JUDGE_CONTRACT, _contract().QUOTE_JUDGE_CONTRACT),
+                default=_contract().JUDGE_CONTRACT)
             sub.add_argument("--judge-model-id", required=True)
             sub.add_argument("--judge-model-revision", required=True)
         elif name == "inspect":
@@ -436,7 +453,7 @@ def main(argv=None):
                 raise ValueError("server revision differs from the frozen model")
         else:
             items, identity, hashes = judge_items(args.bundle_dir, args.primary_output,
-                args.judge_model_id, args.judge_model_revision)
+                args.judge_model_id, args.judge_model_revision, judge_contract=args.judge_contract)
         preflight_run(items, args.output_dir, identity, hashes, resume=args.resume)
         bundle, _, _, _ = load_bundle(args.bundle_dir)
         if bundle["synthetic_inputs"]:

@@ -204,6 +204,36 @@ class SearchRuntimeTests(unittest.TestCase):
         self.assertTrue(calibration["synthetic_inputs"])
         self.assertTrue(calibration["fake_backend"])
 
+        frozen_primary = {p.name: p.read_bytes() for p in primary.iterdir()}
+        quote_judges, quote_identity, quote_hashes = runtime.judge_items(
+            bundle, primary, "independent/model", "c" * 40,
+            judge_contract=contract.QUOTE_JUDGE_CONTRACT)
+        self.assertTrue({i["base"]["task_id"] for i in judges}.isdisjoint(
+            {i["base"]["task_id"] for i in quote_judges}))
+        for item in quote_judges:
+            visible = json.loads(item["prompt"].split("\n\n", 1)[1])
+            assessments = []
+            for claim in visible["answer"]["claims"]:
+                doc = next(d for d in visible["documents"]
+                           if d["document_id"] == claim["cited_document_ids"][0])
+                assessments.append({"claim_id": claim["claim_id"], "support": "supported",
+                    "citation_correctness": "correct", "evidence": [{
+                        "document_id": doc["document_id"], "quote": doc["text"][:64]}]})
+            responses[item["prompt"]] = json.dumps({**{k: 3 for k in contract.SCORE_FIELDS},
+                                                     "claim_assessments": assessments})
+        quote_output = self.root / "quote-judge"
+        self.assertEqual(asyncio.run(runtime.run_prepared(quote_judges, quote_output,
+            client=Client(), identity=quote_identity, source_hashes=quote_hashes, max_tasks=1)), 3)
+        self.assertEqual(asyncio.run(runtime.run_prepared(quote_judges, quote_output,
+            client=Client(), identity=quote_identity, source_hashes=quote_hashes, resume=True)), 0)
+        quote_records = runtime.inspect_bundle(bundle, primary, quote_output, self.root / "quote-report")
+        self.assertTrue(all(r["complete"] for r in quote_records))
+        saved_quote = {p.name: p.read_bytes() for p in quote_output.iterdir()}
+        with self.assertRaises(ValueError):
+            runtime.preflight_run(judges, quote_output, judge_identity, judge_hashes, resume=True)
+        self.assertEqual(saved_quote, {p.name: p.read_bytes() for p in quote_output.iterdir()})
+        self.assertEqual(frozen_primary, {p.name: p.read_bytes() for p in primary.iterdir()})
+
         # A failed independent ranking must not block nine complete answers.
         ranking = next(i for i in items if i["base"]["pipeline"] == "rerank")
         responses[ranking["prompt"]] = '{"ranked_document_ids": ["REMOVED"]}'

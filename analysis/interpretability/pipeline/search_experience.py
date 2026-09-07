@@ -15,6 +15,7 @@ from .acl_arr_document_experiment import (
 
 ANSWER_CONTRACT = "search-experience-answer-v1"
 JUDGE_CONTRACT = "search-experience-judge-v1"
+QUOTE_JUDGE_CONTRACT = "search-experience-judge-quotes-v2"
 QUERY_CONTRACTS = ("metadata-keyword-v1", "full-request-v1")
 SCORE_FIELDS = (
     "intent_fulfillment", "citation_coverage", "evidence_sufficiency",
@@ -335,3 +336,66 @@ def validate_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> dict[s
     if seen != set(claims):
         raise ValueError("judgment must cover every claim exactly once")
     return value
+
+
+def judge_quote_schema(judge_input: Mapping[str, Any]) -> dict[str, Any]:
+    schema = judge_schema()
+    assessments = schema["properties"]["claim_assessments"]
+    claims = [c["claim_id"] for c in judge_input["answer"]["claims"]]
+    assessments.update(minItems=len(claims), maxItems=len(claims))
+    properties = assessments["items"]["properties"]
+    if claims:
+        properties["claim_id"]["enum"] = claims
+    quote = properties["evidence"]["items"]
+    quote["required"] = ["document_id", "quote"]
+    quote["properties"].pop("start")
+    quote["properties"].pop("end")
+    documents = [d["document_id"] for d in judge_input["documents"]]
+    if documents:
+        quote["properties"]["document_id"]["enum"] = documents
+    else:
+        properties["evidence"]["maxItems"] = 0
+    return schema
+
+
+def render_quote_judge_prompt(judge_input: Mapping[str, Any]) -> str:
+    original = render_judge_prompt(judge_input)
+    instructions, data = original.rsplit("\n\n", 1)
+    instructions = instructions.replace(
+        "Evidence entries have document_id, quote, start, end. "
+        "Quotes must exactly equal document text[start:end], using zero-based Unicode character "
+        "offsets with exclusive end.",
+        "Evidence entries have only document_id and quote. Copy a nonempty exact substring "
+        "from the document text body, not its title or URL. Choose a quote that occurs "
+        "exactly once in that document. Do not normalize or paraphrase quotes. "
+        "The application locates the offsets; do not output start or end. "
+        "Copy each supplied claim_id exactly; never invent or renumber claims. "
+        "If the answer has no claims, return an empty claim_assessments list.")
+    return instructions + "\n\n" + data
+
+
+def validate_quote_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> dict[str, Any]:
+    value = _object(raw)
+    rows = value.get("claim_assessments")
+    if not isinstance(rows, list):
+        raise ValueError("claim assessments must be a list")
+    documents = {d["document_id"]: d["text"] for d in judge_input["documents"]}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("evidence"), list):
+            raise ValueError("assessment must contain an evidence list")
+        for quote in row["evidence"]:
+            if not isinstance(quote, dict):
+                raise ValueError("evidence quote must be an object")
+            _keys(quote, ("document_id", "quote"), "quote")
+            doc_id = _text(quote["document_id"], "quote document ID")
+            if doc_id not in documents:
+                raise ValueError("quote references invalid document")
+            text = documents[doc_id]
+            excerpt = _text(quote["quote"], "quote")
+            start = text.find(excerpt)
+            if start < 0:
+                raise ValueError("quote is absent from evidence text")
+            if text.find(excerpt, start + 1) >= 0:
+                raise ValueError("quote is ambiguous in evidence text")
+            quote.update(start=start, end=start + len(excerpt))
+    return validate_judge_output(json.dumps(value), judge_input=judge_input)
