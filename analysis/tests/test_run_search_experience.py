@@ -203,6 +203,41 @@ class SearchRuntimeTests(unittest.TestCase):
         calibration = json.loads((self.root / "human/calibration_manifest.json").read_text())
         self.assertTrue(calibration["synthetic_inputs"])
         self.assertTrue(calibration["fake_backend"])
+
+        # A failed independent ranking must not block nine complete answers.
+        ranking = next(i for i in items if i["base"]["pipeline"] == "rerank")
+        responses[ranking["prompt"]] = '{"ranked_document_ids": ["REMOVED"]}'
+        incomplete_ranking = self.root / "incomplete-ranking"
+        self.assertEqual(asyncio.run(runtime.run_prepared(
+            items, incomplete_ranking, client=Client(), identity=identity,
+            source_hashes=hashes)), 2)
+        saved = {p.name: p.read_bytes() for p in incomplete_ranking.iterdir()}
+        partial_judges, _, _ = runtime.judge_items(
+            bundle, incomplete_ranking, "independent/model", "c" * 40)
+        self.assertEqual(len(partial_judges), 9)
+        self.assertEqual({i["base"]["task_id"]: runtime._request_sha256(i) for i in judges},
+                         {i["base"]["task_id"]: runtime._request_sha256(i) for i in partial_judges})
+        self.assertEqual(saved, {p.name: p.read_bytes() for p in incomplete_ranking.iterdir()})
+        record_path = incomplete_ranking / "run_manifest.json"
+        record = json.loads(record_path.read_text())
+        record["status"] = "running"
+        record_path.write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError, "primary writer must finish"):
+            runtime.judge_items(bundle, incomplete_ranking, "independent/model", "c" * 40)
+        record_path.write_bytes(saved["run_manifest.json"])
+        incomplete_report = runtime.inspect_bundle(
+            bundle, incomplete_ranking, None, self.root / "incomplete-report")
+        self.assertTrue(any(r["ranking"] is None for r in incomplete_report))
+        self.assertFalse(all(r["complete"] for r in incomplete_report))
+
+        answer = next(i for i in items if i["base"]["pipeline"] == "answer")
+        responses[answer["prompt"]] = '{}'
+        incomplete_answer = self.root / "incomplete-answer"
+        self.assertEqual(asyncio.run(runtime.run_prepared(
+            items, incomplete_answer, client=Client(), identity=identity,
+            source_hashes=hashes)), 2)
+        with self.assertRaisesRegex(ValueError, "complete answer coverage"):
+            runtime.judge_items(bundle, incomplete_answer, "independent/model", "c" * 40)
         with patch.object(runtime, "VllmChatClient") as client_factory:
             with self.assertRaises(ValueError):
                 runtime.main(["run-primary", "--bundle-dir", str(bundle), "--model-configuration-id", model.configuration_id,

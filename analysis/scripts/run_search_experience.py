@@ -285,8 +285,13 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
     if re.fullmatch(r"[0-9a-f]{40}", judge_model_revision) is None:
         raise ValueError("judge revision must be an immutable 40-character SHA")
     primary, rows, manifest, hashes = _validated_primary(bundle_directory, primary_output)
-    if len(rows) != len(primary):
-        raise ValueError("complete primary coverage is required before compiling judge tasks")
+    expected_answers = {item["base"]["task_id"] for item in primary
+                        if item["base"]["pipeline"] == "answer"}
+    completed_answers = {row["task_id"] for row in rows if row["pipeline"] == "answer"}
+    if completed_answers != expected_answers:
+        raise ValueError("complete answer coverage is required before compiling judge tasks")
+    if manifest.get("status") == "running":
+        raise ValueError("primary writer must finish before compiling immutable judge inputs")
     validate_judge_model(manifest["model_id"], judge_model_id)
     bundle, plan, cases, _ = load_bundle(bundle_directory)
     contract = _contract()
