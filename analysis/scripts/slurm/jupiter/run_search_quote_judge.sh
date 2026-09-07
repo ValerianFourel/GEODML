@@ -19,10 +19,11 @@ geodml_args=(run-judge --bundle-dir "$SEARCH_BUNDLE_DIR" --primary-output "$SEAR
   --judge-model-id "$SEARCH_JUDGE_MODEL" --judge-model-revision "$SEARCH_JUDGE_REVISION"
   --judge-contract search-experience-judge-quotes-v2 --output-dir "$SEARCH_JUDGE_OUTPUT"
   --base-url http://127.0.0.1:8010/v1 --max-concurrency 8 --resume)
-set +e
-python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" --preflight-only
-geodml_status=$?
-set -e
+if python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" --preflight-only; then
+  geodml_status=0
+else
+  geodml_status=$?
+fi
 if [[ "$geodml_status" == 0 ]]; then
   printf 'ALREADY_COMPLETE; verified saved judgments; no model loaded\n'
   exit 0
@@ -114,4 +115,41 @@ for ((i=0; i<180; i++)); do
   sleep 5
 done
 if [[ "$geodml_ready" != 1 ]]; then tail -n 100 "$geodml_log"; exit 1; fi
-python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" 2>&1 | tee "$geodml_log.controller"
+if python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" 2>&1 | tee "$geodml_log.controller"; then
+  geodml_status=0
+else
+  geodml_status=$?
+fi
+printf 'JUDGE_STATUS=%s\nRESULTS=%s\nCONTROLLER_LOG=%s\n' "$geodml_status" "$SEARCH_JUDGE_OUTPUT" "$geodml_log.controller"
+if ! python3 - "$SEARCH_JUDGE_OUTPUT" <<'PY'
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+root = Path(sys.argv[1])
+manifest = root / 'run_manifest.json'
+if manifest.is_file():
+    record = json.loads(manifest.read_text())
+    print('SUMMARY=' + json.dumps({key: record.get(key) for key in (
+        'status', 'completed_count', 'remaining_count', 'failures_this_invocation', 'judge_contract')}))
+else:
+    print('MANIFEST=MISSING; inspect controller log')
+path = root / 'failures.jsonl'
+counts, examples = Counter(), {}
+if path.is_file():
+    with path.open() as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            error = row.get('error', 'UNKNOWN')
+            counts[error] += 1
+            examples.setdefault(error, {key: row.get(key) for key in ('task_id', 'error', 'raw_output', 'usage')})
+print('HISTORICAL_FAILURE_COUNTS=' + json.dumps(dict(counts)))
+for row in examples.values():
+    print('EXAMPLE=' + json.dumps(row, ensure_ascii=False))
+PY
+then
+  printf 'RESULT_DIAGNOSTIC_FAILED; preserve results and inspect controller log\n' >&2
+fi
+exit "$geodml_status"

@@ -36,6 +36,13 @@ python3() {
                 self.assertFalse((root / 'output').exists())
                 if status == 0:
                     self.assertIn('ALREADY_COMPLETE', result.stdout)
+            (root / 'output').mkdir()
+            (root / 'output/run_manifest.json').write_text('{}')
+            result = subprocess.run(['bash', str(worker)], env=dict(environment, CHECK_STATUS='3'),
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn('partial run requires', result.stderr)
+            self.assertNotIn('JUDGE_WORKER_FAILED', result.stderr)
 
 
 if __name__ == '__main__':
