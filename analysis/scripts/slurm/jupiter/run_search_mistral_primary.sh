@@ -14,7 +14,7 @@ export TOKENIZERS_PARALLELISM=false PYTHONDONTWRITEBYTECODE=1 VLLM_WORKER_MULTIP
 umask 077
 geodml_model=mistralai/Mistral-Small-4-119B-2603
 geodml_revision=a11f36bebf709121056b1dbcc943d1c6afbe494d
-geodml_output="$SEARCH_PILOT_ROOT/primary-schema-fix-0b3ce8acb5d6/model-config-c860fb2fb61da06a8443"
+geodml_output="${SEARCH_PRIMARY_OUTPUT:-$SEARCH_PILOT_ROOT/primary-schema-fix-0b3ce8acb5d6/model-config-c860fb2fb61da06a8443}"
 geodml_dp="${SEARCH_PRIMARY_DATA_PARALLEL_SIZE:-1}"
 geodml_tp="${SEARCH_PRIMARY_TENSOR_PARALLEL_SIZE:-4}"
 geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"
