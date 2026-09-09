@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Existing-allocation worker for the frozen text-only Mistral search pilot.
 set -eo pipefail
 if ! type module >/dev/null 2>&1; then source /etc/profile; fi
 module load Stages/2026 GCC Python CUDA
@@ -16,10 +15,16 @@ umask 077
 geodml_model=mistralai/Mistral-Small-4-119B-2603
 geodml_revision=a11f36bebf709121056b1dbcc943d1c6afbe494d
 geodml_output="$SEARCH_PILOT_ROOT/primary-schema-fix-0b3ce8acb5d6/model-config-c860fb2fb61da06a8443"
+geodml_dp="${SEARCH_PRIMARY_DATA_PARALLEL_SIZE:-1}"
+geodml_tp="${SEARCH_PRIMARY_TENSOR_PARALLEL_SIZE:-4}"
+geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"
+geodml_port="${SEARCH_PRIMARY_PORT:-8010}"
+geodml_base_url="http://127.0.0.1:${geodml_port}/v1"
+geodml_profile="${geodml_output}.serving-profile.json"
 geodml_args=(run-primary --bundle-dir "$SEARCH_PILOT_ROOT/bundle"
   --model-configuration-id model-config-c860fb2fb61da06a8443
-  --server-model-revision "$geodml_revision" --base-url http://127.0.0.1:8010/v1
-  --max-concurrency 8 --output-dir "$geodml_output" --resume)
+  --server-model-revision "$geodml_revision" --base-url "$geodml_base_url"
+  --max-concurrency "$geodml_concurrency" --output-dir "$geodml_output" --resume)
 if python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" --preflight-only; then
   printf 'ALREADY_COMPLETE; no model loaded\n'
   exit 0
@@ -28,86 +33,52 @@ else
   test "$geodml_status" = 3
 fi
 if [[ -e "$geodml_output/run_manifest.json" ]]; then
-  printf 'STOP: partial results exist; preserve them for retry review\n'
-  exit 2
+  if ! python3 -c 'import json, sys; from pathlib import Path; manifest=json.loads(Path(sys.argv[1]).read_text()); expected=str(Path(sys.argv[2]).resolve()); raise SystemExit(0 if manifest["serving_profile"]["path"] == expected else 1)' \
+      "$geodml_output/run_manifest.json" "$geodml_profile"; then
+    printf 'STOP: historical partial results have no serving profile provenance\n'
+    exit 2
+  fi
 fi
-geodml_cache="${GEODML_CACHE_ROOT:?}/compile-cache/vllm028-torch213-job${SLURM_JOB_ID}"
-export VLLM_CACHE_ROOT="$geodml_cache/vllm" TORCHINDUCTOR_CACHE_DIR="$geodml_cache/inductor"
-export TRITON_CACHE_DIR="$geodml_cache/triton" CUDA_CACHE_PATH="$geodml_cache/cuda"
-export FLASHINFER_WORKSPACE_BASE="$geodml_cache/flashinfer-workspace"
-export TRTLLM_DG_CACHE_DIR="$geodml_cache/tensorrt-llm"
-python3 - <<'PY'
-import os, socket, tempfile
-from pathlib import Path
-for key in ("VLLM_CACHE_ROOT","TORCHINDUCTOR_CACHE_DIR","TRITON_CACHE_DIR","CUDA_CACHE_PATH",
-            "FLASHINFER_WORKSPACE_BASE","TRTLLM_DG_CACHE_DIR"):
-    path = Path(os.environ[key]).resolve()
-    home = Path.home().resolve()
-    assert path != home and home not in path.parents
-    path.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryFile(dir=path) as f:
-        f.write(b"check"); f.flush(); os.fsync(f.fileno())
-with socket.socket() as s:
-    s.bind(("127.0.0.1",8010))
-print("CACHE_AND_PORT=PASS")
-PY
-geodml_help="$("$ACL_ARR_VENV/bin/vllm" serve --help=all)"
-if [[ "$geodml_help" != *"--language-model-only"* ]]; then
-  printf 'STOP: installed vLLM lacks language-model-only; no weights loaded\n' >&2
-  exit 2
-fi
+geodml_profile_hash="$(python3 analysis/scripts/search_vllm_stage.py prepare \
+  --profile "$geodml_profile" --stage mistral-primary \
+  --model-id "$geodml_model" --model-revision "$geodml_revision" \
+  --vllm-executable "$ACL_ARR_VENV/bin/vllm" \
+  --cache-base "${GEODML_CACHE_ROOT:?}/compile-cache" \
+  --expected-gpu-name-pattern GH200 \
+  --port "$geodml_port" --data-parallel-size "$geodml_dp" \
+  --tensor-parallel-size "$geodml_tp" --request-concurrency "$geodml_concurrency" \
+  --dtype bfloat16 --max-model-len 41472 --gpu-memory-utilization 0.90 \
+  --language-model-only --tokenizer-mode mistral --attention-backend FLASH_ATTN_MLA \
+  --config-format mistral --load-format mistral \
+  --structured-outputs-config '{"backend":"xgrammar"}')"
 printf 'TEXT_ONLY_CLI=PASS; no multimodal inputs permitted\n'
+printf 'SERVING_PROFILE=%s\nSERVING_PROFILE_SHA256=%s\n' "$geodml_profile" "$geodml_profile_hash"
+geodml_approval_args=()
+if (( geodml_dp > 1 )); then
+  geodml_approval_path="${SEARCH_PRIMARY_BENCHMARK_APPROVAL_PATH:?DP requires benchmark approval}"
+  python3 analysis/scripts/search_vllm_stage.py validate-approval \
+    --profile "$geodml_profile" \
+    --approval "$geodml_approval_path"
+  geodml_approval_args=(--benchmark-approval "$geodml_approval_path")
+fi
+geodml_args+=(--serving-profile "$geodml_profile")
 geodml_native_report="$(python3 analysis/scripts/check_search_mistral_native.py --model-snapshots "${ACL_ARR_RUN_ROOT:?}/model-snapshots.json")"
 printf 'NATIVE_CONFIG_PREFLIGHT=PASS; no model weights loaded\n'
 python3 analysis/scripts/check_search_experience_grammar.py
-command -v setsid >/dev/null
-command -v curl >/dev/null
 mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
 printf '%s\n' "$geodml_native_report" > "$geodml_log.native-config.json"
-printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nTP=4\nDTYPE=bfloat16\nCONCURRENCY=8\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" > "$geodml_log.settings"
-geodml_pid=""
-cleanup() {
-  if [[ -n "$geodml_pid" ]]; then
-    kill -TERM -- "-$geodml_pid" 2>/dev/null || true
-    for ((i=0;i<30;i++)); do
-      kill -0 -- "-$geodml_pid" 2>/dev/null || break
-      sleep 1
-    done
-    kill -KILL -- "-$geodml_pid" 2>/dev/null || true
-    wait "$geodml_pid" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-set +m
+printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
+  "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" "$geodml_dp" "$geodml_tp" \
+  "$geodml_concurrency" "$geodml_port" "$geodml_profile_hash" > "$geodml_log.settings"
 printf 'SERVER_LOG=%s\n' "$geodml_log"
-setsid "$ACL_ARR_VENV/bin/vllm" serve "$geodml_model" \
-  --revision "$geodml_revision" --served-model-name "$geodml_model" \
-  --language-model-only --tokenizer-mode mistral --attention-backend FLASH_ATTN_MLA \
-  --config-format mistral --load-format mistral \
-  --host 127.0.0.1 --port 8010 --tensor-parallel-size 4 \
-  --dtype bfloat16 --max-model-len 41472 --gpu-memory-utilization 0.90 \
-  --enable-prefix-caching --no-enable-log-requests --trust-remote-code \
-  --structured-outputs-config '{"backend":"xgrammar"}' > "$geodml_log" 2>&1 &
-geodml_pid=$!
-geodml_ready=0
-for ((i=0;i<360;i++)); do
-  if ! kill -0 "$geodml_pid" 2>/dev/null; then tail -n 80 "$geodml_log"; exit 1; fi
-  if curl --max-time 2 -fsS http://127.0.0.1:8010/v1/models >/dev/null 2>&1; then
-    geodml_ready=1
-    break
-  fi
-  sleep 5
-done
-if [[ "$geodml_ready" != 1 ]]; then
-  printf 'STOP: vLLM remained alive but did not become ready within 30 minutes\n' >&2
-  tail -n 80 "$geodml_log"
-  exit 1
-fi
-if python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" 2>&1 | tee "$geodml_log.controller"; then
+if python3 analysis/scripts/search_vllm_stage.py run \
+  --profile "$geodml_profile" --server-log "$geodml_log" \
+  --cache-base "${GEODML_CACHE_ROOT:?}/compile-cache" \
+  --startup-timeout-seconds 1800 "${geodml_approval_args[@]}" -- \
+  python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" \
+  2>&1 | tee "$geodml_log.controller"; then
   geodml_status=0
 else
   geodml_status=$?

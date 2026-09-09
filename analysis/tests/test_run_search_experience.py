@@ -1,13 +1,14 @@
-"""Synthetic execution fixtures never establish scientific results."""
 import asyncio
 import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import time
 import unittest
 from unittest.mock import patch
 
 from analysis.scripts import run_search_experience as runtime
+from analysis.scripts import search_vllm_stage
 
 
 class SearchRuntimeTests(unittest.TestCase):
@@ -29,6 +30,220 @@ class SearchRuntimeTests(unittest.TestCase):
                 return '{"value":1}', {"completion_tokens": 3}
         return asyncio.run(runtime.run_prepared(self.items, directory, client=Client(),
             identity=self.identity, source_hashes={}, **kwargs))
+
+    def serving_profile(
+        self,
+        path,
+        *,
+        model_id="fixture/model",
+        revision="a" * 40,
+        data_parallel_size=1,
+        tensor_parallel_size=4,
+    ):
+        record = search_vllm_stage.build_profile(
+            stage="fixture-primary",
+            model_id=model_id,
+            model_revision=revision,
+            vllm_executable="/runtime/bin/vllm",
+            vllm_version="0.28.0",
+            vllm_help="--data-parallel-size --language-model-only",
+            visible_gpus=tuple({
+                "index": index,
+                "uuid": f"GPU-{index}",
+                "name": "NVIDIA GH200 120GB",
+                "memory_total_mib": 97871,
+            } for index in range(4)),
+            cuda_visible_devices="0,1,2,3",
+            expected_gpu_name_pattern="GH200",
+            max_model_len=41472,
+            language_model_only=True,
+            data_parallel_size=data_parallel_size,
+            tensor_parallel_size=tensor_parallel_size,
+        )
+        search_vllm_stage.create_or_verify_profile(path, record)
+        return record
+
+    def serving_runtime(self, root, profile_path, profile, job_id, result_hash):
+        approval_path = root / f"approval-{job_id}.json"
+        approval_path.write_text(json.dumps({
+            "format_version": search_vllm_stage.APPROVAL_FORMAT_VERSION,
+            "profile_sha256": profile["profile_sha256"],
+            "benchmark_result_sha256": result_hash,
+            "approved_for_scientific_use": True,
+        }))
+        approval = search_vllm_stage.benchmark_approval_binding(
+            profile,
+            approval_path,
+        )
+        caches = search_vllm_stage.cache_environment(
+            profile,
+            job_id=job_id,
+            cache_base=root / "cache",
+            hostname="jpbo-001-04",
+        )
+        runtime_record = search_vllm_stage.build_runtime_record(
+            profile_path=profile_path,
+            profile=profile,
+            visible_gpus=tuple({
+                "index": index,
+                "uuid": f"GPU-{index}",
+                "name": "NVIDIA GH200 120GB",
+                "memory_total_mib": 97871,
+            } for index in range(4)),
+            cuda_visible_devices="0,1,2,3",
+            cache_paths=caches,
+            hostname="jpbo-001-04",
+            job_id=job_id,
+            step_id=f"{job_id}.1",
+            benchmark_approval=approval,
+        )
+        runtime_record.update(
+            server_status="terminated",
+            server_exit_code=0,
+            controller_status="exited",
+            controller_exit_code=0,
+            finished_at_epoch_seconds=time.time(),
+        )
+        server_log = root / f"server-{job_id}.log"
+        runtime_path = search_vllm_stage.write_runtime_record(
+            server_log,
+            runtime_record,
+        )
+        return runtime_path, approval
+
+    def test_new_manifest_binds_and_revalidates_serving_profile(self):
+        output = self.root / "results"
+        profile_path = self.root / "results.serving-profile.json"
+        profile = self.serving_profile(profile_path)
+        self.assertEqual(self.execute(output, serving_profile=profile_path), 0)
+        manifest = json.loads((output / "run_manifest.json").read_text())
+        self.assertEqual(manifest["serving_profile"], {
+            "path": str(profile_path.resolve()),
+            "sha256": profile["profile_sha256"],
+        })
+        before = {path.name: path.read_bytes() for path in output.iterdir()}
+        profile_path.unlink()
+        with self.assertRaisesRegex(ValueError, "serving profile"):
+            self.execute(output, resume=True)
+        self.assertEqual(before, {path.name: path.read_bytes() for path in output.iterdir()})
+
+    def test_manifest_links_runtime_record_and_dp_cannot_bypass_approval(self):
+        output = self.root / "results"
+        profile_path = self.root / "results.serving-profile.json"
+        profile = self.serving_profile(
+            profile_path,
+            data_parallel_size=2,
+            tensor_parallel_size=2,
+        )
+        with self.assertRaisesRegex(ValueError, "runtime record"):
+            self.execute(output, serving_profile=profile_path)
+        runtime_path, approval = self.serving_runtime(
+            self.root,
+            profile_path,
+            profile,
+            "1725979",
+            "d" * 64,
+        )
+        with patch.dict(
+            "os.environ",
+            {"GEODML_SERVING_RUNTIME_RECORD": str(runtime_path)},
+        ):
+            self.assertEqual(
+                self.execute(
+                    output,
+                    max_tasks=1,
+                    serving_profile=profile_path,
+                ),
+                3,
+            )
+        first_manifest = json.loads((output / "run_manifest.json").read_text())
+        first_run_id = first_manifest["run_id"]
+        second_runtime_path, second_approval = self.serving_runtime(
+            self.root,
+            profile_path,
+            profile,
+            "1725980",
+            "e" * 64,
+        )
+        with patch.dict(
+            "os.environ",
+            {"GEODML_SERVING_RUNTIME_RECORD": str(second_runtime_path)},
+        ):
+            self.assertEqual(
+                self.execute(
+                    output,
+                    resume=True,
+                    serving_profile=profile_path,
+                ),
+                0,
+            )
+        manifest = json.loads((output / "run_manifest.json").read_text())
+        self.assertEqual(
+            manifest["serving_runtime"]["path"],
+            str(second_runtime_path.resolve()),
+        )
+        invocations = manifest["serving_invocations"]
+        self.assertEqual(len(invocations), 2)
+        self.assertEqual(invocations[0]["run_id"], first_run_id)
+        self.assertEqual(invocations[0]["serving_runtime"]["benchmark_approval"], approval)
+        self.assertEqual(invocations[1]["run_id"], manifest["run_id"])
+        self.assertEqual(
+            invocations[1]["serving_runtime"]["benchmark_approval"],
+            second_approval,
+        )
+        self.assertEqual(
+            {entry["serving_runtime"]["slurm_job_id"] for entry in invocations},
+            {"1725979", "1725980"},
+        )
+        outcome_run_ids = {
+            json.loads(line)["run_id"]
+            for line in (output / "outcomes.jsonl").read_text().splitlines()
+        }
+        self.assertEqual(outcome_run_ids, {entry["run_id"] for entry in invocations})
+        manifest["serving_invocations"] = manifest["serving_invocations"][1:]
+        (output / "run_manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "journal run ID"):
+            runtime._resume(
+                output,
+                self.items,
+                runtime._run_identity(self.items, self.identity),
+                serving_profile=manifest["serving_profile"],
+            )
+
+    def test_partial_bound_run_requires_same_profile_on_resume(self):
+        output = self.root / "results"
+        profile_path = self.root / "results.serving-profile.json"
+        self.serving_profile(profile_path)
+        self.assertEqual(
+            self.execute(output, max_tasks=1, serving_profile=profile_path),
+            3,
+        )
+        self.assertEqual(
+            runtime._resume(
+                output,
+                self.items,
+                runtime._run_identity(self.items, self.identity),
+            ),
+            {"task-0"},
+        )
+        self.assertEqual(
+            runtime.preflight_run(
+                self.items,
+                output,
+                self.identity,
+                {},
+                resume=True,
+            ),
+            {"task-0"},
+        )
+        before = {path.name: path.read_bytes() for path in output.iterdir()}
+        with self.assertRaisesRegex(ValueError, "requires an explicit serving profile"):
+            self.execute(output, resume=True)
+        self.assertEqual(before, {path.name: path.read_bytes() for path in output.iterdir()})
+        self.assertEqual(
+            self.execute(output, resume=True, serving_profile=profile_path),
+            0,
+        )
 
     def test_partial_resume_has_global_coverage_and_pilot_flags(self):
         output = self.root / "results"
@@ -156,8 +371,14 @@ class SearchRuntimeTests(unittest.TestCase):
             async def complete(self, **request):
                 return responses[request["prompt"]], {"completion_tokens": 5}
         primary = self.root / "primary"
+        primary_profile_path = self.root / "primary.serving-profile.json"
+        self.serving_profile(
+            primary_profile_path,
+            model_id=model.model_id,
+            revision=model.model_revision,
+        )
         self.assertEqual(asyncio.run(runtime.run_prepared(items, primary, client=Client(), identity=identity,
-                                                         source_hashes=hashes)), 0)
+            source_hashes=hashes, serving_profile=primary_profile_path)), 0)
         before = {p.name: p.read_bytes() for p in primary.iterdir()}
         self.assertEqual(asyncio.run(runtime.run_prepared(items, primary, client=Client(), identity=identity,
                                                          source_hashes=hashes, resume=True)), 0)
@@ -247,7 +468,6 @@ class SearchRuntimeTests(unittest.TestCase):
             client_factory.assert_not_called()
         self.assertEqual(saved_quote, {p.name: p.read_bytes() for p in quote_output.iterdir()})
 
-        # A failed independent ranking must not block nine complete answers.
         ranking = next(i for i in items if i["base"]["pipeline"] == "rerank")
         responses[ranking["prompt"]] = '{"ranked_document_ids": ["REMOVED"]}'
         incomplete_ranking = self.root / "incomplete-ranking"
@@ -286,3 +506,11 @@ class SearchRuntimeTests(unittest.TestCase):
                 runtime.main(["run-primary", "--bundle-dir", str(bundle), "--model-configuration-id", model.configuration_id,
                     "--output-dir", str(primary), "--base-url", "http://example.invalid", "--server-model-revision", model.model_revision, "--resume"])
             client_factory.assert_not_called()
+
+        saved_profile = primary_profile_path.read_bytes()
+        primary_profile_path.write_text("{}")
+        with self.assertRaisesRegex(ValueError, "serving profile"):
+            runtime.judge_items(bundle, primary, "independent/model", "c" * 40)
+        with self.assertRaisesRegex(ValueError, "serving profile"):
+            runtime.inspect_bundle(bundle, primary, None, self.root / "tampered-report")
+        primary_profile_path.write_bytes(saved_profile)

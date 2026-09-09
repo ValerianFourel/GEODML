@@ -1,4 +1,3 @@
-"""CPU-only checks of worker branching; these do not test serving compatibility."""
 import os
 from pathlib import Path
 import subprocess
@@ -7,30 +6,49 @@ import unittest
 
 
 class JudgeWorkerTests(unittest.TestCase):
-    def test_mistral_routes_flashinfer_jit_cache_to_compile_cache(self):
-        worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
-        source = worker.read_text()
-        self.assertIn(
-            'export FLASHINFER_WORKSPACE_BASE="$geodml_cache/flashinfer-workspace"',
-            source,
-        )
-        self.assertIn('"FLASHINFER_WORKSPACE_BASE"', source)
+    def test_workers_use_shared_stage_profile_and_lifecycle(self):
+        stage_helper = 'analysis/scripts/search_vllm_stage.py'
+        for relative in (
+            'scripts/slurm/jupiter/run_search_mistral_primary.sh',
+            'scripts/slurm/jupiter/run_search_quote_judge.sh',
+        ):
+            worker = Path(__file__).resolve().parents[1] / relative
+            source = worker.read_text()
+            self.assertIn(stage_helper, source)
+            self.assertIn(' prepare ', source)
+            self.assertIn(' run ', source)
 
-    def test_mistral_routes_tensorrt_llm_cache_to_compile_cache(self):
+    def test_mistral_defaults_to_dp1_tp4_concurrency8_port8010(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
         source = worker.read_text()
-        self.assertIn(
-            'export TRTLLM_DG_CACHE_DIR="$geodml_cache/tensorrt-llm"',
-            source,
-        )
-        self.assertIn('"TRTLLM_DG_CACHE_DIR"', source)
+        self.assertIn('geodml_dp="${SEARCH_PRIMARY_DATA_PARALLEL_SIZE:-1}"', source)
+        self.assertIn('geodml_tp="${SEARCH_PRIMARY_TENSOR_PARALLEL_SIZE:-4}"', source)
+        self.assertIn('geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"', source)
+        self.assertIn('geodml_port="${SEARCH_PRIMARY_PORT:-8010}"', source)
+        self.assertNotIn('SEARCH_VLLM_', source)
+        self.assertIn('--expected-gpu-name-pattern GH200', source)
+        self.assertIn('SEARCH_PRIMARY_BENCHMARK_APPROVAL_PATH', source)
+        self.assertIn('--benchmark-approval "$geodml_approval_path"', source)
+        self.assertIn('--serving-profile "$geodml_profile"', source)
+
+    def test_judge_defaults_to_dp1_tp4_concurrency8_port8010(self):
+        worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'
+        source = worker.read_text()
+        self.assertIn('geodml_dp="${SEARCH_JUDGE_DATA_PARALLEL_SIZE:-1}"', source)
+        self.assertIn('geodml_tp="${SEARCH_JUDGE_TENSOR_PARALLEL_SIZE:-4}"', source)
+        self.assertIn('geodml_concurrency="${SEARCH_JUDGE_REQUEST_CONCURRENCY:-8}"', source)
+        self.assertIn('geodml_port="${SEARCH_JUDGE_PORT:-8010}"', source)
+        self.assertNotIn('SEARCH_VLLM_', source)
+        self.assertIn('--expected-gpu-name-pattern GH200', source)
+        self.assertIn('SEARCH_JUDGE_BENCHMARK_APPROVAL_PATH', source)
+        self.assertIn('--benchmark-approval "$geodml_approval_path"', source)
+        self.assertIn('--serving-profile "$geodml_profile"', source)
 
     def test_mistral_allows_thirty_minutes_for_first_startup(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
         source = worker.read_text()
         self.assertIn('SERVER_STARTUP_TIMEOUT=00:30:00', source)
-        self.assertIn('for ((i=0;i<360;i++)); do', source)
-        self.assertIn('did not become ready within 30 minutes', source)
+        self.assertIn('--startup-timeout-seconds 1800', source)
 
     def test_mistral_complete_skips_loading(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
@@ -56,6 +74,13 @@ python3() {
             self.assertIn('ALREADY_COMPLETE', result.stdout)
             self.assertNotIn('UNEXPECTED_LOADING', result.stderr)
             self.assertFalse((root / 'pilot').exists())
+
+    def test_mistral_only_blocks_historical_unbound_partial_results(self):
+        worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
+        source = worker.read_text()
+        self.assertIn('historical partial results have no serving profile provenance', source)
+        self.assertIn('manifest["serving_profile"]["path"]', source)
+        self.assertNotIn('partial results exist; preserve them for retry review', source)
 
     def test_complete_skips_engine_and_invalid_preflight_fails(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'

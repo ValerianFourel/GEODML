@@ -159,54 +159,298 @@ def _run_identity(items, identity):
         {"base": i["base"], "request_sha256": _request_sha256(i)} for i in items])}
 
 
-def _resume(output, items, identity):
+def _serving_profile_details(path, identity):
+    if path is None:
+        return None, None
+    from analysis.scripts.search_vllm_stage import load_profile
+    resolved = Path(path).expanduser().resolve()
+    profile = load_profile(resolved)
+    if profile["model"] != {
+        "model_id": identity["model_id"],
+        "model_revision": identity["model_revision"],
+    }:
+        raise ValueError("serving profile model identity does not match the run")
+    return {
+        "path": str(resolved),
+        "sha256": profile["profile_sha256"],
+    }, profile
+
+
+def _serving_runtime_details(profile):
+    if profile is None:
+        return None
+    from analysis.scripts.search_vllm_stage import load_runtime_binding
+    path = os.environ.get("GEODML_SERVING_RUNTIME_RECORD")
+    require_approval = profile["serving"]["data_parallel_size"] > 1
+    if path is None:
+        if require_approval:
+            raise ValueError("DP execution requires a serving runtime record")
+        return None
+    return load_runtime_binding(
+        path,
+        expected_profile_sha256=profile["profile_sha256"],
+        require_approval=require_approval,
+    )
+
+
+def _verify_manifest_serving_runtime(manifest, serving_profile):
+    saved = manifest.get("serving_runtime")
+    history = manifest.get("serving_invocations")
+    if saved is None and history is None:
+        return
+    if serving_profile is None:
+        raise ValueError("run manifest runtime provenance lacks a serving profile")
+    from analysis.scripts.search_vllm_stage import load_profile, load_runtime_binding
+    profile = load_profile(serving_profile["path"])
+
+    def verify_runtime(runtime):
+        if runtime is None:
+            if profile["serving"]["data_parallel_size"] > 1:
+                raise ValueError("DP run manifest lacks serving runtime provenance")
+            return
+        if not isinstance(runtime, dict) or "path" not in runtime:
+            raise ValueError("run manifest serving runtime provenance is malformed")
+        actual = load_runtime_binding(
+            runtime["path"],
+            expected_profile_sha256=profile["profile_sha256"],
+            require_approval=profile["serving"]["data_parallel_size"] > 1,
+        )
+        if actual != runtime:
+            raise ValueError("run manifest serving runtime provenance does not match")
+
+    verify_runtime(saved)
+    if history is None:
+        return
+    if not isinstance(history, list) or not history:
+        raise ValueError("run manifest serving invocation history is malformed")
+    expected_keys = {
+        "run_id",
+        "serving_profile",
+        "serving_runtime",
+        "started_at",
+        "finished_at",
+    }
+    run_ids = set()
+    for invocation in history:
+        if not isinstance(invocation, dict) or set(invocation) != expected_keys:
+            raise ValueError("run manifest serving invocation history is malformed")
+        run_id = invocation["run_id"]
+        if not isinstance(run_id, str) or not run_id or run_id in run_ids:
+            raise ValueError("run manifest serving invocation run IDs are invalid")
+        run_ids.add(run_id)
+        if invocation["serving_profile"] != serving_profile:
+            raise ValueError("run manifest serving invocation profile changed")
+        if not isinstance(invocation["started_at"], str) or not invocation["started_at"]:
+            raise ValueError("run manifest serving invocation start time is invalid")
+        if invocation["finished_at"] is not None and (
+            not isinstance(invocation["finished_at"], str)
+            or not invocation["finished_at"]
+        ):
+            raise ValueError("run manifest serving invocation finish time is invalid")
+        verify_runtime(invocation["serving_runtime"])
+    if history[-1]["run_id"] != manifest.get("run_id"):
+        raise ValueError("run manifest current serving invocation is inconsistent")
+    if history[-1]["serving_runtime"] != saved:
+        raise ValueError("run manifest current serving runtime is inconsistent")
+
+
+def _previous_serving_invocations(manifest):
+    history = manifest.get("serving_invocations")
+    if history is not None:
+        return [dict(invocation) for invocation in history]
+    if manifest.get("serving_profile") is None:
+        return []
+    return [{
+        "run_id": manifest["run_id"],
+        "serving_profile": manifest["serving_profile"],
+        "serving_runtime": manifest.get("serving_runtime"),
+        "started_at": manifest["started_at"],
+        "finished_at": manifest.get("finished_at"),
+    }]
+
+
+def _verify_serving_journal_run_ids(output, manifest):
+    history = manifest.get("serving_invocations")
+    if history is None:
+        return
+    run_ids = {invocation["run_id"] for invocation in history}
+    for name in ("outcomes", "failures", "attempts"):
+        path = output / f"{name}.jsonl"
+        if not path.exists():
+            continue
+        for row in _journal_rows(path):
+            if row.get("run_id") not in run_ids:
+                raise ValueError(
+                    f"{name} journal run ID lacks serving invocation provenance"
+                )
+
+
+def _verify_manifest_serving_profile(
+    manifest,
+    identity,
+    expected,
+    completed,
+    total,
+    require_explicit_profile,
+):
+    saved = manifest.get("serving_profile")
+    if saved is None:
+        if expected is not None and len(completed) != total:
+            raise ValueError(
+                "a historical partial run cannot acquire new serving profile provenance"
+            )
+        return None
+    if not isinstance(saved, dict) or set(saved) != {"path", "sha256"}:
+        raise ValueError("run manifest serving profile provenance is malformed")
+    actual, _ = _serving_profile_details(saved.get("path"), identity)
+    if actual != saved:
+        raise ValueError("run manifest serving profile hash does not match its sidecar")
+    if require_explicit_profile and expected is None and len(completed) != total:
+        raise ValueError("a bound partial run requires an explicit serving profile")
+    if expected is not None and saved != expected:
+        raise ValueError("resume serving profile does not exactly match the run manifest")
+    return saved
+
+
+def _resume(
+    output,
+    items,
+    identity,
+    *,
+    serving_profile=None,
+    require_explicit_profile=False,
+):
     by_id = {i["base"]["task_id"]: i for i in items}
     if len(by_id) != len(items):
         raise ValueError("duplicate prepared task IDs")
     tasks = [SimpleNamespace(task_id=key) for key in by_id]
-    return _validate_resume(output, identity, tasks, lambda task: by_id[task.task_id], "task_id")
+    completed = _validate_resume(
+        output,
+        identity,
+        tasks,
+        lambda task: by_id[task.task_id],
+        "task_id",
+    )
+    manifest_path = output / "run_manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        saved_profile = _verify_manifest_serving_profile(
+            manifest,
+            identity,
+            serving_profile,
+            completed,
+            len(items),
+            require_explicit_profile,
+        )
+        _verify_manifest_serving_runtime(manifest, saved_profile)
+        _verify_serving_journal_run_ids(output, manifest)
+    return completed
 
 
-def preflight_run(items, output, identity, source_hashes, *, resume=False):
+def preflight_run(
+    items,
+    output,
+    identity,
+    source_hashes,
+    *,
+    resume=False,
+    serving_profile=None,
+    require_explicit_profile=False,
+):
     verify_sources(source_hashes)
     if len({item["base"]["task_id"] for item in items}) != len(items):
         raise ValueError("duplicate prepared task IDs")
     output = Path(output).resolve()
     if not resume and output.exists() and any(output.iterdir()):
         raise FileExistsError(output)
-    return _resume(output, items, _run_identity(items, identity)) if resume else set()
+    run_identity = _run_identity(items, identity)
+    binding, _ = _serving_profile_details(serving_profile, run_identity)
+    return (
+        _resume(
+            output,
+            items,
+            run_identity,
+            serving_profile=binding,
+            require_explicit_profile=require_explicit_profile,
+        )
+        if resume
+        else set()
+    )
 
 
 async def run_prepared(items, output, *, client, identity, source_hashes,
-                       max_concurrency=8, max_tasks=0, resume=False):
-    """Run a pilot shard with the generic executor and strict journal validation."""
+                       max_concurrency=8, max_tasks=0, resume=False,
+                       serving_profile=None):
     if max_concurrency < 1 or max_tasks < 0:
         raise ValueError("concurrency must be positive and max_tasks nonnegative")
-    completed = preflight_run(items, output, identity, source_hashes, resume=resume)
     identity = _run_identity(items, identity)
+    binding, profile = _serving_profile_details(serving_profile, identity)
+    runtime_binding = _serving_runtime_details(profile)
+    completed = preflight_run(
+        items,
+        output,
+        identity,
+        source_hashes,
+        resume=resume,
+        serving_profile=serving_profile,
+        require_explicit_profile=True,
+    )
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     with _writer_lock(output):
         if resume:
-            if completed != _resume(output, items, identity):
+            if completed != _resume(
+                output,
+                items,
+                identity,
+                serving_profile=binding,
+            ):
                 raise ValueError("resume changed while acquiring output ownership")
         elif any(output.iterdir()):
             raise FileExistsError(output)
         if resume and len(completed) == len(items):
             return 0
+        current_binding, _ = _serving_profile_details(serving_profile, identity)
+        if current_binding != binding:
+            raise ValueError("serving profile changed while acquiring output ownership")
+        if _serving_runtime_details(profile) != runtime_binding:
+            raise ValueError("serving runtime changed while acquiring output ownership")
+        previous_manifest = None
+        manifest_path = output / "run_manifest.json"
+        if resume and manifest_path.exists():
+            previous_manifest = json.loads(manifest_path.read_text())
         pending = [i for i in items if i["base"]["task_id"] not in completed]
         if max_tasks:
             pending = pending[:max_tasks]
+        run_id = "search-run-" + uuid.uuid4().hex
+        started_at = _now()
         manifest = {**identity, "format_version": "search-experience-run-v1",
                     "resume_identity": identity, "source_artifacts_sha256": source_hashes,
-                    "run_id": "search-run-" + uuid.uuid4().hex,
-                    "status": "running", "started_at": _now(), "finished_at": None,
+                    "run_id": run_id,
+                    "status": "running", "started_at": started_at, "finished_at": None,
                     "scientific_result": False, "eligible_for_analysis": False,
                     "task_count": len(items), "completed_count": len(completed),
                     "remaining_count": len(items) - len(completed),
                     "tasks": {"sha256": identity["tasks_sha256"]},
                     "maximum_concurrency": max_concurrency, "attempted_this_invocation": 0}
-        manifest_path = output / "run_manifest.json"
+        if binding is not None:
+            manifest["serving_profile"] = binding
+        if runtime_binding is not None:
+            manifest["serving_runtime"] = runtime_binding
+        if binding is not None:
+            history = (
+                _previous_serving_invocations(previous_manifest)
+                if previous_manifest is not None
+                else []
+            )
+            history.append({
+                "run_id": run_id,
+                "serving_profile": binding,
+                "serving_runtime": runtime_binding,
+                "started_at": started_at,
+                "finished_at": None,
+            })
+            manifest["serving_invocations"] = history
         _atomic_json(manifest_path, manifest)
         failures = 0
         with (output / "outcomes.jsonl").open("a", encoding="utf-8") as outcomes, \
@@ -237,6 +481,14 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
                             attempted_this_invocation=manifest["attempted_this_invocation"] + 1)
                         _atomic_json(manifest_path, manifest)
                 verify_sources(source_hashes)
+                if binding is not None:
+                    current_binding, _ = _serving_profile_details(
+                        binding["path"], identity
+                    )
+                    if current_binding != binding:
+                        raise ValueError("serving profile changed during the run")
+                if _serving_runtime_details(profile) != runtime_binding:
+                    raise ValueError("serving runtime changed during the run")
                 manifest["status"] = "complete" if len(completed) == len(items) else "complete_with_failures" if failures else "checkpointed"
             except BaseException as exc:
                 manifest.update(status="interrupted_or_error", error=f"{type(exc).__name__}: {exc}")
@@ -244,8 +496,11 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
             finally:
                 if client is not None:
                     client.audit_callback = old_audit
-                manifest.update(finished_at=_now(), failures_this_invocation=failures,
+                finished_at = _now()
+                manifest.update(finished_at=finished_at, failures_this_invocation=failures,
                     **{name + "_sha256": _sha256(output / (name + ".jsonl")) for name in ("outcomes", "failures", "attempts")})
+                if "serving_invocations" in manifest:
+                    manifest["serving_invocations"][-1]["finished_at"] = finished_at
                 _atomic_json(manifest_path, manifest)
     return 0 if len(completed) == len(items) else 2 if failures else 3
 
@@ -415,6 +670,7 @@ def parser():
             sub.add_argument("--primary-output", required=True)
         if name.startswith("run-"):
             sub.add_argument("--base-url", required=True)
+            sub.add_argument("--serving-profile")
             sub.add_argument("--max-concurrency", type=int, default=8)
             sub.add_argument("--max-tasks", type=int, default=0)
             sub.add_argument("--resume", action="store_true")
@@ -456,7 +712,23 @@ def main(argv=None):
         else:
             items, identity, hashes = judge_items(args.bundle_dir, args.primary_output,
                 args.judge_model_id, args.judge_model_revision, judge_contract=args.judge_contract)
-        completed = preflight_run(items, args.output_dir, identity, hashes, resume=args.resume)
+        _, serving_profile = _serving_profile_details(
+            args.serving_profile,
+            identity,
+        )
+        if serving_profile is not None:
+            if args.base_url != serving_profile["serving"]["public_base_url"]:
+                raise ValueError("base URL does not match the serving profile")
+            if args.max_concurrency != serving_profile["serving"]["request_concurrency"]:
+                raise ValueError("request concurrency does not match the serving profile")
+        completed = preflight_run(
+            items,
+            args.output_dir,
+            identity,
+            hashes,
+            resume=args.resume,
+            serving_profile=args.serving_profile,
+        )
         if args.preflight_only:
             print(json.dumps({"status": "complete" if len(completed) == len(items) else "pending",
                               "task_count": len(items), "completed_count": len(completed),
@@ -471,7 +743,8 @@ def main(argv=None):
                     maximum_attempts=identity["maximum_attempts"]) as client:
                 return await run_prepared(items, args.output_dir, client=client, identity=identity,
                     source_hashes=hashes, max_concurrency=args.max_concurrency,
-                    max_tasks=args.max_tasks, resume=args.resume)
+                    max_tasks=args.max_tasks, resume=args.resume,
+                    serving_profile=args.serving_profile)
         return asyncio.run(execute())
     return 0
 
