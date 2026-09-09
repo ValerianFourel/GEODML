@@ -7,6 +7,15 @@ import unittest
 
 
 class JudgeWorkerTests(unittest.TestCase):
+    def test_mistral_routes_flashinfer_jit_cache_to_compile_cache(self):
+        worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
+        source = worker.read_text()
+        self.assertIn(
+            'export FLASHINFER_WORKSPACE_BASE="$geodml_cache/flashinfer-workspace"',
+            source,
+        )
+        self.assertIn('"FLASHINFER_WORKSPACE_BASE"):', source)
+
     def test_mistral_complete_skips_loading(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
         with tempfile.TemporaryDirectory() as directory:

@@ -34,10 +34,12 @@ fi
 geodml_cache="${GEODML_CACHE_ROOT:?}/compile-cache/vllm028-torch213-job${SLURM_JOB_ID}"
 export VLLM_CACHE_ROOT="$geodml_cache/vllm" TORCHINDUCTOR_CACHE_DIR="$geodml_cache/inductor"
 export TRITON_CACHE_DIR="$geodml_cache/triton" CUDA_CACHE_PATH="$geodml_cache/cuda"
+export FLASHINFER_WORKSPACE_BASE="$geodml_cache/flashinfer-workspace"
 python3 - <<'PY'
 import os, socket, tempfile
 from pathlib import Path
-for key in ("VLLM_CACHE_ROOT","TORCHINDUCTOR_CACHE_DIR","TRITON_CACHE_DIR","CUDA_CACHE_PATH"):
+for key in ("VLLM_CACHE_ROOT","TORCHINDUCTOR_CACHE_DIR","TRITON_CACHE_DIR","CUDA_CACHE_PATH",
+            "FLASHINFER_WORKSPACE_BASE"):
     path = Path(os.environ[key]).resolve()
     home = Path.home().resolve()
     assert path != home and home not in path.parents
