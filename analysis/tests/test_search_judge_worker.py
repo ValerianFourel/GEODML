@@ -16,6 +16,13 @@ class JudgeWorkerTests(unittest.TestCase):
         )
         self.assertIn('"FLASHINFER_WORKSPACE_BASE"):', source)
 
+    def test_mistral_allows_thirty_minutes_for_first_startup(self):
+        worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
+        source = worker.read_text()
+        self.assertIn('SERVER_STARTUP_TIMEOUT=00:30:00', source)
+        self.assertIn('for ((i=0;i<360;i++)); do', source)
+        self.assertIn('did not become ready within 30 minutes', source)
+
     def test_mistral_complete_skips_loading(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
         with tempfile.TemporaryDirectory() as directory:

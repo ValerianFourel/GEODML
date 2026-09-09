@@ -65,7 +65,7 @@ mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
 printf '%s\n' "$geodml_native_report" > "$geodml_log.native-config.json"
-printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nTP=4\nDTYPE=bfloat16\nCONCURRENCY=8\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" > "$geodml_log.settings"
+printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nTP=4\nDTYPE=bfloat16\nCONCURRENCY=8\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" > "$geodml_log.settings"
 geodml_pid=""
 cleanup() {
   if [[ -n "$geodml_pid" ]]; then
@@ -93,7 +93,7 @@ setsid "$ACL_ARR_VENV/bin/vllm" serve "$geodml_model" \
   --structured-outputs-config '{"backend":"xgrammar"}' > "$geodml_log" 2>&1 &
 geodml_pid=$!
 geodml_ready=0
-for ((i=0;i<180;i++)); do
+for ((i=0;i<360;i++)); do
   if ! kill -0 "$geodml_pid" 2>/dev/null; then tail -n 80 "$geodml_log"; exit 1; fi
   if curl --max-time 2 -fsS http://127.0.0.1:8010/v1/models >/dev/null 2>&1; then
     geodml_ready=1
@@ -101,7 +101,11 @@ for ((i=0;i<180;i++)); do
   fi
   sleep 5
 done
-if [[ "$geodml_ready" != 1 ]]; then tail -n 80 "$geodml_log"; exit 1; fi
+if [[ "$geodml_ready" != 1 ]]; then
+  printf 'STOP: vLLM remained alive but did not become ready within 30 minutes\n' >&2
+  tail -n 80 "$geodml_log"
+  exit 1
+fi
 if python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" 2>&1 | tee "$geodml_log.controller"; then
   geodml_status=0
 else
