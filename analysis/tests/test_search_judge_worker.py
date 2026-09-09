@@ -14,7 +14,16 @@ class JudgeWorkerTests(unittest.TestCase):
             'export FLASHINFER_WORKSPACE_BASE="$geodml_cache/flashinfer-workspace"',
             source,
         )
-        self.assertIn('"FLASHINFER_WORKSPACE_BASE"):', source)
+        self.assertIn('"FLASHINFER_WORKSPACE_BASE"', source)
+
+    def test_mistral_routes_tensorrt_llm_cache_to_compile_cache(self):
+        worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
+        source = worker.read_text()
+        self.assertIn(
+            'export TRTLLM_DG_CACHE_DIR="$geodml_cache/tensorrt-llm"',
+            source,
+        )
+        self.assertIn('"TRTLLM_DG_CACHE_DIR"', source)
 
     def test_mistral_allows_thirty_minutes_for_first_startup(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
