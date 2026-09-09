@@ -19,12 +19,16 @@ geodml_dp="${SEARCH_PRIMARY_DATA_PARALLEL_SIZE:-1}"
 geodml_tp="${SEARCH_PRIMARY_TENSOR_PARALLEL_SIZE:-4}"
 geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"
 geodml_port="${SEARCH_PRIMARY_PORT:-8010}"
+geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-}"
 geodml_base_url="http://127.0.0.1:${geodml_port}/v1"
 geodml_profile="${geodml_output}.serving-profile.json"
 geodml_args=(run-primary --bundle-dir "$SEARCH_PILOT_ROOT/bundle"
   --model-configuration-id model-config-c860fb2fb61da06a8443
   --server-model-revision "$geodml_revision" --base-url "$geodml_base_url"
   --max-concurrency "$geodml_concurrency" --output-dir "$geodml_output" --resume)
+if [[ -n "$geodml_answer_max_tokens" ]]; then
+  geodml_args+=(--answer-max-tokens "$geodml_answer_max_tokens")
+fi
 if python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" --preflight-only; then
   printf 'ALREADY_COMPLETE; no model loaded\n'
   exit 0
@@ -69,9 +73,10 @@ mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
 printf '%s\n' "$geodml_native_report" > "$geodml_log.native-config.json"
-printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
+printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
   "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" "$geodml_dp" "$geodml_tp" \
-  "$geodml_concurrency" "$geodml_port" "$geodml_profile_hash" > "$geodml_log.settings"
+  "$geodml_concurrency" "$geodml_port" "${geodml_answer_max_tokens:-frozen-plan}" \
+  "$geodml_profile_hash" > "$geodml_log.settings"
 printf 'SERVER_LOG=%s\n' "$geodml_log"
 if python3 analysis/scripts/search_vllm_stage.py run \
   --profile "$geodml_profile" --server-log "$geodml_log" \

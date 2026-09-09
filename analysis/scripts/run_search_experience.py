@@ -123,12 +123,14 @@ def load_bundle(directory):
     return bundle, plan, cases, hashes
 
 
-def primary_items(bundle_directory, model_configuration_id):
+def primary_items(bundle_directory, model_configuration_id, *, answer_max_tokens=None):
     bundle, plan, cases, hashes = load_bundle(bundle_directory)
     contract = _contract()
     model = next((m for m in plan.models if m.configuration_id == model_configuration_id), None)
     if model is None:
         raise ValueError("model configuration is not in the frozen plan")
+    if answer_max_tokens is not None and answer_max_tokens <= 0:
+        raise ValueError("answer max tokens must be positive")
     items = []
     for task in iter_experiment_tasks(plan, model_configuration_id=model_configuration_id):
         if task.prompt_id not in cases:
@@ -143,6 +145,8 @@ def primary_items(bundle_directory, model_configuration_id):
             item.update(prompt=contract.render_answer_prompt(case, task.condition),
                         schema=contract.answer_schema(), schema_name="search_experience_answer_v1",
                         validator=lambda raw, ids=allowed: contract.validate_answer_output(raw, allowed_document_ids=ids))
+            if answer_max_tokens is not None:
+                item["max_tokens"] = answer_max_tokens
         item["base"]["task_id"] = "search-task-" + _digest({"bundle_id": bundle["bundle_id"],
             "legacy_task_id": task.task_id, "request_sha256": _request_sha256(item)})[:24]
         items.append(item)
@@ -151,6 +155,8 @@ def primary_items(bundle_directory, model_configuration_id):
                 "synthetic_inputs": bundle["synthetic_inputs"],
                 "pipeline": "search-primary-v1", "source_manifest_sha256": _digest(hashes),
                 "fake_backend": False, "pilot_only": True, "maximum_attempts": 3}
+    if answer_max_tokens is not None:
+        identity["answer_max_tokens_override"] = answer_max_tokens
     return items, identity, hashes
 
 
@@ -679,6 +685,7 @@ def parser():
         if name == "run-primary":
             sub.add_argument("--model-configuration-id", required=True)
             sub.add_argument("--server-model-revision", required=True)
+            sub.add_argument("--answer-max-tokens", type=int)
         elif name == "run-judge":
             sub.add_argument("--judge-contract", choices=(
                 _contract().JUDGE_CONTRACT, _contract().QUOTE_JUDGE_CONTRACT),
@@ -706,7 +713,11 @@ def main(argv=None):
         export_human(args.bundle_dir, args.primary_output, args.output_dir, sample_size=args.sample_size, seed=args.seed)
     else:
         if args.command == "run-primary":
-            items, identity, hashes = primary_items(args.bundle_dir, args.model_configuration_id)
+            items, identity, hashes = primary_items(
+                args.bundle_dir,
+                args.model_configuration_id,
+                answer_max_tokens=args.answer_max_tokens,
+            )
             if args.server_model_revision != identity["model_revision"]:
                 raise ValueError("server revision differs from the frozen model")
         else:

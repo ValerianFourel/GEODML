@@ -339,6 +339,37 @@ class SearchRuntimeTests(unittest.TestCase):
         runtime.prepare_bundle(artifacts.manifest_path, [p.prompt_id for p in plan.prompts], capture_path, bundle, synthetic=True)
         items, identity, hashes = runtime.primary_items(bundle, model.configuration_id)
         self.assertEqual(len(items), 18)
+        expanded_items, expanded_identity, expanded_hashes = runtime.primary_items(
+            bundle,
+            model.configuration_id,
+            answer_max_tokens=1536,
+        )
+        self.assertEqual(expanded_hashes, hashes)
+        self.assertNotIn("answer_max_tokens_override", identity)
+        self.assertEqual(expanded_identity["answer_max_tokens_override"], 1536)
+        by_legacy_task = {item["base"]["legacy_task_id"]: item for item in items}
+        expanded_by_legacy_task = {
+            item["base"]["legacy_task_id"]: item for item in expanded_items
+        }
+        for legacy_task_id, item in by_legacy_task.items():
+            expanded = expanded_by_legacy_task[legacy_task_id]
+            if item["base"]["pipeline"] == "answer":
+                self.assertEqual(item["max_tokens"], model.answer_max_tokens)
+                self.assertEqual(expanded["max_tokens"], 1536)
+                self.assertNotEqual(
+                    expanded["base"]["task_id"],
+                    item["base"]["task_id"],
+                )
+            else:
+                self.assertEqual(expanded["max_tokens"], item["max_tokens"])
+                self.assertEqual(
+                    runtime._request_sha256(expanded),
+                    runtime._request_sha256(item),
+                )
+                self.assertEqual(
+                    expanded["base"]["task_id"],
+                    item["base"]["task_id"],
+                )
         _, _, cases, _ = runtime.load_bundle(bundle)
         old_tasks = {t.task_id: t for t in iter_experiment_tasks(plan)}
         responses = {}

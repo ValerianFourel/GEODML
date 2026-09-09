@@ -34,6 +34,15 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('SEARCH_PRIMARY_BENCHMARK_APPROVAL_PATH', source)
         self.assertIn('--benchmark-approval "$geodml_approval_path"', source)
         self.assertIn('--serving-profile "$geodml_profile"', source)
+        self.assertIn(
+            'geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-}"',
+            source,
+        )
+        self.assertIn(
+            'geodml_args+=(--answer-max-tokens "$geodml_answer_max_tokens")',
+            source,
+        )
+        self.assertIn('ANSWER_MAX_TOKENS=%s', source)
 
     def test_judge_defaults_to_dp1_tp4_concurrency8_port8010(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'
