@@ -30,6 +30,14 @@ class JudgeWorkerTests(unittest.TestCase):
             source,
         )
         self.assertIn(
+            'geodml_gpu_memory_utilization="${SEARCH_PRIMARY_GPU_MEMORY_UTILIZATION:-0.90}"',
+            source,
+        )
+        self.assertIn(
+            'geodml_max_tasks="${SEARCH_PRIMARY_MAX_TASKS:-0}"',
+            source,
+        )
+        self.assertIn(
             'geodml_output="${SEARCH_PRIMARY_OUTPUT:-$SEARCH_PILOT_ROOT/primary-schema-fix-0b3ce8acb5d6/model-config-c860fb2fb61da06a8443}"',
             source,
         )
@@ -49,6 +57,11 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('ANSWER_MAX_TOKENS=%s', source)
         self.assertIn('check_search_mistral_context.py', source)
         self.assertIn('--max-model-len "$geodml_max_model_len"', source)
+        self.assertIn(
+            '--gpu-memory-utilization "$geodml_gpu_memory_utilization"',
+            source,
+        )
+        self.assertIn('--max-tasks "$geodml_max_tasks"', source)
 
     def test_judge_defaults_to_dp1_tp4_concurrency8_port8010(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'
