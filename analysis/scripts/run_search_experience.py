@@ -576,6 +576,8 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
     if judge_max_tokens is not None and judge_max_tokens <= 0:
         raise ValueError("judge max tokens must be positive")
     effective_max_tokens = 2048 if judge_max_tokens is None else judge_max_tokens
+    validation_feedback_contract = "search-experience-validation-feedback-v1" if quotes_only else None
+    maximum_validation_attempts = 3 if quotes_only else 1
     primary, rows, manifest, hashes = _validated_primary(bundle_directory, primary_output)
     expected_answers = {item["base"]["task_id"] for item in primary
                         if item["base"]["pipeline"] == "answer"}
@@ -597,6 +599,8 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
             "model": judge_model_id, "revision": judge_model_revision, "contract": judge_contract}
         if judge_max_tokens is not None:
             task_identity["max_tokens"] = judge_max_tokens
+        if validation_feedback_contract is not None:
+            task_identity["validation_feedback_contract"] = validation_feedback_contract
         task_id = "search-judge-" + _digest(task_identity)[:24]
         items.append({"base": {"task_id": task_id, "pipeline": "judge", "source_task_id": row["task_id"],
             "bundle_id": bundle["bundle_id"], "judge_model_id": judge_model_id,
@@ -610,13 +614,23 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
             "validator": lambda raw, value=judge_input: (
                 contract.validate_quote_judge_output(raw, judge_input=value) if quotes_only
                 else contract.validate_judge_output(raw, judge_input=value))})
+        if validation_feedback_contract is not None:
+            items[-1].update(
+                maximum_validation_attempts=maximum_validation_attempts,
+                validation_feedback_contract=validation_feedback_contract,
+            )
     if not items:
         raise ValueError("no validated answers available for judgment")
     identity = {"model_id": judge_model_id, "model_revision": judge_model_revision,
         "pipeline": "search-judge-v1", "source_manifest_sha256": _digest(hashes),
         "fake_backend": manifest["fake_backend"], "pilot_only": True, "maximum_attempts": 3}
     if quotes_only:
-        identity.update(pipeline="search-judge-quotes-v2", judge_contract=judge_contract)
+        identity.update(
+            pipeline="search-judge-quotes-v2",
+            judge_contract=judge_contract,
+            maximum_semantic_validation_attempts=maximum_validation_attempts,
+            validation_feedback_contract=validation_feedback_contract,
+        )
     if judge_max_tokens is not None:
         identity["judge_max_tokens_override"] = judge_max_tokens
     return items, identity, hashes

@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from analysis.scripts import run_search_experience as runtime
+from analysis.scripts import run_acl_arr_vllm as vllm_runtime
 from analysis.scripts import search_vllm_stage
 
 
@@ -30,6 +31,55 @@ class SearchRuntimeTests(unittest.TestCase):
                 return '{"value":1}', {"completion_tokens": 3}
         return asyncio.run(runtime.run_prepared(self.items, directory, client=Client(),
             identity=self.identity, source_hashes={}, **kwargs))
+
+    def test_validation_feedback_retries_with_audited_deterministic_prompt(self):
+        calls = []
+
+        class Client:
+            async def complete(self, **request):
+                calls.append(request)
+                raw = '{"quote":"invented"}' if len(calls) == 1 else '{"quote":"exact"}'
+                return raw, {"completion_tokens": 5}
+
+        def validate(raw):
+            value = json.loads(raw)
+            if value["quote"] != "exact":
+                raise ValueError("quote is absent from evidence text")
+            return value
+
+        item = {
+            "base": {"task_id": "judge-1", "pipeline": "judge", "fake_backend": False},
+            "prompt": "Judge this input.", "schema_name": "judge", "schema": {},
+            "temperature": 0.0, "max_tokens": 100, "seed": 11, "validator": validate,
+            "maximum_validation_attempts": 2,
+            "validation_feedback_contract": "search-experience-validation-feedback-v1",
+        }
+        result = asyncio.run(vllm_runtime._execute_one(item, client=Client(), fake=False))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["parsed_output"], {"quote": "exact"})
+        self.assertEqual(result["validation_attempt_count"], 2)
+        self.assertEqual(len(result["rejected_output_sha256"]), 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["prompt"], item["prompt"])
+        self.assertIn("quote is absent from evidence text", calls[1]["prompt"])
+        self.assertIn("Return a complete replacement JSON object", calls[1]["prompt"])
+        self.assertNotEqual(calls[0]["seed"], calls[1]["seed"])
+        self.assertNotEqual(vllm_runtime._request_sha256(item), vllm_runtime._request_sha256({
+            **item, "maximum_validation_attempts": 1,
+        }))
+
+        calls.clear()
+
+        class InvalidClient:
+            async def complete(self, **request):
+                calls.append(request)
+                return '{"quote":"invented"}', {"completion_tokens": 5}
+
+        failed = asyncio.run(vllm_runtime._execute_one(item, client=InvalidClient(), fake=False))
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed["validation_attempt_count"], 2)
+        self.assertEqual(len(failed["rejected_output_sha256"]), 2)
+        self.assertIn("quote is absent from evidence text", failed["error"])
 
     def serving_profile(
         self,
