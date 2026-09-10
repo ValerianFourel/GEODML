@@ -6,6 +6,26 @@ import unittest
 
 
 class JudgeWorkerTests(unittest.TestCase):
+    def test_hf_primary_worker_has_profiled_lifecycle_and_2048_default(self):
+        worker = (
+            Path(__file__).resolve().parents[1]
+            / 'scripts/slurm/jupiter/run_search_hf_primary.sh'
+        )
+        source = worker.read_text()
+        self.assertIn('SEARCH_PRIMARY_MODEL_ID', source)
+        self.assertIn('SEARCH_PRIMARY_MODEL_REVISION', source)
+        self.assertIn('SEARCH_PRIMARY_MODEL_CONFIGURATION_ID', source)
+        self.assertIn(
+            'geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-2048}"',
+            source,
+        )
+        self.assertIn('geodml_prepare_args=(prepare', source)
+        self.assertIn('analysis/scripts/search_vllm_stage.py run', source)
+        self.assertIn('analysis/scripts/check_search_experience_grammar.py', source)
+        self.assertIn('AutoTokenizer.from_pretrained', source)
+        self.assertIn('--language-model-only', source)
+        self.assertIn('--max-tasks "$geodml_max_tasks"', source)
+
     def test_workers_use_shared_stage_profile_and_lifecycle(self):
         stage_helper = 'analysis/scripts/search_vllm_stage.py'
         for relative in (
