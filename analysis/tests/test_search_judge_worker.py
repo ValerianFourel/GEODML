@@ -57,11 +57,23 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('geodml_tp="${SEARCH_JUDGE_TENSOR_PARALLEL_SIZE:-4}"', source)
         self.assertIn('geodml_concurrency="${SEARCH_JUDGE_REQUEST_CONCURRENCY:-8}"', source)
         self.assertIn('geodml_port="${SEARCH_JUDGE_PORT:-8010}"', source)
+        self.assertIn(
+            'geodml_max_model_len="${SEARCH_JUDGE_MAX_MODEL_LEN:-49152}"',
+            source,
+        )
+        self.assertIn(
+            'geodml_startup_timeout_seconds="${SEARCH_JUDGE_STARTUP_TIMEOUT_SECONDS:-900}"',
+            source,
+        )
         self.assertNotIn('SEARCH_VLLM_', source)
         self.assertIn('--expected-gpu-name-pattern GH200', source)
         self.assertIn('SEARCH_JUDGE_BENCHMARK_APPROVAL_PATH', source)
         self.assertIn('--benchmark-approval "$geodml_approval_path"', source)
         self.assertIn('--serving-profile "$geodml_profile"', source)
+        self.assertIn('--max-model-len "$geodml_max_model_len"', source)
+        self.assertIn(
+            '--startup-timeout-seconds "$geodml_startup_timeout_seconds"', source
+        )
 
     def test_mistral_startup_timeout_is_configurable_with_safe_default(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'

@@ -18,6 +18,10 @@ geodml_dp="${SEARCH_JUDGE_DATA_PARALLEL_SIZE:-1}"
 geodml_tp="${SEARCH_JUDGE_TENSOR_PARALLEL_SIZE:-4}"
 geodml_concurrency="${SEARCH_JUDGE_REQUEST_CONCURRENCY:-8}"
 geodml_port="${SEARCH_JUDGE_PORT:-8010}"
+geodml_max_model_len="${SEARCH_JUDGE_MAX_MODEL_LEN:-49152}"
+geodml_startup_timeout_seconds="${SEARCH_JUDGE_STARTUP_TIMEOUT_SECONDS:-900}"
+[[ "$geodml_max_model_len" =~ ^[1-9][0-9]*$ ]]
+[[ "$geodml_startup_timeout_seconds" =~ ^[1-9][0-9]*$ ]]
 geodml_base_url="http://127.0.0.1:${geodml_port}/v1"
 geodml_profile="${SEARCH_JUDGE_OUTPUT}.serving-profile.json"
 geodml_args=(run-judge --bundle-dir "$SEARCH_BUNDLE_DIR" --primary-output "$SEARCH_PRIMARY_OUTPUT"
@@ -54,7 +58,7 @@ geodml_profile_hash="$(python3 analysis/scripts/search_vllm_stage.py prepare \
   --expected-gpu-name-pattern GH200 \
   --port "$geodml_port" --data-parallel-size "$geodml_dp" \
   --tensor-parallel-size "$geodml_tp" --request-concurrency "$geodml_concurrency" \
-  --dtype bfloat16 --max-model-len 49152 --gpu-memory-utilization 0.90 \
+  --dtype bfloat16 --max-model-len "$geodml_max_model_len" --gpu-memory-utilization 0.90 \
   --structured-outputs-config '{"backend":"xgrammar"}')"
 printf 'SERVING_PROFILE=%s\nSERVING_PROFILE_SHA256=%s\n' "$geodml_profile" "$geodml_profile_hash"
 geodml_approval_args=()
@@ -67,8 +71,8 @@ if (( geodml_dp > 1 )); then
 fi
 geodml_args+=(--serving-profile "$geodml_profile")
 python3 analysis/scripts/check_search_experience_grammar.py
-python3 - <<'PY'
-import json, os
+python3 - "$geodml_max_model_len" <<'PY'
+import json, os, sys
 from pathlib import Path
 from transformers import AutoTokenizer
 from analysis.scripts.run_search_experience import judge_items
@@ -80,7 +84,8 @@ if len(matches) != 1:
     raise ValueError('expected exactly one pinned snapshot')
 snapshot = Path(matches[0]['snapshot'])
 native, _ = _native_context(snapshot)
-if native < 49152:
+configured = int(sys.argv[1])
+if native < configured:
     raise ValueError('native context below serving context; do not override silently')
 tokenizer = AutoTokenizer.from_pretrained(str(snapshot), local_files_only=True, trust_remote_code=True)
 items, _, _ = judge_items(os.environ['SEARCH_BUNDLE_DIR'], os.environ['SEARCH_PRIMARY_OUTPUT'],
@@ -89,9 +94,9 @@ items, _, _ = judge_items(os.environ['SEARCH_BUNDLE_DIR'], os.environ['SEARCH_PR
 required = max(_input_token_count(tokenizer.apply_chat_template(
     [{'role': 'user', 'content': item['prompt']}], tokenize=True, add_generation_prompt=True))
     + item['max_tokens'] for item in items)
-if required > 49152:
+if required > configured:
     raise ValueError('task exceeds context; no truncation permitted')
-print(f'TOKEN_PREFLIGHT=PASS tasks={len(items)} required={required} context=49152')
+print(f'TOKEN_PREFLIGHT=PASS tasks={len(items)} required={required} context={configured} native={native}')
 PY
 mkdir -p "${SEARCH_JUDGE_OUTPUT%/*}"
 geodml_log="$(mktemp "${SEARCH_JUDGE_OUTPUT}.server.XXXXXX")"
@@ -101,7 +106,7 @@ printf 'SERVER_LOG=%s\n' "$geodml_log"
 if python3 analysis/scripts/search_vllm_stage.py run \
   --profile "$geodml_profile" --server-log "$geodml_log" \
   --cache-base "${GEODML_CACHE_ROOT:?}/compile-cache" \
-  --startup-timeout-seconds 900 "${geodml_approval_args[@]}" -- \
+  --startup-timeout-seconds "$geodml_startup_timeout_seconds" "${geodml_approval_args[@]}" -- \
   python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" \
   2>&1 | tee "$geodml_log.controller"; then
   geodml_status=0
