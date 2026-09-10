@@ -406,13 +406,30 @@ _TYPOGRAPHIC_EQUIVALENTS = str.maketrans({
 })
 
 
-def _nearest_typographic_source(text: str, excerpt: str) -> str | None:
-    normalized_text = text.translate(_TYPOGRAPHIC_EQUIVALENTS)
-    normalized_excerpt = excerpt.translate(_TYPOGRAPHIC_EQUIVALENTS)
+def _source_alignment_form(value: str) -> tuple[str, list[int]]:
+    normalized: list[str] = []
+    source_offsets: list[int] = []
+    for offset, character in enumerate(value):
+        translated = character.translate(_TYPOGRAPHIC_EQUIVALENTS)
+        if translated in {'"', "'"}:
+            continue
+        normalized.append(translated)
+        source_offsets.append(offset)
+    return "".join(normalized), source_offsets
+
+
+def _unique_source_alignment(text: str, excerpt: str) -> str | None:
+    normalized_text, source_offsets = _source_alignment_form(text)
+    normalized_excerpt, _ = _source_alignment_form(excerpt)
+    if not normalized_excerpt:
+        return None
     start = normalized_text.find(normalized_excerpt)
     if start < 0 or normalized_text.find(normalized_excerpt, start + 1) >= 0:
         return None
-    return text[start:start + len(excerpt)]
+    source_start = source_offsets[start]
+    source_end = source_offsets[start + len(normalized_excerpt) - 1] + 1
+    candidate = text[source_start:source_end]
+    return candidate if text.count(candidate) == 1 else None
 
 
 def _unique_exact_source_options(text: str, excerpt: str) -> list[str]:
@@ -455,12 +472,15 @@ def validate_quote_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> 
             excerpt = _text(quote["quote"], "quote")
             start = text.find(excerpt)
             if start < 0:
-                candidate = _nearest_typographic_source(text, excerpt)
-                candidate_hint = f" nearest_exact_source={candidate!r}" if candidate is not None else ""
-                raise ValueError(
-                    f"quote is absent from evidence text: claim={row.get('claim_id')!r} "
-                    f"document={doc_id!r} quote={excerpt!r}{candidate_hint}"
-                )
+                candidate = _unique_source_alignment(text, excerpt)
+                if candidate is None:
+                    raise ValueError(
+                        f"quote is absent from evidence text: claim={row.get('claim_id')!r} "
+                        f"document={doc_id!r} quote={excerpt!r}"
+                    )
+                excerpt = candidate
+                quote["quote"] = excerpt
+                start = text.find(excerpt)
             if text.find(excerpt, start + 1) >= 0:
                 options = _unique_exact_source_options(text, excerpt)
                 option_hint = f" exact_source_options={options!r}" if options else ""

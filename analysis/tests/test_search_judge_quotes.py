@@ -42,16 +42,21 @@ class QuoteJudgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous|unique"):
             self.validate()
 
-    def test_typographic_mismatch_reports_exact_source_candidate_without_accepting_it(self):
+    def test_unique_typographic_mismatch_aligns_to_exact_source_text(self):
         doc = next(d for d in self.visible["documents"] if d["document_id"] == "C003")
         doc["text"] += ' Visit the "Courses" page.'
         changed = deepcopy(self.raw)
         changed["claim_assessments"][0]["evidence"][0]["quote"] = 'Visit the “Courses” page.'
-        with self.assertRaisesRegex(
-            ValueError,
-            r'nearest_exact_source=\'Visit the "Courses" page\.\'',
-        ):
-            self.validate(changed)
+        parsed = self.validate(changed)
+        evidence = parsed["claim_assessments"][0]["evidence"][0]
+        self.assertEqual(evidence["quote"], 'Visit the "Courses" page.')
+        self.assertEqual(doc["text"][evidence["start"]:evidence["end"]], evidence["quote"])
+
+        changed["claim_assessments"][0]["evidence"][0]["quote"] = "Visit the Courses page."
+        parsed = self.validate(changed)
+        evidence = parsed["claim_assessments"][0]["evidence"][0]
+        self.assertEqual(evidence["quote"], 'Visit the "Courses" page.')
+
         doc["text"] = "aaaa"
         self.raw["claim_assessments"][0]["evidence"][0]["quote"] = "aaa"
         with self.assertRaisesRegex(ValueError, "ambiguous|unique"):
