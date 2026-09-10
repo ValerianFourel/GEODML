@@ -19,6 +19,7 @@ geodml_dp="${SEARCH_PRIMARY_DATA_PARALLEL_SIZE:-1}"
 geodml_tp="${SEARCH_PRIMARY_TENSOR_PARALLEL_SIZE:-4}"
 geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"
 geodml_port="${SEARCH_PRIMARY_PORT:-8010}"
+geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-41472}"
 geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-}"
 geodml_base_url="http://127.0.0.1:${geodml_port}/v1"
 geodml_profile="${geodml_output}.serving-profile.json"
@@ -51,7 +52,7 @@ geodml_profile_hash="$(python3 analysis/scripts/search_vllm_stage.py prepare \
   --expected-gpu-name-pattern GH200 \
   --port "$geodml_port" --data-parallel-size "$geodml_dp" \
   --tensor-parallel-size "$geodml_tp" --request-concurrency "$geodml_concurrency" \
-  --dtype bfloat16 --max-model-len 41472 --gpu-memory-utilization 0.90 \
+  --dtype bfloat16 --max-model-len "$geodml_max_model_len" --gpu-memory-utilization 0.90 \
   --language-model-only --tokenizer-mode mistral --attention-backend FLASH_ATTN_MLA \
   --config-format mistral --load-format mistral \
   --structured-outputs-config '{"backend":"xgrammar"}')"
@@ -72,7 +73,7 @@ python3 analysis/scripts/check_search_experience_grammar.py
 geodml_context_args=(--bundle-dir "$SEARCH_PILOT_ROOT/bundle"
   --model-configuration-id model-config-c860fb2fb61da06a8443
   --model-snapshots "${ACL_ARR_RUN_ROOT:?}/model-snapshots.json"
-  --max-model-len 41472)
+  --max-model-len "$geodml_max_model_len")
 if [[ -n "$geodml_answer_max_tokens" ]]; then
   geodml_context_args+=(--answer-max-tokens "$geodml_answer_max_tokens")
 fi
@@ -81,8 +82,8 @@ mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
 printf '%s\n' "$geodml_native_report" > "$geodml_log.native-config.json"
-printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=41472\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
-  "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" "$geodml_dp" "$geodml_tp" \
+printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=%s\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
+  "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" "$geodml_max_model_len" "$geodml_dp" "$geodml_tp" \
   "$geodml_concurrency" "$geodml_port" "${geodml_answer_max_tokens:-frozen-plan}" \
   "$geodml_profile_hash" > "$geodml_log.settings"
 printf 'SERVER_LOG=%s\n' "$geodml_log"

@@ -26,6 +26,10 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"', source)
         self.assertIn('geodml_port="${SEARCH_PRIMARY_PORT:-8010}"', source)
         self.assertIn(
+            'geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-41472}"',
+            source,
+        )
+        self.assertIn(
             'geodml_output="${SEARCH_PRIMARY_OUTPUT:-$SEARCH_PILOT_ROOT/primary-schema-fix-0b3ce8acb5d6/model-config-c860fb2fb61da06a8443}"',
             source,
         )
@@ -44,7 +48,7 @@ class JudgeWorkerTests(unittest.TestCase):
         )
         self.assertIn('ANSWER_MAX_TOKENS=%s', source)
         self.assertIn('check_search_mistral_context.py', source)
-        self.assertIn('--max-model-len 41472', source)
+        self.assertIn('--max-model-len "$geodml_max_model_len"', source)
 
     def test_judge_defaults_to_dp1_tp4_concurrency8_port8010(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'
