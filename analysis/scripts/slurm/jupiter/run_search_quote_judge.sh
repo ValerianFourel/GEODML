@@ -20,14 +20,21 @@ geodml_concurrency="${SEARCH_JUDGE_REQUEST_CONCURRENCY:-8}"
 geodml_port="${SEARCH_JUDGE_PORT:-8010}"
 geodml_max_model_len="${SEARCH_JUDGE_MAX_MODEL_LEN:-49152}"
 geodml_startup_timeout_seconds="${SEARCH_JUDGE_STARTUP_TIMEOUT_SECONDS:-900}"
+geodml_judge_max_tokens="${SEARCH_JUDGE_MAX_TOKENS:-}"
 [[ "$geodml_max_model_len" =~ ^[1-9][0-9]*$ ]]
 [[ "$geodml_startup_timeout_seconds" =~ ^[1-9][0-9]*$ ]]
+if [[ -n "$geodml_judge_max_tokens" ]]; then
+  [[ "$geodml_judge_max_tokens" =~ ^[1-9][0-9]*$ ]]
+fi
 geodml_base_url="http://127.0.0.1:${geodml_port}/v1"
 geodml_profile="${SEARCH_JUDGE_OUTPUT}.serving-profile.json"
 geodml_args=(run-judge --bundle-dir "$SEARCH_BUNDLE_DIR" --primary-output "$SEARCH_PRIMARY_OUTPUT"
   --judge-model-id "$SEARCH_JUDGE_MODEL" --judge-model-revision "$SEARCH_JUDGE_REVISION"
   --judge-contract search-experience-judge-quotes-v2 --output-dir "$SEARCH_JUDGE_OUTPUT"
   --base-url "$geodml_base_url" --max-concurrency "$geodml_concurrency" --resume)
+if [[ -n "$geodml_judge_max_tokens" ]]; then
+  geodml_args+=(--judge-max-tokens "$geodml_judge_max_tokens")
+fi
 if python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" --preflight-only; then
   geodml_status=0
 else
@@ -71,7 +78,7 @@ if (( geodml_dp > 1 )); then
 fi
 geodml_args+=(--serving-profile "$geodml_profile")
 python3 analysis/scripts/check_search_experience_grammar.py
-python3 - "$geodml_max_model_len" <<'PY'
+python3 - "$geodml_max_model_len" "$geodml_judge_max_tokens" <<'PY'
 import json, os, sys
 from pathlib import Path
 from transformers import AutoTokenizer
@@ -88,9 +95,10 @@ configured = int(sys.argv[1])
 if native < configured:
     raise ValueError('native context below serving context; do not override silently')
 tokenizer = AutoTokenizer.from_pretrained(str(snapshot), local_files_only=True, trust_remote_code=True)
+judge_max_tokens = int(sys.argv[2]) if sys.argv[2] else None
 items, _, _ = judge_items(os.environ['SEARCH_BUNDLE_DIR'], os.environ['SEARCH_PRIMARY_OUTPUT'],
     os.environ['SEARCH_JUDGE_MODEL'], os.environ['SEARCH_JUDGE_REVISION'],
-    judge_contract='search-experience-judge-quotes-v2')
+    judge_contract='search-experience-judge-quotes-v2', judge_max_tokens=judge_max_tokens)
 required = max(_input_token_count(tokenizer.apply_chat_template(
     [{'role': 'user', 'content': item['prompt']}], tokenize=True, add_generation_prompt=True))
     + item['max_tokens'] for item in items)

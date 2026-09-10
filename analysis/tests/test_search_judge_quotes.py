@@ -86,6 +86,8 @@ class QuoteJudgeTests(unittest.TestCase):
         self.assertTrue(prompt.endswith(json.dumps(self.visible, ensure_ascii=False)))
         self.assertNotIn("ABLATION_SENTINEL", prompt)
         self.assertNotIn("zero-based Unicode character offsets", prompt)
+        self.assertIn("label the claim unsupported and return an empty evidence list", prompt)
+        self.assertIn("Do not reconstruct text from headings", prompt)
 
 
 if __name__ == "__main__":

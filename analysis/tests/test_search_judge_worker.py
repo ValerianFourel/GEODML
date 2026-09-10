@@ -65,6 +65,11 @@ class JudgeWorkerTests(unittest.TestCase):
             'geodml_startup_timeout_seconds="${SEARCH_JUDGE_STARTUP_TIMEOUT_SECONDS:-900}"',
             source,
         )
+        self.assertIn(
+            'geodml_judge_max_tokens="${SEARCH_JUDGE_MAX_TOKENS:-}"',
+            source,
+        )
+        self.assertIn('geodml_args+=(--judge-max-tokens "$geodml_judge_max_tokens")', source)
         self.assertNotIn('SEARCH_VLLM_', source)
         self.assertIn('--expected-gpu-name-pattern GH200', source)
         self.assertIn('SEARCH_JUDGE_BENCHMARK_APPROVAL_PATH', source)

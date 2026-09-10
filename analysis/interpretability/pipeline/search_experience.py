@@ -380,6 +380,10 @@ def render_quote_judge_prompt(judge_input: Mapping[str, Any]) -> str:
         "Evidence entries have only document_id and quote. Copy a nonempty exact substring "
         "from the document text body, not its title or URL. Choose a quote that occurs "
         "exactly once in that document. Do not normalize or paraphrase quotes. "
+        "Before marking a claim supported or partly_supported, verify that every quote is "
+        "present verbatim in the corresponding document text. If no such substring supports "
+        "the claim, label the claim unsupported and return an empty evidence list. "
+        "Do not reconstruct text from headings, navigation labels, or nearby sentences. "
         "The application locates the offsets; do not output start or end. "
         "Copy each supplied claim_id exactly; never invent or renumber claims. "
         "If the answer has no claims, return an empty claim_assessments list.")
@@ -406,7 +410,10 @@ def validate_quote_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> 
             excerpt = _text(quote["quote"], "quote")
             start = text.find(excerpt)
             if start < 0:
-                raise ValueError("quote is absent from evidence text")
+                raise ValueError(
+                    f"quote is absent from evidence text: claim={row.get('claim_id')!r} "
+                    f"document={doc_id!r} quote={excerpt!r}"
+                )
             if text.find(excerpt, start + 1) >= 0:
                 raise ValueError("quote is ambiguous in evidence text")
             quote.update(start=start, end=start + len(excerpt))

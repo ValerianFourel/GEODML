@@ -566,13 +566,16 @@ def validate_judge_model(generator_model, judge_model):
 
 
 def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_revision, *,
-                judge_contract="search-experience-judge-v1"):
+                judge_contract="search-experience-judge-v1", judge_max_tokens=None):
     contract = _contract()
     if judge_contract not in (contract.JUDGE_CONTRACT, contract.QUOTE_JUDGE_CONTRACT):
         raise ValueError("unknown judge contract")
     quotes_only = judge_contract == contract.QUOTE_JUDGE_CONTRACT
     if re.fullmatch(r"[0-9a-f]{40}", judge_model_revision) is None:
         raise ValueError("judge revision must be an immutable 40-character SHA")
+    if judge_max_tokens is not None and judge_max_tokens <= 0:
+        raise ValueError("judge max tokens must be positive")
+    effective_max_tokens = 2048 if judge_max_tokens is None else judge_max_tokens
     primary, rows, manifest, hashes = _validated_primary(bundle_directory, primary_output)
     expected_answers = {item["base"]["task_id"] for item in primary
                         if item["base"]["pipeline"] == "answer"}
@@ -590,8 +593,11 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
             continue
         judge_input = contract.prepare_judge_input(cases[row["prompt_id"]], row["condition"], row["parsed_output"],
             source_task_id=row["task_id"], master_seed=plan.master_seed)
-        task_id = "search-judge-" + _digest({"source": row["task_id"], "input": judge_input,
-            "model": judge_model_id, "revision": judge_model_revision, "contract": judge_contract})[:24]
+        task_identity = {"source": row["task_id"], "input": judge_input,
+            "model": judge_model_id, "revision": judge_model_revision, "contract": judge_contract}
+        if judge_max_tokens is not None:
+            task_identity["max_tokens"] = judge_max_tokens
+        task_id = "search-judge-" + _digest(task_identity)[:24]
         items.append({"base": {"task_id": task_id, "pipeline": "judge", "source_task_id": row["task_id"],
             "bundle_id": bundle["bundle_id"], "judge_model_id": judge_model_id,
             "judge_model_revision": judge_model_revision, "fake_backend": manifest["fake_backend"]},
@@ -599,7 +605,7 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
                        else contract.render_judge_prompt(judge_input)),
             "schema": contract.judge_quote_schema(judge_input) if quotes_only else contract.judge_schema(),
             "schema_name": "search_experience_judge_quotes_v2" if quotes_only else "search_experience_judge_v1",
-            "temperature": 0.0, "max_tokens": 2048,
+            "temperature": 0.0, "max_tokens": effective_max_tokens,
             "seed": int(hashlib.sha256(task_id.encode()).hexdigest()[:8], 16),
             "validator": lambda raw, value=judge_input: (
                 contract.validate_quote_judge_output(raw, judge_input=value) if quotes_only
@@ -611,6 +617,8 @@ def judge_items(bundle_directory, primary_output, judge_model_id, judge_model_re
         "fake_backend": manifest["fake_backend"], "pilot_only": True, "maximum_attempts": 3}
     if quotes_only:
         identity.update(pipeline="search-judge-quotes-v2", judge_contract=judge_contract)
+    if judge_max_tokens is not None:
+        identity["judge_max_tokens_override"] = judge_max_tokens
     return items, identity, hashes
 
 
@@ -623,7 +631,8 @@ def inspect_bundle(bundle_directory, primary_output, judge_output, output):
         judge_manifest = json.loads((judge_path / "run_manifest.json").read_text())
         prepared, identity, _ = judge_items(bundle_directory, primary_output,
             judge_manifest["model_id"], judge_manifest["model_revision"],
-            judge_contract=judge_manifest.get("judge_contract", _contract().JUDGE_CONTRACT))
+            judge_contract=judge_manifest.get("judge_contract", _contract().JUDGE_CONTRACT),
+            judge_max_tokens=judge_manifest.get("judge_max_tokens_override"))
         _resume(judge_path, prepared, _run_identity(prepared, identity))
         judgments = {r["source_task_id"]: r["parsed_output"] for r in _journal_rows(judge_path / "outcomes.jsonl")}
     indexed = {(r["prompt_id"], r["condition"], r["pipeline"]): r for r in rows}
@@ -715,6 +724,7 @@ def parser():
                 default=_contract().JUDGE_CONTRACT)
             sub.add_argument("--judge-model-id", required=True)
             sub.add_argument("--judge-model-revision", required=True)
+            sub.add_argument("--judge-max-tokens", type=int)
         elif name == "inspect":
             sub.add_argument("--judge-output")
         else:
@@ -745,7 +755,8 @@ def main(argv=None):
                 raise ValueError("server revision differs from the frozen model")
         else:
             items, identity, hashes = judge_items(args.bundle_dir, args.primary_output,
-                args.judge_model_id, args.judge_model_revision, judge_contract=args.judge_contract)
+                args.judge_model_id, args.judge_model_revision, judge_contract=args.judge_contract,
+                judge_max_tokens=args.judge_max_tokens)
         _, serving_profile = _serving_profile_details(
             args.serving_profile,
             identity,

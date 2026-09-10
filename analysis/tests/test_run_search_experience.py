@@ -523,6 +523,16 @@ class SearchRuntimeTests(unittest.TestCase):
         quote_judges, quote_identity, quote_hashes = runtime.judge_items(
             bundle, primary, "independent/model", "c" * 40,
             judge_contract=contract.QUOTE_JUDGE_CONTRACT)
+        expanded_quote_judges, expanded_quote_identity, _ = runtime.judge_items(
+            bundle, primary, "independent/model", "c" * 40,
+            judge_contract=contract.QUOTE_JUDGE_CONTRACT, judge_max_tokens=4096)
+        self.assertTrue(all(item["max_tokens"] == 4096 for item in expanded_quote_judges))
+        self.assertEqual(expanded_quote_identity["judge_max_tokens_override"], 4096)
+        self.assertTrue({item["base"]["task_id"] for item in quote_judges}.isdisjoint(
+            {item["base"]["task_id"] for item in expanded_quote_judges}))
+        with self.assertRaisesRegex(ValueError, "judge max tokens must be positive"):
+            runtime.judge_items(bundle, primary, "independent/model", "c" * 40,
+                judge_contract=contract.QUOTE_JUDGE_CONTRACT, judge_max_tokens=0)
         self.assertTrue({i["base"]["task_id"] for i in judges}.isdisjoint(
             {i["base"]["task_id"] for i in quote_judges}))
         for item in quote_judges:
@@ -543,6 +553,13 @@ class SearchRuntimeTests(unittest.TestCase):
             client=Client(), identity=quote_identity, source_hashes=quote_hashes, resume=True)), 0)
         quote_records = runtime.inspect_bundle(bundle, primary, quote_output, self.root / "quote-report")
         self.assertTrue(all(r["complete"] for r in quote_records))
+        expanded_quote_output = self.root / "expanded-quote-judge"
+        self.assertEqual(asyncio.run(runtime.run_prepared(
+            expanded_quote_judges, expanded_quote_output, client=Client(),
+            identity=expanded_quote_identity, source_hashes=quote_hashes)), 0)
+        expanded_quote_records = runtime.inspect_bundle(
+            bundle, primary, expanded_quote_output, self.root / "expanded-quote-report")
+        self.assertTrue(all(record["complete"] for record in expanded_quote_records))
         saved_quote = {p.name: p.read_bytes() for p in quote_output.iterdir()}
         with self.assertRaises(ValueError):
             runtime.preflight_run(judges, quote_output, judge_identity, judge_hashes, resume=True)
@@ -557,6 +574,7 @@ class SearchRuntimeTests(unittest.TestCase):
             fresh_args = list(check_args)
             fresh_args[fresh_args.index(str(quote_output))] = str(self.root / "fresh-judge")
             fresh_args.remove("--resume")
+            fresh_args.extend(("--judge-max-tokens", "4096"))
             self.assertEqual(runtime.main(fresh_args), 3)
             self.assertFalse((self.root / "fresh-judge").exists())
             client_factory.assert_not_called()
