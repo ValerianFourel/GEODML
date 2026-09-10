@@ -57,6 +57,20 @@ class QuoteJudgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous|unique"):
             self.validate()
 
+    def test_ambiguous_quote_reports_unique_exact_source_options_without_accepting_it(self):
+        doc = next(d for d in self.visible["documents"] if d["document_id"] == "C003")
+        doc["text"] = (
+            'First instruction: visit the "Courses" page to register. '
+            'Second instruction: visit the "Courses" page to review grades.'
+        )
+        changed = deepcopy(self.raw)
+        changed["claim_assessments"][0]["evidence"][0]["quote"] = 'visit the "'
+        with self.assertRaisesRegex(
+            ValueError,
+            r'exact_source_options=.*First instruction.*Second instruction',
+        ):
+            self.validate(changed)
+
     def test_wrong_ids_duplicate_missing_claims_and_extra_offsets_rejected(self):
         unknown = deepcopy(self.raw)
         unknown["claim_assessments"][0]["claim_id"] = "1"

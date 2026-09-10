@@ -415,6 +415,26 @@ def _nearest_typographic_source(text: str, excerpt: str) -> str | None:
     return text[start:start + len(excerpt)]
 
 
+def _unique_exact_source_options(text: str, excerpt: str) -> list[str]:
+    starts: list[int] = []
+    offset = 0
+    while (start := text.find(excerpt, offset)) >= 0:
+        starts.append(start)
+        offset = start + 1
+    options: list[str] = []
+    for start in starts[:4]:
+        left = max(text.rfind(separator, 0, start) for separator in ("\n", ". ", "? ", "! "))
+        left = 0 if left < 0 else left + (1 if text[left] == "\n" else 2)
+        end = start + len(excerpt)
+        boundaries = [position for separator in ("\n", ". ", "? ", "! ")
+                      if (position := text.find(separator, end)) >= 0]
+        right = min(boundaries) + 1 if boundaries else len(text)
+        candidate = text[left:right].strip()
+        if candidate and text.count(candidate) == 1 and candidate not in options:
+            options.append(candidate)
+    return options
+
+
 def validate_quote_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> dict[str, Any]:
     value = _object(raw)
     rows = value.get("claim_assessments")
@@ -442,6 +462,11 @@ def validate_quote_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> 
                     f"document={doc_id!r} quote={excerpt!r}{candidate_hint}"
                 )
             if text.find(excerpt, start + 1) >= 0:
-                raise ValueError("quote is ambiguous in evidence text")
+                options = _unique_exact_source_options(text, excerpt)
+                option_hint = f" exact_source_options={options!r}" if options else ""
+                raise ValueError(
+                    f"quote is ambiguous in evidence text: claim={row.get('claim_id')!r} "
+                    f"document={doc_id!r} quote={excerpt!r}{option_hint}"
+                )
             quote.update(start=start, end=start + len(excerpt))
     return validate_judge_output(json.dumps(value), judge_input=judge_input)
