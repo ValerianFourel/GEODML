@@ -21,6 +21,8 @@ geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"
 geodml_port="${SEARCH_PRIMARY_PORT:-8010}"
 geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-41472}"
 geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-}"
+geodml_startup_timeout_seconds="${SEARCH_PRIMARY_STARTUP_TIMEOUT_SECONDS:-1800}"
+[[ "$geodml_startup_timeout_seconds" =~ ^[1-9][0-9]*$ ]]
 geodml_base_url="http://127.0.0.1:${geodml_port}/v1"
 geodml_profile="${geodml_output}.serving-profile.json"
 geodml_args=(run-primary --bundle-dir "$SEARCH_PILOT_ROOT/bundle"
@@ -82,15 +84,15 @@ mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
 printf '%s\n' "$geodml_native_report" > "$geodml_log.native-config.json"
-printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=%s\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT=00:30:00\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
+printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=%s\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT_SECONDS=%s\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
   "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" "$geodml_max_model_len" "$geodml_dp" "$geodml_tp" \
   "$geodml_concurrency" "$geodml_port" "${geodml_answer_max_tokens:-frozen-plan}" \
-  "$geodml_profile_hash" > "$geodml_log.settings"
+  "$geodml_profile_hash" "$geodml_startup_timeout_seconds" > "$geodml_log.settings"
 printf 'SERVER_LOG=%s\n' "$geodml_log"
 if python3 analysis/scripts/search_vllm_stage.py run \
   --profile "$geodml_profile" --server-log "$geodml_log" \
   --cache-base "${GEODML_CACHE_ROOT:?}/compile-cache" \
-  --startup-timeout-seconds 1800 "${geodml_approval_args[@]}" -- \
+  --startup-timeout-seconds "$geodml_startup_timeout_seconds" "${geodml_approval_args[@]}" -- \
   python3 analysis/scripts/run_search_experience.py "${geodml_args[@]}" \
   2>&1 | tee "$geodml_log.controller"; then
   geodml_status=0

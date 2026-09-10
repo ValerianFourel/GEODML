@@ -63,11 +63,16 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('--benchmark-approval "$geodml_approval_path"', source)
         self.assertIn('--serving-profile "$geodml_profile"', source)
 
-    def test_mistral_allows_thirty_minutes_for_first_startup(self):
+    def test_mistral_startup_timeout_is_configurable_with_safe_default(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
         source = worker.read_text()
-        self.assertIn('SERVER_STARTUP_TIMEOUT=00:30:00', source)
-        self.assertIn('--startup-timeout-seconds 1800', source)
+        self.assertIn(
+            'geodml_startup_timeout_seconds="${SEARCH_PRIMARY_STARTUP_TIMEOUT_SECONDS:-1800}"',
+            source,
+        )
+        self.assertIn(
+            '--startup-timeout-seconds "$geodml_startup_timeout_seconds"', source
+        )
 
     def test_mistral_complete_skips_loading(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_mistral_primary.sh'
