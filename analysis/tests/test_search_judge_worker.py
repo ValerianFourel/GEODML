@@ -15,7 +15,9 @@ class JudgeWorkerTests(unittest.TestCase):
             worker = Path(__file__).resolve().parents[1] / relative
             source = worker.read_text()
             self.assertIn(stage_helper, source)
-            self.assertIn(' prepare ', source)
+            self.assertTrue(
+                ' prepare ' in source or 'geodml_prepare_args=(prepare' in source
+            )
             self.assertIn(' run ', source)
 
     def test_mistral_defaults_to_dp1_tp4_concurrency8_port8010(self):
@@ -35,6 +37,14 @@ class JudgeWorkerTests(unittest.TestCase):
         )
         self.assertIn(
             'geodml_max_tasks="${SEARCH_PRIMARY_MAX_TASKS:-0}"',
+            source,
+        )
+        self.assertIn(
+            'geodml_enforce_eager="${SEARCH_PRIMARY_ENFORCE_EAGER:-0}"',
+            source,
+        )
+        self.assertIn(
+            'geodml_disable_custom_all_reduce="${SEARCH_PRIMARY_DISABLE_CUSTOM_ALL_REDUCE:-0}"',
             source,
         )
         self.assertIn(
@@ -62,6 +72,8 @@ class JudgeWorkerTests(unittest.TestCase):
             source,
         )
         self.assertIn('--max-tasks "$geodml_max_tasks"', source)
+        self.assertIn('geodml_prepare_args+=(--enforce-eager)', source)
+        self.assertIn('geodml_prepare_args+=(--disable-custom-all-reduce)', source)
 
     def test_judge_defaults_to_dp1_tp4_concurrency8_port8010(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'

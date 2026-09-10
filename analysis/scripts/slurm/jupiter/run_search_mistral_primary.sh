@@ -22,10 +22,14 @@ geodml_port="${SEARCH_PRIMARY_PORT:-8010}"
 geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-41472}"
 geodml_gpu_memory_utilization="${SEARCH_PRIMARY_GPU_MEMORY_UTILIZATION:-0.90}"
 geodml_max_tasks="${SEARCH_PRIMARY_MAX_TASKS:-0}"
+geodml_enforce_eager="${SEARCH_PRIMARY_ENFORCE_EAGER:-0}"
+geodml_disable_custom_all_reduce="${SEARCH_PRIMARY_DISABLE_CUSTOM_ALL_REDUCE:-0}"
 geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-}"
 geodml_startup_timeout_seconds="${SEARCH_PRIMARY_STARTUP_TIMEOUT_SECONDS:-1800}"
 [[ "$geodml_startup_timeout_seconds" =~ ^[1-9][0-9]*$ ]]
 [[ "$geodml_max_tasks" =~ ^[0-9]+$ ]]
+[[ "$geodml_enforce_eager" =~ ^[01]$ ]]
+[[ "$geodml_disable_custom_all_reduce" =~ ^[01]$ ]]
 geodml_base_url="http://127.0.0.1:${geodml_port}/v1"
 geodml_profile="${geodml_output}.serving-profile.json"
 geodml_args=(run-primary --bundle-dir "$SEARCH_PILOT_ROOT/bundle"
@@ -50,7 +54,7 @@ if [[ -e "$geodml_output/run_manifest.json" ]]; then
     exit 2
   fi
 fi
-geodml_profile_hash="$(python3 analysis/scripts/search_vllm_stage.py prepare \
+geodml_prepare_args=(prepare
   --profile "$geodml_profile" --stage mistral-primary \
   --model-id "$geodml_model" --model-revision "$geodml_revision" \
   --vllm-executable "$ACL_ARR_VENV/bin/vllm" \
@@ -62,7 +66,14 @@ geodml_profile_hash="$(python3 analysis/scripts/search_vllm_stage.py prepare \
   --gpu-memory-utilization "$geodml_gpu_memory_utilization" \
   --language-model-only --tokenizer-mode mistral --attention-backend FLASH_ATTN_MLA \
   --config-format mistral --load-format mistral \
-  --structured-outputs-config '{"backend":"xgrammar"}')"
+  --structured-outputs-config '{"backend":"xgrammar"}')
+if [[ "$geodml_enforce_eager" == 1 ]]; then
+  geodml_prepare_args+=(--enforce-eager)
+fi
+if [[ "$geodml_disable_custom_all_reduce" == 1 ]]; then
+  geodml_prepare_args+=(--disable-custom-all-reduce)
+fi
+geodml_profile_hash="$(python3 analysis/scripts/search_vllm_stage.py "${geodml_prepare_args[@]}")"
 printf 'TEXT_ONLY_CLI=PASS; no multimodal inputs permitted\n'
 printf 'SERVING_PROFILE=%s\nSERVING_PROFILE_SHA256=%s\n' "$geodml_profile" "$geodml_profile_hash"
 geodml_approval_args=()
@@ -89,10 +100,10 @@ mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
 printf '%s\n' "$geodml_native_report" > "$geodml_log.native-config.json"
-printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=%s\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nGPU_MEMORY_UTILIZATION=%s\nMAX_TASKS=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT_SECONDS=%s\nSTEP_CAP=00:45:00\nESTIMATE=10-30 minutes; loading and inference unmeasured for this arm\n' \
+printf 'COMMIT=%s\nMODEL=%s\nREVISION=%s\nTOKENIZER=mistral\nLANGUAGE_MODEL_ONLY=true\nCONTEXT=%s\nDP=%s\nTP=%s\nDTYPE=bfloat16\nCONCURRENCY=%s\nPORT=%s\nGPU_MEMORY_UTILIZATION=%s\nMAX_TASKS=%s\nENFORCE_EAGER=%s\nDISABLE_CUSTOM_ALL_REDUCE=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\nSERVER_STARTUP_TIMEOUT_SECONDS=%s\nSTEP_CAP=00:30:00\nESTIMATE=12-25 minutes; eager mode avoids compile and CUDA graph startup\n' \
   "$GEODML_EXECUTION_COMMIT" "$geodml_model" "$geodml_revision" "$geodml_max_model_len" "$geodml_dp" "$geodml_tp" \
   "$geodml_concurrency" "$geodml_port" "$geodml_gpu_memory_utilization" "$geodml_max_tasks" \
-  "${geodml_answer_max_tokens:-frozen-plan}" \
+  "$geodml_enforce_eager" "$geodml_disable_custom_all_reduce" "${geodml_answer_max_tokens:-frozen-plan}" \
   "$geodml_profile_hash" "$geodml_startup_timeout_seconds" > "$geodml_log.settings"
 printf 'SERVER_LOG=%s\n' "$geodml_log"
 if python3 analysis/scripts/search_vllm_stage.py run \

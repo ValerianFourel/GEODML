@@ -96,6 +96,26 @@ class SearchVllmStageTests(unittest.TestCase):
         changed = profile(gpu_memory_utilization=0.89)
         self.assertNotEqual(record["profile_sha256"], changed["profile_sha256"])
 
+    def test_eager_and_nccl_fallback_flags_are_profiled(self):
+        help_text = (
+            "--data-parallel-size --language-model-only "
+            "--enforce-eager --disable-custom-all-reduce"
+        )
+        record = profile(
+            vllm_help=help_text,
+            enforce_eager=True,
+            disable_custom_all_reduce=True,
+        )
+        self.assertIn("--enforce-eager", record["server_argv"])
+        self.assertIn("--disable-custom-all-reduce", record["server_argv"])
+        self.assertNotEqual(record["profile_sha256"], profile()["profile_sha256"])
+        self.assertEqual(stage.verify_profile(record), record)
+
+        with self.assertRaisesRegex(ValueError, "lacks --enforce-eager"):
+            profile(enforce_eager=True)
+        with self.assertRaisesRegex(ValueError, "lacks --disable-custom-all-reduce"):
+            profile(disable_custom_all_reduce=True)
+
     def test_profile_hash_excludes_invocation_gpu_and_cache_facts(self):
         first = profile()
         changed_gpus = tuple(

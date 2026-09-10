@@ -167,6 +167,8 @@ def _server_argv(
     config_format: str | None,
     load_format: str | None,
     structured_outputs_config: Mapping[str, Any],
+    enforce_eager: bool = False,
+    disable_custom_all_reduce: bool = False,
 ) -> list[str]:
     argv = [
         vllm_executable,
@@ -179,6 +181,10 @@ def _server_argv(
     ]
     if language_model_only:
         argv.append("--language-model-only")
+    if enforce_eager:
+        argv.append("--enforce-eager")
+    if disable_custom_all_reduce:
+        argv.append("--disable-custom-all-reduce")
     _option(argv, "--tokenizer-mode", tokenizer_mode)
     _option(argv, "--attention-backend", attention_backend)
     _option(argv, "--config-format", config_format)
@@ -235,6 +241,8 @@ def build_profile(
     config_format: str | None = None,
     load_format: str | None = None,
     structured_outputs_config: Mapping[str, Any] | None = None,
+    enforce_eager: bool = False,
+    disable_custom_all_reduce: bool = False,
 ) -> dict[str, Any]:
     if re.fullmatch(r"[a-z0-9][a-z0-9-]*", stage) is None:
         raise ValueError("stage must contain lowercase letters, digits, and hyphens")
@@ -289,6 +297,8 @@ def build_profile(
         config_format=config_format,
         load_format=load_format,
         structured_outputs_config=structured,
+        enforce_eager=enforce_eager,
+        disable_custom_all_reduce=disable_custom_all_reduce,
     )
     if dp > 1:
         if "--data-parallel-size" not in argv:
@@ -297,6 +307,10 @@ def build_profile(
             raise ValueError("installed vLLM lacks --data-parallel-size")
     if language_model_only and "--language-model-only" not in vllm_help:
         raise ValueError("installed vLLM lacks --language-model-only")
+    if enforce_eager and "--enforce-eager" not in vllm_help:
+        raise ValueError("installed vLLM lacks --enforce-eager")
+    if disable_custom_all_reduce and "--disable-custom-all-reduce" not in vllm_help:
+        raise ValueError("installed vLLM lacks --disable-custom-all-reduce")
 
     record: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
@@ -519,6 +533,8 @@ def verify_profile(record: Mapping[str, Any]) -> dict[str, Any]:
         config_format=features["config_format"],
         load_format=features["load_format"],
         structured_outputs_config=structured,
+        enforce_eager="--enforce-eager" in argv,
+        disable_custom_all_reduce="--disable-custom-all-reduce" in argv,
     )
     if argv != expected_argv:
         raise ValueError("serving profile server argv disagrees with profile fields")
@@ -1337,6 +1353,8 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--dtype", default="bfloat16")
     prepare.add_argument("--max-model-len", type=int, required=True)
     prepare.add_argument("--gpu-memory-utilization", type=float, default=0.90)
+    prepare.add_argument("--enforce-eager", action="store_true")
+    prepare.add_argument("--disable-custom-all-reduce", action="store_true")
     prepare.add_argument("--request-concurrency", type=int, default=8)
     prepare.add_argument("--language-model-only", action="store_true")
     prepare.add_argument("--tokenizer-mode")
@@ -1389,6 +1407,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             config_format=args.config_format,
             load_format=args.load_format,
             structured_outputs_config=args.structured_outputs_config,
+            enforce_eager=args.enforce_eager,
+            disable_custom_all_reduce=args.disable_custom_all_reduce,
         )
         job_id = os.environ.get("SLURM_JOB_ID", "")
         if not job_id:
