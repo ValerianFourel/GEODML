@@ -390,6 +390,31 @@ def render_quote_judge_prompt(judge_input: Mapping[str, Any]) -> str:
     return instructions + "\n\n" + data
 
 
+_TYPOGRAPHIC_EQUIVALENTS = str.maketrans({
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u00a0": " ",
+    "\u202f": " ",
+    "\u2010": "-",
+    "\u2011": "-",
+    "\u2012": "-",
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u2212": "-",
+})
+
+
+def _nearest_typographic_source(text: str, excerpt: str) -> str | None:
+    normalized_text = text.translate(_TYPOGRAPHIC_EQUIVALENTS)
+    normalized_excerpt = excerpt.translate(_TYPOGRAPHIC_EQUIVALENTS)
+    start = normalized_text.find(normalized_excerpt)
+    if start < 0 or normalized_text.find(normalized_excerpt, start + 1) >= 0:
+        return None
+    return text[start:start + len(excerpt)]
+
+
 def validate_quote_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> dict[str, Any]:
     value = _object(raw)
     rows = value.get("claim_assessments")
@@ -410,9 +435,11 @@ def validate_quote_judge_output(raw: str, *, judge_input: Mapping[str, Any]) -> 
             excerpt = _text(quote["quote"], "quote")
             start = text.find(excerpt)
             if start < 0:
+                candidate = _nearest_typographic_source(text, excerpt)
+                candidate_hint = f" nearest_exact_source={candidate!r}" if candidate is not None else ""
                 raise ValueError(
                     f"quote is absent from evidence text: claim={row.get('claim_id')!r} "
-                    f"document={doc_id!r} quote={excerpt!r}"
+                    f"document={doc_id!r} quote={excerpt!r}{candidate_hint}"
                 )
             if text.find(excerpt, start + 1) >= 0:
                 raise ValueError("quote is ambiguous in evidence text")
