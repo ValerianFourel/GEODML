@@ -116,6 +116,56 @@ class SearchVllmStageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lacks --disable-custom-all-reduce"):
             profile(disable_custom_all_reduce=True)
 
+    def test_static_yarn_rope_scaling_is_validated_profiled_and_hashed(self):
+        rope_scaling = {
+            "factor": 4.0,
+            "original_max_position_embeddings": 32768,
+            "type": "yarn",
+        }
+        record = profile(
+            rope_scaling=rope_scaling,
+            vllm_help="--data-parallel-size --language-model-only --rope-scaling",
+        )
+        flag = record["server_argv"].index("--rope-scaling")
+        self.assertEqual(
+            record["server_argv"][flag + 1],
+            '{"factor":4.0,"original_max_position_embeddings":32768,"type":"yarn"}',
+        )
+        self.assertEqual(record["features"]["rope_scaling"], rope_scaling)
+        self.assertNotEqual(record["profile_sha256"], profile()["profile_sha256"])
+        self.assertEqual(stage.verify_profile(record), record)
+        self.assertNotIn("rope_scaling", profile()["features"])
+
+        with self.assertRaisesRegex(ValueError, "lacks --rope-scaling"):
+            profile(rope_scaling=rope_scaling)
+        for invalid in (
+            {
+                "factor": 1.0,
+                "original_max_position_embeddings": 32768,
+                "type": "yarn",
+            },
+            {
+                "factor": 4.0,
+                "original_max_position_embeddings": 32768,
+                "type": "linear",
+            },
+            {
+                "factor": 4.0,
+                "original_max_position_embeddings": 32768,
+                "type": "yarn",
+                "unknown": True,
+            },
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "rope scaling"):
+                    profile(
+                        rope_scaling=invalid,
+                        vllm_help=(
+                            "--data-parallel-size --language-model-only "
+                            "--rope-scaling"
+                        ),
+                    )
+
     def test_profile_hash_excludes_invocation_gpu_and_cache_facts(self):
         first = profile()
         changed_gpus = tuple(

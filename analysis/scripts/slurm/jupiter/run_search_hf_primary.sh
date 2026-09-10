@@ -29,6 +29,7 @@ geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-2048}"
 geodml_startup_timeout_seconds="${SEARCH_PRIMARY_STARTUP_TIMEOUT_SECONDS:-1200}"
 geodml_enforce_eager="${SEARCH_PRIMARY_ENFORCE_EAGER:-0}"
 geodml_disable_custom_all_reduce="${SEARCH_PRIMARY_DISABLE_CUSTOM_ALL_REDUCE:-0}"
+geodml_rope_scaling="${SEARCH_PRIMARY_ROPE_SCALING:-}"
 [[ "$geodml_dp" =~ ^[1-9][0-9]*$ ]]
 [[ "$geodml_tp" =~ ^[1-9][0-9]*$ ]]
 [[ "$geodml_concurrency" =~ ^[1-9][0-9]*$ ]]
@@ -95,6 +96,9 @@ fi
 if [[ "$geodml_disable_custom_all_reduce" == 1 ]]; then
   geodml_prepare_args+=(--disable-custom-all-reduce)
 fi
+if [[ -n "$geodml_rope_scaling" ]]; then
+  geodml_prepare_args+=(--rope-scaling "$geodml_rope_scaling")
+fi
 geodml_profile_hash="$(python3 analysis/scripts/search_vllm_stage.py "${geodml_prepare_args[@]}")"
 printf 'SERVING_PROFILE=%s\nSERVING_PROFILE_SHA256=%s\n' "$geodml_profile" "$geodml_profile_hash"
 geodml_approval_args=()
@@ -107,7 +111,7 @@ fi
 geodml_args+=(--serving-profile "$geodml_profile")
 
 python3 analysis/scripts/check_search_experience_grammar.py
-python3 - "$geodml_max_model_len" "$geodml_answer_max_tokens" <<'PY'
+python3 - "$geodml_max_model_len" "$geodml_answer_max_tokens" "$geodml_rope_scaling" <<'PY'
 import json
 import os
 import sys
@@ -136,8 +140,25 @@ if len(matches) != 1:
 snapshot = Path(matches[0]["snapshot"])
 native, source = _native_context(snapshot)
 configured = int(sys.argv[1])
-if native is None or native < configured:
-    raise ValueError("native context below serving context or unknown; do not override silently")
+rope_scaling = json.loads(sys.argv[3]) if sys.argv[3] else None
+if native is None:
+    raise ValueError("native context is unknown; do not override silently")
+if native < configured:
+    expected = {
+        "factor": 4.0,
+        "original_max_position_embeddings": 32768,
+        "type": "yarn",
+    }
+    if model_id != "Qwen/Qwen2.5-72B-Instruct" or rope_scaling != expected:
+        raise ValueError(
+            "serving context exceeds native context without the approved "
+            "Qwen2.5 YaRN configuration"
+        )
+    scaled_context = int(
+        expected["factor"] * expected["original_max_position_embeddings"]
+    )
+    if configured > scaled_context:
+        raise ValueError("serving context exceeds the configured YaRN context")
 tokenizer = AutoTokenizer.from_pretrained(
     str(snapshot), local_files_only=True, trust_remote_code=True
 )
@@ -163,19 +184,21 @@ if required > configured:
     raise ValueError("task exceeds configured context; no truncation permitted")
 print(
     f"HF_PRIMARY_TOKEN_PREFLIGHT=PASS tasks={len(items)} required={required} "
-    f"context={configured} native={native} source={source}"
+    f"context={configured} native={native} source={source} "
+    f"rope_scaling={json.dumps(rope_scaling, sort_keys=True)}"
 )
 PY
 
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/hf-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"
 git rev-parse HEAD > "$geodml_log.commit"
-printf 'MODEL=%s\nREVISION=%s\nCONFIGURATION=%s\nCONTEXT=%s\nDP=%s\nTP=%s\nCONCURRENCY=%s\nGPU_MEMORY_UTILIZATION=%s\nMAX_TASKS=%s\nANSWER_MAX_TOKENS=%s\nSERVING_PROFILE_SHA256=%s\n' \
+printf 'MODEL=%s\nREVISION=%s\nCONFIGURATION=%s\nCONTEXT=%s\nDP=%s\nTP=%s\nCONCURRENCY=%s\nGPU_MEMORY_UTILIZATION=%s\nMAX_TASKS=%s\nANSWER_MAX_TOKENS=%s\nROPE_SCALING=%s\nSERVING_PROFILE_SHA256=%s\n' \
   "$SEARCH_PRIMARY_MODEL_ID" "$SEARCH_PRIMARY_MODEL_REVISION" \
   "$SEARCH_PRIMARY_MODEL_CONFIGURATION_ID" "$geodml_max_model_len" \
   "$geodml_dp" "$geodml_tp" "$geodml_concurrency" \
   "$geodml_gpu_memory_utilization" "$geodml_max_tasks" \
-  "$geodml_answer_max_tokens" "$geodml_profile_hash" > "$geodml_log.settings"
+  "$geodml_answer_max_tokens" "$geodml_rope_scaling" \
+  "$geodml_profile_hash" > "$geodml_log.settings"
 printf 'SERVER_LOG=%s\n' "$geodml_log"
 if python3 analysis/scripts/search_vllm_stage.py run \
   --profile "$geodml_profile" --server-log "$geodml_log" \

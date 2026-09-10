@@ -149,6 +149,44 @@ def _option(argv: list[str], name: str, value: Any) -> None:
         argv.extend((name, str(value)))
 
 
+def _validated_rope_scaling(
+    value: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) != {
+        "factor",
+        "original_max_position_embeddings",
+        "type",
+    }:
+        raise ValueError(
+            "rope scaling must contain exactly factor, "
+            "original_max_position_embeddings, and type"
+        )
+    factor = value["factor"]
+    original = value["original_max_position_embeddings"]
+    if (
+        isinstance(factor, bool)
+        or not isinstance(factor, (int, float))
+        or not math.isfinite(factor)
+        or factor <= 1
+    ):
+        raise ValueError("rope scaling factor must be finite and greater than one")
+    if (
+        isinstance(original, bool)
+        or not isinstance(original, int)
+        or original < 1
+    ):
+        raise ValueError("rope scaling original context must be a positive integer")
+    if value["type"] != "yarn":
+        raise ValueError("rope scaling type must be yarn")
+    return {
+        "factor": float(factor),
+        "original_max_position_embeddings": original,
+        "type": "yarn",
+    }
+
+
 def _server_argv(
     *,
     vllm_executable: str,
@@ -167,6 +205,7 @@ def _server_argv(
     config_format: str | None,
     load_format: str | None,
     structured_outputs_config: Mapping[str, Any],
+    rope_scaling: Mapping[str, Any] | None = None,
     enforce_eager: bool = False,
     disable_custom_all_reduce: bool = False,
 ) -> list[str]:
@@ -189,6 +228,13 @@ def _server_argv(
     _option(argv, "--attention-backend", attention_backend)
     _option(argv, "--config-format", config_format)
     _option(argv, "--load-format", load_format)
+    if rope_scaling is not None:
+        argv.extend(
+            (
+                "--rope-scaling",
+                json.dumps(rope_scaling, sort_keys=True, separators=(",", ":")),
+            )
+        )
     argv.extend(("--host", host, "--port", str(port)))
     if data_parallel_size > 1:
         argv.extend(("--data-parallel-size", str(data_parallel_size)))
@@ -241,6 +287,7 @@ def build_profile(
     config_format: str | None = None,
     load_format: str | None = None,
     structured_outputs_config: Mapping[str, Any] | None = None,
+    rope_scaling: Mapping[str, Any] | None = None,
     enforce_eager: bool = False,
     disable_custom_all_reduce: bool = False,
 ) -> dict[str, Any]:
@@ -279,6 +326,7 @@ def build_profile(
         structured = dict(structured_outputs_config)
     if not structured:
         raise ValueError("structured outputs configuration must be nonempty")
+    rope = _validated_rope_scaling(rope_scaling)
 
     argv = _server_argv(
         vllm_executable=vllm_executable,
@@ -297,6 +345,7 @@ def build_profile(
         config_format=config_format,
         load_format=load_format,
         structured_outputs_config=structured,
+        rope_scaling=rope,
         enforce_eager=enforce_eager,
         disable_custom_all_reduce=disable_custom_all_reduce,
     )
@@ -311,6 +360,8 @@ def build_profile(
         raise ValueError("installed vLLM lacks --enforce-eager")
     if disable_custom_all_reduce and "--disable-custom-all-reduce" not in vllm_help:
         raise ValueError("installed vLLM lacks --disable-custom-all-reduce")
+    if rope is not None and "--rope-scaling" not in vllm_help:
+        raise ValueError("installed vLLM lacks --rope-scaling")
 
     record: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
@@ -361,6 +412,8 @@ def build_profile(
             "subdirectories": dict(CACHE_SUBDIRECTORIES),
         },
     }
+    if rope is not None:
+        record["features"]["rope_scaling"] = rope
     record["profile_sha256"] = _profile_hash(record)
     return record
 
@@ -444,9 +497,7 @@ def verify_profile(record: Mapping[str, Any]) -> dict[str, Any]:
     base_url = f"http://{serving['host']}:{port}/v1"
     if serving["public_base_url"] != base_url:
         raise ValueError("serving profile endpoint fields disagree")
-    features = nested(
-        "features",
-        {
+    feature_keys = {
             "language_model_only",
             "tokenizer_mode",
             "attention_backend",
@@ -456,8 +507,14 @@ def verify_profile(record: Mapping[str, Any]) -> dict[str, Any]:
             "prefix_caching",
             "log_requests",
             "trust_remote_code",
-        },
-    )
+    }
+    features_value = record.get("features")
+    if not isinstance(features_value, Mapping) or set(features_value) not in (
+        feature_keys,
+        feature_keys | {"rope_scaling"},
+    ):
+        raise ValueError("serving profile features fields are invalid")
+    features = features_value
     for key in ("language_model_only", "prefix_caching", "log_requests", "trust_remote_code"):
         if not isinstance(features[key], bool):
             raise ValueError(f"serving profile feature {key} is invalid")
@@ -475,6 +532,7 @@ def verify_profile(record: Mapping[str, Any]) -> dict[str, Any]:
     structured = features["structured_outputs_config"]
     if not isinstance(structured, Mapping) or not structured:
         raise ValueError("structured outputs configuration must be a JSON object")
+    rope = _validated_rope_scaling(features.get("rope_scaling"))
     assignment = nested(
         "visible_gpu_assignment",
         {
@@ -533,6 +591,7 @@ def verify_profile(record: Mapping[str, Any]) -> dict[str, Any]:
         config_format=features["config_format"],
         load_format=features["load_format"],
         structured_outputs_config=structured,
+        rope_scaling=rope,
         enforce_eager="--enforce-eager" in argv,
         disable_custom_all_reduce="--disable-custom-all-reduce" in argv,
     )
@@ -1366,6 +1425,7 @@ def _parser() -> argparse.ArgumentParser:
         type=json.loads,
         default={"backend": "xgrammar"},
     )
+    prepare.add_argument("--rope-scaling", type=json.loads)
     run = commands.add_parser("run")
     run.add_argument("--profile", type=Path, required=True)
     run.add_argument("--server-log", type=Path, required=True)
@@ -1407,6 +1467,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             config_format=args.config_format,
             load_format=args.load_format,
             structured_outputs_config=args.structured_outputs_config,
+            rope_scaling=args.rope_scaling,
             enforce_eager=args.enforce_eager,
             disable_custom_all_reduce=args.disable_custom_all_reduce,
         )

@@ -25,6 +25,14 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('AutoTokenizer.from_pretrained', source)
         self.assertIn('--language-model-only', source)
         self.assertIn('--max-tasks "$geodml_max_tasks"', source)
+        self.assertIn(
+            'geodml_rope_scaling="${SEARCH_PRIMARY_ROPE_SCALING:-}"', source
+        )
+        self.assertIn(
+            'geodml_prepare_args+=(--rope-scaling "$geodml_rope_scaling")',
+            source,
+        )
+        self.assertIn('ROPE_SCALING=%s', source)
 
     def test_workers_use_shared_stage_profile_and_lifecycle(self):
         stage_helper = 'analysis/scripts/search_vllm_stage.py'
