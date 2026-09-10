@@ -231,8 +231,12 @@ def _server_argv(
     if rope_scaling is not None:
         argv.extend(
             (
-                "--rope-scaling",
-                json.dumps(rope_scaling, sort_keys=True, separators=(",", ":")),
+                "--hf-overrides",
+                json.dumps(
+                    {"rope_scaling": rope_scaling},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
             )
         )
     argv.extend(("--host", host, "--port", str(port)))
@@ -360,8 +364,8 @@ def build_profile(
         raise ValueError("installed vLLM lacks --enforce-eager")
     if disable_custom_all_reduce and "--disable-custom-all-reduce" not in vllm_help:
         raise ValueError("installed vLLM lacks --disable-custom-all-reduce")
-    if rope is not None and "--rope-scaling" not in vllm_help:
-        raise ValueError("installed vLLM lacks --rope-scaling")
+    if rope is not None and "--hf-overrides" not in vllm_help:
+        raise ValueError("installed vLLM lacks --hf-overrides")
 
     record: dict[str, Any] = {
         "format_version": FORMAT_VERSION,

@@ -124,19 +124,19 @@ class SearchVllmStageTests(unittest.TestCase):
         }
         record = profile(
             rope_scaling=rope_scaling,
-            vllm_help="--data-parallel-size --language-model-only --rope-scaling",
+            vllm_help="--data-parallel-size --language-model-only --hf-overrides",
         )
-        flag = record["server_argv"].index("--rope-scaling")
+        flag = record["server_argv"].index("--hf-overrides")
         self.assertEqual(
             record["server_argv"][flag + 1],
-            '{"factor":4.0,"original_max_position_embeddings":32768,"type":"yarn"}',
+            '{"rope_scaling":{"factor":4.0,"original_max_position_embeddings":32768,"type":"yarn"}}',
         )
         self.assertEqual(record["features"]["rope_scaling"], rope_scaling)
         self.assertNotEqual(record["profile_sha256"], profile()["profile_sha256"])
         self.assertEqual(stage.verify_profile(record), record)
         self.assertNotIn("rope_scaling", profile()["features"])
 
-        with self.assertRaisesRegex(ValueError, "lacks --rope-scaling"):
+        with self.assertRaisesRegex(ValueError, "lacks --hf-overrides"):
             profile(rope_scaling=rope_scaling)
         for invalid in (
             {
@@ -162,7 +162,7 @@ class SearchVllmStageTests(unittest.TestCase):
                         rope_scaling=invalid,
                         vllm_help=(
                             "--data-parallel-size --language-model-only "
-                            "--rope-scaling"
+                            "--hf-overrides"
                         ),
                     )
 
