@@ -16,7 +16,10 @@ def main():
     from analysis.scripts.run_acl_arr_vllm import _rerank_schema
 
     for name, schema in (("rerank", _rerank_schema(10)),
-                         ("answer", answer_schema()), ("judge", judge_schema()),
+                         ("answer", answer_schema()),
+                         ("answer_constrained", answer_schema(
+                             allowed_document_ids=("C001", "C002"))),
+                         ("judge", judge_schema()),
                          ("judge_quotes_v2", judge_quote_schema({"answer": {"claims": [{"claim_id": "C1"}]},
                              "documents": [{"document_id": "C001"}]})),
                          ("judge_quotes_v2_abstention", judge_quote_schema({"answer": {"claims": []},

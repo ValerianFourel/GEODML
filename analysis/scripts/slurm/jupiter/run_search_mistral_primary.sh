@@ -69,6 +69,14 @@ geodml_args+=(--serving-profile "$geodml_profile")
 geodml_native_report="$(python3 analysis/scripts/check_search_mistral_native.py --model-snapshots "${ACL_ARR_RUN_ROOT:?}/model-snapshots.json")"
 printf 'NATIVE_CONFIG_PREFLIGHT=PASS; no model weights loaded\n'
 python3 analysis/scripts/check_search_experience_grammar.py
+geodml_context_args=(--bundle-dir "$SEARCH_PILOT_ROOT/bundle"
+  --model-configuration-id model-config-c860fb2fb61da06a8443
+  --model-snapshots "${ACL_ARR_RUN_ROOT:?}/model-snapshots.json"
+  --max-model-len 41472)
+if [[ -n "$geodml_answer_max_tokens" ]]; then
+  geodml_context_args+=(--answer-max-tokens "$geodml_answer_max_tokens")
+fi
+python3 analysis/scripts/check_search_mistral_context.py "${geodml_context_args[@]}"
 mkdir -p "$SEARCH_PILOT_ROOT/logs"
 geodml_log="$(mktemp "$SEARCH_PILOT_ROOT/logs/mistral-primary.XXXXXX")"
 scontrol show job "$SLURM_JOB_ID" > "$geodml_log.allocation"

@@ -14,6 +14,7 @@ from .acl_arr_document_experiment import (
 )
 
 ANSWER_CONTRACT = "search-experience-answer-v1"
+ANSWER_SCHEMA_CONTRACT = "search-experience-answer-schema-v2"
 JUDGE_CONTRACT = "search-experience-judge-v1"
 QUOTE_JUDGE_CONTRACT = "search-experience-judge-quotes-v2"
 QUERY_CONTRACTS = ("metadata-keyword-v1", "full-request-v1")
@@ -174,8 +175,20 @@ def _documents(case: SearchCase, condition: str) -> list[dict[str, str]]:
              "text": by_id[key].text} for key in case.assignment.document_ids(condition)]
 
 
-def answer_schema() -> dict[str, Any]:
+def answer_schema(*, allowed_document_ids: Sequence[str] | None = None) -> dict[str, Any]:
     # vLLM/xgrammar rejects uniqueItems. _ids still enforces citation uniqueness.
+    citation_items: dict[str, Any] = {"type": "string"}
+    citations: dict[str, Any] = {"type": "array", "items": citation_items}
+    if allowed_document_ids is not None:
+        allowed = list(allowed_document_ids)
+        if any(type(document_id) is not str or not document_id for document_id in allowed):
+            raise ValueError("allowed document IDs must be nonempty strings")
+        if len(set(allowed)) != len(allowed):
+            raise ValueError("allowed document IDs must be unique")
+        if allowed:
+            citation_items["enum"] = allowed
+        else:
+            citations["maxItems"] = 0
     return {"type": "object", "additionalProperties": False,
         "required": ["status", "claims", "uncertainty"], "properties": {
             "status": {"type": "string", "enum": ["answered", "partial", "insufficient_evidence"]},
@@ -183,8 +196,7 @@ def answer_schema() -> dict[str, Any]:
                 "required": ["claim_id", "text", "cited_document_ids"], "properties": {
                     "claim_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"},
                     "text": {"type": "string", "minLength": 1},
-                    "cited_document_ids": {"type": "array",
-                        "items": {"type": "string"}}}}},
+                    "cited_document_ids": citations}}},
             "uncertainty": {"type": "string"}}}
 
 

@@ -28,6 +28,7 @@ from analysis.interpretability.pipeline.acl_arr_document_experiment import (
 )
 
 BUNDLE_VERSION = "search-experience-bundle-v1"
+_CURRENT_ANSWER_SCHEMA = object()
 
 
 def _digest(value):
@@ -123,9 +124,19 @@ def load_bundle(directory):
     return bundle, plan, cases, hashes
 
 
-def primary_items(bundle_directory, model_configuration_id, *, answer_max_tokens=None):
+def primary_items(
+    bundle_directory,
+    model_configuration_id,
+    *,
+    answer_max_tokens=None,
+    answer_schema_contract=_CURRENT_ANSWER_SCHEMA,
+):
     bundle, plan, cases, hashes = load_bundle(bundle_directory)
     contract = _contract()
+    if answer_schema_contract is _CURRENT_ANSWER_SCHEMA:
+        answer_schema_contract = contract.ANSWER_SCHEMA_CONTRACT
+    if answer_schema_contract not in (None, contract.ANSWER_SCHEMA_CONTRACT):
+        raise ValueError("unknown answer generation schema contract")
     model = next((m for m in plan.models if m.configuration_id == model_configuration_id), None)
     if model is None:
         raise ValueError("model configuration is not in the frozen plan")
@@ -142,8 +153,13 @@ def primary_items(bundle_directory, model_configuration_id, *, answer_max_tokens
                         "bundle_id": bundle["bundle_id"], "protocol": contract.ANSWER_CONTRACT}
         if task.pipeline == "answer":
             allowed = case.assignment.document_ids(task.condition)
+            constrained = answer_schema_contract == contract.ANSWER_SCHEMA_CONTRACT
             item.update(prompt=contract.render_answer_prompt(case, task.condition),
-                        schema=contract.answer_schema(), schema_name="search_experience_answer_v1",
+                        schema=contract.answer_schema(
+                            allowed_document_ids=allowed if constrained else None,
+                        ),
+                        schema_name=("search_experience_answer_v2" if constrained
+                                     else "search_experience_answer_v1"),
                         validator=lambda raw, ids=allowed: contract.validate_answer_output(raw, allowed_document_ids=ids))
             if answer_max_tokens is not None:
                 item["max_tokens"] = answer_max_tokens
@@ -155,6 +171,8 @@ def primary_items(bundle_directory, model_configuration_id, *, answer_max_tokens
                 "synthetic_inputs": bundle["synthetic_inputs"],
                 "pipeline": "search-primary-v1", "source_manifest_sha256": _digest(hashes),
                 "fake_backend": False, "pilot_only": True, "maximum_attempts": 3}
+    if answer_schema_contract is not None:
+        identity["answer_schema_contract"] = answer_schema_contract
     if answer_max_tokens is not None:
         identity["answer_max_tokens_override"] = answer_max_tokens
     return items, identity, hashes
@@ -525,7 +543,12 @@ def _validated_primary(bundle_directory, primary_output):
                   and m.model_revision == manifest.get("model_revision")), None)
     if model is None:
         raise ValueError("primary outputs do not match a frozen model")
-    items, identity, hashes = primary_items(bundle_directory, model.configuration_id)
+    items, identity, hashes = primary_items(
+        bundle_directory,
+        model.configuration_id,
+        answer_max_tokens=manifest.get("answer_max_tokens_override"),
+        answer_schema_contract=manifest.get("answer_schema_contract"),
+    )
     if manifest.get("fake_backend") is True:
         identity["fake_backend"] = True
         for item in items:

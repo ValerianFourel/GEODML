@@ -43,6 +43,8 @@ class JudgeWorkerTests(unittest.TestCase):
             source,
         )
         self.assertIn('ANSWER_MAX_TOKENS=%s', source)
+        self.assertIn('check_search_mistral_context.py', source)
+        self.assertIn('--max-model-len 41472', source)
 
     def test_judge_defaults_to_dp1_tp4_concurrency8_port8010(self):
         worker = Path(__file__).resolve().parents[1] / 'scripts/slurm/jupiter/run_search_quote_judge.sh'

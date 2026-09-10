@@ -59,6 +59,13 @@ class SearchExperienceTests(unittest.TestCase):
         citations = answer_schema()["properties"]["claims"]["items"]["properties"]["cited_document_ids"]
         # vLLM 0.28 rejects uniqueItems even when set to false.
         self.assertNotIn("uniqueItems", citations)
+        constrained = answer_schema(
+            allowed_document_ids=["C003", "C001"],
+        )["properties"]["claims"]["items"]["properties"]["cited_document_ids"]
+        self.assertEqual(constrained["items"]["enum"], ["C003", "C001"])
+        self.assertNotIn("uniqueItems", constrained)
+        with self.assertRaisesRegex(ValueError, "unique"):
+            answer_schema(allowed_document_ids=["C001", "C001"])
         _, _, answer = fixture()
         answer["claims"][0]["cited_document_ids"] = ["C003", "C003"]
         with self.assertRaises(ValueError):

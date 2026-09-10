@@ -344,9 +344,29 @@ class SearchRuntimeTests(unittest.TestCase):
             model.configuration_id,
             answer_max_tokens=1536,
         )
+        legacy_items, legacy_identity, legacy_hashes = runtime.primary_items(
+            bundle,
+            model.configuration_id,
+            answer_schema_contract=None,
+        )
         self.assertEqual(expanded_hashes, hashes)
+        self.assertEqual(legacy_hashes, hashes)
         self.assertNotIn("answer_max_tokens_override", identity)
         self.assertEqual(expanded_identity["answer_max_tokens_override"], 1536)
+        self.assertEqual(
+            identity["answer_schema_contract"],
+            runtime._contract().ANSWER_SCHEMA_CONTRACT,
+        )
+        self.assertNotIn("answer_schema_contract", legacy_identity)
+        legacy_answer = next(
+            item for item in legacy_items if item["base"]["pipeline"] == "answer"
+        )
+        self.assertEqual(legacy_answer["schema_name"], "search_experience_answer_v1")
+        self.assertNotIn(
+            "enum",
+            legacy_answer["schema"]["properties"]["claims"]["items"]
+            ["properties"]["cited_document_ids"]["items"],
+        )
         by_legacy_task = {item["base"]["legacy_task_id"]: item for item in items}
         expanded_by_legacy_task = {
             item["base"]["legacy_task_id"]: item for item in expanded_items
@@ -356,6 +376,11 @@ class SearchRuntimeTests(unittest.TestCase):
             if item["base"]["pipeline"] == "answer":
                 self.assertEqual(item["max_tokens"], model.answer_max_tokens)
                 self.assertEqual(expanded["max_tokens"], 1536)
+                self.assertEqual(
+                    expanded["schema"]["properties"]["claims"]["items"]
+                    ["properties"]["cited_document_ids"]["items"]["enum"],
+                    expanded["base"]["input_document_ids"],
+                )
                 self.assertNotEqual(
                     expanded["base"]["task_id"],
                     item["base"]["task_id"],
@@ -410,6 +435,44 @@ class SearchRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(asyncio.run(runtime.run_prepared(items, primary, client=Client(), identity=identity,
             source_hashes=hashes, serving_profile=primary_profile_path)), 0)
+        for item in legacy_items:
+            item["base"]["fake_backend"] = True
+        legacy_identity["fake_backend"] = True
+        legacy_primary = self.root / "legacy-primary"
+        self.assertEqual(asyncio.run(runtime.run_prepared(
+            legacy_items,
+            legacy_primary,
+            client=Client(),
+            identity=legacy_identity,
+            source_hashes=legacy_hashes,
+            serving_profile=primary_profile_path,
+        )), 0)
+        legacy_judges, _, _ = runtime.judge_items(
+            bundle,
+            legacy_primary,
+            "independent/model",
+            "c" * 40,
+        )
+        self.assertEqual(len(legacy_judges), 9)
+        for item in expanded_items:
+            item["base"]["fake_backend"] = True
+        expanded_identity["fake_backend"] = True
+        expanded_primary = self.root / "expanded-primary"
+        self.assertEqual(asyncio.run(runtime.run_prepared(
+            expanded_items,
+            expanded_primary,
+            client=Client(),
+            identity=expanded_identity,
+            source_hashes=expanded_hashes,
+            serving_profile=primary_profile_path,
+        )), 0)
+        expanded_judges, _, _ = runtime.judge_items(
+            bundle,
+            expanded_primary,
+            "independent/model",
+            "c" * 40,
+        )
+        self.assertEqual(len(expanded_judges), 9)
         before = {p.name: p.read_bytes() for p in primary.iterdir()}
         self.assertEqual(asyncio.run(runtime.run_prepared(items, primary, client=Client(), identity=identity,
                                                          source_hashes=hashes, resume=True)), 0)
