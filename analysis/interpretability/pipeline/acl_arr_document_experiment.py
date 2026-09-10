@@ -22,6 +22,7 @@ FORMAT_VERSION = "acl-arr-document-experiment-v1"
 JUDGE_FORMAT_VERSION = "acl-arr-realized-use-judge-v1"
 CONDITIONS = ("natural", "ablated", "shuffled")
 PIPELINES = ("rerank", "answer")
+DEFAULT_ANSWER_MAX_TOKENS = 2048
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +36,7 @@ class ModelConfiguration:
     active_parameters_b: float
     precision: str
     rerank_max_tokens: int = 256
-    answer_max_tokens: int = 768
+    answer_max_tokens: int = DEFAULT_ANSWER_MAX_TOKENS
     temperature: float = 0.0
 
     def __post_init__(self) -> None:

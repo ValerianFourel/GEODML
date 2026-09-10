@@ -28,7 +28,7 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"', source)
         self.assertIn('geodml_port="${SEARCH_PRIMARY_PORT:-8010}"', source)
         self.assertIn(
-            'geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-41472}"',
+            'geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-43008}"',
             source,
         )
         self.assertIn(
@@ -48,7 +48,7 @@ class JudgeWorkerTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'geodml_output="${SEARCH_PRIMARY_OUTPUT:-$SEARCH_PILOT_ROOT/primary-schema-fix-0b3ce8acb5d6/model-config-c860fb2fb61da06a8443}"',
+            'geodml_output="${SEARCH_PRIMARY_OUTPUT:-$SEARCH_PILOT_ROOT/primary-answer2048-v1/model-config-c860fb2fb61da06a8443}"',
             source,
         )
         self.assertNotIn('SEARCH_VLLM_', source)
@@ -57,7 +57,7 @@ class JudgeWorkerTests(unittest.TestCase):
         self.assertIn('--benchmark-approval "$geodml_approval_path"', source)
         self.assertIn('--serving-profile "$geodml_profile"', source)
         self.assertIn(
-            'geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-}"',
+            'geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-2048}"',
             source,
         )
         self.assertIn(

@@ -8,7 +8,7 @@
       "active_parameters_b": 17.0,
       "precision": "bfloat16",
       "rerank_max_tokens": 256,
-      "answer_max_tokens": 768,
+      "answer_max_tokens": 2048,
       "temperature": 0.0
     },
     {
@@ -19,7 +19,7 @@
       "active_parameters_b": 72.0,
       "precision": "bfloat16",
       "rerank_max_tokens": 256,
-      "answer_max_tokens": 768,
+      "answer_max_tokens": 2048,
       "temperature": 0.0
     },
     {
@@ -30,7 +30,7 @@
       "active_parameters_b": 6.5,
       "precision": "bfloat16",
       "rerank_max_tokens": 256,
-      "answer_max_tokens": 768,
+      "answer_max_tokens": 2048,
       "temperature": 0.0
     },
     {
@@ -41,7 +41,7 @@
       "active_parameters_b": 27.0,
       "precision": "bfloat16",
       "rerank_max_tokens": 256,
-      "answer_max_tokens": 768,
+      "answer_max_tokens": 2048,
       "temperature": 0.0
     }
   ]

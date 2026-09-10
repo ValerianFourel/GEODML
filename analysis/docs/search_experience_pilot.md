@@ -60,14 +60,21 @@ server already running. Verify the server's tokenizer, chat template and context
 capacity for these new requests, including their output allowance. Do not reuse
 the old 32,768-token limit or shorten evidence to fit it.
 
+New four-model plans use a common 2,048-token answer allowance. When running an
+older frozen bundle, pass `--answer-max-tokens 2048` and use a fresh output
+directory. The override is part of request identity, so a 768-token output
+directory cannot be resumed under the new allowance. Historical artifacts stay
+unchanged.
+
 ```bash
 python3 analysis/scripts/run_search_experience.py run-primary \
   --bundle-dir "$SEARCH_PILOT_ROOT/bundle" \
   --model-configuration-id "$MODEL_CONFIGURATION_ID" \
   --server-model-revision "$MODEL_REVISION" \
   --base-url http://127.0.0.1:8000/v1 \
+  --answer-max-tokens 2048 \
   --max-concurrency 8 --resume \
-  --output-dir "$SEARCH_PILOT_ROOT/primary/$MODEL_CONFIGURATION_ID"
+  --output-dir "$SEARCH_PILOT_ROOT/primary-answer2048-v1/$MODEL_CONFIGURATION_ID"
 ```
 
 The output directory is specific to one frozen model configuration. Ranking

@@ -132,6 +132,18 @@ def _models() -> tuple[ModelConfiguration, ...]:
 
 
 class AclArrPlanTests(unittest.TestCase):
+    def test_new_model_configurations_default_to_2048_answer_tokens(self) -> None:
+        model = ModelConfiguration(
+            model_id="model/default-budget",
+            model_revision="3" * 40,
+            architecture="dense",
+            total_parameters_b=27.0,
+            active_parameters_b=27.0,
+            precision="bfloat16",
+        )
+
+        self.assertEqual(model.answer_max_tokens, 2048)
+
     def test_unresolved_model_or_mutable_revision_cannot_enter_plan(self) -> None:
         with self.assertRaisesRegex(ValueError, "resolve the model_id"):
             ModelConfiguration(

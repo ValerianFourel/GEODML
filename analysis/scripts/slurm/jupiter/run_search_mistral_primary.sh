@@ -14,17 +14,17 @@ export TOKENIZERS_PARALLELISM=false PYTHONDONTWRITEBYTECODE=1 VLLM_WORKER_MULTIP
 umask 077
 geodml_model=mistralai/Mistral-Small-4-119B-2603
 geodml_revision=a11f36bebf709121056b1dbcc943d1c6afbe494d
-geodml_output="${SEARCH_PRIMARY_OUTPUT:-$SEARCH_PILOT_ROOT/primary-schema-fix-0b3ce8acb5d6/model-config-c860fb2fb61da06a8443}"
+geodml_output="${SEARCH_PRIMARY_OUTPUT:-$SEARCH_PILOT_ROOT/primary-answer2048-v1/model-config-c860fb2fb61da06a8443}"
 geodml_dp="${SEARCH_PRIMARY_DATA_PARALLEL_SIZE:-1}"
 geodml_tp="${SEARCH_PRIMARY_TENSOR_PARALLEL_SIZE:-4}"
 geodml_concurrency="${SEARCH_PRIMARY_REQUEST_CONCURRENCY:-8}"
 geodml_port="${SEARCH_PRIMARY_PORT:-8010}"
-geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-41472}"
+geodml_max_model_len="${SEARCH_PRIMARY_MAX_MODEL_LEN:-43008}"
 geodml_gpu_memory_utilization="${SEARCH_PRIMARY_GPU_MEMORY_UTILIZATION:-0.90}"
 geodml_max_tasks="${SEARCH_PRIMARY_MAX_TASKS:-0}"
 geodml_enforce_eager="${SEARCH_PRIMARY_ENFORCE_EAGER:-0}"
 geodml_disable_custom_all_reduce="${SEARCH_PRIMARY_DISABLE_CUSTOM_ALL_REDUCE:-0}"
-geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-}"
+geodml_answer_max_tokens="${SEARCH_PRIMARY_ANSWER_MAX_TOKENS:-2048}"
 geodml_startup_timeout_seconds="${SEARCH_PRIMARY_STARTUP_TIMEOUT_SECONDS:-1800}"
 [[ "$geodml_startup_timeout_seconds" =~ ^[1-9][0-9]*$ ]]
 [[ "$geodml_max_tasks" =~ ^[0-9]+$ ]]
