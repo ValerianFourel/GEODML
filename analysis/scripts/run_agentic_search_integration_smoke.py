@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import Counter
 from dataclasses import dataclass
 import hashlib
 import json
@@ -104,6 +105,41 @@ def _read_snapshot(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _normalize_usable_row(
+    row: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    raw_position = row["position"]
+    if isinstance(raw_position, bool):
+        return None, "invalid_position"
+    if isinstance(raw_position, int):
+        position = raw_position
+    elif isinstance(raw_position, float) and raw_position.is_integer():
+        position = int(raw_position)
+    elif isinstance(raw_position, str) and re.fullmatch(r"[0-9]+", raw_position):
+        position = int(raw_position)
+    else:
+        return None, "invalid_position"
+    if position < 1:
+        return None, "invalid_position"
+
+    for field in ("keyword", "title", "url", "snippet"):
+        value = row[field]
+        if not isinstance(value, str) or not value.strip():
+            return None, f"invalid_{field}"
+    try:
+        Snippet.from_mapping({
+            "url": row["url"],
+            "title": row["title"],
+            "text": row["snippet"],
+        })
+    except ValueError:
+        return None, "invalid_url"
+
+    normalized = dict(row)
+    normalized["position"] = position
+    return normalized, None
+
+
 class FrozenSnapshotSearchAdapter:
     """Deterministic lexical retrieval over one immutable search snapshot."""
 
@@ -113,7 +149,26 @@ class FrozenSnapshotSearchAdapter:
         self.engine = engine
         self.path = path.resolve()
         self.snapshot_sha256 = _sha256_file(self.path)
-        self.rows = _read_snapshot(self.path)
+        source_rows = _read_snapshot(self.path)
+        rows: list[dict[str, Any]] = []
+        exclusion_reasons: Counter[str] = Counter()
+        for row in source_rows:
+            normalized, reason = _normalize_usable_row(row)
+            if normalized is None:
+                if reason is None:
+                    raise AssertionError("excluded snapshot row has no reason")
+                exclusion_reasons[reason] += 1
+            else:
+                rows.append(normalized)
+        if not rows:
+            raise ValueError(f"search snapshot has no usable result rows: {self.path}")
+        self.rows = rows
+        self.snapshot_rows = {
+            "total": len(source_rows),
+            "usable": len(rows),
+            "excluded": len(source_rows) - len(rows),
+            "exclusion_reasons": dict(sorted(exclusion_reasons.items())),
+        }
 
     @property
     def keywords(self) -> set[str]:
@@ -150,6 +205,7 @@ class FrozenSnapshotSearchAdapter:
                 "format_version": "frozen-search-snapshot-response-v1",
                 "snapshot": str(self.path),
                 "snapshot_sha256": self.snapshot_sha256,
+                "snapshot_rows": self.snapshot_rows,
                 "query": query,
                 "selection": "deterministic-lexical-v1",
                 "rows": selected,

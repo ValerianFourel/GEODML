@@ -65,6 +65,42 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertEqual(result.raw_payload["selection"], "deterministic-lexical-v1")
         self.assertEqual(len(result.raw_payload["snapshot_sha256"]), 64)
 
+    def test_search_excludes_null_position_rows_and_audits_them(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "snapshot.jsonl"
+            rows = [
+                {
+                    "keyword": "Berlin population",
+                    "position": None,
+                    "title": None,
+                    "url": None,
+                    "snippet": None,
+                },
+                {
+                    "keyword": "Berlin population",
+                    "position": 1,
+                    "title": "Berlin census",
+                    "url": "https://example.test/berlin",
+                    "snippet": "Population figures for Berlin",
+                },
+            ]
+            path.write_text(
+                "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+            )
+            adapter = FrozenSnapshotSearchAdapter("searxng", path)
+            result = asyncio.run(adapter.search("Berlin population", 20))
+
+        self.assertEqual(
+            [snippet.url for snippet in result.snippets],
+            ["https://example.test/berlin"],
+        )
+        self.assertEqual(result.raw_payload["snapshot_rows"], {
+            "total": 2,
+            "usable": 1,
+            "excluded": 1,
+            "exclusion_reasons": {"invalid_position": 1},
+        })
+
     def test_smoke_conditions_do_not_introduce_evidence(self) -> None:
         rows = [
             Snippet(f"https://example.test/{index}", f"Title {index}", "Text")
