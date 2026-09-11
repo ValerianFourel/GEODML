@@ -61,6 +61,19 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn("92f3b1597a195b523d8d9e5700e57e4fbb8f20d3", launcher)
         self.assertIn("AGENTIC_LLAMA4_12_CELL_SMOKE=PASS", launcher)
 
+    def test_mistral_launcher_pins_model_and_offline_resolution(self) -> None:
+        launcher = (
+            Path(__file__).resolve().parents[1]
+            / "scripts/slurm/jupiter/run_agentic_search_mistral_smoke.sh"
+        ).read_text(encoding="utf-8")
+        server_start = launcher.index("python3 analysis/scripts/search_vllm_stage.py run")
+
+        self.assertIn("export HF_HUB_OFFLINE=1", launcher[:server_start])
+        self.assertIn("export TRANSFORMERS_OFFLINE=1", launcher[:server_start])
+        self.assertIn("mistralai/Mistral-Small-4-119B-2603", launcher)
+        self.assertIn("a11f36bebf709121056b1dbcc943d1c6afbe494d", launcher)
+        self.assertIn("AGENTIC_MISTRAL_12_CELL_SMOKE=PASS", launcher)
+
     def test_search_is_bounded_relevant_and_audited(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "snapshot.jsonl"
