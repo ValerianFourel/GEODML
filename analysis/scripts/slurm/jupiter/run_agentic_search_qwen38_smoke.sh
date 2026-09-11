@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
 test "${SLURM_JOB_ID:?}" = "${GEODML_EXPECTED_JOB_ID:?}"
 test "${GEODML_EXECUTION_COMMIT:?}" = "$(git rev-parse HEAD)"
 test -z "$(git status --porcelain --untracked-files=all)"

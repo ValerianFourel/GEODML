@@ -24,6 +24,16 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_cluster_launcher_forces_offline_model_resolution(self) -> None:
+        launcher = (
+            Path(__file__).resolve().parents[1]
+            / "scripts/slurm/jupiter/run_agentic_search_qwen38_smoke.sh"
+        ).read_text(encoding="utf-8")
+        server_start = launcher.index("python3 analysis/scripts/search_vllm_stage.py run")
+
+        self.assertIn("export HF_HUB_OFFLINE=1", launcher[:server_start])
+        self.assertIn("export TRANSFORMERS_OFFLINE=1", launcher[:server_start])
+
     def test_search_is_bounded_relevant_and_audited(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "snapshot.jsonl"
