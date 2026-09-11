@@ -5,6 +5,11 @@ using this separately versioned pilot. It does not run live search or allocate
 GPUs. Use one active model server per four-GH200 node. Repeat primary execution
 for each exact model configuration in the frozen plan.
 
+For query expansion, reactive search, and cross-encoder snippet compaction, use
+the separate [agentic retrieval protocol](agentic_search_retrieval_protocol.md).
+The commands in this guide run the captured-evidence baseline only. They do not
+exercise either agentic method.
+
 ## Check the implementation without inference
 
 From the repository root, run:
@@ -134,3 +139,7 @@ These commands require real captures, selected prompt IDs, a committed checkout
 on the cluster and verified model servers. They are not a six-hour allocation
 command. No new allocation or full production run is authorized by this guide.
 Do not close or relinquish an existing allocation-owning shell.
+
+Passing the agentic readiness audit or a 12-cell compatibility smoke does not
+change this boundary. The next scientific milestone for agentic retrieval is a
+10-prompt provider-adapter contract test, followed by a representative pilot.

@@ -113,6 +113,13 @@ The randomized prompt-continuum work from the deterministic foundation through
 the offline policy-clause pilot is summarized in
 [`analysis/docs/prompt_continuum_project_handoff.md`](analysis/docs/prompt_continuum_project_handoff.md).
 
+The proposed bounded agentic-search extension, including parallel query
+expansion, a reactive snippet loop, pinned BGE cross-encoder compaction,
+retrieval-freeze requirements, corrected workload counts, and staged launch
+gates, is specified in
+[`analysis/docs/agentic_search_retrieval_protocol.md`](analysis/docs/agentic_search_retrieval_protocol.md).
+Compatibility smokes for this extension are not scientific results.
+
 ## License / citation
 
 Data on Hugging Face is released CC-BY-4.0. If you use the code or data,

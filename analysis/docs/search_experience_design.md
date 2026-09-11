@@ -3,6 +3,13 @@
 This pilot adds a new answer and judge contract beside the ACL ARR experiment.
 It does not replace the frozen Natural, Ablated, or Shuffled measurements.
 
+The later agentic extension has its own
+[retrieval protocol](agentic_search_retrieval_protocol.md). That protocol
+defines `Parallel-Expansion-v1`, `Reactive-Snippet-Loop-v1`, local
+cross-encoder compaction, exact execution bounds, retrieval freezing, counting,
+and go or no-go gates. It does not change the captured-evidence pilot described
+here.
+
 ## What public documentation supports
 
 OpenAI describes ChatGPT Search as answering questions with web sources and
@@ -17,7 +24,9 @@ recorded search evidence, a cited answer and a separate assessment of support.
 Its prompts, fixed evidence budget, ranking task, judge rubric and scheduling
 are engineering choices. They are not OpenAI's internal prompts or algorithms.
 The pilot does not implement personalization, conversational memory, location,
-adaptive retrieval, browser interaction or proprietary source ranking.
+adaptive retrieval, browser interaction or proprietary source ranking. The
+agentic extension approximates public query-expansion and iterative-search
+behavior. Neither protocol claims to reproduce a provider's private internals.
 
 ## Existing path and its limits
 
@@ -76,8 +85,13 @@ and bounded scheduling remain reusable without changing legacy validators.
 The answer instructions, uncertainty contract and judge rubric constitute a
 new protocol. Pilot outputs are not eligible for the existing production
 analysis. A full-request search that changes the evidence pool needs a separate
-search-policy experiment and newly frozen assignments. Live retrieval within
-an ablated condition could replenish its removed source and is excluded.
+search-policy experiment and newly frozen assignments. The agentic protocol is
+that separate proposed experiment. Target ablation is applied before
+compaction. Natural or Shuffled presentation order is applied after top-K
+selection so compaction cannot erase the order treatment. A reactive path can
+still diverge after it observes a treatment. This divergence must be frozen and
+analyzed as part of the method, not hidden by reusing an incompatible evidence
+pool.
 
 Human calibration packets are inputs for independent review, not calibration
 results. A model must not supply its own sole primary evaluation. Human

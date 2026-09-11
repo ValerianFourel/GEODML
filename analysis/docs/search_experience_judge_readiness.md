@@ -1,5 +1,12 @@
 # Independent answer-judge readiness
 
+This document defines the judge boundary for the captured-evidence pilot. The
+proposed agentic methods use the same principle of independent judgment, but
+their retrieval, compaction, workload, and production gates are specified in
+[`agentic_search_retrieval_protocol.md`](agentic_search_retrieval_protocol.md).
+An agentic compatibility smoke does not establish judge readiness or answer
+quality.
+
 Judge compilation requires the exact expected answer task-ID set, not complete
 ranking coverage. All saved primary records still pass existing provenance,
 request-identity, duplicate, hash and output validation. Missing or invalid

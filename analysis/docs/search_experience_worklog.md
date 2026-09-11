@@ -1,5 +1,11 @@
 # Search experience implementation worklog
 
+This is the historical worklog for the captured-evidence pilot. The subsequent
+agentic-search design is documented in
+[`agentic_search_retrieval_protocol.md`](agentic_search_retrieval_protocol.md).
+That extension is a new search-policy protocol, not a retroactive change to the
+milestone recorded below.
+
 Baseline: `ce86d7e46a0fbaf5163fe8324f34b3114153f2b2`.
 Scope: a separately versioned, captured-evidence pilot. No production launch,
 no allocation changes, no replacement of the frozen ACL ARR protocol.
