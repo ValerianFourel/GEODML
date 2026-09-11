@@ -15,6 +15,7 @@ import random
 import re
 import sys
 import tempfile
+import time
 from typing import Any, Mapping, Sequence
 
 
@@ -27,6 +28,7 @@ from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
     ContextCompactor,
     ExperimentalCondition,
     LLMRequest,
+    MemoizingSnippetScorer,
     ParallelExpansionV1,
     ReactiveSnippetLoopV1,
     SearchResponse,
@@ -235,22 +237,54 @@ class SmokeConditionHook:
 
 
 class VllmAgentGenerator:
-    def __init__(self, client: VllmChatClient, *, seed: int, max_tokens: int) -> None:
+    def __init__(
+        self,
+        client: VllmChatClient,
+        *,
+        seed: int,
+        max_tokens: int,
+        request_semaphore: asyncio.Semaphore,
+    ) -> None:
         self.client = client
         self.seed = seed
         self.max_tokens = max_tokens
+        self.request_semaphore = request_semaphore
         self.call_index = 0
+        self.diagnostics: list[dict[str, Any]] = []
 
     async def generate(self, request: LLMRequest) -> str:
         self.call_index += 1
-        raw, _ = await self.client.complete(
-            prompt=request.prompt,
-            schema_name=f"agentic_{request.purpose}_{self.call_index}",
-            schema=request.response_schema,
-            temperature=0.0,
-            max_tokens=self.max_tokens,
-            seed=self.seed + self.call_index,
-        )
+        call_index = self.call_index
+        queued_at = time.perf_counter()
+        async with self.request_semaphore:
+            started_at = time.perf_counter()
+            try:
+                raw, usage = await self.client.complete(
+                    prompt=request.prompt,
+                    schema_name=f"agentic_{request.purpose}_{call_index}",
+                    schema=request.response_schema,
+                    temperature=0.0,
+                    max_tokens=self.max_tokens,
+                    seed=self.seed + call_index,
+                )
+            except Exception as error:
+                self.diagnostics.append({
+                    "call_index": call_index,
+                    "purpose": request.purpose,
+                    "queue_seconds": started_at - queued_at,
+                    "request_seconds": time.perf_counter() - started_at,
+                    "error": f"{type(error).__name__}: {error}",
+                    "usage": None,
+                })
+                raise
+        self.diagnostics.append({
+            "call_index": call_index,
+            "purpose": request.purpose,
+            "queue_seconds": started_at - queued_at,
+            "request_seconds": time.perf_counter() - started_at,
+            "error": None,
+            "usage": json.loads(json.dumps(usage)),
+        })
         return raw
 
 
@@ -265,7 +299,50 @@ class SmokeInputs:
     search_snapshots: Mapping[str, Path]
     seed: int
     max_tokens: int
+    request_concurrency: int = 1
     disable_thinking: bool = False
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.request_concurrency) is not int
+            or not 1 <= self.request_concurrency <= 4
+        ):
+            raise ValueError("request_concurrency must be an integer from 1 to 4")
+
+
+@dataclass(frozen=True, slots=True)
+class SmokeCell:
+    cell_id: str
+    engine: str
+    condition: ExperimentalCondition
+    method_class: type[ParallelExpansionV1 | ReactiveSnippetLoopV1]
+
+    @property
+    def core(self) -> dict[str, str]:
+        return {
+            "method": self.method_class.method_id,
+            "engine": self.engine,
+            "condition": self.condition.value,
+        }
+
+
+def _cells() -> tuple[SmokeCell, ...]:
+    cells: list[SmokeCell] = []
+    for engine in ENGINES:
+        for condition in CONDITIONS:
+            for method_class in METHODS:
+                core = {
+                    "method": method_class.method_id,
+                    "engine": engine,
+                    "condition": condition.value,
+                }
+                cells.append(SmokeCell(
+                    cell_id=hashlib.sha256(_canonical(core)).hexdigest()[:20],
+                    engine=engine,
+                    condition=condition,
+                    method_class=method_class,
+                ))
+    return tuple(cells)
 
 
 def _config(inputs: SmokeInputs, keyword: str) -> dict[str, Any]:
@@ -294,9 +371,89 @@ def _config(inputs: SmokeInputs, keyword: str) -> dict[str, Any]:
         "keyword": keyword,
         "seed": inputs.seed,
         "max_tokens": inputs.max_tokens,
+        "request_concurrency": inputs.request_concurrency,
         "retrieval_mode": "frozen-snapshot-deterministic-lexical-v1",
         "condition_mode": "smoke-only-subset-and-order-v1",
     }
+
+
+def _cache_metrics(compactor: ContextCompactor) -> dict[str, int] | None:
+    stats = getattr(compactor.scorer, "stats", None)
+    if stats is None:
+        return None
+    return {
+        "hits": int(stats.hits),
+        "misses": int(stats.misses),
+        "entries": int(stats.entries),
+    }
+
+
+def _validate_completed_cell(
+    cell: SmokeCell,
+    trace_path: Path,
+    result_path: Path,
+) -> dict[str, Any]:
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    expected_result = {"cell_id": cell.cell_id, **cell.core}
+    if any(result.get(key) != value for key, value in expected_result.items()):
+        raise ValueError(f"completed result identity mismatch: {result_path}")
+    if result.get("trace") != str(trace_path.resolve()):
+        raise ValueError(f"completed result trace path mismatch: {result_path}")
+    actual_hash = _validate_trace(cell, trace_path)
+    if result.get("trace_sha256") != actual_hash:
+        raise ValueError(f"completed result trace hash mismatch: {result_path}")
+    return result
+
+
+def _validate_trace(cell: SmokeCell, trace_path: Path) -> str:
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    saved_hash = trace.pop("trace_sha256", None)
+    actual_hash = hashlib.sha256(_canonical(trace)).hexdigest()
+    if saved_hash != actual_hash:
+        raise ValueError(f"trace hash mismatch: {trace_path}")
+    if (
+        trace.get("method_id") != cell.method_class.method_id
+        or trace.get("condition") != cell.condition.value
+        or trace.get("search_engine") != cell.engine
+    ):
+        raise ValueError(f"trace identity mismatch: {trace_path}")
+    return actual_hash
+
+
+def _recover_incomplete_trace(cell: SmokeCell, trace_path: Path) -> None:
+    trace_hash = _validate_trace(cell, trace_path)
+    destination = (
+        trace_path.parents[1] / "failed_traces" / cell.cell_id
+        / f"recovered-{trace_hash}.json"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        if destination.read_bytes() != trace_path.read_bytes():
+            raise ValueError(f"recovered trace content mismatch: {destination}")
+        trace_path.unlink()
+        return
+    os.replace(trace_path, destination)
+
+
+def _load_completed_cells(output: Path) -> tuple[dict[str, dict[str, Any]], list[SmokeCell]]:
+    completed: dict[str, dict[str, Any]] = {}
+    pending: list[SmokeCell] = []
+    for cell in _cells():
+        trace_path = output / "traces" / f"{cell.cell_id}.json"
+        result_path = output / "results" / f"{cell.cell_id}.json"
+        trace_exists = trace_path.is_file()
+        result_exists = result_path.is_file()
+        if trace_exists and result_exists:
+            completed[cell.cell_id] = _validate_completed_cell(
+                cell, trace_path, result_path
+            )
+        elif result_exists:
+            raise ValueError(f"result exists without immutable trace: {result_path}")
+        else:
+            if trace_exists:
+                _recover_incomplete_trace(cell, trace_path)
+            pending.append(cell)
+    return completed, pending
 
 
 async def run_smoke(
@@ -330,16 +487,30 @@ async def run_smoke(
     else:
         _write_json_atomic(config_path, {**config, "config_sha256": config_hash})
 
+    completed, pending = _load_completed_cells(inputs.output)
+    manifest_path = inputs.output / "run_manifest.json"
+    if not pending and manifest_path.is_file():
+        existing_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (
+            existing_manifest.get("config_sha256") != config_hash
+            or existing_manifest.get("status") != "complete"
+            or existing_manifest.get("completed_count") != config["cell_count"]
+            or existing_manifest.get("remaining_count") != 0
+        ):
+            raise ValueError("completed smoke manifest is inconsistent")
+        return existing_manifest
+
     if compactor is None:
-        scorer = SentenceTransformersCrossEncoderScorer(
-            str(inputs.cross_encoder_snapshot),
-            model_revision=None,
-            device="cpu",
-            batch_size=32,
-            local_files_only=True,
+        scorer = MemoizingSnippetScorer(
+            SentenceTransformersCrossEncoderScorer(
+                str(inputs.cross_encoder_snapshot),
+                model_revision=None,
+                device="cpu",
+                batch_size=32,
+                local_files_only=True,
+            )
         )
         compactor = ContextCompactor(scorer)
-    completed: list[dict[str, Any]] = []
     if client_context is None:
         client_context = VllmChatClient(
             base_url=inputs.base_url,
@@ -352,79 +523,104 @@ async def run_smoke(
             ),
         )
     async with client_context as client:
-        for engine in ENGINES:
-            for condition in CONDITIONS:
-                for method_class in METHODS:
-                    cell_core = {
-                        "method": method_class.method_id,
-                        "engine": engine,
-                        "condition": condition.value,
-                    }
-                    cell_id = hashlib.sha256(_canonical(cell_core)).hexdigest()[:20]
-                    trace_path = inputs.output / "traces" / f"{cell_id}.json"
-                    result_path = inputs.output / "results" / f"{cell_id}.json"
-                    if result_path.is_file() and trace_path.is_file():
-                        completed.append(json.loads(result_path.read_text(encoding="utf-8")))
-                        continue
-                    generator = VllmAgentGenerator(
-                        client,
-                        seed=inputs.seed + int(cell_id[:8], 16),
-                        max_tokens=inputs.max_tokens,
-                    )
-                    method = method_class(
-                        llm=generator,
-                        search=adapters[engine],
-                        compactor=compactor,
-                        condition_hook=SmokeConditionHook(inputs.seed),
-                    )
-                    try:
-                        result = await method.run(prompt, condition)
-                    except AgentExecutionError as error:
-                        trace_path.parent.mkdir(parents=True, exist_ok=True)
-                        write_trace_atomic(trace_path, error.trace)
-                        raise
-                    search_count = sum(
-                        event.event_type == "search" for event in result.trace.events
-                    )
-                    expected_searches = (
-                        3 if method_class is ParallelExpansionV1 else None
-                    )
-                    if expected_searches is not None and search_count != expected_searches:
-                        raise RuntimeError(
-                            f"{method_class.method_id} made {search_count} searches, "
-                            f"expected {expected_searches}"
-                        )
-                    if method_class is ReactiveSnippetLoopV1 and search_count < 1:
-                        raise RuntimeError(
-                            "Reactive-Snippet-Loop-v1 did not exercise retrieval"
-                        )
-                    trace_path.parent.mkdir(parents=True, exist_ok=True)
-                    trace_hash = write_trace_atomic(trace_path, result.trace)
-                    record = {
-                        "cell_id": cell_id,
-                        **cell_core,
-                        "ranking": list(result.ranking),
-                        "answer": result.answer,
-                        "final_snippet_count": len(result.final_snippets),
-                        "search_count": search_count,
-                        "trace": str(trace_path.resolve()),
-                        "trace_sha256": trace_hash,
-                    }
-                    _write_json_atomic(result_path, record)
-                    completed.append(record)
-                    _write_json_atomic(inputs.output / "run_manifest.json", {
-                        **config,
-                        "config_sha256": config_hash,
-                        "status": "checkpointed",
-                        "completed_count": len(completed),
-                        "remaining_count": config["cell_count"] - len(completed),
-                    })
+        request_semaphore = asyncio.Semaphore(inputs.request_concurrency)
+
+        async def execute(cell: SmokeCell) -> tuple[str, dict[str, Any]]:
+            cell_started = time.perf_counter()
+            trace_path = inputs.output / "traces" / f"{cell.cell_id}.json"
+            result_path = inputs.output / "results" / f"{cell.cell_id}.json"
+            diagnostics_path = inputs.output / "diagnostics" / f"{cell.cell_id}.json"
+            generator = VllmAgentGenerator(
+                client,
+                seed=inputs.seed + int(cell.cell_id[:8], 16),
+                max_tokens=inputs.max_tokens,
+                request_semaphore=request_semaphore,
+            )
+            method = cell.method_class(
+                llm=generator,
+                search=adapters[cell.engine],
+                compactor=compactor,
+                condition_hook=SmokeConditionHook(inputs.seed),
+            )
+            try:
+                result = await method.run(prompt, cell.condition)
+            except AgentExecutionError as error:
+                failure_hash = error.trace.to_dict()["trace_sha256"]
+                failure_path = (
+                    inputs.output / "failed_traces" / cell.cell_id
+                    / f"{failure_hash}.json"
+                )
+                if not failure_path.exists():
+                    write_trace_atomic(failure_path, error.trace)
+                _write_json_atomic(diagnostics_path, {
+                    "cell_id": cell.cell_id,
+                    **cell.core,
+                    "status": "failed",
+                    "elapsed_seconds": time.perf_counter() - cell_started,
+                    "llm_calls": generator.diagnostics,
+                })
+                raise
+            search_count = sum(
+                event.event_type == "search" for event in result.trace.events
+            )
+            expected_searches = (
+                3 if cell.method_class is ParallelExpansionV1 else None
+            )
+            if expected_searches is not None and search_count != expected_searches:
+                raise RuntimeError(
+                    f"{cell.method_class.method_id} made {search_count} searches, "
+                    f"expected {expected_searches}"
+                )
+            if cell.method_class is ReactiveSnippetLoopV1 and search_count < 1:
+                raise RuntimeError(
+                    "Reactive-Snippet-Loop-v1 did not exercise retrieval"
+                )
+            trace_hash = write_trace_atomic(trace_path, result.trace)
+            record = {
+                "cell_id": cell.cell_id,
+                **cell.core,
+                "ranking": list(result.ranking),
+                "answer": result.answer,
+                "final_snippet_count": len(result.final_snippets),
+                "search_count": search_count,
+                "trace": str(trace_path.resolve()),
+                "trace_sha256": trace_hash,
+            }
+            _write_json_atomic(diagnostics_path, {
+                "cell_id": cell.cell_id,
+                **cell.core,
+                "status": "complete",
+                "elapsed_seconds": time.perf_counter() - cell_started,
+                "llm_calls": generator.diagnostics,
+            })
+            _write_json_atomic(result_path, record)
+            return cell.cell_id, record
+
+        tasks = [asyncio.create_task(execute(cell)) for cell in pending]
+        try:
+            for future in asyncio.as_completed(tasks):
+                cell_id, record = await future
+                completed[cell_id] = record
+                _write_json_atomic(inputs.output / "run_manifest.json", {
+                    **config,
+                    "config_sha256": config_hash,
+                    "status": "checkpointed",
+                    "completed_count": len(completed),
+                    "remaining_count": config["cell_count"] - len(completed),
+                    "compactor_cache_this_invocation": _cache_metrics(compactor),
+                })
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
     manifest = {
         **config,
         "config_sha256": config_hash,
         "status": "complete",
         "completed_count": len(completed),
         "remaining_count": 0,
+        "compactor_cache_this_invocation": _cache_metrics(compactor),
     }
     _write_json_atomic(inputs.output / "run_manifest.json", manifest)
     return manifest
@@ -448,6 +644,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--search-snapshot", action="append", type=_binding, required=True)
     parser.add_argument("--seed", type=int, default=20260911)
     parser.add_argument("--max-tokens", type=int, default=1024)
+    parser.add_argument("--request-concurrency", type=int, default=1)
     parser.add_argument(
         "--disable-thinking",
         action="store_true",
@@ -471,6 +668,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         search_snapshots=snapshots,
         seed=arguments.seed,
         max_tokens=arguments.max_tokens,
+        request_concurrency=arguments.request_concurrency,
         disable_thinking=arguments.disable_thinking,
     )
     manifest = asyncio.run(run_smoke(inputs))

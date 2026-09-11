@@ -13,6 +13,7 @@ from analysis.interpretability.pipeline.agentic_search import (
     ContextCompactor,
     ExperimentalCondition,
     IdentityConditionHook,
+    MemoizingSnippetScorer,
     ParallelExpansionV1,
     ReactiveSnippetLoopV1,
     ScriptedLLM,
@@ -26,10 +27,20 @@ from analysis.interpretability.pipeline.agentic_search import (
 class PositionScorer:
     model_id = "test-position-scorer"
     model_revision = "test-v1"
+    deterministic = True
 
     def score(self, query: str, snippets: list[Snippet]) -> list[float]:
         del query
         return [float(snippet.text.removeprefix("score=")) for snippet in snippets]
+
+
+class CountingPositionScorer(PositionScorer):
+    def __init__(self):
+        self.calls: list[list[Snippet]] = []
+
+    def score(self, query: str, snippets: list[Snippet]) -> list[float]:
+        self.calls.append(list(snippets))
+        return super().score(query, snippets)
 
 
 class BarrierSearchAdapter(StaticSearchAdapter):
@@ -57,6 +68,15 @@ class MutatingConditionHook:
         ]
 
 
+class UndeclaredScorer:
+    model_id = "test-undeclared-scorer"
+    model_revision = "v1"
+
+    def score(self, query: str, snippets: list[Snippet]) -> list[float]:
+        del query
+        return [0.0 for _ in snippets]
+
+
 def snippet(index: int, score: int | None = None) -> dict[str, str]:
     value = index if score is None else score
     return {
@@ -67,6 +87,29 @@ def snippet(index: int, score: int | None = None) -> dict[str, str]:
 
 
 class AgenticSearchTests(unittest.TestCase):
+    def test_memoizing_scorer_requires_deterministic_contract(self):
+        with self.assertRaisesRegex(ValueError, "deterministic=True"):
+            MemoizingSnippetScorer(UndeclaredScorer())
+
+    def test_memoizing_scorer_only_scores_exact_cache_misses(self):
+        underlying = CountingPositionScorer()
+        scorer = MemoizingSnippetScorer(underlying)
+        rows = [
+            Snippet.from_mapping(snippet(1, 5)),
+            Snippet.from_mapping(snippet(2, 9)),
+            Snippet.from_mapping(snippet(3, 3)),
+        ]
+
+        self.assertEqual(scorer.score("query", rows), [5.0, 9.0, 3.0])
+        self.assertEqual(scorer.score("query", [rows[2], rows[0]]), [3.0, 5.0])
+        changed = Snippet(rows[1].url, rows[1].title, "score=8")
+        self.assertEqual(scorer.score("query", [rows[1], changed]), [9.0, 8.0])
+
+        self.assertEqual([len(call) for call in underlying.calls], [3, 1])
+        self.assertEqual(scorer.stats.hits, 3)
+        self.assertEqual(scorer.stats.misses, 4)
+        self.assertEqual(scorer.stats.entries, 4)
+
     def test_schema_retry_configuration_cannot_exceed_two(self):
         dependencies = {
             "llm": ScriptedLLM([]),

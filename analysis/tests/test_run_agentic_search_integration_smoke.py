@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -13,6 +14,7 @@ from analysis.interpretability.pipeline.agentic_search import (
     ContextCompactor,
     ExperimentalCondition,
     LexicalOverlapScorer,
+    MemoizingSnippetScorer,
     Snippet,
 )
 from analysis.scripts.run_agentic_search_integration_smoke import (
@@ -24,6 +26,21 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_smoke_request_concurrency_is_bounded(self) -> None:
+        with self.assertRaisesRegex(ValueError, "from 1 to 4"):
+            SmokeInputs(
+                output=Path("output"),
+                base_url="http://127.0.0.1:8010/v1",
+                model_id="test/model",
+                model_revision="a" * 40,
+                cross_encoder_snapshot=Path("cross-encoder"),
+                cross_encoder_revision="e" * 40,
+                search_snapshots={},
+                seed=11,
+                max_tokens=128,
+                request_concurrency=5,
+            )
+
     def test_cluster_launcher_forces_offline_model_resolution(self) -> None:
         launcher = (
             Path(__file__).resolve().parents[1]
@@ -80,6 +97,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn("2dc98e2afe4face0e4ce40972a915c45368bd34a", launcher)
         self.assertIn("--disable-thinking", launcher)
         self.assertIn("AGENTIC_NEMOTRON_12_CELL_SMOKE=PASS", launcher)
+        self.assertIn('SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1', launcher)
 
     def test_search_is_bounded_relevant_and_audited(self) -> None:
         with TemporaryDirectory() as directory:
@@ -199,24 +217,160 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 search_snapshots=snapshots,
                 seed=11,
                 max_tokens=128,
+                request_concurrency=4,
             )
+            client = _FakeClientContext(delay_seconds=0.01)
             manifest = asyncio.run(run_smoke(
                 inputs,
-                client_context=_FakeClientContext(),
-                compactor=ContextCompactor(LexicalOverlapScorer()),
+                client_context=client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
             ))
 
             results = list((inputs.output / "results").glob("*.json"))
             traces = list((inputs.output / "traces").glob("*.json"))
+            diagnostics = list((inputs.output / "diagnostics").glob("*.json"))
+            diagnostic_record = json.loads(
+                diagnostics[0].read_text(encoding="utf-8")
+            )
+            manifest_path = inputs.output / "run_manifest.json"
+            manifest_before_resume = manifest_path.read_bytes()
+            resume_client = _FakeClientContext(delay_seconds=0.01)
+            resumed = asyncio.run(run_smoke(
+                inputs,
+                client_context=resume_client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+            manifest_after_resume = manifest_path.read_bytes()
+
+            trace_only_result = results[0]
+            trace_only_record = json.loads(trace_only_result.read_text(encoding="utf-8"))
+            trace_only_path = Path(trace_only_record["trace"])
+            trace_only_result.unlink()
+            retry_client = _FakeClientContext(delay_seconds=0.0)
+            retried = asyncio.run(run_smoke(
+                inputs,
+                client_context=retry_client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+            recovered = list(
+                (inputs.output / "failed_traces" / trace_only_record["cell_id"]).glob(
+                    "recovered-*.json"
+                )
+            )
+
+            trace_only_result.unlink()
+            second_retry_client = _FakeClientContext(delay_seconds=0.0)
+            second_retry = asyncio.run(run_smoke(
+                inputs,
+                client_context=second_retry_client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+
+            corrupt_result_path = results[2]
+            corrupt_result_bytes = corrupt_result_path.read_bytes()
+            corrupt_record = json.loads(corrupt_result_bytes)
+            corrupt_trace_path = Path(corrupt_record["trace"])
+            corrupt_trace_bytes = corrupt_trace_path.read_bytes()
+            corrupt_trace = json.loads(corrupt_trace_bytes)
+            corrupt_trace["trace_sha256"] = "0" * 64
+            corrupt_result_path.unlink()
+            corrupt_trace_path.write_text(
+                json.dumps(corrupt_trace), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "trace hash mismatch"):
+                asyncio.run(run_smoke(
+                    inputs,
+                    client_context=_FakeClientContext(),
+                    compactor=ContextCompactor(
+                        MemoizingSnippetScorer(LexicalOverlapScorer())
+                    ),
+                ))
+            corrupt_trace_path.write_bytes(corrupt_trace_bytes)
+            corrupt_result_path.write_bytes(corrupt_result_bytes)
+
+            wrong_result_path = results[3]
+            wrong_result_bytes = wrong_result_path.read_bytes()
+            wrong_record = json.loads(wrong_result_bytes)
+            wrong_trace_path = Path(wrong_record["trace"])
+            wrong_trace_bytes = wrong_trace_path.read_bytes()
+            wrong_trace = json.loads(wrong_trace_bytes)
+            wrong_trace["method_id"] = "wrong-method"
+            wrong_core = dict(wrong_trace)
+            wrong_core.pop("trace_sha256")
+            wrong_trace["trace_sha256"] = hashlib.sha256(json.dumps(
+                wrong_core,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            wrong_result_path.unlink()
+            wrong_trace_path.write_text(json.dumps(wrong_trace), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "trace identity mismatch"):
+                asyncio.run(run_smoke(
+                    inputs,
+                    client_context=_FakeClientContext(),
+                    compactor=ContextCompactor(
+                        MemoizingSnippetScorer(LexicalOverlapScorer())
+                    ),
+                ))
+            wrong_trace_path.write_bytes(wrong_trace_bytes)
+            wrong_result_path.write_bytes(wrong_result_bytes)
+
+            result_only_record = json.loads(results[1].read_text(encoding="utf-8"))
+            Path(result_only_record["trace"]).unlink()
+            with self.assertRaisesRegex(ValueError, "without immutable trace"):
+                asyncio.run(run_smoke(
+                    inputs,
+                    client_context=_FakeClientContext(),
+                    compactor=ContextCompactor(
+                        MemoizingSnippetScorer(LexicalOverlapScorer())
+                    ),
+                ))
 
         self.assertEqual(manifest["status"], "complete")
         self.assertEqual(manifest["completed_count"], 12)
         self.assertEqual(manifest["remaining_count"], 0)
         self.assertEqual(len(results), 12)
         self.assertEqual(len(traces), 12)
+        self.assertEqual(len(diagnostics), 12)
+        self.assertEqual(diagnostic_record["status"], "complete")
+        self.assertEqual(len(diagnostic_record["llm_calls"]), 2)
+        self.assertEqual(diagnostic_record["llm_calls"][0]["usage"], {
+            "total_tokens": 1,
+        })
+        self.assertEqual(manifest["request_concurrency"], 4)
+        self.assertEqual(client.call_count, 24)
+        self.assertEqual(client.peak_active_calls, 4)
+        self.assertEqual(manifest["compactor_cache_this_invocation"], {
+            "entries": 80,
+            "hits": 140,
+            "misses": 80,
+        })
+        self.assertEqual(resumed, manifest)
+        self.assertEqual(resume_client.call_count, 0)
+        self.assertEqual(manifest_after_resume, manifest_before_resume)
+        self.assertEqual(retried["status"], "complete")
+        self.assertEqual(retry_client.call_count, 2)
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(second_retry["status"], "complete")
+        self.assertEqual(second_retry_client.call_count, 2)
 
 
 class _FakeClientContext:
+    def __init__(self, *, delay_seconds: float = 0.0):
+        self.delay_seconds = delay_seconds
+        self.active_calls = 0
+        self.peak_active_calls = 0
+        self.call_count = 0
+
     async def __aenter__(self):
         return self
 
@@ -224,24 +378,31 @@ class _FakeClientContext:
         return None
 
     async def complete(self, *, prompt, schema_name, **kwargs):
-        if "parallel_query_expansion" in schema_name:
-            value = {"queries": ["Berlin people", "Berlin census", "Berlin residents"]}
-        elif "parallel_final" in schema_name:
-            value = {
-                "ranking": [re.findall(r"https://[^\" ]+", prompt)[0]],
-                "answer": "Parallel answer",
-            }
-        elif "reactive_action" in schema_name and "OBSERVATIONS:\n[]" in prompt:
-            value = {"action": "search", "query": "Berlin population"}
-        elif "reactive_action" in schema_name:
-            value = {
-                "action": "finish",
-                "ranking": [re.findall(r"https://[^\" ]+", prompt)[0]],
-                "answer": "Reactive answer",
-            }
-        else:
-            raise AssertionError(schema_name)
-        return json.dumps(value), {"total_tokens": 1}
+        self.call_count += 1
+        self.active_calls += 1
+        self.peak_active_calls = max(self.peak_active_calls, self.active_calls)
+        try:
+            await asyncio.sleep(self.delay_seconds)
+            if "parallel_query_expansion" in schema_name:
+                value = {"queries": ["Berlin people", "Berlin census", "Berlin residents"]}
+            elif "parallel_final" in schema_name:
+                value = {
+                    "ranking": [re.findall(r"https://[^\" ]+", prompt)[0]],
+                    "answer": "Parallel answer",
+                }
+            elif "reactive_action" in schema_name and "OBSERVATIONS:\n[]" in prompt:
+                value = {"action": "search", "query": "Berlin population"}
+            elif "reactive_action" in schema_name:
+                value = {
+                    "action": "finish",
+                    "ranking": [re.findall(r"https://[^\" ]+", prompt)[0]],
+                    "answer": "Reactive answer",
+                }
+            else:
+                raise AssertionError(schema_name)
+            return json.dumps(value), {"total_tokens": 1}
+        finally:
+            self.active_calls -= 1
 
 
 if __name__ == "__main__":

@@ -89,7 +89,8 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --search-snapshot "duckduckgo=$SEARCH_AGENTIC_DDG_SNAPSHOT" \
     --search-snapshot "searxng=$SEARCH_AGENTIC_SEARXNG_SNAPSHOT" \
     --seed 20260911 \
-    --max-tokens 1024
+    --max-tokens 1024 \
+    --request-concurrency "${SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1}"
 
 python3 - "$SEARCH_AGENTIC_OUTPUT/run_manifest.json" <<'PY'
 import json

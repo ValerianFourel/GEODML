@@ -20,6 +20,7 @@ import math
 import os
 from pathlib import Path
 import tempfile
+from threading import Lock
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 from urllib.parse import urlsplit
 
@@ -111,6 +112,7 @@ class ConditionHook(Protocol):
 class SnippetScorer(Protocol):
     model_id: str
     model_revision: str | None
+    deterministic: bool
 
     def score(self, query: str, snippets: list[Snippet]) -> Sequence[float]:
         """Return one finite score per snippet."""
@@ -207,6 +209,7 @@ class SentenceTransformersCrossEncoderScorer:
         batch_size: int = 32,
         local_files_only: bool = True,
     ) -> None:
+        self.deterministic = True
         self.model_id = _nonempty_text(model_name_or_path, "cross-encoder model")
         self.model_revision = model_revision
         self.device = device
@@ -254,11 +257,61 @@ class SentenceTransformersCrossEncoderScorer:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class ScoreCacheStats:
+    hits: int
+    misses: int
+    entries: int
+
+
+class MemoizingSnippetScorer:
+    """Cache exact query-snippet scores within one scorer instance."""
+
+    def __init__(self, scorer: SnippetScorer) -> None:
+        if getattr(scorer, "deterministic", False) is not True:
+            raise ValueError("memoized snippet scorer must declare deterministic=True")
+        self._scorer = scorer
+        self.model_id = scorer.model_id
+        self.model_revision = scorer.model_revision
+        self.deterministic = True
+        self._scores: dict[tuple[str, str, str, str], float] = {}
+        self._hits = 0
+        self._misses = 0
+        self._lock = Lock()
+
+    @property
+    def stats(self) -> ScoreCacheStats:
+        with self._lock:
+            return ScoreCacheStats(self._hits, self._misses, len(self._scores))
+
+    def score(self, query: str, snippets: list[Snippet]) -> list[float]:
+        keys = [(query, row.url, row.title, row.text) for row in snippets]
+        with self._lock:
+            missing_keys: list[tuple[str, str, str, str]] = []
+            missing_snippets: list[Snippet] = []
+            seen_missing: set[tuple[str, str, str, str]] = set()
+            for key, snippet in zip(keys, snippets):
+                if key not in self._scores and key not in seen_missing:
+                    seen_missing.add(key)
+                    missing_keys.append(key)
+                    missing_snippets.append(snippet)
+            if missing_snippets:
+                values = list(self._scorer.score(query, missing_snippets))
+                if len(values) != len(missing_snippets):
+                    raise ValueError("snippet scorer returned the wrong number of scores")
+                for key, value in zip(missing_keys, values):
+                    self._scores[key] = float(value)
+                self._misses += len(missing_keys)
+            self._hits += len(keys) - len(missing_keys)
+            return [self._scores[key] for key in keys]
+
+
 class LexicalOverlapScorer:
     """Dependency-free deterministic scorer for examples and CPU tests."""
 
     model_id = "deterministic-lexical-overlap"
     model_revision = "v1"
+    deterministic = True
 
     def score(self, query: str, snippets: list[Snippet]) -> list[float]:
         query_terms = set(query.casefold().split())
@@ -457,7 +510,7 @@ class AgenticMethod(ABC):
         })
         return after
 
-    def _compact(
+    async def _compact(
         self,
         *,
         trace: AgentTrace,
@@ -466,7 +519,12 @@ class AgenticMethod(ABC):
         top_k: int,
     ) -> list[Snippet]:
         try:
-            result = self.compactor.score_and_compact(query, snippets, top_k=top_k)
+            result = await asyncio.to_thread(
+                self.compactor.score_and_compact,
+                query,
+                snippets,
+                top_k=top_k,
+            )
         except Exception as error:
             raise AgentExecutionError("context compaction failed", trace) from error
         trace.record("compaction", {
@@ -565,7 +623,7 @@ class ParallelExpansionV1(AgenticMethod):
             condition=condition,
             snippets=deduplicated,
         )
-        compacted = self._compact(
+        compacted = await self._compact(
             trace=trace,
             query=user_prompt,
             snippets=conditioned,
@@ -644,7 +702,7 @@ class ReactiveSnippetLoopV1(AgenticMethod):
                 condition=condition,
                 snippets=response.snippets,
             )
-            compacted = self._compact(
+            compacted = await self._compact(
                 trace=trace,
                 query=query,
                 snippets=conditioned,

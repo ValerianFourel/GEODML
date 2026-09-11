@@ -35,6 +35,12 @@ test -s "$SEARCH_AGENTIC_SEARXNG_SNAPSHOT"
 test ! -e "$SEARCH_AGENTIC_SERVER_LOG"
 test ! -e "$SEARCH_AGENTIC_GPU_TELEMETRY"
 
+agentic_request_concurrency="${SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1}"
+case "$agentic_request_concurrency" in
+  1|2|3|4) ;;
+  *) printf 'STOP: SEARCH_AGENTIC_REQUEST_CONCURRENCY must be 1, 2, 3, or 4\n' >&2; exit 2 ;;
+esac
+
 python3 analysis/scripts/download_nemotron3_super.py \
   --cache-dir "${HF_HUB_CACHE:?}" \
   --output "${SEARCH_AGENTIC_DOWNLOAD_MANIFEST:?}" \
@@ -63,7 +69,7 @@ python3 analysis/scripts/search_vllm_stage.py prepare \
   --port 8010 \
   --data-parallel-size 1 \
   --tensor-parallel-size 4 \
-  --request-concurrency 4 \
+  --request-concurrency "$agentic_request_concurrency" \
   --dtype bfloat16 \
   --max-model-len 43008 \
   --gpu-memory-utilization 0.82 \
@@ -123,6 +129,7 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --search-snapshot "searxng=$SEARCH_AGENTIC_SEARXNG_SNAPSHOT" \
     --seed 20260911 \
     --max-tokens 1024 \
+    --request-concurrency "$agentic_request_concurrency" \
     --disable-thinking
 
 python3 - "$SEARCH_AGENTIC_OUTPUT/run_manifest.json" <<'PY'
