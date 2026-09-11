@@ -335,6 +335,8 @@ def _check_model_snapshots(path: Path) -> dict[str, Any]:
 
 
 def _check_cross_encoder_snapshot(path: Path) -> dict[str, Any]:
+    if not path.is_dir():
+        raise ValueError(f"missing snapshot directory for {CROSS_ENCODER_ID}: {path}")
     revision = path.resolve().name
     if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
         raise ValueError(
@@ -461,8 +463,8 @@ def _check_smoke_outputs(paths: Mapping[str, Path]) -> dict[str, Any]:
         if not isinstance(binding, dict):
             raise ValueError(f"smoke has no serving-profile binding: {model.configuration_id}")
         profile_path = Path(str(binding.get("path", "")))
-        profile_identity = _file_identity(profile_path)
-        if binding.get("sha256") != profile_identity["sha256"]:
+        profile_identity = _serving_profile_identity(profile_path)
+        if binding.get("sha256") != profile_identity["profile_sha256"]:
             raise ValueError(
                 f"serving-profile hash mismatch for {model.configuration_id}"
             )
@@ -475,6 +477,20 @@ def _check_smoke_outputs(paths: Mapping[str, Path]) -> dict[str, Any]:
             "serving_profile": profile_identity,
         })
     return {"verified_models": verified, "inference_started_by_audit": False}
+
+
+def _serving_profile_identity(path: Path) -> dict[str, Any]:
+    """Verify and identify a serving profile by its canonical semantic hash."""
+
+    profile = _read_object(path)
+    expected = profile.get("profile_sha256")
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        raise ValueError(f"serving profile has no valid profile_sha256: {path}")
+    core = {key: value for key, value in profile.items() if key != "profile_sha256"}
+    actual = hashlib.sha256(_canonical(core).encode("utf-8")).hexdigest()
+    if actual != expected:
+        raise ValueError(f"serving profile canonical hash mismatch: {path}")
+    return {**_file_identity(path), "profile_sha256": expected}
 
 
 def _search_columns(path: Path) -> set[str]:

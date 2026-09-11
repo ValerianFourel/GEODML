@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -131,8 +132,24 @@ def _write_smoke_outputs(root: Path) -> dict[str, Path]:
         output = root / ("smoke-" + model.configuration_id)
         output.mkdir()
         profile = root / (model.configuration_id + ".serving-profile.json")
-        profile.write_text("{}\n", encoding="utf-8")
-        profile_hash = __import__("hashlib").sha256(profile.read_bytes()).hexdigest()
+        profile_core = {"format_version": "search-serving-profile-v1"}
+        profile_hash = hashlib.sha256(
+            json.dumps(
+                profile_core,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        profile.write_text(
+            json.dumps(
+                {**profile_core, "profile_sha256": profile_hash},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         manifest = {
             "status": "checkpointed",
             "model_id": model.model_id,
