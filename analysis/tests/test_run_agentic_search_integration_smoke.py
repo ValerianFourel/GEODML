@@ -48,6 +48,19 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn('"rope_type": "yarn"', launcher)
         self.assertIn("AGENTIC_QWEN25_12_CELL_SMOKE=PASS", launcher)
 
+    def test_llama4_launcher_pins_model_and_offline_resolution(self) -> None:
+        launcher = (
+            Path(__file__).resolve().parents[1]
+            / "scripts/slurm/jupiter/run_agentic_search_llama4_smoke.sh"
+        ).read_text(encoding="utf-8")
+        server_start = launcher.index("python3 analysis/scripts/search_vllm_stage.py run")
+
+        self.assertIn("export HF_HUB_OFFLINE=1", launcher[:server_start])
+        self.assertIn("export TRANSFORMERS_OFFLINE=1", launcher[:server_start])
+        self.assertIn("meta-llama/Llama-4-Scout-17B-16E-Instruct", launcher)
+        self.assertIn("92f3b1597a195b523d8d9e5700e57e4fbb8f20d3", launcher)
+        self.assertIn("AGENTIC_LLAMA4_12_CELL_SMOKE=PASS", launcher)
+
     def test_search_is_bounded_relevant_and_audited(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "snapshot.jsonl"
