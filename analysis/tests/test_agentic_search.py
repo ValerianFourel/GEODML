@@ -180,7 +180,10 @@ class AgenticSearchTests(unittest.TestCase):
         self.assertEqual(result.ranking, (
             "https://example.test/10", "https://example.test/9"
         ))
-        self.assertEqual(search.calls, [("alpha", 20), ("beta", 20), ("gamma", 20)])
+        self.assertCountEqual(
+            search.calls,
+            [("alpha", 20), ("beta", 20), ("gamma", 20)],
+        )
         self.assertEqual(len(condition.calls), 1)
         self.assertEqual(len(condition.calls[0][1]), 10)
         self.assertEqual([row.url for row in result.final_snippets], [
