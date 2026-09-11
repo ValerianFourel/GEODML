@@ -67,9 +67,15 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             / "scripts/slurm/jupiter/run_agentic_search_nemotron_smoke.sh"
         ).read_text(encoding="utf-8")
         server_start = launcher.index("python3 analysis/scripts/search_vllm_stage.py run")
+        first_git_call = launcher.index("git rev-parse HEAD")
 
         self.assertIn("export HF_HUB_OFFLINE=1", launcher[:server_start])
         self.assertIn("export TRANSFORMERS_OFFLINE=1", launcher[:server_start])
+        self.assertIn("module load git", launcher[:first_git_call])
+        self.assertIn(
+            'source "${ACL_ARR_VENV:?}/bin/activate"',
+            launcher[:first_git_call],
+        )
         self.assertIn("nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", launcher)
         self.assertIn("2dc98e2afe4face0e4ce40972a915c45368bd34a", launcher)
         self.assertIn("--disable-thinking", launcher)

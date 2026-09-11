@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! type module >/dev/null 2>&1; then
+  source /etc/profile
+fi
+module load Stages/2026 GCC Python CUDA
+module load git
+source "${ACL_ARR_VENV:?}/bin/activate"
+
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
