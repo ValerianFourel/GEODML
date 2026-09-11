@@ -48,6 +48,7 @@ class AgenticSearchClusterReadinessTests(unittest.TestCase):
 
             cross_encoder = root / ("e" * 40)
             _write_snapshot(cross_encoder)
+            smoke_outputs = _write_smoke_outputs(root)
             search_snapshots = {}
             for engine in EXPECTED_ENGINES:
                 path = root / f"{engine}.jsonl"
@@ -65,6 +66,7 @@ class AgenticSearchClusterReadinessTests(unittest.TestCase):
                 model_snapshots=lock_path,
                 cross_encoder_snapshot=cross_encoder,
                 search_snapshots=search_snapshots,
+                smoke_outputs=smoke_outputs,
                 check_runtime_packages=False,
                 require_clean_git=False,
             ))
@@ -73,6 +75,8 @@ class AgenticSearchClusterReadinessTests(unittest.TestCase):
         self.assertFalse(result["scientific_result"])
         self.assertEqual(result["matrix_cell_count"], 48)
         self.assertTrue(all(check["status"] == "PASS" for check in result["checks"]))
+        smoke = next(check for check in result["checks"] if check["name"] == "smoke_inference")
+        self.assertEqual(len(smoke["details"]["verified_models"]), 4)
 
     def test_missing_engine_snapshot_fails_the_gate(self) -> None:
         with TemporaryDirectory() as directory:
@@ -90,6 +94,7 @@ class AgenticSearchClusterReadinessTests(unittest.TestCase):
             lock_path.write_text(json.dumps({"models": locks}), encoding="utf-8")
             cross_encoder = root / ("e" * 40)
             _write_snapshot(cross_encoder)
+            smoke_outputs = _write_smoke_outputs(root)
             searxng = root / "searxng.jsonl"
             searxng.write_text("{}\n", encoding="utf-8")
 
@@ -98,6 +103,7 @@ class AgenticSearchClusterReadinessTests(unittest.TestCase):
                 model_snapshots=lock_path,
                 cross_encoder_snapshot=cross_encoder,
                 search_snapshots={"searxng": searxng},
+                smoke_outputs=smoke_outputs,
                 check_runtime_packages=False,
                 require_clean_git=False,
             ))
@@ -115,6 +121,44 @@ def _write_snapshot(path: Path) -> None:
     )
     (path / "tokenizer.json").write_text("{}\n", encoding="utf-8")
     (path / "model.safetensors").write_bytes(b"weights")
+
+
+def _write_smoke_outputs(root: Path) -> dict[str, Path]:
+    from analysis.scripts.verify_agentic_search_cluster_readiness import EXPECTED_MODELS
+
+    outputs = {}
+    for model in EXPECTED_MODELS:
+        output = root / ("smoke-" + model.configuration_id)
+        output.mkdir()
+        profile = root / (model.configuration_id + ".serving-profile.json")
+        profile.write_text("{}\n", encoding="utf-8")
+        profile_hash = __import__("hashlib").sha256(profile.read_bytes()).hexdigest()
+        manifest = {
+            "status": "checkpointed",
+            "model_id": model.model_id,
+            "model_revision": model.revision,
+            "model_configuration_id": model.configuration_id,
+            "answer_max_tokens_override": 2048,
+            "completed_count": 4,
+            "failures_this_invocation": 0,
+            "fake_backend": False,
+            "serving_profile": {"path": str(profile), "sha256": profile_hash},
+        }
+        (output / "run_manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        outcomes = [
+            {"pipeline": "rerank"},
+            {"pipeline": "rerank"},
+            {"pipeline": "rerank"},
+            {"pipeline": "answer"},
+        ]
+        (output / "outcomes.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in outcomes),
+            encoding="utf-8",
+        )
+        outputs[model.configuration_id] = output
+    return outputs
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import Counter
 from dataclasses import asdict, dataclass
 import hashlib
 from importlib import metadata, util
@@ -89,6 +90,7 @@ class ReadinessInputs:
     model_snapshots: Path
     cross_encoder_snapshot: Path
     search_snapshots: Mapping[str, Path]
+    smoke_outputs: Mapping[str, Path]
     check_runtime_packages: bool = True
     require_clean_git: bool = True
 
@@ -134,6 +136,10 @@ def audit_readiness(inputs: ReadinessInputs) -> dict[str, Any]:
         _capture_check(
             "search_snapshots",
             lambda: _check_search_snapshots(inputs.search_snapshots),
+        ),
+        _capture_check(
+            "smoke_inference",
+            lambda: _check_smoke_outputs(inputs.smoke_outputs),
         ),
         _capture_check(
             "repository",
@@ -407,6 +413,70 @@ def _check_search_snapshots(paths: Mapping[str, Path]) -> dict[str, Any]:
     return {"verified_search_engines": verified, "network_requests_started": False}
 
 
+def _check_smoke_outputs(paths: Mapping[str, Path]) -> dict[str, Any]:
+    expected_ids = {model.configuration_id for model in EXPECTED_MODELS}
+    if set(paths) != expected_ids:
+        missing = sorted(expected_ids.difference(paths))
+        extra = sorted(set(paths).difference(expected_ids))
+        raise ValueError(f"smoke-output panel mismatch; missing={missing} extra={extra}")
+    verified = []
+    for model in EXPECTED_MODELS:
+        output = Path(paths[model.configuration_id])
+        manifest_path = output / "run_manifest.json"
+        outcomes_path = output / "outcomes.jsonl"
+        manifest = _read_object(manifest_path)
+        expected_identity = {
+            "model_id": model.model_id,
+            "model_revision": model.revision,
+            "model_configuration_id": model.configuration_id,
+        }
+        actual_identity = {
+            key: manifest.get(key)
+            for key in expected_identity
+        }
+        if actual_identity != expected_identity:
+            raise ValueError(
+                f"smoke identity mismatch for {model.configuration_id}: {actual_identity}"
+            )
+        expected_summary = {
+            "status": "checkpointed",
+            "answer_max_tokens_override": 2048,
+            "completed_count": 4,
+            "failures_this_invocation": 0,
+            "fake_backend": False,
+        }
+        actual_summary = {key: manifest.get(key) for key in expected_summary}
+        if actual_summary != expected_summary:
+            raise ValueError(
+                f"smoke summary mismatch for {model.configuration_id}: {actual_summary}"
+            )
+        outcomes = _read_jsonl_objects(outcomes_path)
+        pipelines = Counter(str(row.get("pipeline")) for row in outcomes)
+        if pipelines != {"rerank": 3, "answer": 1}:
+            raise ValueError(
+                f"smoke pipeline coverage mismatch for {model.configuration_id}: "
+                f"{dict(pipelines)}"
+            )
+        binding = manifest.get("serving_profile")
+        if not isinstance(binding, dict):
+            raise ValueError(f"smoke has no serving-profile binding: {model.configuration_id}")
+        profile_path = Path(str(binding.get("path", "")))
+        profile_identity = _file_identity(profile_path)
+        if binding.get("sha256") != profile_identity["sha256"]:
+            raise ValueError(
+                f"serving-profile hash mismatch for {model.configuration_id}"
+            )
+        verified.append({
+            **expected_identity,
+            **expected_summary,
+            "pipelines": dict(sorted(pipelines.items())),
+            "run_manifest": _file_identity(manifest_path),
+            "outcomes": _file_identity(outcomes_path),
+            "serving_profile": profile_identity,
+        })
+    return {"verified_models": verified, "inference_started_by_audit": False}
+
+
 def _search_columns(path: Path) -> set[str]:
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError(f"missing or empty search snapshot: {path}")
@@ -492,6 +562,21 @@ def _read_object(path: Path) -> dict[str, Any]:
     return value
 
 
+def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    rows = []
+    with path.open(encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, 1):
+            if not line.strip():
+                continue
+            value = json.loads(line)
+            if not isinstance(value, dict):
+                raise ValueError(f"expected an object at {path}:{line_number}")
+            rows.append(value)
+    if not rows:
+        raise ValueError(f"JSONL file has no records: {path}")
+    return rows
+
+
 def _file_identity(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError(f"missing or empty file: {path}")
@@ -534,6 +619,13 @@ def _parse_search_snapshot(value: str) -> tuple[str, Path]:
     return normalized, Path(path)
 
 
+def _parse_key_path(value: str) -> tuple[str, Path]:
+    key, separator, path = value.partition("=")
+    if not separator or not key.strip() or not path:
+        raise argparse.ArgumentTypeError("use KEY=PATH")
+    return key.strip(), Path(path)
+
+
 def _write_json_atomic(path: Path, value: Mapping[str, Any]) -> None:
     if path.exists():
         raise FileExistsError(f"refusing to overwrite readiness manifest: {path}")
@@ -573,6 +665,13 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         metavar="ENGINE=PATH",
     )
+    parser.add_argument(
+        "--smoke-output",
+        action="append",
+        type=_parse_key_path,
+        required=True,
+        metavar="MODEL_CONFIG_ID=PATH",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--skip-runtime-packages", action="store_true")
     return parser
@@ -583,11 +682,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     search_snapshots = dict(arguments.search_snapshot)
     if len(search_snapshots) != len(arguments.search_snapshot):
         raise SystemExit("duplicate --search-snapshot engine")
+    smoke_outputs = dict(arguments.smoke_output)
+    if len(smoke_outputs) != len(arguments.smoke_output):
+        raise SystemExit("duplicate --smoke-output model configuration")
     result = audit_readiness(ReadinessInputs(
         repository=arguments.repository,
         model_snapshots=arguments.model_snapshots,
         cross_encoder_snapshot=arguments.cross_encoder_snapshot,
         search_snapshots=search_snapshots,
+        smoke_outputs=smoke_outputs,
         check_runtime_packages=not arguments.skip_runtime_packages,
         require_clean_git=True,
     ))
