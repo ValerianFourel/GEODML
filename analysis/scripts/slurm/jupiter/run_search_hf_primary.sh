@@ -147,7 +147,7 @@ if native < configured:
     expected = {
         "factor": 4.0,
         "original_max_position_embeddings": 32768,
-        "type": "yarn",
+        "rope_type": "yarn",
     }
     if model_id != "Qwen/Qwen2.5-72B-Instruct" or rope_scaling != expected:
         raise ValueError(

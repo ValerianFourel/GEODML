@@ -68,12 +68,13 @@ unchanged.
 
 The pinned Qwen2.5-72B configuration advertises 32,768 tokens by default. For a
 request above that limit, set the vLLM rope-scaling override explicitly to
-`{"factor":4.0,"original_max_position_embeddings":32768,"type":"yarn"}`.
+`{"factor":4.0,"original_max_position_embeddings":32768,"rope_type":"yarn"}`.
 The worker passes it through vLLM's `--hf-overrides` interface. The serving
 profile records and hashes the exact override. Do not apply it to the other
 panel models or use it to bypass the measured request budget. This follows the
 [Qwen2.5-72B model card](https://huggingface.co/Qwen/Qwen2.5-72B-Instruct#processing-long-texts),
-which also warns that static YaRN can affect shorter inputs.
+which also warns that static YaRN can affect shorter inputs. The model card uses
+the legacy `type` spelling; vLLM 0.28 requires `rope_type` in an HF override.
 
 ```bash
 python3 analysis/scripts/run_search_experience.py run-primary \

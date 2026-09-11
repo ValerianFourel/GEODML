@@ -120,7 +120,7 @@ class SearchVllmStageTests(unittest.TestCase):
         rope_scaling = {
             "factor": 4.0,
             "original_max_position_embeddings": 32768,
-            "type": "yarn",
+            "rope_type": "yarn",
         }
         record = profile(
             rope_scaling=rope_scaling,
@@ -129,7 +129,7 @@ class SearchVllmStageTests(unittest.TestCase):
         flag = record["server_argv"].index("--hf-overrides")
         self.assertEqual(
             record["server_argv"][flag + 1],
-            '{"rope_scaling":{"factor":4.0,"original_max_position_embeddings":32768,"type":"yarn"}}',
+            '{"rope_scaling":{"factor":4.0,"original_max_position_embeddings":32768,"rope_type":"yarn"}}',
         )
         self.assertEqual(record["features"]["rope_scaling"], rope_scaling)
         self.assertNotEqual(record["profile_sha256"], profile()["profile_sha256"])
@@ -142,17 +142,17 @@ class SearchVllmStageTests(unittest.TestCase):
             {
                 "factor": 1.0,
                 "original_max_position_embeddings": 32768,
-                "type": "yarn",
+                "rope_type": "yarn",
             },
             {
                 "factor": 4.0,
                 "original_max_position_embeddings": 32768,
-                "type": "linear",
+                "rope_type": "linear",
             },
             {
                 "factor": 4.0,
                 "original_max_position_embeddings": 32768,
-                "type": "yarn",
+                "rope_type": "yarn",
                 "unknown": True,
             },
         ):

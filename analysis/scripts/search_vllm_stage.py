@@ -157,11 +157,11 @@ def _validated_rope_scaling(
     if not isinstance(value, Mapping) or set(value) != {
         "factor",
         "original_max_position_embeddings",
-        "type",
+        "rope_type",
     }:
         raise ValueError(
             "rope scaling must contain exactly factor, "
-            "original_max_position_embeddings, and type"
+            "original_max_position_embeddings, and rope_type"
         )
     factor = value["factor"]
     original = value["original_max_position_embeddings"]
@@ -178,12 +178,12 @@ def _validated_rope_scaling(
         or original < 1
     ):
         raise ValueError("rope scaling original context must be a positive integer")
-    if value["type"] != "yarn":
-        raise ValueError("rope scaling type must be yarn")
+    if value["rope_type"] != "yarn":
+        raise ValueError("rope scaling rope_type must be yarn")
     return {
         "factor": float(factor),
         "original_max_position_embeddings": original,
-        "type": "yarn",
+        "rope_type": "yarn",
     }
 
 
