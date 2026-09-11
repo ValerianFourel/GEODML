@@ -34,6 +34,20 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn("export HF_HUB_OFFLINE=1", launcher[:server_start])
         self.assertIn("export TRANSFORMERS_OFFLINE=1", launcher[:server_start])
 
+    def test_qwen25_launcher_pins_model_and_yarn_profile(self) -> None:
+        launcher = (
+            Path(__file__).resolve().parents[1]
+            / "scripts/slurm/jupiter/run_agentic_search_qwen25_smoke.sh"
+        ).read_text(encoding="utf-8")
+        server_start = launcher.index("python3 analysis/scripts/search_vllm_stage.py run")
+
+        self.assertIn("export HF_HUB_OFFLINE=1", launcher[:server_start])
+        self.assertIn("export TRANSFORMERS_OFFLINE=1", launcher[:server_start])
+        self.assertIn("Qwen/Qwen2.5-72B-Instruct", launcher)
+        self.assertIn("495f39366efef23836d0cfae4fbe635880d2be31", launcher)
+        self.assertIn('"rope_type": "yarn"', launcher)
+        self.assertIn("AGENTIC_QWEN25_12_CELL_SMOKE=PASS", launcher)
+
     def test_search_is_bounded_relevant_and_audited(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "snapshot.jsonl"
