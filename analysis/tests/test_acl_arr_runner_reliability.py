@@ -154,6 +154,49 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual([e["event"] for e in events], ["start", "end"])
         self.assertEqual(events[0]["task_context"], {"task_id": "1"})
 
+    def test_chat_template_kwargs_are_sent_and_audited(self):
+        payloads, events = [], []
+
+        class Response:
+            status = 200
+
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def text(self):
+                return json.dumps({"choices": [{"message": {"content": "{}"}}]})
+
+        class Session:
+            def post(self, url, json):
+                payloads.append(json)
+                return Response()
+
+        client = runner.VllmChatClient(
+            base_url="http://example/v1",
+            api_key=None,
+            server_model_name="model",
+            timeout_seconds=1,
+            maximum_attempts=1,
+            audit_callback=events.append,
+            chat_template_kwargs={"enable_thinking": False},
+        )
+        client.session = Session()
+        asyncio.run(client.complete(
+            prompt="test",
+            schema_name="test",
+            schema={},
+            temperature=0.0,
+            max_tokens=10,
+            seed=1,
+        ))
+
+        self.assertEqual(
+            payloads[0]["chat_template_kwargs"], {"enable_thinking": False}
+        )
+        self.assertEqual(
+            events[0]["request"]["chat_template_kwargs"],
+            {"enable_thinking": False},
+        )
+
     def test_http_retries_keep_payload_and_emit_each_attempt(self):
         events, payloads = [], []
         class Response:

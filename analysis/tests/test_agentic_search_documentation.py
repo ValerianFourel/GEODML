@@ -17,7 +17,7 @@ class AgenticSearchDocumentationTests(unittest.TestCase):
             "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
             "meta-llama/Llama-4-Scout-17B-16E-Instruct",
             "Qwen/Qwen2.5-72B-Instruct",
-            "mistralai/Mistral-Small-4-119B-2603",
+            "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
             "Qwen/Qwen3.8-27B",
             f"At most {agentic_search.SEARCH_RESULT_LIMIT} snippets",
             f"Exactly {agentic_search.PARALLEL_QUERY_COUNT} distinct queries",

@@ -122,12 +122,12 @@ outputs.
 | --- | --- | ---: | ---: | --- | --- |
 | `meta-llama/Llama-4-Scout-17B-16E-Instruct` | MoE | 109B | 17B | Reranking and answer generation | Verify revision and vLLM build |
 | `Qwen/Qwen2.5-72B-Instruct` | Dense | 72B | 72B | Reranking, answer generation, preferred judge | Approved substitute for unavailable Qwen3.8-72B |
-| `mistralai/Mistral-Small-4-119B-2603` | MoE | 119B | about 6.5B | Reranking and answer generation | Verify revision and vLLM build |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | MoE | 120B | 12B | Reranking and answer generation | Pin the BF16 revision and disable thinking for bounded JSON calls |
 | `Qwen/Qwen3.8-27B` | Dense | about 27B | about 27B | Reranking and answer generation | Verify revision and vLLM build |
 
-The Llama and Mistral names above match official model cards. Mistral describes
-its model as 119B total and about 6.5B active parameters, commonly shortened to
-`A6B`. The official Qwen inventory exposes Qwen3.8-27B but not Qwen3.8-72B.
+The Llama and Nemotron names above match official model cards. NVIDIA describes
+Nemotron 3 Super as a 120B mixture-of-experts model with 12B active parameters.
+The official Qwen inventory exposes Qwen3.8-27B but not Qwen3.8-72B.
 Valerian approved `Qwen/Qwen2.5-72B-Instruct` as the dense 72B substitute for
 the pilot. Record this change because the two dense Qwen arms now come from
 different model generations.
@@ -709,6 +709,6 @@ ablation condition are distinct variables and require distinct estimands.
 - [Llama 4 Scout model card](https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct)
 - [Official Qwen model inventory](https://huggingface.co/Qwen/models)
 - [Qwen3.8-27B model card](https://huggingface.co/Qwen/Qwen3.8-27B)
-- [Mistral Small 4 model card](https://huggingface.co/mistralai/Mistral-Small-4-119B-2603)
+- [NVIDIA Nemotron 3 Super BF16 model card](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16)
 - [vLLM parallelism and scaling](https://docs.vllm.ai/en/latest/serving/parallelism_scaling/)
 - [vLLM OpenAI-compatible server](https://docs.vllm.ai/en/latest/serving/openai_compatible_server/)

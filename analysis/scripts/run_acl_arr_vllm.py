@@ -248,6 +248,7 @@ class VllmChatClient:
         timeout_seconds: float,
         maximum_attempts: int,
         audit_callback=None,
+        chat_template_kwargs: Mapping[str, Any] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -256,6 +257,9 @@ class VllmChatClient:
         self.maximum_attempts = maximum_attempts
         self.session = None
         self.audit_callback = audit_callback
+        self.chat_template_kwargs = (
+            None if chat_template_kwargs is None else dict(chat_template_kwargs)
+        )
 
     def _audit(self, event):
         if self.audit_callback is not None:
@@ -330,11 +334,18 @@ class VllmChatClient:
                 },
             },
         }
+        if self.chat_template_kwargs is not None:
+            payload["chat_template_kwargs"] = dict(self.chat_template_kwargs)
         last_error: Exception | None = None
         for attempt in range(1, self.maximum_attempts + 1):
             started = time.monotonic()
+            request_keys = (
+                "model", "temperature", "max_tokens", "seed", "response_format",
+            )
+            if "chat_template_kwargs" in payload:
+                request_keys += ("chat_template_kwargs",)
             event = {"attempt": attempt, "started_at": _now(),
-                     "request": {k: payload[k] for k in ("model", "temperature", "max_tokens", "seed", "response_format")},
+                     "request": {key: payload[key] for key in request_keys},
                      "rendered_prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest()}
             self._audit({**event, "event": "start"})
             status_code = None

@@ -14,9 +14,20 @@ from typing import Any
 MODEL_IDS = (
     "meta-llama/Llama-4-Scout-17B-16E-Instruct",
     "Qwen/Qwen2.5-72B-Instruct",
-    "mistralai/Mistral-Small-4-119B-2603",
+    "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
     "Qwen/Qwen3.8-27B",
 )
+
+PINNED_REVISIONS = {
+    "meta-llama/Llama-4-Scout-17B-16E-Instruct": (
+        "92f3b1597a195b523d8d9e5700e57e4fbb8f20d3"
+    ),
+    "Qwen/Qwen2.5-72B-Instruct": "495f39366efef23836d0cfae4fbe635880d2be31",
+    "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": (
+        "2dc98e2afe4face0e4ce40972a915c45368bd34a"
+    ),
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+}
 
 
 def _write_atomic(path: Path, value: object) -> None:
@@ -64,7 +75,7 @@ def verify_downloads(run_root: Path) -> None:
 
 
 def download_models(run_root: Path, template_path: Path) -> None:
-    from huggingface_hub import HfApi, snapshot_download
+    from huggingface_hub import snapshot_download
 
     run_root.mkdir(parents=True, exist_ok=True)
     models_path = run_root / "models.json"
@@ -77,13 +88,14 @@ def download_models(run_root: Path, template_path: Path) -> None:
         locks = locks_value
         _validate_locks(locks)
     else:
-        api = HfApi()
-        locks = []
-        for model_id in MODEL_IDS:
-            revision = str(api.model_info(model_id).sha)
-            locks.append(
-                {"model_id": model_id, "revision": revision, "snapshot": None}
-            )
+        locks = [
+            {
+                "model_id": model_id,
+                "revision": PINNED_REVISIONS[model_id],
+                "snapshot": None,
+            }
+            for model_id in MODEL_IDS
+        ]
         _validate_locks(locks)
         _write_atomic(lock_path, {"models": locks})
 

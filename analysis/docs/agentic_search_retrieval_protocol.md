@@ -41,13 +41,37 @@ The pinned generator panel is:
 |---|---|
 | `meta-llama/Llama-4-Scout-17B-16E-Instruct` | `92f3b1597a195b523d8d9e5700e57e4fbb8f20d3` |
 | `Qwen/Qwen2.5-72B-Instruct` | `495f39366efef23836d0cfae4fbe635880d2be31` |
-| `mistralai/Mistral-Small-4-119B-2603` | `a11f36bebf709121056b1dbcc943d1c6afbe494d` |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | `2dc98e2afe4face0e4ce40972a915c45368bd34a` |
 | `Qwen/Qwen3.8-27B` | `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` |
 
-Each model has passed a four-task execution-compatibility smoke with one answer
-and three reranking tasks. This proves that the pinned snapshots can serve the
-request schemas used by those smokes. It does not prove answer quality,
-agentic-path quality, judge validity, or production throughput.
+Llama 4 Scout, Qwen2.5, and Qwen3.8 have passed both the four-task primary smoke
+and the 12-cell agentic smoke. The earlier Mistral candidate passed its primary
+smoke but repeatedly stalled during agentic server initialization. It was
+replaced before scientific execution. Nemotron must pass the same primary and
+12-cell gates before the revised four-model panel is ready. Compatibility
+smokes do not prove answer quality, agentic-path quality, judge validity, or
+production throughput.
+
+Nemotron uses a chat template that enables thinking by default. This protocol
+sets `chat_template_kwargs={"enable_thinking": false}` on every Nemotron
+request. The flag is recorded in the run manifest and HTTP audit trace. This
+keeps reasoning tokens out of the bounded structured-output channel and makes
+its call contract comparable with the other three models.
+
+### Model replacement record
+
+The Mistral agentic smoke exhausted nearly all available device memory during
+startup and then remained in shared-memory broadcast waits until the readiness
+timeout. That failed run remains part of the audit history. It is not a
+scientific result, and its files must not be reused as Nemotron evidence.
+
+The active panel replaces Mistral with the pinned Nemotron BF16 checkpoint. The
+replacement requires a new model lock, serving profile, primary compatibility
+smoke, and 12-cell agentic smoke. Existing Llama, Qwen2.5, and Qwen3.8 evidence
+does not need to be rerun merely because the fourth model changed. Any plan
+that contains the former Mistral model ID must be regenerated under a new run
+directory. Results from the old and revised panels must not be pooled without
+an explicit model-panel indicator.
 
 The 26,009-prompt matrix is a proposed expansion. It is not the existing
 128-prompt document-pilot plan, whose manifest contains 4,608 planned

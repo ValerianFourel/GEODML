@@ -265,6 +265,7 @@ class SmokeInputs:
     search_snapshots: Mapping[str, Path]
     seed: int
     max_tokens: int
+    disable_thinking: bool = False
 
 
 def _config(inputs: SmokeInputs, keyword: str) -> dict[str, Any]:
@@ -278,6 +279,7 @@ def _config(inputs: SmokeInputs, keyword: str) -> dict[str, Any]:
         "base_url": inputs.base_url,
         "cross_encoder_snapshot": str(inputs.cross_encoder_snapshot.resolve()),
         "cross_encoder_revision": inputs.cross_encoder_revision,
+        "disable_thinking": inputs.disable_thinking,
         "search_snapshots": {
             engine: {
                 "path": str(path.resolve()),
@@ -345,6 +347,9 @@ async def run_smoke(
             server_model_name=inputs.model_id,
             timeout_seconds=300.0,
             maximum_attempts=2,
+            chat_template_kwargs=(
+                {"enable_thinking": False} if inputs.disable_thinking else None
+            ),
         )
     async with client_context as client:
         for engine in ENGINES:
@@ -443,6 +448,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--search-snapshot", action="append", type=_binding, required=True)
     parser.add_argument("--seed", type=int, default=20260911)
     parser.add_argument("--max-tokens", type=int, default=1024)
+    parser.add_argument(
+        "--disable-thinking",
+        action="store_true",
+        help="Pass enable_thinking=false to the model chat template.",
+    )
     arguments = parser.parse_args(argv)
     if re.fullmatch(r"[0-9a-f]{40}", arguments.model_revision) is None:
         parser.error("model revision must be a 40-character SHA")
@@ -461,6 +471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         search_snapshots=snapshots,
         seed=arguments.seed,
         max_tokens=arguments.max_tokens,
+        disable_thinking=arguments.disable_thinking,
     )
     manifest = asyncio.run(run_smoke(inputs))
     print("AGENTIC_INTEGRATION_SMOKE=" + json.dumps({

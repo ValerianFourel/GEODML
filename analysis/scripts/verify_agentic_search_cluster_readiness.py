@@ -58,9 +58,9 @@ EXPECTED_MODELS = (
         41984,
     ),
     ModelSpec(
-        "mistralai/Mistral-Small-4-119B-2603",
-        "a11f36bebf709121056b1dbcc943d1c6afbe494d",
-        "model-config-c860fb2fb61da06a8443",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+        "2dc98e2afe4face0e4ce40972a915c45368bd34a",
+        "model-config-05b4f1c9ea3e2b8524e5",
         43008,
     ),
     ModelSpec(

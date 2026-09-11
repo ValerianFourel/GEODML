@@ -20,6 +20,14 @@ from analysis.scripts.verify_agentic_search_cluster_readiness import (
 
 
 class AgenticSearchClusterReadinessTests(unittest.TestCase):
+    def test_model_panel_uses_nemotron_instead_of_mistral(self) -> None:
+        model_ids = {model.model_id for model in EXPECTED_MODELS}
+
+        self.assertIn(
+            "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16", model_ids
+        )
+        self.assertNotIn("mistralai/Mistral-Small-4-119B-2603", model_ids)
+
     def test_matrix_contains_all_48_unique_cells(self) -> None:
         matrix = build_experiment_matrix()
 

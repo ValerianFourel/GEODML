@@ -8,6 +8,8 @@ import sys
 from tempfile import TemporaryDirectory
 import unittest
 
+from analysis.scripts.download_acl_arr_pilot_models import PINNED_REVISIONS
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 JUPITER_ROOT = REPOSITORY_ROOT / "analysis/scripts/slurm/jupiter"
@@ -24,12 +26,23 @@ SHELL_SCRIPTS = (
 MODEL_IDS = (
     "meta-llama/Llama-4-Scout-17B-16E-Instruct",
     "Qwen/Qwen2.5-72B-Instruct",
-    "mistralai/Mistral-Small-4-119B-2603",
+    "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
     "Qwen/Qwen3.8-27B",
 )
 
 
 class AclArrPilotClusterScriptTests(unittest.TestCase):
+    def test_model_panel_revisions_are_immutable_and_pinned(self) -> None:
+        self.assertEqual(tuple(PINNED_REVISIONS), MODEL_IDS)
+        self.assertEqual(
+            PINNED_REVISIONS[
+                "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16"
+            ],
+            "2dc98e2afe4face0e4ce40972a915c45368bd34a",
+        )
+        for revision in PINNED_REVISIONS.values():
+            self.assertRegex(revision, r"^[0-9a-f]{40}$")
+
     def test_all_cluster_scripts_have_valid_bash_syntax(self) -> None:
         for script in SHELL_SCRIPTS:
             with self.subTest(script=script.name):
