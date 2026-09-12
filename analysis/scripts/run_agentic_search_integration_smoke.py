@@ -301,6 +301,10 @@ class SmokeInputs:
     max_tokens: int
     request_concurrency: int = 1
     disable_thinking: bool = False
+    prompts_jsonl: Path | None = None
+    selection_records_jsonl: Path | None = None
+    prompt_count: int = 1
+    prompt_selection_seed: int = 20260912
 
     def __post_init__(self) -> None:
         if (
@@ -308,6 +312,115 @@ class SmokeInputs:
             or not 1 <= self.request_concurrency <= 4
         ):
             raise ValueError("request_concurrency must be an integer from 1 to 4")
+        if (self.prompts_jsonl is None) != (self.selection_records_jsonl is None):
+            raise ValueError(
+                "prompts and selection records must be configured together"
+            )
+        if type(self.prompt_count) is not int or self.prompt_count < 1:
+            raise ValueError("prompt count must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationPrompt:
+    prompt_id: str
+    prompt: str
+    question_sha256: str
+    axis_bin: int
+
+
+def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ValueError(f"missing JSONL input: {path}")
+    rows: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, 1):
+            if not line.strip():
+                continue
+            value = json.loads(line)
+            if not isinstance(value, dict):
+                raise ValueError(f"expected object at {path}:{line_number}")
+            rows.append(value)
+    if not rows:
+        raise ValueError(f"JSONL input is empty: {path}")
+    return rows
+
+
+def _selection_key(seed: int, *values: str) -> tuple[str, ...]:
+    payload = "\0".join((str(seed), *values)).encode("utf-8")
+    return (hashlib.sha256(payload).hexdigest(), *values)
+
+
+def _load_calibration_prompts(
+    prompts_path: Path,
+    records_path: Path,
+    *,
+    prompt_count: int,
+    seed: int,
+) -> tuple[CalibrationPrompt, ...]:
+    """Select a deterministic axis-balanced subset from a frozen pilot."""
+    prompt_rows = _read_jsonl_objects(prompts_path)
+    record_rows = _read_jsonl_objects(records_path)
+    prompts_by_id: dict[str, Mapping[str, Any]] = {}
+    for row in prompt_rows:
+        prompt_id = str(row.get("candidate_id", ""))
+        if not prompt_id or prompt_id in prompts_by_id:
+            raise ValueError("prompt records have missing or duplicate candidate IDs")
+        prompts_by_id[prompt_id] = row
+    records_by_id: dict[str, Mapping[str, Any]] = {}
+    for row in record_rows:
+        prompt_id = str(row.get("candidate_id", ""))
+        if not prompt_id or prompt_id in records_by_id:
+            raise ValueError(
+                "selection records have missing or duplicate candidate IDs"
+            )
+        records_by_id[prompt_id] = row
+    if set(prompts_by_id) != set(records_by_id):
+        raise ValueError("prompt and selection-record candidate ID sets differ")
+    if prompt_count > len(prompts_by_id):
+        raise ValueError("prompt count exceeds the frozen pilot size")
+
+    by_bin: dict[int, list[CalibrationPrompt]] = {}
+    for prompt_id, row in prompts_by_id.items():
+        question = row.get("question")
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError(f"prompt {prompt_id} has no question text")
+        actual_hash = hashlib.sha256(question.encode("utf-8")).hexdigest()
+        saved_hash = row.get("question_sha256")
+        if saved_hash is not None and saved_hash != actual_hash:
+            raise ValueError(f"prompt {prompt_id} question hash mismatch")
+        axis_bin = records_by_id[prompt_id].get("axis_bin")
+        if type(axis_bin) is not int or axis_bin < 0:
+            raise ValueError(f"prompt {prompt_id} has an invalid axis bin")
+        by_bin.setdefault(axis_bin, []).append(CalibrationPrompt(
+            prompt_id=prompt_id,
+            prompt=question,
+            question_sha256=actual_hash,
+            axis_bin=axis_bin,
+        ))
+    bins = sorted(by_bin)
+    if prompt_count < len(bins):
+        raise ValueError(
+            "prompt count must be at least the number of observed axis bins"
+        )
+    base, remainder = divmod(prompt_count, len(bins))
+    extra_bins = set(sorted(
+        bins,
+        key=lambda axis_bin: _selection_key(seed, "axis-bin", str(axis_bin)),
+    )[:remainder])
+    selected: list[CalibrationPrompt] = []
+    for axis_bin in bins:
+        quota = base + int(axis_bin in extra_bins)
+        candidates = sorted(
+            by_bin[axis_bin],
+            key=lambda row: _selection_key(seed, "prompt", row.prompt_id),
+        )
+        if quota > len(candidates):
+            raise ValueError(f"axis bin {axis_bin} cannot satisfy its quota")
+        selected.extend(candidates[:quota])
+    selected.sort(key=lambda row: (row.axis_bin, row.prompt_id))
+    if len(selected) != prompt_count:
+        raise AssertionError("calibration prompt selection has the wrong size")
+    return tuple(selected)
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,37 +429,62 @@ class SmokeCell:
     engine: str
     condition: ExperimentalCondition
     method_class: type[ParallelExpansionV1 | ReactiveSnippetLoopV1]
+    prompt_id: str | None = None
+    prompt: str | None = None
+    prompt_sha256: str | None = None
 
     @property
     def core(self) -> dict[str, str]:
-        return {
+        core = {
             "method": self.method_class.method_id,
             "engine": self.engine,
             "condition": self.condition.value,
         }
+        if self.prompt_id is not None:
+            core["prompt_id"] = self.prompt_id
+            if self.prompt_sha256 is None:
+                raise AssertionError("calibration cell lacks its prompt hash")
+            core["prompt_sha256"] = self.prompt_sha256
+        return core
 
 
-def _cells() -> tuple[SmokeCell, ...]:
+def _cells(
+    prompts: Sequence[CalibrationPrompt] | None = None,
+) -> tuple[SmokeCell, ...]:
     cells: list[SmokeCell] = []
-    for engine in ENGINES:
-        for condition in CONDITIONS:
-            for method_class in METHODS:
-                core = {
-                    "method": method_class.method_id,
-                    "engine": engine,
-                    "condition": condition.value,
-                }
-                cells.append(SmokeCell(
-                    cell_id=hashlib.sha256(_canonical(core)).hexdigest()[:20],
-                    engine=engine,
-                    condition=condition,
-                    method_class=method_class,
-                ))
+    prompt_values: Sequence[CalibrationPrompt | None] = prompts or (None,)
+    for prompt in prompt_values:
+        for engine in ENGINES:
+            for condition in CONDITIONS:
+                for method_class in METHODS:
+                    core = {
+                        "method": method_class.method_id,
+                        "engine": engine,
+                        "condition": condition.value,
+                    }
+                    if prompt is not None:
+                        core["prompt_id"] = prompt.prompt_id
+                        core["prompt_sha256"] = prompt.question_sha256
+                    cells.append(SmokeCell(
+                        cell_id=hashlib.sha256(_canonical(core)).hexdigest()[:20],
+                        engine=engine,
+                        condition=condition,
+                        method_class=method_class,
+                        prompt_id=None if prompt is None else prompt.prompt_id,
+                        prompt=None if prompt is None else prompt.prompt,
+                        prompt_sha256=(
+                            None if prompt is None else prompt.question_sha256
+                        ),
+                    ))
     return tuple(cells)
 
 
-def _config(inputs: SmokeInputs, keyword: str) -> dict[str, Any]:
-    return {
+def _config(
+    inputs: SmokeInputs,
+    keyword: str,
+    prompts: Sequence[CalibrationPrompt] | None = None,
+) -> dict[str, Any]:
+    config = {
         "format_version": "agentic-search-integration-smoke-v1",
         "scientific_result": False,
         "git_commit": os.environ.get("GEODML_EXECUTION_COMMIT"),
@@ -375,6 +513,45 @@ def _config(inputs: SmokeInputs, keyword: str) -> dict[str, Any]:
         "retrieval_mode": "frozen-snapshot-deterministic-lexical-v1",
         "condition_mode": "smoke-only-subset-and-order-v1",
     }
+    if prompts is not None:
+        if inputs.prompts_jsonl is None or inputs.selection_records_jsonl is None:
+            raise AssertionError("calibration inputs lack source paths")
+        prompt_identity = [
+            {
+                "prompt_id": prompt.prompt_id,
+                "question_sha256": prompt.question_sha256,
+                "axis_bin": prompt.axis_bin,
+            }
+            for prompt in prompts
+        ]
+        config.pop("slurm_job_id")
+        config.update({
+            "format_version": "agentic-search-execution-calibration-v1",
+            "cell_count": len(prompts) * len(METHODS) * len(CONDITIONS) * len(ENGINES),
+            "prompt_count": len(prompts),
+            "prompt_selection_seed": inputs.prompt_selection_seed,
+            "prompt_selection_sha256": hashlib.sha256(
+                _canonical(prompt_identity)
+            ).hexdigest(),
+            "prompt_sources": {
+                "prompts_jsonl": {
+                    "path": str(inputs.prompts_jsonl.resolve()),
+                    "sha256": _sha256_file(inputs.prompts_jsonl),
+                },
+                "selection_records_jsonl": {
+                    "path": str(inputs.selection_records_jsonl.resolve()),
+                    "sha256": _sha256_file(inputs.selection_records_jsonl),
+                },
+            },
+            "axis_bin_counts": {
+                str(axis_bin): count
+                for axis_bin, count in sorted(Counter(
+                    prompt.axis_bin for prompt in prompts
+                ).items())
+            },
+            "keyword": None,
+        })
+    return config
 
 
 def _cache_metrics(compactor: ContextCompactor) -> dict[str, int] | None:
@@ -435,10 +612,13 @@ def _recover_incomplete_trace(cell: SmokeCell, trace_path: Path) -> None:
     os.replace(trace_path, destination)
 
 
-def _load_completed_cells(output: Path) -> tuple[dict[str, dict[str, Any]], list[SmokeCell]]:
+def _load_completed_cells(
+    output: Path,
+    cells: Sequence[SmokeCell] | None = None,
+) -> tuple[dict[str, dict[str, Any]], list[SmokeCell]]:
     completed: dict[str, dict[str, Any]] = {}
     pending: list[SmokeCell] = []
-    for cell in _cells():
+    for cell in cells or _cells():
         trace_path = output / "traces" / f"{cell.cell_id}.json"
         result_path = output / "results" / f"{cell.cell_id}.json"
         trace_exists = trace_path.is_file()
@@ -472,11 +652,23 @@ async def run_smoke(
     if not shared_keywords:
         raise ValueError("search snapshots have no shared keyword")
     keyword = sorted(shared_keywords, key=lambda value: (value.casefold(), value))[0]
-    prompt = (
+    prompts = (
+        _load_calibration_prompts(
+            inputs.prompts_jsonl,
+            inputs.selection_records_jsonl,
+            prompt_count=inputs.prompt_count,
+            seed=inputs.prompt_selection_seed,
+        )
+        if inputs.prompts_jsonl is not None
+        and inputs.selection_records_jsonl is not None
+        else None
+    )
+    legacy_prompt = (
         f"Answer the following retrieval question: {keyword}. "
         "For the reactive method, perform at least one search before finishing."
     )
-    config = _config(inputs, keyword)
+    cells = _cells(prompts)
+    config = _config(inputs, keyword, prompts)
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
     inputs.output.mkdir(parents=True, exist_ok=True)
     config_path = inputs.output / "config.json"
@@ -487,7 +679,7 @@ async def run_smoke(
     else:
         _write_json_atomic(config_path, {**config, "config_sha256": config_hash})
 
-    completed, pending = _load_completed_cells(inputs.output)
+    completed, pending = _load_completed_cells(inputs.output, cells)
     manifest_path = inputs.output / "run_manifest.json"
     if not pending and manifest_path.is_file():
         existing_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -543,7 +735,10 @@ async def run_smoke(
                 condition_hook=SmokeConditionHook(inputs.seed),
             )
             try:
-                result = await method.run(prompt, cell.condition)
+                result = await method.run(
+                    cell.prompt if cell.prompt is not None else legacy_prompt,
+                    cell.condition,
+                )
             except AgentExecutionError as error:
                 failure_hash = error.trace.to_dict()["trace_sha256"]
                 failure_path = (
@@ -645,6 +840,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=20260911)
     parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--request-concurrency", type=int, default=1)
+    parser.add_argument("--prompts-jsonl", type=Path)
+    parser.add_argument("--selection-records-jsonl", type=Path)
+    parser.add_argument("--prompt-count", type=int, default=1)
+    parser.add_argument("--prompt-selection-seed", type=int, default=20260912)
     parser.add_argument(
         "--disable-thinking",
         action="store_true",
@@ -670,6 +869,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_tokens=arguments.max_tokens,
         request_concurrency=arguments.request_concurrency,
         disable_thinking=arguments.disable_thinking,
+        prompts_jsonl=arguments.prompts_jsonl,
+        selection_records_jsonl=arguments.selection_records_jsonl,
+        prompt_count=arguments.prompt_count,
+        prompt_selection_seed=arguments.prompt_selection_seed,
     )
     manifest = asyncio.run(run_smoke(inputs))
     print("AGENTIC_INTEGRATION_SMOKE=" + json.dumps({

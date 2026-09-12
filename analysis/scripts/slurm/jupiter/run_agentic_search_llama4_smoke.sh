@@ -24,6 +24,21 @@ test -s "$SEARCH_AGENTIC_SEARXNG_SNAPSHOT"
 test ! -e "$SEARCH_AGENTIC_SERVER_LOG"
 test ! -e "$SEARCH_AGENTIC_GPU_TELEMETRY"
 
+geodml_prompt_args=()
+geodml_expected_cells="${SEARCH_AGENTIC_EXPECTED_CELL_COUNT:-12}"
+if [[ -n "${SEARCH_AGENTIC_PROMPTS_JSONL:-}" ]]; then
+  : "${SEARCH_AGENTIC_SELECTION_RECORDS_JSONL:?}"
+  : "${SEARCH_AGENTIC_PROMPT_COUNT:?}"
+  test -s "$SEARCH_AGENTIC_PROMPTS_JSONL"
+  test -s "$SEARCH_AGENTIC_SELECTION_RECORDS_JSONL"
+  geodml_prompt_args=(
+    --prompts-jsonl "$SEARCH_AGENTIC_PROMPTS_JSONL"
+    --selection-records-jsonl "$SEARCH_AGENTIC_SELECTION_RECORDS_JSONL"
+    --prompt-count "$SEARCH_AGENTIC_PROMPT_COUNT"
+    --prompt-selection-seed "${SEARCH_AGENTIC_PROMPT_SELECTION_SEED:-20260912}"
+  )
+fi
+
 python3 - "$SEARCH_AGENTIC_PROFILE" <<'PY'
 import sys
 from analysis.scripts.search_vllm_stage import load_profile
@@ -85,23 +100,28 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --search-snapshot "searxng=$SEARCH_AGENTIC_SEARXNG_SNAPSHOT" \
     --seed 20260911 \
     --max-tokens 1024 \
-    --request-concurrency "${SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1}"
+    --request-concurrency "${SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1}" \
+    "${geodml_prompt_args[@]}"
 
-python3 - "$SEARCH_AGENTIC_OUTPUT/run_manifest.json" <<'PY'
+python3 - "$SEARCH_AGENTIC_OUTPUT/run_manifest.json" "$geodml_expected_cells" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text())
+expected_cells = int(sys.argv[2])
 expected = {
     "status": "complete",
-    "cell_count": 12,
-    "completed_count": 12,
+    "cell_count": expected_cells,
+    "completed_count": expected_cells,
     "remaining_count": 0,
     "scientific_result": False,
 }
 actual = {key: manifest.get(key) for key in expected}
 assert actual == expected, actual
-print("AGENTIC_LLAMA4_12_CELL_SMOKE=PASS")
+if expected_cells == 12:
+    print("AGENTIC_LLAMA4_12_CELL_SMOKE=PASS")
+else:
+    print(f"AGENTIC_LLAMA4_{expected_cells}_CELL_RUN=PASS")
 print("SUMMARY=" + json.dumps(actual, sort_keys=True))
 PY

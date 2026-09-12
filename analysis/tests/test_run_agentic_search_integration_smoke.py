@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -21,11 +22,165 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     FrozenSnapshotSearchAdapter,
     SmokeInputs,
     SmokeConditionHook,
+    _cells,
+    _load_calibration_prompts,
     run_smoke,
 )
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_calibration_prompt_selection_covers_all_axis_bins(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            prompts_path = root / "pilot-prompts.jsonl"
+            records_path = root / "selection-records.jsonl"
+            prompt_rows = []
+            record_rows = []
+            for axis_bin in range(20):
+                for copy in range(2):
+                    candidate_id = f"prompt-{axis_bin}-{copy}"
+                    question = f"Question for axis bin {axis_bin}, copy {copy}?"
+                    prompt_rows.append({
+                        "candidate_id": candidate_id,
+                        "question": question,
+                        "question_sha256": hashlib.sha256(
+                            question.encode("utf-8")
+                        ).hexdigest(),
+                    })
+                    record_rows.append({
+                        "candidate_id": candidate_id,
+                        "axis_bin": axis_bin,
+                    })
+            prompts_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in prompt_rows),
+                encoding="utf-8",
+            )
+            records_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in record_rows),
+                encoding="utf-8",
+            )
+
+            selected = _load_calibration_prompts(
+                prompts_path,
+                records_path,
+                prompt_count=25,
+                seed=20260912,
+            )
+            repeated = _load_calibration_prompts(
+                prompts_path,
+                records_path,
+                prompt_count=25,
+                seed=20260912,
+            )
+            cells = _cells(selected)
+
+        counts = Counter(prompt.axis_bin for prompt in selected)
+        self.assertEqual(len(selected), 25)
+        self.assertEqual(set(counts), set(range(20)))
+        self.assertEqual(sorted(counts.values()), [1] * 15 + [2] * 5)
+        self.assertEqual(selected, repeated)
+        self.assertEqual(len(cells), 300)
+        self.assertEqual(len({cell.cell_id for cell in cells}), 300)
+        self.assertEqual(
+            {cell.prompt_id for cell in cells},
+            {prompt.prompt_id for prompt in selected},
+        )
+
+    def test_twenty_five_prompt_calibration_runs_and_resumes_300_cells(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            prompts_path = root / "pilot-prompts.jsonl"
+            records_path = root / "selection-records.jsonl"
+            prompts = []
+            records = []
+            for axis_bin in range(20):
+                for copy in range(2):
+                    candidate_id = f"prompt-{axis_bin}-{copy}"
+                    question = f"What is the Berlin population for bin {axis_bin}?"
+                    prompts.append({
+                        "candidate_id": candidate_id,
+                        "question": question,
+                        "question_sha256": hashlib.sha256(
+                            question.encode("utf-8")
+                        ).hexdigest(),
+                    })
+                    records.append({
+                        "candidate_id": candidate_id,
+                        "axis_bin": axis_bin,
+                    })
+            prompts_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in prompts),
+                encoding="utf-8",
+            )
+            records_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in records),
+                encoding="utf-8",
+            )
+            snapshots = {}
+            for engine in ("duckduckgo", "searxng"):
+                path = root / f"{engine}.jsonl"
+                path.write_text(
+                    "".join(
+                        json.dumps({
+                            "keyword": "Berlin population",
+                            "position": index + 1,
+                            "title": f"Berlin source {index}",
+                            "url": f"https://{engine}.test/{index}",
+                            "snippet": f"Berlin population evidence {index}",
+                        }) + "\n"
+                        for index in range(20)
+                    ),
+                    encoding="utf-8",
+                )
+                snapshots[engine] = path
+            cross_encoder = root / ("e" * 40)
+            cross_encoder.mkdir()
+            inputs = SmokeInputs(
+                output=root / "output",
+                base_url="http://127.0.0.1:8010/v1",
+                model_id="test/model",
+                model_revision="a" * 40,
+                cross_encoder_snapshot=cross_encoder,
+                cross_encoder_revision="e" * 40,
+                search_snapshots=snapshots,
+                seed=11,
+                max_tokens=128,
+                request_concurrency=4,
+                prompts_jsonl=prompts_path,
+                selection_records_jsonl=records_path,
+                prompt_count=25,
+                prompt_selection_seed=20260912,
+            )
+            client = _FakeClientContext()
+            manifest = asyncio.run(run_smoke(
+                inputs,
+                client_context=client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+            resume_client = _FakeClientContext()
+            resumed = asyncio.run(run_smoke(
+                inputs,
+                client_context=resume_client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+            result_count = len(list((inputs.output / "results").glob("*.json")))
+
+        self.assertEqual(manifest["format_version"], "agentic-search-execution-calibration-v1")
+        self.assertEqual(manifest["status"], "complete")
+        self.assertEqual(manifest["prompt_count"], 25)
+        self.assertEqual(manifest["cell_count"], 300)
+        self.assertEqual(manifest["completed_count"], 300)
+        self.assertEqual(manifest["remaining_count"], 0)
+        self.assertNotIn("slurm_job_id", manifest)
+        self.assertEqual(sorted(manifest["axis_bin_counts"].values()), [1] * 15 + [2] * 5)
+        self.assertEqual(result_count, 300)
+        self.assertEqual(resumed, manifest)
+        self.assertEqual(resume_client.call_count, 0)
+
     def test_smoke_request_concurrency_is_bounded(self) -> None:
         with self.assertRaisesRegex(ValueError, "from 1 to 4"):
             SmokeInputs(
@@ -77,6 +232,33 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn("meta-llama/Llama-4-Scout-17B-16E-Instruct", launcher)
         self.assertIn("92f3b1597a195b523d8d9e5700e57e4fbb8f20d3", launcher)
         self.assertIn("AGENTIC_LLAMA4_12_CELL_SMOKE=PASS", launcher)
+
+    def test_calibration_launcher_runs_three_models_and_900_cells(self) -> None:
+        scripts = Path(__file__).resolve().parents[1] / "scripts/slurm/jupiter"
+        launcher = (
+            scripts / "run_agentic_search_25_prompt_calibration.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("SEARCH_AGENTIC_PROMPT_COUNT=25", launcher)
+        self.assertIn("SEARCH_AGENTIC_EXPECTED_CELL_COUNT=300", launcher)
+        self.assertIn("SEARCH_AGENTIC_REQUEST_CONCURRENCY", launcher)
+        self.assertIn("run_agentic_search_qwen38_smoke.sh", launcher)
+        self.assertIn("run_agentic_search_qwen25_smoke.sh", launcher)
+        self.assertIn("run_agentic_search_llama4_smoke.sh", launcher)
+        self.assertIn('"cell_count": 900', launcher)
+        self.assertIn('"scientific_result": False', launcher)
+        self.assertIn('"baseline_started": False', launcher)
+        self.assertIn('"judge_started": False', launcher)
+
+        for name in (
+            "run_agentic_search_qwen38_smoke.sh",
+            "run_agentic_search_qwen25_smoke.sh",
+            "run_agentic_search_llama4_smoke.sh",
+        ):
+            model_launcher = (scripts / name).read_text(encoding="utf-8")
+            self.assertIn("--prompts-jsonl", model_launcher)
+            self.assertIn("--selection-records-jsonl", model_launcher)
+            self.assertIn("SEARCH_AGENTIC_EXPECTED_CELL_COUNT", model_launcher)
 
     def test_nemotron_launcher_pins_model_and_disables_thinking(self) -> None:
         launcher = (
