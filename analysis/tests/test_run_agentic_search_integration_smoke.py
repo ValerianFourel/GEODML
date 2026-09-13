@@ -31,11 +31,65 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     _cells,
     _legacy_resume_config,
     _load_calibration_prompts,
+    _prepare_config,
+    _previous_resume_config,
     run_smoke,
 )
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_previous_resume_config_migrates_only_the_exact_predecessor(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            current = {
+                "git_commit": "new-commit",
+                "disable_thinking": True,
+                "execution_policy": {
+                    "max_tokens_by_purpose": {
+                        "parallel_query_expansion": 256,
+                        "parallel_final": 2048,
+                        "reactive_action": 2048,
+                        "reactive_forced_finish": 2048,
+                    },
+                    "ranking_reference_mode": "evidence-id-v1",
+                    "final_answer_max_characters": 1200,
+                },
+            }
+            current_hash = hashlib.sha256(json.dumps(
+                current,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            previous = _previous_resume_config(current)
+            self.assertIsNotNone(previous)
+            previous_hash = hashlib.sha256(json.dumps(
+                previous,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            path.write_text(json.dumps({
+                **previous,
+                "config_sha256": previous_hash,
+            }), encoding="utf-8")
+
+            compatible, migrated = _prepare_config(
+                path,
+                current,
+                current_hash,
+            )
+
+            self.assertIsNotNone(migrated)
+            self.assertEqual(migrated["config_sha256"], previous_hash)
+            self.assertIn(previous_hash, {
+                source["config_sha256"] for source in compatible
+            })
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")),
+                {**current, "config_sha256": current_hash},
+            )
+
     def test_global_1024_budget_reproduces_parallel_final_truncation(self) -> None:
         client = _FakeClientContext(truncate_final_at=1024)
 
@@ -744,6 +798,14 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 "reactive_action": 2048,
                 "reactive_forced_finish": 2048,
             },
+        )
+        self.assertEqual(
+            manifest["execution_policy"]["ranking_reference_mode"],
+            "evidence-id-v1",
+        )
+        self.assertEqual(
+            manifest["execution_policy"]["final_answer_max_characters"],
+            1200,
         )
         self.assertEqual(client.call_count, 24)
         self.assertEqual(client.peak_active_calls, 4)

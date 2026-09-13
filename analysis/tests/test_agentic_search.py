@@ -250,6 +250,75 @@ class AgenticSearchTests(unittest.TestCase):
         self.assertTrue(query_events[1].payload["validation_error"])
         self.assertIsNone(query_events[2].payload["validation_error"])
 
+    def test_parallel_final_ranks_short_evidence_ids_and_returns_urls(self):
+        llm = ScriptedLLM([
+            json.dumps({"queries": ["one", "two", "three"]}),
+            json.dumps({"ranking": ["S2", "S1"], "answer": "Bounded answer."}),
+        ])
+        method = ParallelExpansionV1(
+            llm=llm,
+            search=StaticSearchAdapter("duckduckgo", {
+                "one": [snippet(1), snippet(2)],
+                "two": [],
+                "three": [],
+            }),
+            compactor=ContextCompactor(PositionScorer()),
+            condition_hook=IdentityConditionHook(),
+        )
+
+        result = asyncio.run(method.run(
+            "Question", ExperimentalCondition.NATURAL
+        ))
+
+        self.assertEqual(result.ranking, (
+            "https://example.test/1", "https://example.test/2"
+        ))
+        request = llm.requests[-1]
+        ranking = request.response_schema["properties"]["ranking"]
+        self.assertEqual(ranking["items"]["enum"], ["S1", "S2"])
+        self.assertTrue(ranking["uniqueItems"])
+        self.assertEqual(
+            request.response_schema["properties"]["answer"]["maxLength"],
+            1200,
+        )
+        self.assertIn('"evidence_id": "S1"', request.prompt)
+
+    def test_reactive_forced_finish_ranks_unique_evidence_ids(self):
+        llm = ScriptedLLM([
+            json.dumps({"action": "search", "query": "first"}),
+            json.dumps({"action": "search", "query": "second"}),
+            json.dumps({"action": "search", "query": "third"}),
+            json.dumps({
+                "action": "finish",
+                "ranking": ["S2", "S1"],
+                "answer": "Bounded answer.",
+            }),
+        ])
+        repeated = [snippet(1), snippet(2), snippet(1)]
+        method = ReactiveSnippetLoopV1(
+            llm=llm,
+            search=StaticSearchAdapter("searxng", {
+                "first": repeated,
+                "second": repeated,
+                "third": repeated,
+            }),
+            compactor=ContextCompactor(PositionScorer()),
+            condition_hook=IdentityConditionHook(),
+        )
+
+        result = asyncio.run(method.run(
+            "Question", ExperimentalCondition.NATURAL
+        ))
+
+        self.assertEqual(result.ranking, (
+            "https://example.test/1", "https://example.test/2"
+        ))
+        request = llm.requests[-1]
+        ranking = request.response_schema["properties"]["ranking"]
+        self.assertEqual(ranking["items"]["enum"], ["S1", "S2"])
+        self.assertEqual(ranking["maxItems"], 2)
+        self.assertIn('"evidence_id": "S1"', request.prompt)
+
     def test_schema_retry_exhaustion_exposes_complete_trace(self):
         llm = ScriptedLLM(["bad", "still bad", "also bad"])
         method = ParallelExpansionV1(

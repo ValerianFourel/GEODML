@@ -27,6 +27,7 @@ from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
     AgentExecutionError,
     ContextCompactor,
     ExperimentalCondition,
+    FINAL_ANSWER_MAX_CHARACTERS,
     LLMRequest,
     MemoizingSnippetScorer,
     ParallelExpansionV1,
@@ -48,6 +49,7 @@ ANSWER_PURPOSES = frozenset(
     ("parallel_final", "reactive_action", "reactive_forced_finish")
 )
 LEGACY_RESUME_COMMIT = "b561f1aaf54971a89fa2dabb7f3f9d32770ce8cc"
+PREVIOUS_RESUME_COMMIT = "3426907232d98634a3502381e58708cc3c028f30"
 FAILED_CELL_RETRY_PASSES = 1
 
 
@@ -556,6 +558,8 @@ def _config(
             },
             "maximum_active_cells": inputs.request_concurrency,
             "failed_cell_retry_passes": FAILED_CELL_RETRY_PASSES,
+            "ranking_reference_mode": "evidence-id-v1",
+            "final_answer_max_characters": FINAL_ANSWER_MAX_CHARACTERS,
         },
         "request_concurrency": inputs.request_concurrency,
         "retrieval_mode": "frozen-snapshot-deterministic-lexical-v1",
@@ -634,29 +638,82 @@ def _legacy_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
     return legacy
 
 
+def _previous_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
+    policy = config.get("execution_policy", {})
+    if (
+        policy.get("ranking_reference_mode") != "evidence-id-v1"
+        or policy.get("final_answer_max_characters")
+        != FINAL_ANSWER_MAX_CHARACTERS
+    ):
+        return None
+    previous = json.loads(json.dumps(config))
+    previous["git_commit"] = PREVIOUS_RESUME_COMMIT
+    previous["execution_policy"].pop("ranking_reference_mode")
+    previous["execution_policy"].pop("final_answer_max_characters")
+    return previous
+
+
 def _prepare_config(
     path: Path,
     config: Mapping[str, Any],
     config_hash: str,
-) -> tuple[str | None, bool]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     current = {**config, "config_sha256": config_hash}
     legacy = _legacy_resume_config(config)
     legacy_hash = hashlib.sha256(_canonical(legacy)).hexdigest() if legacy else None
-    if not path.exists():
-        _write_json_atomic(path, current)
-        return legacy_hash, False
-    previous = json.loads(path.read_text(encoding="utf-8"))
-    if previous == current:
-        return legacy_hash, False
-    legacy_record = (
-        {**legacy, "config_sha256": legacy_hash}
-        if legacy is not None and legacy_hash is not None
+    prior_config = _previous_resume_config(config)
+    prior_hash = (
+        hashlib.sha256(_canonical(prior_config)).hexdigest()
+        if prior_config
         else None
     )
-    if previous != legacy_record:
-        raise ValueError("existing smoke configuration differs")
-    _write_json_atomic(path, current)
-    return legacy_hash, True
+    candidates = [
+        (
+            legacy,
+            legacy_hash,
+            LEGACY_RESUME_COMMIT,
+            1024,
+            False,
+        ),
+        (
+            prior_config,
+            prior_hash,
+            PREVIOUS_RESUME_COMMIT,
+            2048,
+            config["disable_thinking"],
+        ),
+    ]
+    compatible_sources = [
+        {
+            "config": candidate,
+            "config_sha256": candidate_hash,
+            "git_commit": source_commit,
+            "max_tokens": source_tokens,
+            "disable_thinking": source_thinking,
+        }
+        for (
+            candidate,
+            candidate_hash,
+            source_commit,
+            source_tokens,
+            source_thinking,
+        ) in candidates
+        if candidate is not None and candidate_hash is not None
+    ]
+    if not path.exists():
+        _write_json_atomic(path, current)
+        return compatible_sources, None
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    if stored == current:
+        return compatible_sources, None
+    for source in compatible_sources:
+        if stored == {
+            **source["config"],
+            "config_sha256": source["config_sha256"],
+        }:
+            _write_json_atomic(path, current)
+            return compatible_sources, source
+    raise ValueError("existing smoke configuration differs")
 
 
 def _cache_metrics(compactor: ContextCompactor) -> dict[str, int] | None:
@@ -777,7 +834,7 @@ async def run_smoke(
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
     inputs.output.mkdir(parents=True, exist_ok=True)
     config_path = inputs.output / "config.json"
-    legacy_config_hash, config_was_migrated = _prepare_config(
+    compatible_sources, migrated_source = _prepare_config(
         config_path,
         config,
         config_hash,
@@ -791,8 +848,9 @@ async def run_smoke(
         else None
     )
     allowed_manifest_hashes = {config_hash}
-    if legacy_config_hash is not None:
-        allowed_manifest_hashes.add(legacy_config_hash)
+    allowed_manifest_hashes.update(
+        source["config_sha256"] for source in compatible_sources
+    )
     if (
         existing_manifest is not None
         and existing_manifest.get("config_sha256") not in allowed_manifest_hashes
@@ -803,20 +861,34 @@ async def run_smoke(
         if existing_manifest is not None
         else None
     )
-    if config_was_migrated or (
-        existing_manifest is not None
-        and existing_manifest.get("config_sha256") == legacy_config_hash
-    ):
+    resume_source = migrated_source
+    if resume_source is None and existing_manifest is not None:
+        resume_source = next(
+            (
+                source
+                for source in compatible_sources
+                if source["config_sha256"]
+                == existing_manifest.get("config_sha256")
+            ),
+            None,
+        )
+    if resume_source is not None:
         resume_migration = {
-            "source_config_sha256": legacy_config_hash,
-            "source_git_commit": LEGACY_RESUME_COMMIT,
-            "source_max_tokens": 1024,
-            "source_disable_thinking": False,
+            "source_config_sha256": resume_source["config_sha256"],
+            "source_git_commit": resume_source["git_commit"],
+            "source_max_tokens": resume_source["max_tokens"],
+            "source_disable_thinking": resume_source["disable_thinking"],
             "preserved_completed_count": len(completed),
             "preserved_cell_ids_sha256": hashlib.sha256(
                 _canonical(sorted(completed))
             ).hexdigest(),
         }
+        if existing_manifest is not None and existing_manifest.get(
+            "resume_migration"
+        ) is not None:
+            resume_migration["prior_resume_migration"] = existing_manifest[
+                "resume_migration"
+            ]
     if not pending:
         if existing_manifest is not None:
             if (
