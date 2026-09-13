@@ -50,6 +50,7 @@ ANSWER_PURPOSES = frozenset(
 )
 LEGACY_RESUME_COMMIT = "b561f1aaf54971a89fa2dabb7f3f9d32770ce8cc"
 PREVIOUS_RESUME_COMMIT = "3426907232d98634a3502381e58708cc3c028f30"
+EVIDENCE_ID_RESUME_COMMIT = "c5eba6036fc1bef032bfa0992007f396133b72e7"
 FAILED_CELL_RETRY_PASSES = 1
 
 
@@ -607,18 +608,14 @@ def _config(
 
 
 def _legacy_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
+    previous = _previous_resume_config(config)
     if (
-        config.get("model_id") != "Qwen/Qwen3.8-27B"
-        or config.get("disable_thinking") is not True
-        or config.get("execution_policy", {}).get("max_tokens_by_purpose") != {
-            "parallel_query_expansion": 256,
-            "parallel_final": 2048,
-            "reactive_action": 2048,
-            "reactive_forced_finish": 2048,
-        }
+        previous is None
+        or previous.get("model_id") != "Qwen/Qwen3.8-27B"
+        or previous.get("disable_thinking") is not True
     ):
         return None
-    legacy = json.loads(json.dumps(config))
+    legacy = json.loads(json.dumps(previous))
     versions = {
         "agentic-search-integration-smoke-v2": "agentic-search-integration-smoke-v1",
         "agentic-search-execution-calibration-v2": (
@@ -639,6 +636,18 @@ def _legacy_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _previous_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
+    previous = _evidence_id_resume_config(config)
+    if previous is None:
+        return None
+    previous["git_commit"] = PREVIOUS_RESUME_COMMIT
+    previous["execution_policy"].pop("ranking_reference_mode")
+    previous["execution_policy"].pop("final_answer_max_characters")
+    return previous
+
+
+def _evidence_id_resume_config(
+    config: Mapping[str, Any],
+) -> dict[str, Any] | None:
     policy = config.get("execution_policy", {})
     if (
         policy.get("ranking_reference_mode") != "evidence-id-v1"
@@ -647,9 +656,9 @@ def _previous_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
     ):
         return None
     previous = json.loads(json.dumps(config))
-    previous["git_commit"] = PREVIOUS_RESUME_COMMIT
-    previous["execution_policy"].pop("ranking_reference_mode")
-    previous["execution_policy"].pop("final_answer_max_characters")
+    previous["git_commit"] = EVIDENCE_ID_RESUME_COMMIT
+    for purpose in ANSWER_PURPOSES:
+        previous["execution_policy"]["max_tokens_by_purpose"][purpose] = 2048
     return previous
 
 
@@ -667,6 +676,12 @@ def _prepare_config(
         if prior_config
         else None
     )
+    evidence_id_config = _evidence_id_resume_config(config)
+    evidence_id_hash = (
+        hashlib.sha256(_canonical(evidence_id_config)).hexdigest()
+        if evidence_id_config
+        else None
+    )
     candidates = [
         (
             legacy,
@@ -679,6 +694,13 @@ def _prepare_config(
             prior_config,
             prior_hash,
             PREVIOUS_RESUME_COMMIT,
+            2048,
+            config["disable_thinking"],
+        ),
+        (
+            evidence_id_config,
+            evidence_id_hash,
+            EVIDENCE_ID_RESUME_COMMIT,
             2048,
             config["disable_thinking"],
         ),

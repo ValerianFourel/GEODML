@@ -100,7 +100,7 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --search-snapshot "searxng=$SEARCH_AGENTIC_SEARXNG_SNAPSHOT" \
     --seed 20260911 \
     --query-max-tokens 256 \
-    --final-max-tokens 2048 \
+    --final-max-tokens 4096 \
     --request-concurrency "${SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1}" \
     "${geodml_prompt_args[@]}"
 

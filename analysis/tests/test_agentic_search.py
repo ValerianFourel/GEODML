@@ -319,6 +319,87 @@ class AgenticSearchTests(unittest.TestCase):
         self.assertEqual(ranking["maxItems"], 2)
         self.assertIn('"evidence_id": "S1"', request.prompt)
 
+    def test_final_attempt_repairs_ranking_and_bounds_answer(self):
+        invalid = json.dumps({
+            "ranking": ["S2", "https://outside.test/", "S2", "S1"],
+            "answer": "x" * 1300,
+        })
+        llm = ScriptedLLM([
+            json.dumps({"queries": ["one", "two", "three"]}),
+            invalid,
+            invalid,
+            invalid,
+        ])
+        method = ParallelExpansionV1(
+            llm=llm,
+            search=StaticSearchAdapter("duckduckgo", {
+                "one": [snippet(1), snippet(2)],
+                "two": [],
+                "three": [],
+            }),
+            compactor=ContextCompactor(PositionScorer()),
+            condition_hook=IdentityConditionHook(),
+        )
+
+        result = asyncio.run(method.run(
+            "Question", ExperimentalCondition.NATURAL
+        ))
+
+        self.assertEqual(result.ranking, (
+            "https://example.test/1", "https://example.test/2"
+        ))
+        self.assertEqual(result.answer, "x" * 1200)
+        repairs = [
+            event for event in result.trace.events
+            if event.event_type == "controller_repair"
+        ]
+        self.assertEqual(len(repairs), 1)
+        self.assertEqual(repairs[0].payload["dropped_ranking_references"], [
+            "https://outside.test/", "S2"
+        ])
+        self.assertTrue(repairs[0].payload["answer_truncated"])
+
+    def test_reactive_final_attempt_repairs_forced_finish(self):
+        invalid_finish = json.dumps({
+            "action": "finish",
+            "ranking": ["S1", "https://outside.test/"],
+            "answer": "Bounded answer.",
+        })
+        llm = ScriptedLLM([
+            json.dumps({"action": "search", "query": "first"}),
+            json.dumps({"action": "search", "query": "second"}),
+            json.dumps({"action": "search", "query": "third"}),
+            invalid_finish,
+            invalid_finish,
+            invalid_finish,
+        ])
+        method = ReactiveSnippetLoopV1(
+            llm=llm,
+            search=StaticSearchAdapter("searxng", {
+                "first": [snippet(1), snippet(2)],
+                "second": [snippet(1), snippet(2)],
+                "third": [snippet(1), snippet(2)],
+            }),
+            compactor=ContextCompactor(PositionScorer()),
+            condition_hook=IdentityConditionHook(),
+        )
+
+        result = asyncio.run(method.run(
+            "Question", ExperimentalCondition.NATURAL
+        ))
+
+        self.assertEqual(result.ranking, ("https://example.test/2",))
+        repairs = [
+            event for event in result.trace.events
+            if event.event_type == "controller_repair"
+        ]
+        self.assertEqual(len(repairs), 1)
+        self.assertTrue(repairs[0].payload["forced_finish"])
+        self.assertEqual(
+            repairs[0].payload["dropped_ranking_references"],
+            ["https://outside.test/"],
+        )
+
     def test_schema_retry_exhaustion_exposes_complete_trace(self):
         llm = ScriptedLLM(["bad", "still bad", "also bad"])
         method = ParallelExpansionV1(

@@ -29,6 +29,7 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     SmokeConditionHook,
     VllmAgentGenerator,
     _cells,
+    _evidence_id_resume_config,
     _legacy_resume_config,
     _load_calibration_prompts,
     _prepare_config,
@@ -47,9 +48,9 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 "execution_policy": {
                     "max_tokens_by_purpose": {
                         "parallel_query_expansion": 256,
-                        "parallel_final": 2048,
-                        "reactive_action": 2048,
-                        "reactive_forced_finish": 2048,
+                        "parallel_final": 4096,
+                        "reactive_action": 4096,
+                        "reactive_forced_finish": 4096,
                     },
                     "ranking_reference_mode": "evidence-id-v1",
                     "final_answer_max_characters": 1200,
@@ -89,6 +90,39 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 json.loads(path.read_text(encoding="utf-8")),
                 {**current, "config_sha256": current_hash},
             )
+
+            evidence_id = _evidence_id_resume_config(current)
+            self.assertIsNotNone(evidence_id)
+            self.assertEqual(
+                evidence_id["execution_policy"]["max_tokens_by_purpose"],
+                {
+                    "parallel_query_expansion": 256,
+                    "parallel_final": 2048,
+                    "reactive_action": 2048,
+                    "reactive_forced_finish": 2048,
+                },
+            )
+            evidence_id_hash = hashlib.sha256(json.dumps(
+                evidence_id,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            path.write_text(json.dumps({
+                **evidence_id,
+                "config_sha256": evidence_id_hash,
+            }), encoding="utf-8")
+
+            compatible, migrated = _prepare_config(
+                path,
+                current,
+                current_hash,
+            )
+
+            self.assertEqual(migrated["config_sha256"], evidence_id_hash)
+            self.assertIn(evidence_id_hash, {
+                source["config_sha256"] for source in compatible
+            })
 
     def test_global_1024_budget_reproduces_parallel_final_truncation(self) -> None:
         client = _FakeClientContext(truncate_final_at=1024)
@@ -504,17 +538,21 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn('"baseline_started": False', launcher)
         self.assertIn('"judge_started": False', launcher)
 
-        for name in (
-            "run_agentic_search_qwen38_smoke.sh",
-            "run_agentic_search_qwen25_smoke.sh",
-            "run_agentic_search_llama4_smoke.sh",
-        ):
+        final_budgets = {
+            "run_agentic_search_qwen38_smoke.sh": 2048,
+            "run_agentic_search_qwen25_smoke.sh": 2048,
+            "run_agentic_search_llama4_smoke.sh": 4096,
+        }
+        for name, final_budget in final_budgets.items():
             model_launcher = (scripts / name).read_text(encoding="utf-8")
             self.assertIn("--prompts-jsonl", model_launcher)
             self.assertIn("--selection-records-jsonl", model_launcher)
             self.assertIn("SEARCH_AGENTIC_EXPECTED_CELL_COUNT", model_launcher)
             self.assertIn("--query-max-tokens 256", model_launcher)
-            self.assertIn("--final-max-tokens 2048", model_launcher)
+            self.assertIn(
+                f"--final-max-tokens {final_budget}",
+                model_launcher,
+            )
         self.assertIn(
             'legacy["git_commit"] = "b561f1aaf54971a89fa2dabb7f3f9d32770ce8cc"',
             launcher,

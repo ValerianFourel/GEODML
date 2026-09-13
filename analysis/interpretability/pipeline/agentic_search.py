@@ -447,6 +447,10 @@ class AgenticMethod(ABC):
         trace: AgentTrace,
         request: LLMRequest,
         validator: Callable[[Mapping[str, Any]], dict[str, Any]],
+        final_attempt_repair: (
+            Callable[[Mapping[str, Any]], tuple[dict[str, Any], Mapping[str, Any]]]
+            | None
+        ) = None,
     ) -> dict[str, Any]:
         for attempt in range(1, self.schema_retries + 2):
             try:
@@ -464,8 +468,10 @@ class AgenticMethod(ABC):
                 raise AgentExecutionError("LLM transport failed", trace) from error
             validation_error: str | None = None
             parsed: dict[str, Any] | None = None
+            decoded: Mapping[str, Any] | None = None
             try:
-                parsed = validator(_json_object(raw))
+                decoded = _json_object(raw)
+                parsed = validator(decoded)
             except (ValueError, TypeError, json.JSONDecodeError) as error:
                 validation_error = f"{type(error).__name__}: {error}"
             trace.record("llm_call", {
@@ -479,6 +485,26 @@ class AgenticMethod(ABC):
             })
             if parsed is not None:
                 return parsed
+            if (
+                attempt == self.schema_retries + 1
+                and decoded is not None
+                and final_attempt_repair is not None
+            ):
+                try:
+                    repaired, repair_details = final_attempt_repair(decoded)
+                except (ValueError, TypeError) as error:
+                    trace.record("controller_repair_rejected", {
+                        "purpose": request.purpose,
+                        "error": f"{type(error).__name__}: {error}",
+                    })
+                else:
+                    trace.record("controller_repair", {
+                        "purpose": request.purpose,
+                        "trigger_validation_error": validation_error,
+                        **dict(repair_details),
+                        "repaired_output": repaired,
+                    })
+                    return repaired
         raise AgentExecutionError(
             f"schema validation failed after {self.schema_retries + 1} attempts",
             trace,
@@ -639,6 +665,7 @@ class ParallelExpansionV1(AgenticMethod):
             trace=trace,
             request=final_request,
             validator=lambda value: _validate_final(value, compacted),
+            final_attempt_repair=lambda value: _repair_final(value, compacted),
         )
         return AgenticResult(
             method_id=self.method_id,
@@ -684,6 +711,9 @@ class ReactiveSnippetLoopV1(AgenticMethod):
                 trace=trace,
                 request=request,
                 validator=lambda value: _validate_action(
+                    value, observations, force_finish=False
+                ),
+                final_attempt_repair=lambda value: _repair_action(
                     value, observations, force_finish=False
                 ),
             )
@@ -732,6 +762,9 @@ class ReactiveSnippetLoopV1(AgenticMethod):
             trace=trace,
             request=forced_request,
             validator=lambda value: _validate_action(
+                value, observations, force_finish=True
+            ),
+            final_attempt_repair=lambda value: _repair_action(
                 value, observations, force_finish=True
             ),
         )
@@ -907,7 +940,7 @@ def _validate_final(
         raise ValueError("final output must contain only ranking and answer")
     return {
         "ranking": _ranking(value["ranking"], snippets),
-        "answer": _nonempty_text(value["answer"], "answer"),
+        "answer": _bounded_answer(value["answer"]),
     }
 
 
@@ -928,11 +961,83 @@ def _validate_action(
         return {
             "action": "finish",
             "ranking": _ranking(value["ranking"], snippets),
-            "answer": _nonempty_text(value["answer"], "answer"),
+            "answer": _bounded_answer(value["answer"]),
         }
     if force_finish:
         raise ValueError("forced finish call must return a finish action")
     raise ValueError("action must be search or finish")
+
+
+def _bounded_answer(value: Any) -> str:
+    answer = _nonempty_text(value, "answer")
+    if len(answer) > FINAL_ANSWER_MAX_CHARACTERS:
+        raise ValueError(
+            f"answer exceeds {FINAL_ANSWER_MAX_CHARACTERS} characters"
+        )
+    return answer
+
+
+def _repair_ranking(
+    value: Any,
+    snippets: Sequence[Snippet],
+) -> tuple[list[str], list[str]]:
+    if not isinstance(value, list) or any(not isinstance(row, str) for row in value):
+        raise ValueError("ranking must be an evidence-reference list")
+    evidence = _evidence_index(snippets)
+    references = {
+        **{evidence_id: snippet.url for evidence_id, snippet in evidence},
+        **{snippet.url: snippet.url for _, snippet in evidence},
+    }
+    ranking: list[str] = []
+    dropped: list[str] = []
+    for reference in value:
+        url = references.get(reference)
+        if url is None or url in ranking:
+            dropped.append(reference)
+        else:
+            ranking.append(url)
+    return ranking, dropped
+
+
+def _repair_final(
+    value: Mapping[str, Any],
+    snippets: Sequence[Snippet],
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
+    if set(value) != {"ranking", "answer"}:
+        raise ValueError("final output must contain only ranking and answer")
+    ranking, dropped = _repair_ranking(value["ranking"], snippets)
+    answer = _nonempty_text(value["answer"], "answer")
+    truncated = len(answer) > FINAL_ANSWER_MAX_CHARACTERS
+    repaired = {
+        "ranking": ranking,
+        "answer": answer[:FINAL_ANSWER_MAX_CHARACTERS],
+    }
+    return repaired, {
+        "dropped_ranking_references": dropped,
+        "answer_truncated": truncated,
+    }
+
+
+def _repair_action(
+    value: Mapping[str, Any],
+    snippets: Sequence[Snippet],
+    *,
+    force_finish: bool,
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
+    if value.get("action") != "finish":
+        raise ValueError(
+            "only a structurally complete finish action can be repaired"
+        )
+    if set(value) != {"action", "ranking", "answer"}:
+        raise ValueError("finish action must contain only action, ranking, and answer")
+    repaired, details = _repair_final(
+        {"ranking": value["ranking"], "answer": value["answer"]},
+        snippets,
+    )
+    return {"action": "finish", **repaired}, {
+        **details,
+        "forced_finish": force_finish,
+    }
 
 
 def _ranking(value: Any, snippets: Sequence[Snippet]) -> list[str]:
