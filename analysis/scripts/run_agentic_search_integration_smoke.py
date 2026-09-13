@@ -51,6 +51,7 @@ ANSWER_PURPOSES = frozenset(
 LEGACY_RESUME_COMMIT = "b561f1aaf54971a89fa2dabb7f3f9d32770ce8cc"
 PREVIOUS_RESUME_COMMIT = "3426907232d98634a3502381e58708cc3c028f30"
 EVIDENCE_ID_RESUME_COMMIT = "c5eba6036fc1bef032bfa0992007f396133b72e7"
+REPAIR_RESUME_COMMIT = "3d0fa062094dca9571198ae8198be6a00b634f7e"
 FAILED_CELL_RETRY_PASSES = 1
 
 
@@ -561,6 +562,7 @@ def _config(
             "failed_cell_retry_passes": FAILED_CELL_RETRY_PASSES,
             "ranking_reference_mode": "evidence-id-v1",
             "final_answer_max_characters": FINAL_ANSWER_MAX_CHARACTERS,
+            "final_attempt_repair_mode": "evidence-projection-v1",
         },
         "request_concurrency": inputs.request_concurrency,
         "retrieval_mode": "frozen-snapshot-deterministic-lexical-v1",
@@ -648,17 +650,29 @@ def _previous_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
 def _evidence_id_resume_config(
     config: Mapping[str, Any],
 ) -> dict[str, Any] | None:
+    previous = _repair_resume_config(config)
+    if previous is None:
+        return None
+    previous["git_commit"] = EVIDENCE_ID_RESUME_COMMIT
+    for purpose in ANSWER_PURPOSES:
+        previous["execution_policy"]["max_tokens_by_purpose"][purpose] = 2048
+    return previous
+
+
+def _repair_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
     policy = config.get("execution_policy", {})
     if (
         policy.get("ranking_reference_mode") != "evidence-id-v1"
         or policy.get("final_answer_max_characters")
         != FINAL_ANSWER_MAX_CHARACTERS
+        or policy.get("final_attempt_repair_mode") != "evidence-projection-v1"
     ):
         return None
     previous = json.loads(json.dumps(config))
-    previous["git_commit"] = EVIDENCE_ID_RESUME_COMMIT
-    for purpose in ANSWER_PURPOSES:
-        previous["execution_policy"]["max_tokens_by_purpose"][purpose] = 2048
+    previous["git_commit"] = REPAIR_RESUME_COMMIT
+    previous["request_concurrency"] = 4
+    previous["execution_policy"]["maximum_active_cells"] = 4
+    previous["execution_policy"].pop("final_attempt_repair_mode")
     return previous
 
 
@@ -682,6 +696,12 @@ def _prepare_config(
         if evidence_id_config
         else None
     )
+    repair_config = _repair_resume_config(config)
+    repair_hash = (
+        hashlib.sha256(_canonical(repair_config)).hexdigest()
+        if repair_config
+        else None
+    )
     candidates = [
         (
             legacy,
@@ -702,6 +722,15 @@ def _prepare_config(
             evidence_id_hash,
             EVIDENCE_ID_RESUME_COMMIT,
             2048,
+            config["disable_thinking"],
+        ),
+        (
+            repair_config,
+            repair_hash,
+            REPAIR_RESUME_COMMIT,
+            config["execution_policy"]["max_tokens_by_purpose"][
+                "parallel_final"
+            ],
             config["disable_thinking"],
         ),
     ]

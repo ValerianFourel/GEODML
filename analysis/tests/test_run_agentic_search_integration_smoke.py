@@ -34,6 +34,7 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     _load_calibration_prompts,
     _prepare_config,
     _previous_resume_config,
+    _repair_resume_config,
     run_smoke,
 )
 
@@ -45,6 +46,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             current = {
                 "git_commit": "new-commit",
                 "disable_thinking": True,
+                "request_concurrency": 1,
                 "execution_policy": {
                     "max_tokens_by_purpose": {
                         "parallel_query_expansion": 256,
@@ -54,6 +56,8 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                     },
                     "ranking_reference_mode": "evidence-id-v1",
                     "final_answer_max_characters": 1200,
+                    "final_attempt_repair_mode": "evidence-projection-v1",
+                    "maximum_active_cells": 1,
                 },
             }
             current_hash = hashlib.sha256(json.dumps(
@@ -123,6 +127,18 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             self.assertIn(evidence_id_hash, {
                 source["config_sha256"] for source in compatible
             })
+
+            repair = _repair_resume_config(current)
+            self.assertIsNotNone(repair)
+            self.assertEqual(repair["request_concurrency"], 4)
+            self.assertEqual(
+                repair["execution_policy"]["maximum_active_cells"],
+                4,
+            )
+            self.assertNotIn(
+                "final_attempt_repair_mode",
+                repair["execution_policy"],
+            )
 
     def test_global_1024_budget_reproduces_parallel_final_truncation(self) -> None:
         client = _FakeClientContext(truncate_final_at=1024)
@@ -844,6 +860,10 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertEqual(
             manifest["execution_policy"]["final_answer_max_characters"],
             1200,
+        )
+        self.assertEqual(
+            manifest["execution_policy"]["final_attempt_repair_mode"],
+            "evidence-projection-v1",
         )
         self.assertEqual(client.call_count, 24)
         self.assertEqual(client.peak_active_calls, 4)
