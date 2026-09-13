@@ -37,6 +37,13 @@ if [[ -n "${SEARCH_AGENTIC_PROMPTS_JSONL:-}" ]]; then
     --prompt-count "$SEARCH_AGENTIC_PROMPT_COUNT"
     --prompt-selection-seed "${SEARCH_AGENTIC_PROMPT_SELECTION_SEED:-20260912}"
   )
+  if [[ "${SEARCH_AGENTIC_PRODUCTION_CONDITIONS:-0}" == 1 ]]; then
+    geodml_prompt_args+=(
+      --prompt-shard-index "${SEARCH_AGENTIC_PROMPT_SHARD_INDEX:?}"
+      --prompt-shard-count "${SEARCH_AGENTIC_PROMPT_SHARD_COUNT:?}"
+      --production-conditions
+    )
+  fi
 fi
 
 python3 - "$SEARCH_AGENTIC_PROFILE" <<'PY'

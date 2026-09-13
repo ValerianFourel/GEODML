@@ -32,6 +32,7 @@ from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
     MemoizingSnippetScorer,
     ParallelExpansionV1,
     ReactiveSnippetLoopV1,
+    SEARCH_RESULT_LIMIT,
     SearchResponse,
     SentenceTransformersCrossEncoderScorer,
     Snippet,
@@ -183,6 +184,21 @@ class FrozenSnapshotSearchAdapter:
             "exclusion_reasons": dict(sorted(exclusion_reasons.items())),
         }
 
+    def urls_for_keyword(self, keyword: str) -> tuple[str, ...]:
+        """Return the frozen natural URL order for one exact baseline query."""
+        matches = sorted(
+            (row for row in self.rows if row["keyword"] == keyword),
+            key=lambda row: (row["position"], row["url"]),
+        )
+        output: list[str] = []
+        seen: set[str] = set()
+        for row in matches:
+            url = str(row["url"])
+            if url not in seen:
+                seen.add(url)
+                output.append(url)
+        return tuple(output[:SEARCH_RESULT_LIMIT])
+
     @property
     def keywords(self) -> set[str]:
         return {str(row["keyword"]) for row in self.rows if str(row["keyword"]).strip()}
@@ -245,6 +261,82 @@ class SmokeConditionHook:
         rng = random.Random(self.seed)
         rng.shuffle(rows)
         return rows
+
+
+class TargetUrlConditionHook:
+    """Apply the preregistered target removal and prompt-specific permutation."""
+
+    def __init__(self, *, target_url: str, seed: int) -> None:
+        if not target_url:
+            raise ValueError("target URL must be nonempty")
+        self.target_url = target_url
+        self.seed = seed
+        self.calls: list[dict[str, Any]] = []
+
+    def apply(
+        self,
+        condition: ExperimentalCondition,
+        snippets: Sequence[Snippet],
+    ) -> Sequence[Snippet]:
+        natural = list(snippets)
+        target_count_before = sum(row.url == self.target_url for row in natural)
+        if condition is ExperimentalCondition.NATURAL:
+            output = natural
+        elif condition is ExperimentalCondition.ABLATED:
+            output = [row for row in natural if row.url != self.target_url]
+        else:
+            output = list(natural)
+            random.Random(self.seed + len(self.calls)).shuffle(output)
+        target_count_after = sum(row.url == self.target_url for row in output)
+        self.calls.append({
+            "condition": condition.value,
+            "input_count": len(natural),
+            "output_count": len(output),
+            "target_count_before": target_count_before,
+            "target_count_after": target_count_after,
+            "target_removed_count": target_count_before - target_count_after,
+            "input_urls_sha256": hashlib.sha256(
+                _canonical([row.url for row in natural])
+            ).hexdigest(),
+            "output_urls_sha256": hashlib.sha256(
+                _canonical([row.url for row in output])
+            ).hexdigest(),
+        })
+        return output
+
+
+def _build_target_urls(
+    prompts: Sequence[CalibrationPrompt],
+    adapters: Mapping[str, FrozenSnapshotSearchAdapter],
+    *,
+    seed: int,
+) -> dict[tuple[str, str], str]:
+    """Freeze balanced baseline target URLs before any shard is selected."""
+    output: dict[tuple[str, str], str] = {}
+    for engine, adapter in sorted(adapters.items()):
+        groups: dict[int, list[CalibrationPrompt]] = {}
+        urls_by_prompt: dict[str, tuple[str, ...]] = {}
+        for prompt in prompts:
+            urls = adapter.urls_for_keyword(prompt.keyword)
+            if not urls:
+                raise ValueError(
+                    f"{engine} snapshot has no exact baseline rows for "
+                    f"prompt {prompt.prompt_id} keyword {prompt.keyword!r}"
+                )
+            urls_by_prompt[prompt.prompt_id] = urls
+            groups.setdefault(len(urls), []).append(prompt)
+        for count, group in groups.items():
+            ordered = sorted(
+                group,
+                key=lambda prompt: _selection_key(
+                    seed, "ablation-target", engine, prompt.prompt_id
+                ),
+            )
+            for index, prompt in enumerate(ordered):
+                output[(prompt.prompt_id, engine)] = urls_by_prompt[
+                    prompt.prompt_id
+                ][index % count]
+    return output
 
 
 class VllmAgentGenerator:
@@ -330,6 +422,9 @@ class SmokeInputs:
     selection_records_jsonl: Path | None = None
     prompt_count: int = 1
     prompt_selection_seed: int = 20260912
+    prompt_shard_index: int = 0
+    prompt_shard_count: int = 1
+    production_conditions: bool = False
 
     def __post_init__(self) -> None:
         budgets = [
@@ -352,6 +447,17 @@ class SmokeInputs:
             )
         if type(self.prompt_count) is not int or self.prompt_count < 1:
             raise ValueError("prompt count must be a positive integer")
+        if type(self.prompt_shard_count) is not int or self.prompt_shard_count < 1:
+            raise ValueError("prompt shard count must be a positive integer")
+        if (
+            type(self.prompt_shard_index) is not int
+            or not 0 <= self.prompt_shard_index < self.prompt_shard_count
+        ):
+            raise ValueError("prompt shard index must be in [0, prompt shard count)")
+        if self.prompt_shard_count > 1 and self.prompts_jsonl is None:
+            raise ValueError("prompt sharding requires frozen prompt inputs")
+        if self.production_conditions and self.prompts_jsonl is None:
+            raise ValueError("production conditions require frozen prompt inputs")
 
     @property
     def resolved_query_max_tokens(self) -> int:
@@ -366,6 +472,7 @@ class CalibrationPrompt:
     prompt: str
     question_sha256: str
     axis_bin: int
+    keyword: str
 
 
 def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
@@ -431,11 +538,15 @@ def _load_calibration_prompts(
         axis_bin = records_by_id[prompt_id].get("axis_bin")
         if type(axis_bin) is not int or axis_bin < 0:
             raise ValueError(f"prompt {prompt_id} has an invalid axis bin")
+        keyword = row.get("keyword")
+        if not isinstance(keyword, str) or not keyword.strip():
+            raise ValueError(f"prompt {prompt_id} has no keyword")
         by_bin.setdefault(axis_bin, []).append(CalibrationPrompt(
             prompt_id=prompt_id,
             prompt=question,
             question_sha256=actual_hash,
             axis_bin=axis_bin,
+            keyword=keyword,
         ))
     bins = sorted(by_bin)
     if prompt_count < len(bins):
@@ -461,6 +572,18 @@ def _load_calibration_prompts(
     if len(selected) != prompt_count:
         raise AssertionError("calibration prompt selection has the wrong size")
     return tuple(selected)
+
+
+def _prompt_shard(
+    prompts: Sequence[CalibrationPrompt],
+    *,
+    shard_index: int,
+    shard_count: int,
+) -> tuple[CalibrationPrompt, ...]:
+    """Partition one frozen selection into disjoint, exhaustive stable shards."""
+    if shard_count < 1 or not 0 <= shard_index < shard_count:
+        raise ValueError("invalid prompt shard")
+    return tuple(prompts[shard_index::shard_count])
 
 
 @dataclass(frozen=True, slots=True)
@@ -523,6 +646,7 @@ def _config(
     inputs: SmokeInputs,
     keyword: str,
     prompts: Sequence[CalibrationPrompt] | None = None,
+    target_urls: Mapping[tuple[str, str], str] | None = None,
 ) -> dict[str, Any]:
     config = {
         "format_version": "agentic-search-integration-smoke-v2",
@@ -608,6 +732,35 @@ def _config(
             },
             "keyword": None,
         })
+        if inputs.prompt_shard_count > 1:
+            config.update({
+                "prompt_population_count": inputs.prompt_count,
+                "prompt_shard_index": inputs.prompt_shard_index,
+                "prompt_shard_count": inputs.prompt_shard_count,
+            })
+        if inputs.production_conditions:
+            if target_urls is None:
+                raise AssertionError("production conditions lack target URLs")
+            target_identity = [
+                {
+                    "prompt_id": prompt_id,
+                    "engine": engine,
+                    "target_url": target_url,
+                }
+                for (prompt_id, engine), target_url in sorted(target_urls.items())
+                if prompt_id in {prompt.prompt_id for prompt in prompts}
+            ]
+            config.update({
+                "condition_mode": "frozen-target-url-and-stable-shuffle-v1",
+                "ablation_target_source": (
+                    "balanced position in each engine's frozen historical "
+                    "baseline result set"
+                ),
+                "target_url_map_sha256": hashlib.sha256(
+                    _canonical(target_identity)
+                ).hexdigest(),
+                "target_url_count": len(target_identity),
+            })
     return config
 
 
@@ -894,7 +1047,7 @@ async def run_smoke(
     if not shared_keywords:
         raise ValueError("search snapshots have no shared keyword")
     keyword = sorted(shared_keywords, key=lambda value: (value.casefold(), value))[0]
-    prompts = (
+    prompt_population = (
         _load_calibration_prompts(
             inputs.prompts_jsonl,
             inputs.selection_records_jsonl,
@@ -905,12 +1058,30 @@ async def run_smoke(
         and inputs.selection_records_jsonl is not None
         else None
     )
+    target_urls = (
+        _build_target_urls(
+            prompt_population,
+            adapters,
+            seed=inputs.prompt_selection_seed,
+        )
+        if prompt_population is not None and inputs.production_conditions
+        else None
+    )
+    prompts = (
+        _prompt_shard(
+            prompt_population,
+            shard_index=inputs.prompt_shard_index,
+            shard_count=inputs.prompt_shard_count,
+        )
+        if prompt_population is not None
+        else None
+    )
     legacy_prompt = (
         f"Answer the following retrieval question: {keyword}. "
         "For the reactive method, perform at least one search before finishing."
     )
     cells = _cells(prompts)
-    config = _config(inputs, keyword, prompts)
+    config = _config(inputs, keyword, prompts, target_urls)
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
     inputs.output.mkdir(parents=True, exist_ok=True)
     config_path = inputs.output / "config.json"
@@ -1055,11 +1226,21 @@ async def run_smoke(
                 final_max_tokens=inputs.final_max_tokens,
                 request_semaphore=request_semaphore,
             )
+            condition_hook: SmokeConditionHook | TargetUrlConditionHook
+            if inputs.production_conditions:
+                if cell.prompt_id is None or target_urls is None:
+                    raise AssertionError("production cell lacks target identity")
+                condition_hook = TargetUrlConditionHook(
+                    target_url=target_urls[(cell.prompt_id, cell.engine)],
+                    seed=inputs.seed + int(cell.cell_id[:8], 16),
+                )
+            else:
+                condition_hook = SmokeConditionHook(inputs.seed)
             method = cell.method_class(
                 llm=generator,
                 search=adapters[cell.engine],
                 compactor=compactor,
-                condition_hook=SmokeConditionHook(inputs.seed),
+                condition_hook=condition_hook,
             )
             try:
                 result = await method.run(
@@ -1108,6 +1289,19 @@ async def run_smoke(
                 "trace": str(trace_path.resolve()),
                 "trace_sha256": trace_hash,
             }
+            if isinstance(condition_hook, TargetUrlConditionHook):
+                record["condition_audit"] = {
+                    "target_url": condition_hook.target_url,
+                    "calls": condition_hook.calls,
+                    "target_observed": any(
+                        call["target_count_before"] > 0
+                        for call in condition_hook.calls
+                    ),
+                    "target_removed_count": sum(
+                        call["target_removed_count"]
+                        for call in condition_hook.calls
+                    ),
+                }
             _write_json_atomic(diagnostics_path, {
                 "cell_id": cell.cell_id,
                 **cell.core,
@@ -1220,6 +1414,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--selection-records-jsonl", type=Path)
     parser.add_argument("--prompt-count", type=int, default=1)
     parser.add_argument("--prompt-selection-seed", type=int, default=20260912)
+    parser.add_argument("--prompt-shard-index", type=int, default=0)
+    parser.add_argument("--prompt-shard-count", type=int, default=1)
+    parser.add_argument(
+        "--production-conditions",
+        action="store_true",
+        help=(
+            "Use exact frozen baseline target-URL ablation and stable "
+            "prompt-specific shuffling instead of smoke transformations."
+        ),
+    )
     parser.add_argument(
         "--disable-thinking",
         action="store_true",
@@ -1251,6 +1455,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         selection_records_jsonl=arguments.selection_records_jsonl,
         prompt_count=arguments.prompt_count,
         prompt_selection_seed=arguments.prompt_selection_seed,
+        prompt_shard_index=arguments.prompt_shard_index,
+        prompt_shard_count=arguments.prompt_shard_count,
+        production_conditions=arguments.production_conditions,
     )
     manifest = asyncio.run(run_smoke(inputs))
     print("AGENTIC_INTEGRATION_SMOKE=" + json.dumps({

@@ -24,14 +24,18 @@ from analysis.interpretability.pipeline.agentic_search import (
     StaticSearchAdapter,
 )
 from analysis.scripts.run_agentic_search_integration_smoke import (
+    CalibrationPrompt,
     FrozenSnapshotSearchAdapter,
     SmokeInputs,
     SmokeConditionHook,
+    TargetUrlConditionHook,
     VllmAgentGenerator,
+    _build_target_urls,
     _cells,
     _evidence_id_resume_config,
     _legacy_resume_config,
     _load_calibration_prompts,
+    _prompt_shard,
     _prepare_config,
     _previous_resume_config,
     _repair_resume_config,
@@ -263,6 +267,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                     question = f"Question for axis bin {axis_bin}, copy {copy}?"
                     prompt_rows.append({
                         "candidate_id": candidate_id,
+                        "keyword": f"keyword-{axis_bin}",
                         "question": question,
                         "question_sha256": hashlib.sha256(
                             question.encode("utf-8")
@@ -307,6 +312,31 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             {prompt.prompt_id for prompt in selected},
         )
 
+    def test_two_prompt_shards_are_disjoint_and_exhaustive(self) -> None:
+        prompts = tuple(
+            CalibrationPrompt(
+                prompt_id=f"prompt-{index:03d}",
+                prompt=f"Question {index}?",
+                question_sha256=f"{index:064x}",
+                axis_bin=index % 20,
+                keyword=f"keyword-{index}",
+            )
+            for index in range(500)
+        )
+
+        left = _prompt_shard(prompts, shard_index=0, shard_count=2)
+        right = _prompt_shard(prompts, shard_index=1, shard_count=2)
+        left_ids = {prompt.prompt_id for prompt in left}
+        right_ids = {prompt.prompt_id for prompt in right}
+
+        self.assertEqual(len(left), 250)
+        self.assertEqual(len(right), 250)
+        self.assertFalse(left_ids & right_ids)
+        self.assertEqual(
+            left_ids | right_ids,
+            {prompt.prompt_id for prompt in prompts},
+        )
+
     def test_twenty_five_prompt_calibration_runs_and_resumes_300_cells(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -320,6 +350,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                     question = f"What is the Berlin population for bin {axis_bin}?"
                     prompts.append({
                         "candidate_id": candidate_id,
+                        "keyword": "Berlin population",
                         "question": question,
                         "question_sha256": hashlib.sha256(
                             question.encode("utf-8")
@@ -714,6 +745,66 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertEqual(shuffled_once, shuffled_twice)
         self.assertEqual(set(shuffled_once), set(rows))
         self.assertNotEqual(shuffled_once, rows)
+
+    def test_production_conditions_remove_only_the_frozen_target(self) -> None:
+        rows = [
+            Snippet(f"https://example.test/{index}", f"Title {index}", "Text")
+            for index in range(8)
+        ]
+        target = rows[3].url
+
+        natural_hook = TargetUrlConditionHook(target_url=target, seed=7)
+        ablated_hook = TargetUrlConditionHook(target_url=target, seed=7)
+        shuffled_hook = TargetUrlConditionHook(target_url=target, seed=7)
+        natural = list(natural_hook.apply(ExperimentalCondition.NATURAL, rows))
+        ablated = list(ablated_hook.apply(ExperimentalCondition.ABLATED, rows))
+        shuffled = list(shuffled_hook.apply(ExperimentalCondition.SHUFFLED, rows))
+
+        self.assertEqual(natural, rows)
+        self.assertEqual(set(rows) - set(ablated), {rows[3]})
+        self.assertEqual(set(shuffled), set(rows))
+        self.assertEqual(len(shuffled), len(rows))
+        self.assertEqual(ablated_hook.calls[0]["target_removed_count"], 1)
+
+    def test_target_urls_are_balanced_from_each_frozen_engine(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            adapters = {}
+            for engine in ("duckduckgo", "searxng"):
+                path = root / f"{engine}.jsonl"
+                path.write_text(
+                    "".join(
+                        json.dumps({
+                            "keyword": "baseline query",
+                            "position": index + 1,
+                            "title": f"Title {index}",
+                            "url": f"https://{engine}.test/{index}",
+                            "snippet": f"Evidence {index}",
+                        }) + "\n"
+                        for index in range(2)
+                    ),
+                    encoding="utf-8",
+                )
+                adapters[engine] = FrozenSnapshotSearchAdapter(engine, path)
+            prompts = tuple(
+                CalibrationPrompt(
+                    prompt_id=f"prompt-{index}",
+                    prompt=f"Question {index}?",
+                    question_sha256=f"{index:064x}",
+                    axis_bin=index,
+                    keyword="baseline query",
+                )
+                for index in range(4)
+            )
+
+            targets = _build_target_urls(prompts, adapters, seed=17)
+
+        self.assertEqual(len(targets), 8)
+        for engine in adapters:
+            counts = Counter(
+                targets[(prompt.prompt_id, engine)] for prompt in prompts
+            )
+            self.assertEqual(sorted(counts.values()), [2, 2])
 
     def test_complete_twelve_cell_flow_writes_auditable_results(self) -> None:
         with TemporaryDirectory() as directory:
