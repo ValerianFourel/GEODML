@@ -659,7 +659,7 @@ class ParallelExpansionV1(AgenticMethod):
         final_request = LLMRequest(
             purpose="parallel_final",
             prompt=_final_prompt(user_prompt, compacted),
-            response_schema=_final_schema(compacted),
+            response_schema=_final_schema(),
         )
         final = await self._call_json(
             trace=trace,
@@ -702,10 +702,7 @@ class ReactiveSnippetLoopV1(AgenticMethod):
             request = LLMRequest(
                 purpose="reactive_action",
                 prompt=_reactive_prompt(user_prompt, observations, iteration),
-                response_schema=_action_schema(
-                    force_finish=False,
-                    snippets=observations,
-                ),
+                response_schema=_action_schema(force_finish=False),
             )
             action = await self._call_json(
                 trace=trace,
@@ -752,10 +749,7 @@ class ReactiveSnippetLoopV1(AgenticMethod):
         forced_request = LLMRequest(
             purpose="reactive_forced_finish",
             prompt=_forced_finish_prompt(user_prompt, observations),
-            response_schema=_action_schema(
-                force_finish=True,
-                snippets=observations,
-            ),
+            response_schema=_action_schema(force_finish=True),
             force_finish=True,
         )
         final = await self._call_json(
@@ -1086,30 +1080,22 @@ def _evidence_records(snippets: Sequence[Snippet]) -> list[dict[str, str]]:
     ]
 
 
-def _ranking_schema(snippets: Sequence[Snippet]) -> dict[str, Any]:
-    evidence_ids = [evidence_id for evidence_id, _ in _evidence_index(snippets)]
-    items: dict[str, Any] = {"type": "string"}
-    if evidence_ids:
-        items["enum"] = evidence_ids
-    return {
-        "type": "array",
-        "maxItems": len(evidence_ids),
-        "uniqueItems": True,
-        "items": items,
-    }
+def _ranking_schema() -> dict[str, Any]:
+    # Keep the grammar structural. Evidence membership, uniqueness, and bounds
+    # are semantic constraints enforced by the validator and controller repair.
+    return {"type": "array", "items": {"type": "string"}}
 
 
-def _final_schema(snippets: Sequence[Snippet]) -> dict[str, Any]:
+def _final_schema() -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["ranking", "answer"],
         "properties": {
-            "ranking": _ranking_schema(snippets),
+            "ranking": _ranking_schema(),
             "answer": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": FINAL_ANSWER_MAX_CHARACTERS,
             },
         },
     }
@@ -1118,7 +1104,6 @@ def _final_schema(snippets: Sequence[Snippet]) -> dict[str, Any]:
 def _action_schema(
     *,
     force_finish: bool,
-    snippets: Sequence[Snippet],
 ) -> dict[str, Any]:
     finish = {
         "type": "object",
@@ -1126,11 +1111,10 @@ def _action_schema(
         "required": ["action", "ranking", "answer"],
         "properties": {
             "action": {"const": "finish"},
-            "ranking": _ranking_schema(snippets),
+            "ranking": _ranking_schema(),
             "answer": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": FINAL_ANSWER_MAX_CHARACTERS,
             },
         },
     }

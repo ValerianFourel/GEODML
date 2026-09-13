@@ -275,13 +275,34 @@ class AgenticSearchTests(unittest.TestCase):
         ))
         request = llm.requests[-1]
         ranking = request.response_schema["properties"]["ranking"]
-        self.assertEqual(ranking["items"]["enum"], ["S1", "S2"])
-        self.assertTrue(ranking["uniqueItems"])
-        self.assertEqual(
-            request.response_schema["properties"]["answer"]["maxLength"],
-            1200,
-        )
+        self.assertEqual(ranking, {
+            "type": "array", "items": {"type": "string"}
+        })
         self.assertIn('"evidence_id": "S1"', request.prompt)
+
+    def test_final_schema_avoids_xgrammar_fragile_semantic_keywords(self):
+        llm = ScriptedLLM([
+            json.dumps({"queries": ["one", "two", "three"]}),
+            json.dumps({"ranking": ["S1"], "answer": "Answer."}),
+        ])
+        method = ParallelExpansionV1(
+            llm=llm,
+            search=StaticSearchAdapter("duckduckgo", {
+                "one": [snippet(1)],
+                "two": [],
+                "three": [],
+            }),
+            compactor=ContextCompactor(PositionScorer()),
+            condition_hook=IdentityConditionHook(),
+        )
+
+        asyncio.run(method.run("Question", ExperimentalCondition.NATURAL))
+
+        schema = llm.requests[-1].response_schema
+        encoded = json.dumps(schema, sort_keys=True)
+        self.assertNotIn('"enum"', encoded)
+        self.assertNotIn('"uniqueItems"', encoded)
+        self.assertNotIn('"maxLength"', encoded)
 
     def test_reactive_forced_finish_ranks_unique_evidence_ids(self):
         llm = ScriptedLLM([
@@ -315,8 +336,9 @@ class AgenticSearchTests(unittest.TestCase):
         ))
         request = llm.requests[-1]
         ranking = request.response_schema["properties"]["ranking"]
-        self.assertEqual(ranking["items"]["enum"], ["S1", "S2"])
-        self.assertEqual(ranking["maxItems"], 2)
+        self.assertEqual(ranking, {
+            "type": "array", "items": {"type": "string"}
+        })
         self.assertIn('"evidence_id": "S1"', request.prompt)
 
     def test_final_attempt_repairs_ranking_and_bounds_answer(self):

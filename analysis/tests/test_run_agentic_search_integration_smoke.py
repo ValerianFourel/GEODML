@@ -35,6 +35,7 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     _prepare_config,
     _previous_resume_config,
     _repair_resume_config,
+    _serial_resume_config,
     run_smoke,
 )
 
@@ -57,6 +58,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                     "ranking_reference_mode": "evidence-id-v1",
                     "final_answer_max_characters": 1200,
                     "final_attempt_repair_mode": "evidence-projection-v1",
+                    "structured_output_schema_mode": "xgrammar-structural-v1",
                     "maximum_active_cells": 1,
                 },
             }
@@ -139,6 +141,39 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 "final_attempt_repair_mode",
                 repair["execution_policy"],
             )
+
+            serial = _serial_resume_config(current)
+            self.assertIsNotNone(serial)
+            self.assertEqual(
+                serial["git_commit"],
+                "6a2469958df8355234982a45608c220780b855a0",
+            )
+            self.assertEqual(serial["request_concurrency"], 1)
+            self.assertNotIn(
+                "structured_output_schema_mode",
+                serial["execution_policy"],
+            )
+            serial_hash = hashlib.sha256(json.dumps(
+                serial,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            path.write_text(json.dumps({
+                **serial,
+                "config_sha256": serial_hash,
+            }), encoding="utf-8")
+
+            compatible, migrated = _prepare_config(
+                path,
+                current,
+                current_hash,
+            )
+
+            self.assertEqual(migrated["config_sha256"], serial_hash)
+            self.assertIn(serial_hash, {
+                source["config_sha256"] for source in compatible
+            })
 
     def test_global_1024_budget_reproduces_parallel_final_truncation(self) -> None:
         client = _FakeClientContext(truncate_final_at=1024)
@@ -864,6 +899,10 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertEqual(
             manifest["execution_policy"]["final_attempt_repair_mode"],
             "evidence-projection-v1",
+        )
+        self.assertEqual(
+            manifest["execution_policy"]["structured_output_schema_mode"],
+            "xgrammar-structural-v1",
         )
         self.assertEqual(client.call_count, 24)
         self.assertEqual(client.peak_active_calls, 4)
