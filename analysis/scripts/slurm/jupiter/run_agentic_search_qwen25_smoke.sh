@@ -104,7 +104,8 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --search-snapshot "duckduckgo=$SEARCH_AGENTIC_DDG_SNAPSHOT" \
     --search-snapshot "searxng=$SEARCH_AGENTIC_SEARXNG_SNAPSHOT" \
     --seed 20260911 \
-    --max-tokens 1024 \
+    --query-max-tokens 256 \
+    --final-max-tokens 2048 \
     --request-concurrency "${SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1}" \
     "${geodml_prompt_args[@]}"
 

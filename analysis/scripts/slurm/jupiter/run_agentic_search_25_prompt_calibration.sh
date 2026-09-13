@@ -66,7 +66,15 @@ config = {
 }
 serialized = json.dumps(config, indent=2, sort_keys=True) + "\n"
 if config_path.exists():
-    assert config_path.read_text() == serialized, "existing calibration config differs"
+    previous = json.loads(config_path.read_text())
+    if previous != config:
+        legacy = dict(config)
+        legacy["git_commit"] = "b561f1aaf54971a89fa2dabb7f3f9d32770ce8cc"
+        assert previous == legacy, "existing calibration config differs"
+        temporary = config_path.with_suffix(".json.tmp")
+        temporary.write_text(serialized)
+        temporary.replace(config_path)
+        print("AGENTIC_25_PROMPT_CONFIG_MIGRATION=b561")
 else:
     temporary = config_path.with_suffix(".json.tmp")
     temporary.write_text(serialized)

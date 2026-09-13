@@ -43,6 +43,12 @@ METHODS = (ParallelExpansionV1, ReactiveSnippetLoopV1)
 CONDITIONS = tuple(ExperimentalCondition)
 ENGINES = ("duckduckgo", "searxng")
 TOKEN_PATTERN = re.compile(r"[\w-]+", re.UNICODE)
+QUERY_PURPOSES = frozenset(("parallel_query_expansion",))
+ANSWER_PURPOSES = frozenset(
+    ("parallel_final", "reactive_action", "reactive_forced_finish")
+)
+LEGACY_RESUME_COMMIT = "b561f1aaf54971a89fa2dabb7f3f9d32770ce8cc"
+FAILED_CELL_RETRY_PASSES = 1
 
 
 def _canonical(value: Any) -> bytes:
@@ -242,17 +248,27 @@ class VllmAgentGenerator:
         client: VllmChatClient,
         *,
         seed: int,
-        max_tokens: int,
+        query_max_tokens: int,
+        final_max_tokens: int = 2048,
         request_semaphore: asyncio.Semaphore,
     ) -> None:
         self.client = client
         self.seed = seed
-        self.max_tokens = max_tokens
+        self.max_tokens_by_purpose = {
+            **{purpose: query_max_tokens for purpose in QUERY_PURPOSES},
+            **{purpose: final_max_tokens for purpose in ANSWER_PURPOSES},
+        }
         self.request_semaphore = request_semaphore
         self.call_index = 0
         self.diagnostics: list[dict[str, Any]] = []
 
     async def generate(self, request: LLMRequest) -> str:
+        try:
+            max_tokens = self.max_tokens_by_purpose[request.purpose]
+        except KeyError as error:
+            raise ValueError(
+                f"unsupported LLM request purpose: {request.purpose}"
+            ) from error
         self.call_index += 1
         call_index = self.call_index
         queued_at = time.perf_counter()
@@ -264,13 +280,14 @@ class VllmAgentGenerator:
                     schema_name=f"agentic_{request.purpose}_{call_index}",
                     schema=request.response_schema,
                     temperature=0.0,
-                    max_tokens=self.max_tokens,
+                    max_tokens=max_tokens,
                     seed=self.seed + call_index,
                 )
             except Exception as error:
                 self.diagnostics.append({
                     "call_index": call_index,
                     "purpose": request.purpose,
+                    "max_tokens": max_tokens,
                     "queue_seconds": started_at - queued_at,
                     "request_seconds": time.perf_counter() - started_at,
                     "error": f"{type(error).__name__}: {error}",
@@ -280,6 +297,7 @@ class VllmAgentGenerator:
         self.diagnostics.append({
             "call_index": call_index,
             "purpose": request.purpose,
+            "max_tokens": max_tokens,
             "queue_seconds": started_at - queued_at,
             "request_seconds": time.perf_counter() - started_at,
             "error": None,
@@ -299,6 +317,8 @@ class SmokeInputs:
     search_snapshots: Mapping[str, Path]
     seed: int
     max_tokens: int
+    query_max_tokens: int | None = None
+    final_max_tokens: int = 2048
     request_concurrency: int = 1
     disable_thinking: bool = False
     prompts_jsonl: Path | None = None
@@ -307,6 +327,15 @@ class SmokeInputs:
     prompt_selection_seed: int = 20260912
 
     def __post_init__(self) -> None:
+        budgets = [
+            ("max_tokens", self.max_tokens),
+            ("final_max_tokens", self.final_max_tokens),
+        ]
+        if self.query_max_tokens is not None:
+            budgets.append(("query_max_tokens", self.query_max_tokens))
+        for name, value in budgets:
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
         if (
             type(self.request_concurrency) is not int
             or not 1 <= self.request_concurrency <= 4
@@ -318,6 +347,12 @@ class SmokeInputs:
             )
         if type(self.prompt_count) is not int or self.prompt_count < 1:
             raise ValueError("prompt count must be a positive integer")
+
+    @property
+    def resolved_query_max_tokens(self) -> int:
+        if self.query_max_tokens is None:
+            return self.max_tokens
+        return self.query_max_tokens
 
 
 @dataclass(frozen=True, slots=True)
@@ -485,7 +520,7 @@ def _config(
     prompts: Sequence[CalibrationPrompt] | None = None,
 ) -> dict[str, Any]:
     config = {
-        "format_version": "agentic-search-integration-smoke-v1",
+        "format_version": "agentic-search-integration-smoke-v2",
         "scientific_result": False,
         "git_commit": os.environ.get("GEODML_EXECUTION_COMMIT"),
         "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
@@ -508,7 +543,20 @@ def _config(
         "cell_count": len(METHODS) * len(CONDITIONS) * len(ENGINES),
         "keyword": keyword,
         "seed": inputs.seed,
-        "max_tokens": inputs.max_tokens,
+        "execution_policy": {
+            "max_tokens_by_purpose": {
+                **{
+                    purpose: inputs.resolved_query_max_tokens
+                    for purpose in sorted(QUERY_PURPOSES)
+                },
+                **{
+                    purpose: inputs.final_max_tokens
+                    for purpose in sorted(ANSWER_PURPOSES)
+                },
+            },
+            "maximum_active_cells": inputs.request_concurrency,
+            "failed_cell_retry_passes": FAILED_CELL_RETRY_PASSES,
+        },
         "request_concurrency": inputs.request_concurrency,
         "retrieval_mode": "frozen-snapshot-deterministic-lexical-v1",
         "condition_mode": "smoke-only-subset-and-order-v1",
@@ -526,7 +574,7 @@ def _config(
         ]
         config.pop("slurm_job_id")
         config.update({
-            "format_version": "agentic-search-execution-calibration-v1",
+            "format_version": "agentic-search-execution-calibration-v2",
             "cell_count": len(prompts) * len(METHODS) * len(CONDITIONS) * len(ENGINES),
             "prompt_count": len(prompts),
             "prompt_selection_seed": inputs.prompt_selection_seed,
@@ -552,6 +600,63 @@ def _config(
             "keyword": None,
         })
     return config
+
+
+def _legacy_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
+    if (
+        config.get("model_id") != "Qwen/Qwen3.8-27B"
+        or config.get("disable_thinking") is not True
+        or config.get("execution_policy", {}).get("max_tokens_by_purpose") != {
+            "parallel_query_expansion": 256,
+            "parallel_final": 2048,
+            "reactive_action": 2048,
+            "reactive_forced_finish": 2048,
+        }
+    ):
+        return None
+    legacy = json.loads(json.dumps(config))
+    versions = {
+        "agentic-search-integration-smoke-v2": "agentic-search-integration-smoke-v1",
+        "agentic-search-execution-calibration-v2": (
+            "agentic-search-execution-calibration-v1"
+        ),
+    }
+    try:
+        legacy["format_version"] = versions[legacy["format_version"]]
+    except KeyError as error:
+        raise ValueError(
+            "unsupported configuration version for legacy resume"
+        ) from error
+    legacy["git_commit"] = LEGACY_RESUME_COMMIT
+    legacy["disable_thinking"] = False
+    legacy.pop("execution_policy")
+    legacy["max_tokens"] = 1024
+    return legacy
+
+
+def _prepare_config(
+    path: Path,
+    config: Mapping[str, Any],
+    config_hash: str,
+) -> tuple[str | None, bool]:
+    current = {**config, "config_sha256": config_hash}
+    legacy = _legacy_resume_config(config)
+    legacy_hash = hashlib.sha256(_canonical(legacy)).hexdigest() if legacy else None
+    if not path.exists():
+        _write_json_atomic(path, current)
+        return legacy_hash, False
+    previous = json.loads(path.read_text(encoding="utf-8"))
+    if previous == current:
+        return legacy_hash, False
+    legacy_record = (
+        {**legacy, "config_sha256": legacy_hash}
+        if legacy is not None and legacy_hash is not None
+        else None
+    )
+    if previous != legacy_record:
+        raise ValueError("existing smoke configuration differs")
+    _write_json_atomic(path, current)
+    return legacy_hash, True
 
 
 def _cache_metrics(compactor: ContextCompactor) -> dict[str, int] | None:
@@ -672,25 +777,73 @@ async def run_smoke(
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
     inputs.output.mkdir(parents=True, exist_ok=True)
     config_path = inputs.output / "config.json"
-    if config_path.exists():
-        previous = json.loads(config_path.read_text(encoding="utf-8"))
-        if previous != {**config, "config_sha256": config_hash}:
-            raise ValueError("existing smoke configuration differs")
-    else:
-        _write_json_atomic(config_path, {**config, "config_sha256": config_hash})
+    legacy_config_hash, config_was_migrated = _prepare_config(
+        config_path,
+        config,
+        config_hash,
+    )
 
     completed, pending = _load_completed_cells(inputs.output, cells)
     manifest_path = inputs.output / "run_manifest.json"
-    if not pending and manifest_path.is_file():
-        existing_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if (
-            existing_manifest.get("config_sha256") != config_hash
-            or existing_manifest.get("status") != "complete"
-            or existing_manifest.get("completed_count") != config["cell_count"]
-            or existing_manifest.get("remaining_count") != 0
-        ):
-            raise ValueError("completed smoke manifest is inconsistent")
-        return existing_manifest
+    existing_manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.is_file()
+        else None
+    )
+    allowed_manifest_hashes = {config_hash}
+    if legacy_config_hash is not None:
+        allowed_manifest_hashes.add(legacy_config_hash)
+    if (
+        existing_manifest is not None
+        and existing_manifest.get("config_sha256") not in allowed_manifest_hashes
+    ):
+        raise ValueError("existing smoke manifest has an incompatible configuration")
+    resume_migration = (
+        existing_manifest.get("resume_migration")
+        if existing_manifest is not None
+        else None
+    )
+    if config_was_migrated or (
+        existing_manifest is not None
+        and existing_manifest.get("config_sha256") == legacy_config_hash
+    ):
+        resume_migration = {
+            "source_config_sha256": legacy_config_hash,
+            "source_git_commit": LEGACY_RESUME_COMMIT,
+            "source_max_tokens": 1024,
+            "source_disable_thinking": False,
+            "preserved_completed_count": len(completed),
+            "preserved_cell_ids_sha256": hashlib.sha256(
+                _canonical(sorted(completed))
+            ).hexdigest(),
+        }
+    if not pending:
+        if existing_manifest is not None:
+            if (
+                existing_manifest.get("status") not in {"complete", "checkpointed"}
+                or existing_manifest.get("completed_count") != config["cell_count"]
+                or existing_manifest.get("remaining_count") != 0
+            ):
+                raise ValueError("completed smoke manifest is inconsistent")
+            if (
+                existing_manifest.get("config_sha256") == config_hash
+                and existing_manifest.get("status") == "complete"
+            ):
+                return existing_manifest
+        finished = {
+            **config,
+            "config_sha256": config_hash,
+            "status": "complete",
+            "completed_count": len(completed),
+            "remaining_count": 0,
+            "compactor_cache_this_invocation": None,
+            "peak_active_cells_this_invocation": 0,
+            "failed_cell_retry_passes_completed": 0,
+        }
+        if resume_migration is not None:
+            finished["resume_migration"] = resume_migration
+        _write_json_atomic(manifest_path, finished)
+        return finished
 
     if compactor is None:
         scorer = MemoizingSnippetScorer(
@@ -714,6 +867,27 @@ async def run_smoke(
                 {"enable_thinking": False} if inputs.disable_thinking else None
             ),
         )
+    peak_active_cells = 0
+
+    def checkpoint(
+        failed_cells: Sequence[SmokeCell],
+        retry_passes_completed: int,
+    ) -> None:
+        value = {
+            **config,
+            "config_sha256": config_hash,
+            "status": "checkpointed",
+            "completed_count": len(completed),
+            "remaining_count": config["cell_count"] - len(completed),
+            "failed_cell_ids": sorted(cell.cell_id for cell in failed_cells),
+            "failed_cell_retry_passes_completed": retry_passes_completed,
+            "peak_active_cells_this_invocation": peak_active_cells,
+            "compactor_cache_this_invocation": _cache_metrics(compactor),
+        }
+        if resume_migration is not None:
+            value["resume_migration"] = resume_migration
+        _write_json_atomic(manifest_path, value)
+
     async with client_context as client:
         request_semaphore = asyncio.Semaphore(inputs.request_concurrency)
 
@@ -725,7 +899,8 @@ async def run_smoke(
             generator = VllmAgentGenerator(
                 client,
                 seed=inputs.seed + int(cell.cell_id[:8], 16),
-                max_tokens=inputs.max_tokens,
+                query_max_tokens=inputs.resolved_query_max_tokens,
+                final_max_tokens=inputs.final_max_tokens,
                 request_semaphore=request_semaphore,
             )
             method = cell.method_class(
@@ -791,33 +966,80 @@ async def run_smoke(
             _write_json_atomic(result_path, record)
             return cell.cell_id, record
 
-        tasks = [asyncio.create_task(execute(cell)) for cell in pending]
-        try:
-            for future in asyncio.as_completed(tasks):
-                cell_id, record = await future
-                completed[cell_id] = record
-                _write_json_atomic(inputs.output / "run_manifest.json", {
-                    **config,
-                    "config_sha256": config_hash,
-                    "status": "checkpointed",
-                    "completed_count": len(completed),
-                    "remaining_count": config["cell_count"] - len(completed),
-                    "compactor_cache_this_invocation": _cache_metrics(compactor),
-                })
-        except BaseException:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
+        async def run_pass(
+            cells_for_pass: Sequence[SmokeCell],
+            *,
+            retry_passes_completed: int,
+        ) -> list[SmokeCell]:
+            nonlocal peak_active_cells
+            cell_iterator = iter(cells_for_pass)
+            active: dict[asyncio.Task[tuple[str, dict[str, Any]]], SmokeCell] = {}
+            failed: list[SmokeCell] = []
+
+            def fill() -> None:
+                nonlocal peak_active_cells
+                while len(active) < inputs.request_concurrency:
+                    try:
+                        cell = next(cell_iterator)
+                    except StopIteration:
+                        break
+                    active[asyncio.create_task(execute(cell))] = cell
+                peak_active_cells = max(peak_active_cells, len(active))
+
+            fill()
+            try:
+                while active:
+                    done, _ = await asyncio.wait(
+                        active,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in done:
+                        cell = active.pop(task)
+                        try:
+                            cell_id, record = task.result()
+                        except AgentExecutionError:
+                            failed.append(cell)
+                        else:
+                            completed[cell_id] = record
+                        checkpoint(failed, retry_passes_completed)
+                    fill()
+            except BaseException:
+                for task in active:
+                    task.cancel()
+                await asyncio.gather(*active, return_exceptions=True)
+                raise
+            order = {cell.cell_id: index for index, cell in enumerate(cells_for_pass)}
+            failed.sort(key=lambda cell: order[cell.cell_id])
+            return failed
+
+        failed = await run_pass(pending, retry_passes_completed=0)
+        retry_passes_completed = 0
+        for retry_pass in range(1, FAILED_CELL_RETRY_PASSES + 1):
+            if not failed:
+                break
+            retry_passes_completed = retry_pass
+            failed = await run_pass(
+                failed,
+                retry_passes_completed=retry_pass,
+            )
     manifest = {
         **config,
         "config_sha256": config_hash,
-        "status": "complete",
+        "status": "complete" if not failed else "complete_with_failures",
         "completed_count": len(completed),
-        "remaining_count": 0,
+        "remaining_count": config["cell_count"] - len(completed),
+        "failed_cell_ids": sorted(cell.cell_id for cell in failed),
+        "failed_cell_retry_passes_completed": retry_passes_completed,
+        "peak_active_cells_this_invocation": peak_active_cells,
         "compactor_cache_this_invocation": _cache_metrics(compactor),
     }
+    if resume_migration is not None:
+        manifest["resume_migration"] = resume_migration
     _write_json_atomic(inputs.output / "run_manifest.json", manifest)
+    if failed:
+        raise RuntimeError(
+            f"{len(failed)} agentic-search cells failed after bounded retry"
+        )
     return manifest
 
 
@@ -839,6 +1061,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--search-snapshot", action="append", type=_binding, required=True)
     parser.add_argument("--seed", type=int, default=20260911)
     parser.add_argument("--max-tokens", type=int, default=1024)
+    parser.add_argument("--query-max-tokens", type=int)
+    parser.add_argument("--final-max-tokens", type=int, default=2048)
     parser.add_argument("--request-concurrency", type=int, default=1)
     parser.add_argument("--prompts-jsonl", type=Path)
     parser.add_argument("--selection-records-jsonl", type=Path)
@@ -867,6 +1091,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         search_snapshots=snapshots,
         seed=arguments.seed,
         max_tokens=arguments.max_tokens,
+        query_max_tokens=arguments.query_max_tokens,
+        final_max_tokens=arguments.final_max_tokens,
         request_concurrency=arguments.request_concurrency,
         disable_thinking=arguments.disable_thinking,
         prompts_jsonl=arguments.prompts_jsonl,

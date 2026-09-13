@@ -12,23 +12,105 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from analysis.interpretability.pipeline.agentic_search import (
+    AgentExecutionError,
     ContextCompactor,
     ExperimentalCondition,
+    IdentityConditionHook,
     LexicalOverlapScorer,
+    LLMRequest,
     MemoizingSnippetScorer,
+    ParallelExpansionV1,
     Snippet,
+    StaticSearchAdapter,
 )
 from analysis.scripts.run_agentic_search_integration_smoke import (
     FrozenSnapshotSearchAdapter,
     SmokeInputs,
     SmokeConditionHook,
+    VllmAgentGenerator,
     _cells,
+    _legacy_resume_config,
     _load_calibration_prompts,
     run_smoke,
 )
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_global_1024_budget_reproduces_parallel_final_truncation(self) -> None:
+        client = _FakeClientContext(truncate_final_at=1024)
+
+        async def execute() -> None:
+            generator = VllmAgentGenerator(
+                client,
+                seed=11,
+                query_max_tokens=1024,
+                final_max_tokens=1024,
+                request_semaphore=asyncio.Semaphore(1),
+            )
+            method = _parallel_method(generator)
+            with self.assertRaisesRegex(
+                AgentExecutionError,
+                "schema validation failed after 3 attempts",
+            ):
+                await method.run(
+                    "What is Berlin's population?",
+                    ExperimentalCondition.NATURAL,
+                )
+
+        asyncio.run(execute())
+
+        self.assertEqual(
+            [
+                max_tokens
+                for purpose, max_tokens in client.calls
+                if purpose == "parallel_final"
+            ],
+            [1024, 1024, 1024],
+        )
+
+    def test_final_purpose_gets_larger_budget_without_inflating_queries(self) -> None:
+        client = _FakeClientContext(truncate_final_at=1024)
+
+        async def execute():
+            generator = VllmAgentGenerator(
+                client,
+                seed=11,
+                query_max_tokens=256,
+                final_max_tokens=2048,
+                request_semaphore=asyncio.Semaphore(1),
+            )
+            result = await _parallel_method(generator).run(
+                "What is Berlin's population?",
+                ExperimentalCondition.NATURAL,
+            )
+            for purpose in ("reactive_action", "reactive_forced_finish"):
+                await generator.generate(LLMRequest(
+                    purpose=purpose,
+                    prompt=(
+                        "OBSERVATIONS:\n[]"
+                        if purpose == "reactive_action"
+                        else "test"
+                    ),
+                    response_schema={},
+                ))
+            with self.assertRaisesRegex(ValueError, "unsupported LLM request purpose"):
+                await generator.generate(LLMRequest(
+                    purpose="unknown",
+                    prompt="test",
+                    response_schema={},
+                ))
+            return result
+
+        result = asyncio.run(execute())
+
+        self.assertEqual(result.answer, "Parallel answer")
+        self.assertEqual(client.calls, [
+            ("parallel_query_expansion", 256),
+            ("parallel_final", 2048),
+            ("reactive_action", 2048),
+            ("reactive_forced_finish", 2048),
+        ])
+
     def test_calibration_prompt_selection_covers_all_axis_bins(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -138,14 +220,16 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             inputs = SmokeInputs(
                 output=root / "output",
                 base_url="http://127.0.0.1:8010/v1",
-                model_id="test/model",
+                model_id="Qwen/Qwen3.8-27B",
                 model_revision="a" * 40,
                 cross_encoder_snapshot=cross_encoder,
                 cross_encoder_revision="e" * 40,
                 search_snapshots=snapshots,
                 seed=11,
-                max_tokens=128,
+                max_tokens=1024,
+                query_max_tokens=256,
                 request_concurrency=4,
+                disable_thinking=True,
                 prompts_jsonl=prompts_path,
                 selection_records_jsonl=records_path,
                 prompt_count=25,
@@ -168,8 +252,66 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 ),
             ))
             result_count = len(list((inputs.output / "results").glob("*.json")))
+            current_config_record = json.loads(
+                (inputs.output / "config.json").read_text(encoding="utf-8")
+            )
+            current_config = dict(current_config_record)
+            current_config.pop("config_sha256")
+            legacy_config = _legacy_resume_config(current_config)
+            self.assertIsNotNone(legacy_config)
+            legacy_config_hash = hashlib.sha256(json.dumps(
+                legacy_config,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            removed_results = sorted(
+                (inputs.output / "results").glob("*.json")
+            )[-14:]
+            retained_path = sorted(
+                (inputs.output / "results").glob("*.json")
+            )[0]
+            retained_bytes = retained_path.read_bytes()
+            for result_path in removed_results:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+                Path(result["trace"]).unlink()
+                result_path.unlink()
+            (inputs.output / "config.json").write_text(
+                json.dumps(
+                    {**legacy_config, "config_sha256": legacy_config_hash},
+                    indent=2,
+                    sort_keys=True,
+                ) + "\n",
+                encoding="utf-8",
+            )
+            legacy_manifest = {
+                **legacy_config,
+                "config_sha256": legacy_config_hash,
+                "status": "checkpointed",
+                "completed_count": 286,
+                "remaining_count": 14,
+                "compactor_cache_this_invocation": manifest[
+                    "compactor_cache_this_invocation"
+                ],
+            }
+            (inputs.output / "run_manifest.json").write_text(
+                json.dumps(legacy_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            migration_client = _FakeClientContext()
+            migrated = asyncio.run(run_smoke(
+                inputs,
+                client_context=migration_client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+            retained_after_migration = retained_path.read_bytes()
 
-        self.assertEqual(manifest["format_version"], "agentic-search-execution-calibration-v1")
+        self.assertEqual(
+            manifest["format_version"],
+            "agentic-search-execution-calibration-v2",
+        )
         self.assertEqual(manifest["status"], "complete")
         self.assertEqual(manifest["prompt_count"], 25)
         self.assertEqual(manifest["cell_count"], 300)
@@ -178,8 +320,13 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertNotIn("slurm_job_id", manifest)
         self.assertEqual(sorted(manifest["axis_bin_counts"].values()), [1] * 15 + [2] * 5)
         self.assertEqual(result_count, 300)
+        self.assertEqual(manifest["peak_active_cells_this_invocation"], 4)
         self.assertEqual(resumed, manifest)
         self.assertEqual(resume_client.call_count, 0)
+        self.assertEqual(migration_client.call_count, 28)
+        self.assertEqual(migrated["status"], "complete")
+        self.assertEqual(migrated["resume_migration"]["preserved_completed_count"], 286)
+        self.assertEqual(retained_after_migration, retained_bytes)
 
     def test_smoke_request_concurrency_is_bounded(self) -> None:
         with self.assertRaisesRegex(ValueError, "from 1 to 4"):
@@ -196,6 +343,56 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 request_concurrency=5,
             )
 
+    def test_exhausted_cell_does_not_cancel_peers_and_only_it_resumes(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = _smoke_inputs(root)
+            client = _FakeClientContext(
+                delay_seconds=0.001,
+                failed_final_passes=2,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "1 agentic-search cells failed after bounded retry",
+            ):
+                asyncio.run(run_smoke(
+                    inputs,
+                    client_context=client,
+                    compactor=ContextCompactor(
+                        MemoizingSnippetScorer(LexicalOverlapScorer())
+                    ),
+                ))
+            failed_manifest = json.loads(
+                (inputs.output / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            failed_trace_count = len(list(
+                (inputs.output / "failed_traces").glob("*/*.json")
+            ))
+            retained_path = next((inputs.output / "results").glob("*.json"))
+            retained_bytes = retained_path.read_bytes()
+            resume_client = _FakeClientContext()
+            completed_manifest = asyncio.run(run_smoke(
+                inputs,
+                client_context=resume_client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+            retained_after_resume = retained_path.read_bytes()
+
+        self.assertEqual(failed_manifest["status"], "complete_with_failures")
+        self.assertEqual(failed_manifest["completed_count"], 11)
+        self.assertEqual(failed_manifest["remaining_count"], 1)
+        self.assertEqual(len(failed_manifest["failed_cell_ids"]), 1)
+        self.assertEqual(failed_manifest["failed_cell_retry_passes_completed"], 1)
+        self.assertEqual(failed_manifest["peak_active_cells_this_invocation"], 4)
+        self.assertEqual(client.failed_final_calls, 6)
+        self.assertEqual(failed_trace_count, 1)
+        self.assertEqual(completed_manifest["status"], "complete")
+        self.assertEqual(completed_manifest["completed_count"], 12)
+        self.assertEqual(resume_client.call_count, 2)
+        self.assertEqual(retained_after_resume, retained_bytes)
+
     def test_cluster_launcher_forces_offline_model_resolution(self) -> None:
         launcher = (
             Path(__file__).resolve().parents[1]
@@ -205,6 +402,9 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
 
         self.assertIn("export HF_HUB_OFFLINE=1", launcher[:server_start])
         self.assertIn("export TRANSFORMERS_OFFLINE=1", launcher[:server_start])
+        self.assertIn("--query-max-tokens 256", launcher)
+        self.assertIn("--final-max-tokens 2048", launcher)
+        self.assertIn("--disable-thinking", launcher)
 
     def test_qwen25_launcher_pins_model_and_yarn_profile(self) -> None:
         launcher = (
@@ -259,6 +459,12 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             self.assertIn("--prompts-jsonl", model_launcher)
             self.assertIn("--selection-records-jsonl", model_launcher)
             self.assertIn("SEARCH_AGENTIC_EXPECTED_CELL_COUNT", model_launcher)
+            self.assertIn("--query-max-tokens 256", model_launcher)
+            self.assertIn("--final-max-tokens 2048", model_launcher)
+        self.assertIn(
+            'legacy["git_commit"] = "b561f1aaf54971a89fa2dabb7f3f9d32770ce8cc"',
+            launcher,
+        )
 
     def test_nemotron_launcher_pins_model_and_disables_thinking(self) -> None:
         launcher = (
@@ -529,6 +735,16 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             "total_tokens": 1,
         })
         self.assertEqual(manifest["request_concurrency"], 4)
+        self.assertEqual(manifest["peak_active_cells_this_invocation"], 4)
+        self.assertEqual(
+            manifest["execution_policy"]["max_tokens_by_purpose"],
+            {
+                "parallel_query_expansion": 128,
+                "parallel_final": 2048,
+                "reactive_action": 2048,
+                "reactive_forced_finish": 2048,
+            },
+        )
         self.assertEqual(client.call_count, 24)
         self.assertEqual(client.peak_active_calls, 4)
         self.assertEqual(manifest["compactor_cache_this_invocation"], {
@@ -546,12 +762,81 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertEqual(second_retry_client.call_count, 2)
 
 
+def _smoke_inputs(root: Path) -> SmokeInputs:
+    snapshots = {}
+    for engine in ("duckduckgo", "searxng"):
+        path = root / f"{engine}.jsonl"
+        path.write_text(
+            "".join(
+                json.dumps({
+                    "keyword": "Berlin population",
+                    "position": index + 1,
+                    "title": f"Berlin source {index}",
+                    "url": f"https://{engine}.test/{index}",
+                    "snippet": f"Berlin population evidence {index}",
+                }) + "\n"
+                for index in range(20)
+            ),
+            encoding="utf-8",
+        )
+        snapshots[engine] = path
+    cross_encoder = root / ("e" * 40)
+    cross_encoder.mkdir()
+    return SmokeInputs(
+        output=root / "output",
+        base_url="http://127.0.0.1:8010/v1",
+        model_id="test/model",
+        model_revision="a" * 40,
+        cross_encoder_snapshot=cross_encoder,
+        cross_encoder_revision="e" * 40,
+        search_snapshots=snapshots,
+        seed=11,
+        max_tokens=1024,
+        query_max_tokens=256,
+        final_max_tokens=2048,
+        request_concurrency=4,
+    )
+
+
+def _parallel_method(generator: VllmAgentGenerator) -> ParallelExpansionV1:
+    snippet = {
+        "url": "https://example.test/berlin",
+        "title": "Berlin census",
+        "text": "Berlin population evidence",
+    }
+    search = StaticSearchAdapter(
+        "duckduckgo",
+        {
+            "Berlin people": [snippet],
+            "Berlin census": [snippet],
+            "Berlin residents": [snippet],
+        },
+    )
+    return ParallelExpansionV1(
+        llm=generator,
+        search=search,
+        compactor=ContextCompactor(MemoizingSnippetScorer(LexicalOverlapScorer())),
+        condition_hook=IdentityConditionHook(),
+    )
+
+
 class _FakeClientContext:
-    def __init__(self, *, delay_seconds: float = 0.0):
+    def __init__(
+        self,
+        *,
+        delay_seconds: float = 0.0,
+        failed_final_passes: int = 0,
+        truncate_final_at: int | None = None,
+    ):
         self.delay_seconds = delay_seconds
+        self.failed_final_passes = failed_final_passes
+        self.truncate_final_at = truncate_final_at
         self.active_calls = 0
         self.peak_active_calls = 0
         self.call_count = 0
+        self.calls: list[tuple[str, int]] = []
+        self.failed_final_prompt: str | None = None
+        self.failed_final_calls = 0
 
     async def __aenter__(self):
         return self
@@ -559,29 +844,52 @@ class _FakeClientContext:
     async def __aexit__(self, exc_type, exc, traceback):
         return None
 
-    async def complete(self, *, prompt, schema_name, **kwargs):
+    async def complete(self, *, prompt, schema_name, max_tokens, **kwargs):
         self.call_count += 1
         self.active_calls += 1
         self.peak_active_calls = max(self.peak_active_calls, self.active_calls)
         try:
             await asyncio.sleep(self.delay_seconds)
             if "parallel_query_expansion" in schema_name:
+                purpose = "parallel_query_expansion"
                 value = {"queries": ["Berlin people", "Berlin census", "Berlin residents"]}
             elif "parallel_final" in schema_name:
+                purpose = "parallel_final"
+                if (
+                    self.truncate_final_at is not None
+                    and max_tokens <= self.truncate_final_at
+                ):
+                    self.calls.append((purpose, max_tokens))
+                    return '{"ranking": [', {"completion_tokens": max_tokens}
+                if self.failed_final_prompt is None and self.failed_final_passes:
+                    self.failed_final_prompt = prompt
+                if (
+                    prompt == self.failed_final_prompt
+                    and self.failed_final_calls < self.failed_final_passes * 3
+                ):
+                    self.failed_final_calls += 1
+                    self.calls.append((purpose, max_tokens))
+                    return '{"ranking": [', {"completion_tokens": max_tokens}
                 value = {
                     "ranking": [re.findall(r"https://[^\" ]+", prompt)[0]],
                     "answer": "Parallel answer",
                 }
             elif "reactive_action" in schema_name and "OBSERVATIONS:\n[]" in prompt:
+                purpose = "reactive_action"
                 value = {"action": "search", "query": "Berlin population"}
             elif "reactive_action" in schema_name:
+                purpose = "reactive_action"
                 value = {
                     "action": "finish",
                     "ranking": [re.findall(r"https://[^\" ]+", prompt)[0]],
                     "answer": "Reactive answer",
                 }
+            elif "reactive_forced_finish" in schema_name:
+                purpose = "reactive_forced_finish"
+                value = {}
             else:
                 raise AssertionError(schema_name)
+            self.calls.append((purpose, max_tokens))
             return json.dumps(value), {"total_tokens": 1}
         finally:
             self.active_calls -= 1
