@@ -437,6 +437,7 @@ class SmokeInputs:
     query_max_tokens: int | None = None
     final_max_tokens: int = 2048
     request_concurrency: int = 1
+    cell_concurrency: int | None = None
     disable_thinking: bool = False
     prompts_jsonl: Path | None = None
     selection_records_jsonl: Path | None = None
@@ -461,6 +462,13 @@ class SmokeInputs:
             or not 1 <= self.request_concurrency <= 4
         ):
             raise ValueError("request_concurrency must be an integer from 1 to 4")
+        if self.cell_concurrency is not None and (
+            type(self.cell_concurrency) is not int
+            or not self.request_concurrency <= self.cell_concurrency <= 32
+        ):
+            raise ValueError(
+                "cell_concurrency must be an integer from request_concurrency to 32"
+            )
         if (self.prompts_jsonl is None) != (self.selection_records_jsonl is None):
             raise ValueError(
                 "prompts and selection records must be configured together"
@@ -484,6 +492,12 @@ class SmokeInputs:
         if self.query_max_tokens is None:
             return self.max_tokens
         return self.query_max_tokens
+
+    @property
+    def resolved_cell_concurrency(self) -> int:
+        if self.cell_concurrency is None:
+            return self.request_concurrency
+        return self.cell_concurrency
 
 
 @dataclass(frozen=True, slots=True)
@@ -704,7 +718,7 @@ def _config(
                     for purpose in sorted(ANSWER_PURPOSES)
                 },
             },
-            "maximum_active_cells": inputs.request_concurrency,
+            "maximum_active_cells": inputs.resolved_cell_concurrency,
             "failed_cell_retry_passes": FAILED_CELL_RETRY_PASSES,
             "ranking_reference_mode": "evidence-id-v1",
             "final_answer_max_characters": FINAL_ANSWER_MAX_CHARACTERS,
@@ -715,6 +729,8 @@ def _config(
         "retrieval_mode": "frozen-snapshot-deterministic-lexical-v1",
         "condition_mode": "smoke-only-subset-and-order-v1",
     }
+    if inputs.cell_concurrency is not None:
+        config["cell_concurrency"] = inputs.cell_concurrency
     if prompts is not None:
         if inputs.prompts_jsonl is None or inputs.selection_records_jsonl is None:
             raise AssertionError("calibration inputs lack source paths")
@@ -1362,7 +1378,7 @@ async def run_smoke(
 
             def fill() -> None:
                 nonlocal peak_active_cells
-                while len(active) < inputs.request_concurrency:
+                while len(active) < inputs.resolved_cell_concurrency:
                     try:
                         cell = next(cell_iterator)
                     except StopIteration:
@@ -1448,6 +1464,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--query-max-tokens", type=int)
     parser.add_argument("--final-max-tokens", type=int, default=2048)
     parser.add_argument("--request-concurrency", type=int, default=1)
+    parser.add_argument(
+        "--cell-concurrency",
+        type=int,
+        help=(
+            "Maximum active agent cells. Defaults to request concurrency; "
+            "raising it overlaps retrieval and validation without increasing "
+            "simultaneous vLLM requests."
+        ),
+    )
     parser.add_argument("--prompts-jsonl", type=Path)
     parser.add_argument("--selection-records-jsonl", type=Path)
     parser.add_argument("--prompt-count", type=int, default=1)
@@ -1488,6 +1513,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         query_max_tokens=arguments.query_max_tokens,
         final_max_tokens=arguments.final_max_tokens,
         request_concurrency=arguments.request_concurrency,
+        cell_concurrency=arguments.cell_concurrency,
         disable_thinking=arguments.disable_thinking,
         prompts_jsonl=arguments.prompts_jsonl,
         selection_records_jsonl=arguments.selection_records_jsonl,

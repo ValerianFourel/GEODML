@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -337,6 +338,42 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             {prompt.prompt_id for prompt in prompts},
         )
 
+    def test_four_production_shards_have_disjoint_prompt_and_cell_ids(self) -> None:
+        prompts = tuple(
+            CalibrationPrompt(
+                prompt_id=f"prompt-{index:03d}",
+                prompt=f"Question {index}?",
+                question_sha256=f"{index:064x}",
+                axis_bin=index % 20,
+                keyword=f"keyword-{index}",
+            )
+            for index in range(500)
+        )
+
+        shards = [
+            _prompt_shard(prompts, shard_index=index, shard_count=4)
+            for index in range(4)
+        ]
+        prompt_id_sets = [
+            {prompt.prompt_id for prompt in shard}
+            for shard in shards
+        ]
+        cell_id_sets = [
+            {cell.cell_id for cell in _cells(shard)}
+            for shard in shards
+        ]
+
+        self.assertEqual([len(shard) for shard in shards], [125] * 4)
+        self.assertEqual([len(cell_ids) for cell_ids in cell_id_sets], [1500] * 4)
+        for left in range(4):
+            for right in range(left + 1, 4):
+                self.assertFalse(prompt_id_sets[left] & prompt_id_sets[right])
+                self.assertFalse(cell_id_sets[left] & cell_id_sets[right])
+        self.assertEqual(
+            set().union(*prompt_id_sets),
+            {prompt.prompt_id for prompt in prompts},
+        )
+
     def test_twenty_five_prompt_calibration_runs_and_resumes_300_cells(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -513,6 +550,31 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                 request_concurrency=5,
             )
 
+    def test_cell_concurrency_keeps_request_concurrency_bounded(self) -> None:
+        with TemporaryDirectory() as directory:
+            inputs = replace(
+                _smoke_inputs(Path(directory)),
+                cell_concurrency=12,
+            )
+            client = _FakeClientContext(delay_seconds=0.001)
+
+            manifest = asyncio.run(run_smoke(
+                inputs,
+                client_context=client,
+                compactor=ContextCompactor(
+                    MemoizingSnippetScorer(LexicalOverlapScorer())
+                ),
+            ))
+
+        self.assertEqual(manifest["request_concurrency"], 4)
+        self.assertEqual(manifest["cell_concurrency"], 12)
+        self.assertEqual(
+            manifest["execution_policy"]["maximum_active_cells"],
+            12,
+        )
+        self.assertEqual(manifest["peak_active_cells_this_invocation"], 12)
+        self.assertEqual(client.peak_active_calls, 4)
+
     def test_exhausted_cell_does_not_cancel_peers_and_only_it_resumes(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -575,6 +637,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn("--query-max-tokens 256", launcher)
         self.assertIn("--final-max-tokens 2048", launcher)
         self.assertIn("--disable-thinking", launcher)
+        self.assertIn("SEARCH_AGENTIC_CELL_CONCURRENCY", launcher)
 
     def test_qwen25_launcher_pins_model_and_yarn_profile(self) -> None:
         launcher = (
@@ -602,6 +665,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         self.assertIn("meta-llama/Llama-4-Scout-17B-16E-Instruct", launcher)
         self.assertIn("92f3b1597a195b523d8d9e5700e57e4fbb8f20d3", launcher)
         self.assertIn("AGENTIC_LLAMA4_12_CELL_SMOKE=PASS", launcher)
+        self.assertIn("SEARCH_AGENTIC_CELL_CONCURRENCY", launcher)
 
     def test_calibration_launcher_runs_three_models_and_900_cells(self) -> None:
         scripts = Path(__file__).resolve().parents[1] / "scripts/slurm/jupiter"
