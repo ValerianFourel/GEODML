@@ -806,6 +806,48 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             )
             self.assertEqual(sorted(counts.values()), [2, 2])
 
+    def test_target_urls_fall_back_to_frozen_lexical_retrieval(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "duckduckgo.jsonl"
+            path.write_text(
+                "".join(
+                    json.dumps({
+                        "keyword": "family medical coverage",
+                        "position": index + 1,
+                        "title": f"Family insurance source {index}",
+                        "url": f"https://insurance.test/{index}",
+                        "snippet": "Health insurance options for families",
+                    }) + "\n"
+                    for index in range(2)
+                ),
+                encoding="utf-8",
+            )
+            adapter = FrozenSnapshotSearchAdapter("duckduckgo", path)
+            prompt = CalibrationPrompt(
+                prompt_id="missing-exact-keyword",
+                prompt="Which family health insurance plan should I choose?",
+                question_sha256="f" * 64,
+                axis_bin=0,
+                keyword="best health insurance for families",
+            )
+            selection_audit = {}
+
+            targets = _build_target_urls(
+                (prompt,),
+                {"duckduckgo": adapter},
+                seed=17,
+                selection_audit=selection_audit,
+            )
+
+        self.assertIn(
+            targets[(prompt.prompt_id, "duckduckgo")],
+            {"https://insurance.test/0", "https://insurance.test/1"},
+        )
+        self.assertEqual(selection_audit, {
+            "duckduckgo": {"deterministic_lexical_fallback": 1},
+        })
+
     def test_complete_twelve_cell_flow_writes_auditable_results(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

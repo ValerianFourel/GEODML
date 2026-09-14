@@ -199,11 +199,22 @@ class FrozenSnapshotSearchAdapter:
                 output.append(url)
         return tuple(output[:SEARCH_RESULT_LIMIT])
 
+    def urls_for_query(self, query: str) -> tuple[str, ...]:
+        """Return URLs from the same frozen lexical retrieval used by search."""
+        output: list[str] = []
+        seen: set[str] = set()
+        for row in self._select_rows(query, SEARCH_RESULT_LIMIT):
+            url = str(row["url"])
+            if url not in seen:
+                seen.add(url)
+                output.append(url)
+        return tuple(output)
+
     @property
     def keywords(self) -> set[str]:
         return {str(row["keyword"]) for row in self.rows if str(row["keyword"]).strip()}
 
-    async def search(self, query: str, limit: int) -> SearchResponse:
+    def _select_rows(self, query: str, limit: int) -> list[dict[str, Any]]:
         if limit < 1:
             raise ValueError("search limit must be positive")
         query_terms = _tokens(query)
@@ -217,7 +228,10 @@ class FrozenSnapshotSearchAdapter:
             stable = hashlib.sha256(f"{query}\0{row['url']}".encode()).hexdigest()
             return (-exact, -overlap, int(row["position"]), stable, index)
 
-        selected = [row for _, row in sorted(enumerate(self.rows), key=key)[:limit]]
+        return [row for _, row in sorted(enumerate(self.rows), key=key)[:limit]]
+
+    async def search(self, query: str, limit: int) -> SearchResponse:
+        selected = self._select_rows(query, limit)
         snippets = tuple(
             Snippet.from_mapping({
                 "url": str(row["url"]),
@@ -310,19 +324,23 @@ def _build_target_urls(
     adapters: Mapping[str, FrozenSnapshotSearchAdapter],
     *,
     seed: int,
+    selection_audit: dict[str, dict[str, int]] | None = None,
 ) -> dict[tuple[str, str], str]:
     """Freeze balanced baseline target URLs before any shard is selected."""
     output: dict[tuple[str, str], str] = {}
     for engine, adapter in sorted(adapters.items()):
         groups: dict[int, list[CalibrationPrompt]] = {}
         urls_by_prompt: dict[str, tuple[str, ...]] = {}
+        mode_counts: Counter[str] = Counter()
         for prompt in prompts:
             urls = adapter.urls_for_keyword(prompt.keyword)
             if not urls:
-                raise ValueError(
-                    f"{engine} snapshot has no exact baseline rows for "
-                    f"prompt {prompt.prompt_id} keyword {prompt.keyword!r}"
-                )
+                urls = adapter.urls_for_query(prompt.keyword)
+                mode_counts["deterministic_lexical_fallback"] += 1
+            else:
+                mode_counts["exact_keyword"] += 1
+            if not urls:
+                raise ValueError(f"{engine} snapshot has no usable baseline rows")
             urls_by_prompt[prompt.prompt_id] = urls
             groups.setdefault(len(urls), []).append(prompt)
         for count, group in groups.items():
@@ -336,6 +354,8 @@ def _build_target_urls(
                 output[(prompt.prompt_id, engine)] = urls_by_prompt[
                     prompt.prompt_id
                 ][index % count]
+        if selection_audit is not None:
+            selection_audit[engine] = dict(sorted(mode_counts.items()))
     return output
 
 
@@ -647,6 +667,7 @@ def _config(
     keyword: str,
     prompts: Sequence[CalibrationPrompt] | None = None,
     target_urls: Mapping[tuple[str, str], str] | None = None,
+    target_url_selection_audit: Mapping[str, Mapping[str, int]] | None = None,
 ) -> dict[str, Any]:
     config = {
         "format_version": "agentic-search-integration-smoke-v2",
@@ -753,9 +774,18 @@ def _config(
             config.update({
                 "condition_mode": "frozen-target-url-and-stable-shuffle-v1",
                 "ablation_target_source": (
-                    "balanced position in each engine's frozen historical "
-                    "baseline result set"
+                    "balanced position in each engine's deterministic frozen "
+                    "baseline retrieval for the prompt keyword"
                 ),
+                "ablation_target_selection": (
+                    "exact-keyword-else-deterministic-lexical-v1"
+                ),
+                "ablation_target_selection_counts": {
+                    engine: dict(sorted(counts.items()))
+                    for engine, counts in sorted(
+                        (target_url_selection_audit or {}).items()
+                    )
+                },
                 "target_url_map_sha256": hashlib.sha256(
                     _canonical(target_identity)
                 ).hexdigest(),
@@ -1058,11 +1088,13 @@ async def run_smoke(
         and inputs.selection_records_jsonl is not None
         else None
     )
+    target_url_selection_audit: dict[str, dict[str, int]] = {}
     target_urls = (
         _build_target_urls(
             prompt_population,
             adapters,
             seed=inputs.prompt_selection_seed,
+            selection_audit=target_url_selection_audit,
         )
         if prompt_population is not None and inputs.production_conditions
         else None
@@ -1081,7 +1113,13 @@ async def run_smoke(
         "For the reactive method, perform at least one search before finishing."
     )
     cells = _cells(prompts)
-    config = _config(inputs, keyword, prompts, target_urls)
+    config = _config(
+        inputs,
+        keyword,
+        prompts,
+        target_urls,
+        target_url_selection_audit,
+    )
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
     inputs.output.mkdir(parents=True, exist_ok=True)
     config_path = inputs.output / "config.json"
