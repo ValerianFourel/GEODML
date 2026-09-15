@@ -36,6 +36,7 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     _evidence_id_resume_config,
     _legacy_resume_config,
     _load_calibration_prompts,
+    _optimized_resume_config,
     _prompt_shard,
     _prepare_config,
     _previous_resume_config,
@@ -46,6 +47,66 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_optimized_resume_config_preserves_completed_cells(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            current = {
+                "git_commit": "new-commit",
+                "disable_thinking": True,
+                "request_concurrency": 4,
+                "cell_concurrency": 12,
+                "execution_policy": {
+                    "max_tokens_by_purpose": {
+                        "parallel_query_expansion": 256,
+                        "parallel_final": 2048,
+                        "reactive_action": 2048,
+                        "reactive_forced_finish": 2048,
+                    },
+                    "maximum_active_cells": 12,
+                    "final_attempt_repair_mode": (
+                        "evidence-projection-and-malformed-prefix-v1"
+                    ),
+                    "structured_output_schema_mode": "xgrammar-structural-v1",
+                },
+            }
+            previous = _optimized_resume_config(current)
+            self.assertIsNotNone(previous)
+            self.assertEqual(
+                previous["git_commit"],
+                "40d848175ce327585b048efc293e7bfa5e4482c5",
+            )
+            self.assertEqual(
+                previous["execution_policy"]["final_attempt_repair_mode"],
+                "evidence-projection-v1",
+            )
+            previous_hash = hashlib.sha256(json.dumps(
+                previous,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            path.write_text(json.dumps({
+                **previous,
+                "config_sha256": previous_hash,
+            }), encoding="utf-8")
+            current_hash = hashlib.sha256(json.dumps(
+                current,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+
+            compatible, migrated = _prepare_config(path, current, current_hash)
+
+            self.assertEqual(migrated["config_sha256"], previous_hash)
+            self.assertIn(previous_hash, {
+                source["config_sha256"] for source in compatible
+            })
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")),
+                {**current, "config_sha256": current_hash},
+            )
+
     def test_previous_resume_config_migrates_only_the_exact_predecessor(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -1095,7 +1156,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         )
         self.assertEqual(
             manifest["execution_policy"]["final_attempt_repair_mode"],
-            "evidence-projection-v1",
+            "evidence-projection-and-malformed-prefix-v1",
         )
         self.assertEqual(
             manifest["execution_policy"]["structured_output_schema_mode"],

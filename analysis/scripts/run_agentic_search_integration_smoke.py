@@ -54,6 +54,7 @@ PREVIOUS_RESUME_COMMIT = "3426907232d98634a3502381e58708cc3c028f30"
 EVIDENCE_ID_RESUME_COMMIT = "c5eba6036fc1bef032bfa0992007f396133b72e7"
 REPAIR_RESUME_COMMIT = "3d0fa062094dca9571198ae8198be6a00b634f7e"
 SERIAL_RESUME_COMMIT = "6a2469958df8355234982a45608c220780b855a0"
+OPTIMIZED_RESUME_COMMIT = "40d848175ce327585b048efc293e7bfa5e4482c5"
 FAILED_CELL_RETRY_PASSES = 1
 
 
@@ -722,7 +723,9 @@ def _config(
             "failed_cell_retry_passes": FAILED_CELL_RETRY_PASSES,
             "ranking_reference_mode": "evidence-id-v1",
             "final_answer_max_characters": FINAL_ANSWER_MAX_CHARACTERS,
-            "final_attempt_repair_mode": "evidence-projection-v1",
+            "final_attempt_repair_mode": (
+                "evidence-projection-and-malformed-prefix-v1"
+            ),
             "structured_output_schema_mode": "xgrammar-structural-v1",
         },
         "request_concurrency": inputs.request_concurrency,
@@ -838,6 +841,22 @@ def _legacy_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
     return legacy
 
 
+def _optimized_resume_config(
+    config: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    policy = config.get("execution_policy", {})
+    if policy.get("final_attempt_repair_mode") != (
+        "evidence-projection-and-malformed-prefix-v1"
+    ):
+        return None
+    previous = json.loads(json.dumps(config))
+    previous["git_commit"] = OPTIMIZED_RESUME_COMMIT
+    previous["execution_policy"]["final_attempt_repair_mode"] = (
+        "evidence-projection-v1"
+    )
+    return previous
+
+
 def _previous_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
     previous = _evidence_id_resume_config(config)
     if previous is None:
@@ -880,12 +899,18 @@ def _repair_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _serial_resume_config(config: Mapping[str, Any]) -> dict[str, Any] | None:
-    policy = config.get("execution_policy", {})
+    optimized = _optimized_resume_config(config)
+    source = optimized if optimized is not None else config
+    policy = source.get("execution_policy", {})
     if policy.get("structured_output_schema_mode") != "xgrammar-structural-v1":
         return None
-    previous = json.loads(json.dumps(config))
+    previous = json.loads(json.dumps(source))
     previous["git_commit"] = SERIAL_RESUME_COMMIT
     previous["execution_policy"].pop("structured_output_schema_mode")
+    previous.pop("cell_concurrency", None)
+    previous["execution_policy"]["maximum_active_cells"] = previous[
+        "request_concurrency"
+    ]
     return previous
 
 
@@ -895,6 +920,12 @@ def _prepare_config(
     config_hash: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     current = {**config, "config_sha256": config_hash}
+    optimized_config = _optimized_resume_config(config)
+    optimized_hash = (
+        hashlib.sha256(_canonical(optimized_config)).hexdigest()
+        if optimized_config
+        else None
+    )
     legacy = _legacy_resume_config(config)
     legacy_hash = hashlib.sha256(_canonical(legacy)).hexdigest() if legacy else None
     prior_config = _previous_resume_config(config)
@@ -922,6 +953,15 @@ def _prepare_config(
         else None
     )
     candidates = [
+        (
+            optimized_config,
+            optimized_hash,
+            OPTIMIZED_RESUME_COMMIT,
+            config["execution_policy"]["max_tokens_by_purpose"][
+                "parallel_final"
+            ],
+            config["disable_thinking"],
+        ),
         (
             legacy,
             legacy_hash,

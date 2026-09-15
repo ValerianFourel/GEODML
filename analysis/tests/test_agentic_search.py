@@ -381,6 +381,48 @@ class AgenticSearchTests(unittest.TestCase):
         ])
         self.assertTrue(repairs[0].payload["answer_truncated"])
 
+    def test_final_attempt_recovers_answer_prefix_from_malformed_json(self):
+        malformed_outputs = (
+            '{"ranking":["S2","S1"],"answer":"Useful answer without a terminator',
+            '{"ranking":["S2","S1"],"answer":"Useful answer before a "   trailing text',
+        )
+        for malformed in malformed_outputs:
+            with self.subTest(malformed=malformed):
+                llm = ScriptedLLM([
+                    json.dumps({"queries": ["one", "two", "three"]}),
+                    malformed,
+                    malformed,
+                    malformed,
+                ])
+                method = ParallelExpansionV1(
+                    llm=llm,
+                    search=StaticSearchAdapter("duckduckgo", {
+                        "one": [snippet(1), snippet(2)],
+                        "two": [],
+                        "three": [],
+                    }),
+                    compactor=ContextCompactor(PositionScorer()),
+                    condition_hook=IdentityConditionHook(),
+                )
+
+                result = asyncio.run(method.run(
+                    "Question", ExperimentalCondition.NATURAL
+                ))
+
+                self.assertEqual(result.ranking, (
+                    "https://example.test/1", "https://example.test/2"
+                ))
+                self.assertTrue(result.answer.startswith("Useful answer"))
+                repairs = [
+                    event for event in result.trace.events
+                    if event.event_type == "controller_repair"
+                ]
+                self.assertEqual(len(repairs), 1)
+                self.assertTrue(repairs[0].payload["malformed_json_recovered"])
+                self.assertIn("JSONDecodeError", repairs[0].payload[
+                    "trigger_validation_error"
+                ])
+
     def test_reactive_final_attempt_repairs_forced_finish(self):
         invalid_finish = json.dumps({
             "action": "finish",

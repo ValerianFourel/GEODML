@@ -19,6 +19,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import tempfile
 from threading import Lock
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
@@ -451,6 +452,10 @@ class AgenticMethod(ABC):
             Callable[[Mapping[str, Any]], tuple[dict[str, Any], Mapping[str, Any]]]
             | None
         ) = None,
+        malformed_json_repair: (
+            Callable[[str], tuple[Mapping[str, Any], Mapping[str, Any]]]
+            | None
+        ) = None,
     ) -> dict[str, Any]:
         for attempt in range(1, self.schema_retries + 2):
             try:
@@ -485,13 +490,22 @@ class AgenticMethod(ABC):
             })
             if parsed is not None:
                 return parsed
-            if (
-                attempt == self.schema_retries + 1
-                and decoded is not None
-                and final_attempt_repair is not None
-            ):
+            if attempt == self.schema_retries + 1 and final_attempt_repair is not None:
+                repair_input = decoded
+                malformed_details: Mapping[str, Any] = {}
+                if repair_input is None and malformed_json_repair is not None:
+                    try:
+                        repair_input, malformed_details = malformed_json_repair(raw)
+                    except (ValueError, TypeError, json.JSONDecodeError) as error:
+                        trace.record("controller_repair_rejected", {
+                            "purpose": request.purpose,
+                            "error": f"{type(error).__name__}: {error}",
+                        })
+                        continue
+                if repair_input is None:
+                    continue
                 try:
-                    repaired, repair_details = final_attempt_repair(decoded)
+                    repaired, repair_details = final_attempt_repair(repair_input)
                 except (ValueError, TypeError) as error:
                     trace.record("controller_repair_rejected", {
                         "purpose": request.purpose,
@@ -501,6 +515,7 @@ class AgenticMethod(ABC):
                     trace.record("controller_repair", {
                         "purpose": request.purpose,
                         "trigger_validation_error": validation_error,
+                        **dict(malformed_details),
                         **dict(repair_details),
                         "repaired_output": repaired,
                     })
@@ -666,6 +681,7 @@ class ParallelExpansionV1(AgenticMethod):
             request=final_request,
             validator=lambda value: _validate_final(value, compacted),
             final_attempt_repair=lambda value: _repair_final(value, compacted),
+            malformed_json_repair=_recover_malformed_final_mapping,
         )
         return AgenticResult(
             method_id=self.method_id,
@@ -969,6 +985,57 @@ def _bounded_answer(value: Any) -> str:
             f"answer exceeds {FINAL_ANSWER_MAX_CHARACTERS} characters"
         )
     return answer
+
+
+def _recover_malformed_final_mapping(
+    raw: str,
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Recover the complete ranking and answer prefix from stalled final JSON."""
+    if not isinstance(raw, str):
+        raise ValueError("LLM output must be text")
+    prefix = re.match(r'\s*\{\s*"ranking"\s*:\s*', raw)
+    if prefix is None:
+        raise ValueError("malformed final output lacks a leading ranking")
+    ranking, ranking_end = json.JSONDecoder().raw_decode(raw, prefix.end())
+    answer_key = re.match(
+        r'\s*,\s*"answer"\s*:\s*"',
+        raw[ranking_end:],
+    )
+    if answer_key is None:
+        raise ValueError("malformed final output lacks an answer string")
+    answer_start = ranking_end + answer_key.end()
+    answer, terminated = _decode_json_string_prefix(raw, answer_start)
+    answer = _nonempty_text(answer, "recovered answer prefix")
+    return {
+        "ranking": ranking,
+        "answer": answer,
+    }, {
+        "malformed_json_recovered": True,
+        "recovered_answer_prefix_characters": len(answer),
+        "recovered_answer_quote_observed": terminated,
+    }
+
+
+def _decode_json_string_prefix(raw: str, start: int) -> tuple[str, bool]:
+    characters: list[str] = []
+    cursor = start
+    while cursor < len(raw):
+        character = raw[cursor]
+        if character == '"':
+            return "".join(characters), True
+        if character == "\\":
+            escape_length = 6 if raw[cursor : cursor + 2] == "\\u" else 2
+            escaped = raw[cursor : cursor + escape_length]
+            if len(escaped) != escape_length:
+                break
+            characters.append(json.loads(f'"{escaped}"'))
+            cursor += escape_length
+            continue
+        if ord(character) < 0x20:
+            break
+        characters.append(character)
+        cursor += 1
+    return "".join(characters), False
 
 
 def _repair_ranking(
