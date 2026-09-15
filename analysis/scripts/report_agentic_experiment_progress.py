@@ -52,6 +52,9 @@ def collect_progress(
     now: float | None = None,
     judge_results: Path | None = None,
     expected_judge_items: int | None = None,
+    planned_prompt_count: int | None = None,
+    cells_per_prompt: int | None = None,
+    judge_every_generated_cell: bool = False,
 ) -> dict[str, Any]:
     """Collect progress from result artifacts and advisory manifests."""
     if shard_count <= 0 or cells_per_shard <= 0:
@@ -62,8 +65,25 @@ def collect_progress(
         raise ValueError("at least one model is required")
     if expected_judge_items is not None and expected_judge_items <= 0:
         raise ValueError("expected_judge_items must be positive")
-    if judge_results is not None and expected_judge_items is None:
-        raise ValueError("--judge-results requires --expected-judge-items")
+    if (
+        judge_results is not None
+        and expected_judge_items is None
+        and not judge_every_generated_cell
+    ):
+        raise ValueError(
+            "--judge-results requires --expected-judge-items or "
+            "--judge-every-generated-cell"
+        )
+    if planned_prompt_count is not None and cells_per_prompt is None:
+        raise ValueError("planned_prompt_count requires cells_per_prompt")
+    if planned_prompt_count is not None and planned_prompt_count <= 0:
+        raise ValueError("planned_prompt_count must be positive")
+    if cells_per_prompt is not None and cells_per_prompt <= 0:
+        raise ValueError("cells_per_prompt must be positive")
+    if judge_every_generated_cell and expected_judge_items is not None:
+        raise ValueError(
+            "use either judge_every_generated_cell or expected_judge_items"
+        )
 
     timestamp = time.time() if now is None else now
     recent_cutoff = timestamp - recent_window_minutes * 60.0
@@ -108,7 +128,17 @@ def collect_progress(
                 "recent_results": recent,
             })
 
-        model_expected = shard_count * cells_per_shard
+        materialized_model_expected = shard_count * cells_per_shard
+        model_expected = (
+            planned_prompt_count * cells_per_prompt
+            if planned_prompt_count is not None and cells_per_prompt is not None
+            else materialized_model_expected
+        )
+        if model_expected < materialized_model_expected:
+            raise ValueError(
+                "planned generator cells per model cannot be smaller than the "
+                "materialized shard plan"
+            )
         model_summaries.append({
             "model": model,
             "completed": model_completed,
@@ -119,7 +149,7 @@ def collect_progress(
         })
 
     generation_completed = sum(item["completed"] for item in model_summaries)
-    generation_expected = len(models) * shard_count * cells_per_shard
+    generation_expected = sum(item["expected"] for item in model_summaries)
     generation_failures = sum(item["failed_cells"] for item in model_summaries)
     recent_rate = recent_result_count / recent_window_minutes
     generation_remaining = generation_expected - generation_completed
@@ -138,6 +168,9 @@ def collect_progress(
         "cells_per_minute": round(recent_rate, 3),
         "eta_minutes_at_recent_rate": round(eta_minutes, 1) if eta_minutes is not None else None,
     }
+
+    if judge_every_generated_cell:
+        expected_judge_items = generation_expected
 
     if expected_judge_items is None:
         judging: dict[str, Any] = {"status": "not_planned"}
@@ -162,8 +195,31 @@ def collect_progress(
             generation_expected + expected_judge_items,
         )
 
+    materialized_cells_per_model = shard_count * cells_per_shard
+    effective_cells_per_prompt = cells_per_prompt or 1
+    if planned_prompt_count is None:
+        if materialized_cells_per_model % effective_cells_per_prompt:
+            raise ValueError(
+                "materialized cells per model must be divisible by cells_per_prompt"
+            )
+        planned_prompts = materialized_cells_per_model // effective_cells_per_prompt
+    else:
+        planned_prompts = planned_prompt_count
+    judge_item_plan = judging.get("expected")
     return {
         "run_root": str(run_root),
+        "plan": {
+            "models": len(models),
+            "planned_prompts": planned_prompts,
+            "cells_per_prompt": effective_cells_per_prompt,
+            "generator_cells": generation_expected,
+            "judge_items": judge_item_plan,
+            "total_inference_items": (
+                generation_expected + judge_item_plan
+                if isinstance(judge_item_plan, int)
+                else None
+            ),
+        },
         "generation": generation,
         "models": model_summaries,
         "shards": shards,
@@ -179,8 +235,16 @@ def _format_count(value: int) -> str:
 
 def render_text(progress: dict[str, Any]) -> str:
     generation = progress["generation"]
+    plan = progress["plan"]
     lines = [
         f"RUN_ROOT={progress['run_root']}",
+        (
+            f"PLAN=prompts:{_format_count(plan['planned_prompts'])} "
+            f"models:{plan['models']} cells_per_prompt:{plan['cells_per_prompt']} "
+            f"generator_cells:{_format_count(plan['generator_cells'])} "
+            f"judge_items:{_format_count(plan['judge_items']) if plan['judge_items'] is not None else 'undefined'} "
+            f"total_inference_items:{_format_count(plan['total_inference_items']) if plan['total_inference_items'] is not None else 'undefined'}"
+        ),
         (
             "GENERATION="
             f"{_format_count(generation['completed'])}/"
@@ -242,6 +306,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--recent-window-minutes", type=float, default=15.0)
     parser.add_argument("--judge-results", type=Path)
     parser.add_argument("--expected-judge-items", type=int)
+    parser.add_argument("--planned-prompt-count", type=int)
+    parser.add_argument("--cells-per-prompt", type=int, default=12)
+    parser.add_argument("--judge-every-generated-cell", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_only")
     return parser
 
@@ -256,6 +323,9 @@ def main() -> int:
         recent_window_minutes=args.recent_window_minutes,
         judge_results=args.judge_results,
         expected_judge_items=args.expected_judge_items,
+        planned_prompt_count=args.planned_prompt_count,
+        cells_per_prompt=args.cells_per_prompt,
+        judge_every_generated_cell=args.judge_every_generated_cell,
     )
     print(json.dumps(progress, indent=2, sort_keys=True) if args.json_only else render_text(progress))
     return 0

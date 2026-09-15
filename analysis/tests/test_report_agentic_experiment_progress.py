@@ -105,3 +105,44 @@ def test_collect_progress_includes_materialized_judge_items(tmp_path: Path) -> N
         "percent": 40.0,
     }
     assert progress["overall_artifact_percent"] == 70.0
+
+
+def test_collect_progress_can_measure_the_full_future_inference_plan(
+    tmp_path: Path,
+) -> None:
+    _write_shard(
+        tmp_path,
+        "qwen38",
+        0,
+        result_count=5,
+        status="complete",
+    )
+
+    progress = collect_progress(
+        tmp_path,
+        models=("qwen38", "llama4"),
+        shard_count=1,
+        cells_per_shard=5,
+        recent_window_minutes=15,
+        now=10_000.0,
+        planned_prompt_count=10,
+        cells_per_prompt=5,
+        judge_every_generated_cell=True,
+    )
+
+    assert progress["plan"] == {
+        "models": 2,
+        "planned_prompts": 10,
+        "cells_per_prompt": 5,
+        "generator_cells": 100,
+        "judge_items": 100,
+        "total_inference_items": 200,
+    }
+    assert progress["generation"]["completed"] == 5
+    assert progress["generation"]["expected"] == 100
+    assert progress["models"][0]["expected"] == 50
+    assert progress["models"][1]["expected"] == 50
+    assert progress["judging"]["status"] == "not_started"
+    assert progress["judging"]["completed"] == 0
+    assert progress["judging"]["expected"] == 100
+    assert progress["overall_artifact_percent"] == 2.5
