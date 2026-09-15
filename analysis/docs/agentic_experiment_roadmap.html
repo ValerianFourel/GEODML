@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>GEODML inference roadmap</title>
+  <style>
+    :root {
+      --paper: #ffffff; --ink: #172b4d; --blue: #245be8;
+      --teal: #157a6e; --amber: #a86712; --muted: #65758b;
+      --line: #dce3ed; --wash: #f4f7fb; --quiet-blue: #eaf0ff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink); background: var(--paper); font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; line-height: 1.5; }
+    button, input, textarea { font: inherit; }
+    button, input[type="checkbox"], input[type="radio"] { cursor: pointer; }
+    button { border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: .65rem 1rem; border-radius: 5px; font-weight: 600; }
+    button:hover { background: var(--wash); border-color: var(--muted); }
+    button.primary { background: var(--blue); border-color: var(--blue); color: white; }
+    button.primary:hover { background: #1948c0; }
+    :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    input, textarea { color: var(--ink); border: 1px solid #a8b5c7; border-radius: 4px; padding: .55rem .7rem; background: var(--paper); }
+    input[type="number"] { width: 100%; min-width: 0; font-variant-numeric: tabular-nums; }
+    input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(2rem, 4.5vw, 3.5rem); line-height: 1.1; letter-spacing: -.035em; max-width: 22ch; margin-bottom: 1rem; }
+    h2 { font-size: 1.45rem; letter-spacing: -.018em; line-height: 1.3; margin-bottom: .5rem; }
+    h3 { font-size: 1rem; margin-bottom: .4rem; }
+    p { max-width: 78ch; }
+    a { color: var(--blue); text-underline-offset: 3px; }
+    .shell { max-width: 1200px; margin: auto; padding: 0 36px 56px; }
+    .masthead { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: 24px 0; border-bottom: 2px solid var(--ink); }
+    .brand { font-weight: 750; font-size: 1.08rem; letter-spacing: -.02em; }
+    .masthead nav { display: flex; flex-wrap: wrap; gap: 1.1rem; font-size: .88rem; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(240px, 1fr); gap: 44px; padding: 40px 0 24px; align-items: end; }
+    .hero p { color: var(--muted); margin-bottom: .5rem; }
+    .snapshot { border-left: 4px solid var(--amber); padding: 4px 0 4px 18px; font-size: .9rem; }
+    .snapshot strong { display: block; margin-bottom: .35rem; }
+    .snapshot time { display: block; font-variant-numeric: tabular-nums; }
+    .snapshot p { margin: .35rem 0 0; }
+    .scope { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; border: 0; padding: 0; margin: 14px 0 0; }
+    .scope legend { float: left; margin-right: 20px; font-weight: 600; }
+    .scope label { display: flex; align-items: center; gap: .55rem; min-height: 44px; padding: .35rem .75rem; border: 1px solid var(--line); border-radius: 5px; }
+    .scope label:has(input:checked) { color: var(--blue); border-color: var(--blue); background: var(--quiet-blue); }
+    .reuse-control { margin-top: 1rem; padding: .8rem 1rem; border-left: 3px solid var(--amber); background: #fff8eb; font-size: .92rem; }
+    .reuse-control label { display: flex; align-items: flex-start; gap: .7rem; }
+    .reuse-control input { margin-top: .32rem; }
+    .section { margin-top: 38px; padding-top: 26px; border-top: 1px solid var(--line); scroll-margin-top: 18px; }
+    .section-intro { color: var(--muted); font-size: .95rem; margin-bottom: 22px; }
+    .plan-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem 1rem; margin: 1.25rem 0; }
+    .plan-line strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+    .plan-line span { color: var(--muted); font-size: .9rem; }
+    .ledger { border-top: 2px solid var(--ink); }
+    .ledger-row { display: grid; grid-template-columns: 200px minmax(0, 1fr) 130px; align-items: start; gap: 22px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+    .ledger-title { font-size: 1.1rem; font-weight: 650; }
+    .ledger-caption { font-size: .82rem; color: var(--muted); margin-top: .25rem; }
+    .meter-caption { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 8px; font-size: .9rem; }
+    .meter-caption strong { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+    progress { display: block; appearance: none; border: 0; width: 100%; height: 12px; border-radius: 2px; background: var(--wash); overflow: hidden; accent-color: var(--blue); }
+    progress::-webkit-progress-bar { background: var(--wash); }
+    progress::-webkit-progress-value { background: var(--blue); }
+    progress::-moz-progress-bar { background: var(--blue); }
+    progress.complete::-webkit-progress-value { background: var(--teal); }
+    progress.complete::-moz-progress-bar { background: var(--teal); }
+    .percent { text-align: right; font-size: 2rem; line-height: 1; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+    .percent small { display: block; margin-top: 9px; font-weight: 400; font-size: .78rem; color: var(--muted); letter-spacing: 0; }
+    .note { color: var(--muted); font-size: .86rem; margin: .8rem 0 0; }
+    .callout { padding: 16px 20px; background: var(--wash); border-left: 4px solid var(--blue); margin-top: 20px; }
+    .callout p { margin: 0; }
+    .callout .note { margin-top: .5rem; }
+    .warning { border-left-color: var(--amber); background: #fff8eb; }
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+    th { text-align: left; font-weight: 600; color: var(--muted); padding: 11px 12px; border-bottom: 2px solid var(--line); white-space: nowrap; }
+    td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
+    th:first-child, td:first-child { padding-left: 0; }
+    td:last-child, th:last-child { padding-right: 0; }
+    .shard-table { margin-top: 1rem; }
+    .state { display: inline-block; color: var(--muted); font-weight: 600; }
+    .state.good { color: var(--teal); }
+    .state.attention { color: var(--amber); }
+    details { margin-top: 14px; }
+    summary { cursor: pointer; color: var(--blue); font-weight: 600; padding: .55rem 0; }
+    .roadmap { list-style: none; padding: 0; margin: 1.5rem 0 0; counter-reset: milestones; }
+    .roadmap li { position: relative; display: grid; grid-template-columns: 35px minmax(0, 1fr) 150px; gap: 18px; padding: 0 0 26px; counter-increment: milestones; }
+    .roadmap li::before { content: counter(milestones); display: grid; place-content: center; height: 32px; width: 32px; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); z-index: 1; color: var(--muted); font-size: .8rem; font-weight: 650; }
+    .roadmap li:not(:last-child)::after { content: ""; position: absolute; top: 32px; bottom: 0; left: 16px; width: 1px; background: var(--line); }
+    .roadmap p { font-size: .9rem; color: var(--muted); margin-bottom: 0; }
+    .roadmap .state { text-align: right; font-size: .85rem; padding-top: 4px; }
+    .trial { display: grid; grid-template-columns: 1.45fr 1fr; gap: 28px; padding: 24px; background: var(--quiet-blue); border-radius: 8px; }
+    .trial p { font-size: .95rem; margin: .5rem 0 0; }
+    .trial-budget { border-left: 1px solid #becff7; padding-left: 24px; }
+    .trial-budget strong { font-size: 1.85rem; font-weight: 650; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+    .trial-budget span { display: block; font-size: .88rem; margin-top: .35rem; }
+    .calculator { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; }
+    .inputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 18px 0; }
+    .inputs label { font-size: .86rem; }
+    .inputs input { display: block; margin-top: 6px; }
+    .rates th { font-size: .82rem; }
+    .rates td { padding-top: 8px; padding-bottom: 8px; }
+    .rates td:nth-child(2), .rates td:nth-child(3) { width: 95px; }
+    .calc-result { background: var(--wash); padding: 22px; border-radius: 8px; }
+    .calc-result h3 { margin-top: .8rem; }
+    .calc-result h3:first-child { margin-top: 0; }
+    .calc-result p { margin-bottom: .7rem; }
+    .calc-value { font-size: 1.45rem; font-variant-numeric: tabular-nums; letter-spacing: -.02em; font-weight: 600; }
+    .calc-footnote { font-size: .85rem; color: var(--muted); }
+    .error { color: #923f17; }
+    textarea { width: 100%; resize: vertical; min-height: 155px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: .82rem; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .source-path { overflow-wrap: anywhere; font-size: .82rem; color: var(--muted); margin-top: .5rem; }
+    #import-feedback { min-height: 1.5em; margin-top: .8rem; }
+    footer { margin-top: 38px; border-top: 2px solid var(--ink); padding-top: 18px; color: var(--muted); font-size: .85rem; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+    [hidden] { display: none !important; }
+    @media (max-width: 850px) {
+      .shell { padding: 0 22px 36px; }
+      .hero { gap: 24px; grid-template-columns: 1fr; }
+      .snapshot { max-width: 600px; }
+      .ledger-row { grid-template-columns: 150px minmax(0, 1fr) 90px; gap: 16px; }
+      .percent { font-size: 1.65rem; }
+      .calculator { grid-template-columns: 1fr; gap: 18px; }
+      .trial { grid-template-columns: 1fr; gap: 20px; }
+      .trial-budget { border-left: 0; border-top: 1px solid #becff7; padding-left: 0; padding-top: 16px; }
+    }
+    @media (max-width: 560px) {
+      .shell { padding-left: 16px; padding-right: 16px; }
+      .masthead { display: block; padding: 18px 0; }
+      .masthead nav { margin-top: 10px; }
+      .hero { padding-top: 28px; }
+      .scope { gap: .65rem; }
+      .scope legend { float: none; margin-bottom: 8px; }
+      .scope label { width: 100%; }
+      .ledger-row { grid-template-columns: minmax(0, 1fr) 80px; gap: 10px 14px; }
+      .ledger-row > :nth-child(2) { grid-row: 2; grid-column: 1 / -1; }
+      .ledger-row > :nth-child(3) { grid-row: 1; grid-column: 2; }
+      .roadmap li { grid-template-columns: 32px minmax(0, 1fr); gap: 8px 12px; }
+      .roadmap .state { grid-column: 2; text-align: left; padding-top: 0; }
+      .inputs { grid-template-columns: 1fr; gap: 12px; }
+      .trial, .calc-result { padding: 18px; }
+    }
+    @media print {
+      .actions, #refresh, .masthead nav { display: none; }
+      .shell { max-width: none; }
+      details { break-inside: avoid; }
+      .section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="masthead">
+      <div class="brand">GEODML / Inference roadmap</div>
+      <nav aria-label="Page sections">
+        <a href="#progress">Progress</a><a href="#next">Next jobs</a><a href="#estimate">Estimates</a><a href="#refresh">Refresh snapshot</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <h1 id="page-title">Qwen's 500-prompt generation is complete.</h1>
+          <p id="hero-description">The next proposed trial measures Qwen3.8 and Llama 4 on the same new prompts. Judging and the full rollout still have separate work to do.</p>
+        </div>
+        <aside class="snapshot" aria-label="Data freshness">
+          <strong>Saved snapshot. Not a live cluster connection.</strong>
+          <time id="checked-at" datetime="2026-09-15T23:08:32Z">15 September 2026, 23:08:32 UTC</time>
+          <p id="freshness-note">Qwen completion and Nemotron startup come from pasted cluster output. Llama's zero count was reported earlier.</p>
+        </aside>
+      </section>
+
+      <fieldset class="scope">
+        <legend>View the plan</legend>
+        <label><input type="radio" name="scope" value="500" checked> Current 500 prompts</label>
+        <label><input type="radio" name="scope" value="26009"> All 26,009 prompts</label>
+      </fieldset>
+      <div id="reuse-control" class="reuse-control" hidden>
+        <label><input id="count-reuse" type="checkbox"><span>Count current-study generator outputs as reusable in the full rollout, for this estimate only. Prompt IDs, model revisions, configurations, and artifact provenance must match before this becomes confirmed progress.</span></label>
+      </div>
+
+      <section class="section" id="progress" aria-labelledby="progress-title">
+        <h2 id="progress-title">Generation ledger</h2>
+        <p class="section-intro">Each prompt has 12 cells per model: 2 methods × 2 search engines × 3 conditions. A saved cell is one artifact, not one inference call.</p>
+        <div class="plan-line"><strong id="generation-total">6,000 / 12,000 cells</strong><span id="generation-percent">50.00% generation artifacts complete</span></div>
+        <div class="ledger" id="model-ledger"></div>
+        <p class="note" id="reuse-note">These counts describe the 500-prompt study only. New-prompt trial outputs will need their own queue and progress record.</p>
+        <details>
+          <summary>Inspect the existing 500-prompt shards</summary>
+          <div class="table-wrap"><table class="shard-table"><thead><tr><th scope="col">Model / shard</th><th scope="col">Saved cells</th><th scope="col">Percent</th><th scope="col">Saved status</th></tr></thead><tbody id="shard-rows"></tbody></table></div>
+        </details>
+        <div class="callout warning">
+          <p><strong>Artifact completion is not scientific validation.</strong> Recovered or truncated answers need flags retained for analysis. Ranking quality, grounding, and judge reliability are not established by a successful job.</p>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="judging-title">
+        <h2 id="judging-title">Judging is a separate queue</h2>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Stage</th><th scope="col">Verified artifacts</th><th scope="col">What remains</th></tr></thead><tbody>
+          <tr><td><strong>Nemotron pilot</strong><div class="ledger-caption">Pipeline check on 2 existing prompts</div></td><td id="pilot-count">0 / 24</td><td id="pilot-status">Last observed during server startup. Inspect newer logs.</td></tr>
+          <tr><td><strong>Production judgments</strong><div class="ledger-caption">One planned judgment per generator cell</div></td><td id="production-judge-count">0 verified / 12,000 planned</td><td>Production completion is not tracked by this snapshot. Freeze the judge configuration and queue before counting production outcomes.</td></tr>
+          <tr><td><strong>Validation and adjudication</strong><div class="ledger-caption">Independent checks and disagreement review</div></td><td>Not sized yet</td><td>Choose the held-out sample and disagreement rules. GLM availability and serving compatibility still need verification.</td></tr>
+        </tbody></table></div>
+        <p class="note">The 24 pilot cases are separate from production totals. Artifact percentages do not represent the fraction of GPU time spent or remaining.</p>
+      </section>
+
+      <section class="section" id="next" aria-labelledby="next-title">
+        <h2 id="next-title">Next proposed experiment</h2>
+        <p class="section-intro">Two independent one-hour batch jobs, one per generator, on a proposed 120-prompt cohort outside the original 500. This is not a rerun of completed Qwen cells.</p>
+        <div class="trial">
+          <div><h3>Qwen3.8 + Llama 4</h3><p>Freeze the same 120 new prompt IDs and all 12 conditions for both models, 1,440 cells each. Save each completed cell, then rebuild a later queue from missing IDs only.</p><p class="state attention">Two one-hour allocations approved. Submission not yet verified.</p></div>
+          <div class="trial-budget"><strong>8 GPU-hours maximum</strong><span>2 jobs × 1 hour × 4 GH200 GPUs</span><span>Per job: 1 node, 32 CPUs, 512 GB RAM</span><span>This page does not submit jobs.</span></div>
+        </div>
+        <div class="table-wrap" style="margin-top:20px"><table><thead><tr><th>New-cohort model</th><th>Saved cells</th><th>Remaining</th><th>Last job state</th></tr></thead><tbody id="trial-rows"></tbody></table></div>
+        <p class="note" id="trial-freshness">No new-cohort snapshot imported. Run the status command after submission.</p>
+        <ol class="roadmap">
+          <li><div><h3>Preserve the completed Qwen study</h3><p id="preserve-copy">Keep all 6,000 current-study outputs. The six missing shard-3 cells were repaired. Include their recovery flags in later analysis.</p></div><span id="preserve-state" class="state good">Complete in snapshot</span></li>
+          <li><div><h3>Inspect Nemotron's pilot outcome</h3><p>Check all 24 judgments, rankings, source mappings, output validity, and elapsed inference time. Two prompts test the pipeline, not judge accuracy.</p></div><span id="pilot-roadmap-state" class="state attention">New status needed</span></li>
+          <li><div><h3>Freeze one disjoint new-prompt cohort</h3><p>Exclude the original 500 prompt IDs, preserve axis coverage, and use the same factorial cells for Qwen and Llama. Record stable IDs and source hashes.</p></div><span class="state attention">Not prepared</span></li>
+          <li><div><h3>Run the approved one-hour pair</h3><p>Measure startup, successful cells per minute, output tokens, retries, and GPU use separately. Completed cells are saved individually; a hard timeout can interrupt active calls.</p></div><span id="trial-submission-state" class="state attention">Not verified</span></li>
+          <li><div><h3>Fill remaining generator and judge queues</h3><p>Use disjoint modulo workers on a frozen missing-cell list. Recompute the next wave from verified completed outputs when changing worker count.</p></div><span class="state">After trial audit</span></li>
+          <li><div><h3>Validate judges, adjudicate, then analyze</h3><p>Compare blinded judgments on the frozen validation sample. Resolve cases selected by predefined rules before interpreting ranking effects.</p></div><span class="state">Protocol pending</span></li>
+        </ol>
+        <p class="note">Llama's unfinished work on the original 500 prompts remains a separate backlog. The proposed new-prompt pair will not fill those old cells. An axis-balanced planned cohort does not guarantee an axis-balanced completed subset: canonical axis ordering and time limits can change which cells finish. Audit coverage before comparing models.</p>
+      </section>
+
+      <section class="section" id="estimate" aria-labelledby="estimate-title">
+        <h2 id="estimate-title">What can a short allocation do?</h2>
+        <p class="section-intro">Qwen's default rate comes from earlier production progress, about 9 to 11 cells per minute. Llama and Nemotron have no measured production rate here. Enter scenario rates only when you have evidence or want an explicitly hypothetical estimate.</p>
+        <div class="calculator">
+          <div>
+            <div class="inputs">
+              <label for="allocation-minutes">Minutes per job<input id="allocation-minutes" type="number" value="60" min="1" max="1440" step="1"></label>
+              <label for="startup-minutes">Startup minutes<input id="startup-minutes" type="number" value="11" min="0" max="1440" step="1"></label>
+              <label for="margin-minutes">Checkpoint margin<input id="margin-minutes" type="number" value="5" min="0" max="1440" step="1"></label>
+            </div>
+            <div class="table-wrap"><table class="rates"><thead><tr><th scope="col">Successful cells per minute</th><th scope="col">Low</th><th scope="col">High</th></tr></thead><tbody>
+              <tr><th scope="row">Qwen3.8</th><td><label class="sr-only" for="qwen-low">Qwen low rate</label><input id="qwen-low" type="number" value="9" min="0.01" step="0.1"></td><td><label class="sr-only" for="qwen-high">Qwen high rate</label><input id="qwen-high" type="number" value="11" min="0.01" step="0.1"></td></tr>
+              <tr><th scope="row">Llama 4</th><td><label class="sr-only" for="llama-low">Llama low rate</label><input id="llama-low" type="number" min="0.01" step="0.1" placeholder="Unknown"></td><td><label class="sr-only" for="llama-high">Llama high rate</label><input id="llama-high" type="number" min="0.01" step="0.1" placeholder="Unknown"></td></tr>
+              <tr><th scope="row">Bulk judge</th><td><label class="sr-only" for="judge-low">Judge low rate</label><input id="judge-low" type="number" min="0.01" step="0.1" placeholder="Unknown"></td><td><label class="sr-only" for="judge-high">Judge high rate</label><input id="judge-high" type="number" min="0.01" step="0.1" placeholder="Unknown"></td></tr>
+            </tbody></table></div>
+            <p class="note">The 11-minute startup allowance uses previous generator launches. It is not a measured Llama or Nemotron rate. Each estimate assumes four allocated GPUs per job. Job length controls do not approve or launch an allocation.</p>
+          </div>
+          <div class="calc-result" aria-live="polite" aria-atomic="true">
+            <h3>Qwen capacity in one job</h3><p id="qwen-capacity" class="calc-value">396 to 484 cells</p>
+            <h3>Llama capacity in one job</h3><p id="llama-capacity">Unknown until its rate is measured.</p>
+            <p id="usable-minutes" class="calc-footnote">44 minutes available for inference after startup and margin.</p>
+            <h3>Maximum allocation for the pair</h3><p id="pair-budget" class="calc-value">8 GPU-hours</p>
+            <p class="calc-footnote">Capacity counts successful cell artifacts. It does not promise complete 12-cell prompt groups or include queue waiting time.</p>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top: 22px"><table><thead><tr><th scope="col">Remaining work in selected scope</th><th scope="col">Inference-only node-hours</th><th scope="col">Four-GPU hours</th></tr></thead><tbody id="estimate-rows"></tbody></table></div>
+        <p class="note" id="estimate-total">Whole-experiment runtime remains unknown because Llama, judging, validation, and adjudication are not yet measured.</p>
+        <p class="note">These are planning ranges, not reserved resources. Many short jobs repeat startup and checkpoint overhead. Parallel jobs reduce elapsed wall time only when resources are available; they do not remove the underlying GPU work.</p>
+      </section>
+
+      <section class="section" aria-labelledby="history-title">
+        <h2 id="history-title">Last reported jobs</h2>
+        <p class="section-intro">Scheduler status below belongs to the saved snapshot. It is not a statement that a job is still running now.</p>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Job</th><th scope="col">Last reported state</th><th scope="col">Elapsed</th><th scope="col">Limit</th><th scope="col">Exit</th></tr></thead><tbody id="job-rows"></tbody></table></div>
+        <p id="job-error" class="note error" hidden></p>
+        <p class="note">The one-hour Qwen repair finished in 11 minutes 2 seconds and released its batch resources early. The older interactive allocation expired separately. Shutdown messages after a successful controller exit do not by themselves invalidate saved results.</p>
+      </section>
+
+      <section class="section" id="refresh" aria-labelledby="refresh-title">
+        <h2 id="refresh-title">Bring in a newer snapshot</h2>
+        <p class="section-intro">Paste JSON from either read-only status collector: the original-study snapshot or the new paired-trial report. The two studies keep separate counts and timestamps. Import changes this page only; it does not connect to the cluster or launch a job.</p>
+        <label for="snapshot-json">Status JSON</label>
+        <textarea id="snapshot-json" spellcheck="false" placeholder='{"schema_version": 1, "checked_at": "…", "models": […], "pilot": {…}, "jobs": […]}'></textarea>
+        <div class="actions"><button type="button" class="primary" id="import-snapshot">Import snapshot</button><button type="button" id="reset-snapshot">Reset to supplied snapshot</button><button type="button" id="copy-snapshot">Copy current snapshot JSON</button></div>
+        <p id="import-feedback" role="status" aria-live="polite"></p>
+        <p id="source-note" class="note"></p>
+        <p id="run-root" class="source-path"></p>
+      </section>
+    </main>
+    <footer>No inference runs from this page. Production outcomes remain <code>scientific_result=false</code> until judging and analysis establish the relevant claims.</footer>
+  </div>
+
+  <script id="roadmap-script">
+  "use strict";
+  const DEFAULT_SNAPSHOT = {
+    schema_version: 1,
+    checked_at: "2026-09-15T23:08:32Z",
+    run_root: "agentic-production-500-interactive-32336cbe51c1-job1794418",
+    source_note: "User-supplied cluster output. Qwen shard 3 was confirmed complete at this timestamp; shards 0 to 2 and Llama's zero production count were reported earlier. No live cluster connection.",
+    models: [
+      {model: "qwen38", expected: 6000, completed: 6000, shards: [0, 1, 2, 3].map(shard => ({shard, completed: 1500, expected: 1500, status: "complete"}))},
+      {model: "llama4", expected: 6000, completed: 0, shards: [0, 1, 2, 3].map(shard => ({shard, completed: 0, expected: 1500, status: "not_started_last_report"}))}
+    ],
+    pilot: {expected: 24, completed: 0, status: "server_startup_last_report"},
+    jobs: [
+      {job_id: "1821028", state: "COMPLETED", elapsed: "00:11:02", time_limit: "01:00:00", exit_code: "0:0", name: "Qwen shard-3 repair"},
+      {job_id: "1821158", state: "RUNNING", elapsed: "00:02:28", time_limit: "01:00:00", exit_code: "0:0", name: "Nemotron 24-case pilot"},
+      {job_id: "1818010", state: "TIMEOUT", elapsed: "04:00:58", time_limit: "04:00:00", exit_code: "0:0", name: "Older interactive allocation"}
+    ]
+  };
+  const MODEL_NAMES = {qwen38: "Qwen3.8", llama4: "Llama 4"};
+
+  function object(value, label) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(label + " must be an object.");
+    return value;
+  }
+  function integer(value, maximum, label) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > maximum) throw new Error(label + " must be an integer between 0 and " + maximum + ".");
+    return value;
+  }
+  function string(value, label, maximum = 1000) {
+    if (typeof value !== "string" || value.length > maximum) throw new Error(label + " must be text of at most " + maximum + " characters.");
+    return value;
+  }
+  function validateSnapshot(raw) {
+    object(raw, "Snapshot");
+    if (raw.schema_version !== 1) throw new Error("Use a schema_version 1 roadmap snapshot.");
+    const checkedAt = string(raw.checked_at, "checked_at", 60);
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(checkedAt) || !Number.isFinite(Date.parse(checkedAt))) throw new Error("checked_at must be an ISO timestamp with a timezone.");
+    if (!Array.isArray(raw.models) || raw.models.length !== 2) throw new Error("The snapshot must contain Qwen and Llama exactly once.");
+    const seen = new Set();
+    const models = raw.models.map(value => {
+      object(value, "Model");
+      if (!Object.hasOwn(MODEL_NAMES, value.model) || seen.has(value.model)) throw new Error("Model names must be qwen38 and llama4, each once.");
+      seen.add(value.model);
+      if (value.expected !== 6000) throw new Error("Each existing-study model must have 6,000 expected cells.");
+      const completed = integer(value.completed, 6000, "Model completed");
+      if (!Array.isArray(value.shards) || value.shards.length !== 4) throw new Error("Each model must contain four shards.");
+      const shardIds = new Set();
+      const shards = value.shards.map(shard => {
+        object(shard, "Shard");
+        const index = integer(shard.shard, 3, "Shard index");
+        if (shardIds.has(index)) throw new Error("Shard indices cannot repeat.");
+        shardIds.add(index);
+        if (shard.expected !== 1500) throw new Error("Each shard must have 1,500 expected cells.");
+        const clean = {shard: index, completed: integer(shard.completed, 1500, "Shard completed"), expected: 1500, status: string(shard.status, "Shard status", 200)};
+        if (shard.read_error !== undefined) clean.read_error = string(shard.read_error, "Shard read_error", 2000);
+        return clean;
+      }).sort((left, right) => left.shard - right.shard);
+      if (shards.reduce((sum, shard) => sum + shard.completed, 0) !== completed) throw new Error("Model completion must equal the sum of its shards.");
+      return {model: value.model, expected: 6000, completed, shards};
+    }).sort((left, right) => left.model === "qwen38" ? -1 : 1);
+    const pilot = object(raw.pilot, "Pilot");
+    if (pilot.expected !== 24) throw new Error("The Nemotron pilot must have 24 expected cases.");
+    if (pilot.inspected !== undefined && typeof pilot.inspected !== "boolean") throw new Error("Pilot inspected must be true or false.");
+    if (!Array.isArray(raw.jobs) || raw.jobs.length > 100) throw new Error("jobs must be a list of at most 100 entries.");
+    const jobs = raw.jobs.map(job => {
+      object(job, "Job");
+      const clean = {};
+      for (const field of ["job_id", "state", "elapsed", "time_limit", "exit_code"]) clean[field] = string(job[field], "Job " + field, 200);
+      if (job.name !== undefined) clean.name = string(job.name, "Job name", 300);
+      return clean;
+    });
+    return {
+      schema_version: 1, checked_at: checkedAt, run_root: string(raw.run_root, "run_root", 4000),
+      source_note: raw.source_note === undefined ? "Imported read-only status snapshot. Saved counts are not scientific validation." : string(raw.source_note, "source_note", 4000),
+      models, pilot: {expected: 24, completed: integer(pilot.completed, 24, "Pilot completed"), status: string(pilot.status, "Pilot status", 300), inspected: pilot.inspected === undefined ? true : pilot.inspected}, jobs,
+      job_error: raw.job_error === undefined ? "" : string(raw.job_error, "job_error", 4000),
+      paired_trial: raw.paired_trial ? validateTrial(raw.paired_trial) : null
+    };
+  }
+  function validateTrial(raw) {
+    object(raw, "Paired trial");
+    if (raw.format_version !== "agentic-paired-trial-progress-v1" || raw.expected !== 2880 || raw.prompt_count !== 120) throw new Error("Expected a 120-prompt paired-trial report.");
+    const checkedAt = string(raw.checked_at, "Trial timestamp", 60);
+    if (!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(checkedAt) || !Number.isFinite(Date.parse(checkedAt))) throw new Error("Trial timestamp must include a timezone.");
+    if (!Array.isArray(raw.models) || raw.models.length !== 2) throw new Error("Trial must contain both models.");
+    const seen = new Set();
+    const models = raw.models.map(row => {
+      object(row, "Trial model");
+      if (!Object.hasOwn(MODEL_NAMES, row.model) || seen.has(row.model) || row.expected !== 1440) throw new Error("Invalid trial model or queue size.");
+      seen.add(row.model);
+      return {model: row.model, expected: 1440, completed: integer(row.completed, 1440, "Trial completed"), saved_status: string(row.saved_status, "Trial saved status", 200), job_id: row.job_id === null ? null : string(row.job_id, "Trial job", 100)};
+    });
+    const completed = integer(raw.completed, 2880, "Trial total");
+    if (models.reduce((sum, row) => sum + row.completed, 0) !== completed) throw new Error("Trial totals do not match.");
+    if (!Array.isArray(raw.jobs) || raw.jobs.length > 10) throw new Error("Invalid trial jobs.");
+    const jobs = raw.jobs.map(job => { object(job, "Trial job"); return {job_id: string(job.job_id, "Job ID", 100), state: string(job.state, "Job state", 200)}; });
+    return {format_version: raw.format_version, checked_at: checkedAt, run_root: string(raw.run_root, "Trial root", 4000), prompt_count: 120, expected: 2880, completed, models, jobs, job_error: raw.job_error ? string(raw.job_error, "Trial accounting error", 4000) : ""};
+  }
+  function scopedProgress(snapshot, promptCount, countReuse) {
+    if (![500, 26009].includes(promptCount)) throw new Error("Unsupported prompt scope.");
+    const expected = promptCount * 12;
+    const models = snapshot.models.map(model => ({model: model.model, completed: promptCount === 500 || countReuse ? model.completed : 0, expected}));
+    return {models, completed: models.reduce((sum, model) => sum + model.completed, 0), expected: expected * 2};
+  }
+  function rateRange(low, high, name) {
+    if (low === "" && high === "") return null;
+    if (low === "" || high === "") throw new Error("Enter both " + name + " rates, or leave both blank.");
+    const lower = Number(low), upper = Number(high);
+    if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower <= 0 || upper < lower) throw new Error(name + " rates must be positive, with high at least low.");
+    return {low: lower, high: upper};
+  }
+  function trialCapacity(minutes, startup, margin, rate) {
+    for (const value of [minutes, startup, margin]) if (!Number.isFinite(value) || value < 0) throw new Error("Job, startup, and margin minutes must be nonnegative numbers.");
+    if (minutes < 1 || minutes > 1440 || startup > 1440 || margin > 1440) throw new Error("Job length must be 1 to 1,440 minutes; startup and margin must be 0 to 1,440.");
+    const usable = Math.max(0, minutes - startup - margin);
+    return {usable, low: rate ? Math.floor(usable * rate.low) : null, high: rate ? Math.floor(usable * rate.high) : null, pairGpuHours: minutes / 60 * 8};
+  }
+  function remainingHours(remaining, rate) {
+    if (!remaining) return {low: 0, high: 0};
+    return rate ? {low: remaining / rate.high / 60, high: remaining / rate.low / 60} : null;
+  }
+  // Pure helpers are available for CPU-only verification without a browser.
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {DEFAULT_SNAPSHOT, validateSnapshot, validateTrial, scopedProgress, rateRange, trialCapacity, remainingHours};
+  }
+  if (typeof document !== "undefined") {
+    let snapshot = validateSnapshot(DEFAULT_SNAPSHOT);
+    const $ = id => document.getElementById(id);
+    const fmt = value => new Intl.NumberFormat("en-US", {maximumFractionDigits: 1}).format(value);
+    const pct = (completed, expected) => (100 * completed / expected).toFixed(2) + "%";
+    const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
+    const rangeText = (range, multiplier = 1) => range ? fmt(range.low * multiplier) + " to " + fmt(range.high * multiplier) : "Unknown";
+    function currentProgress() { return scopedProgress(snapshot, Number(document.querySelector("input[name=scope]:checked").value), $("count-reuse").checked); }
+    function render() {
+      const full = document.querySelector("input[name=scope]:checked").value === "26009";
+      const data = currentProgress();
+      $("reuse-control").hidden = !full;
+      $("checked-at").dateTime = snapshot.checked_at;
+      $("checked-at").textContent = new Date(snapshot.checked_at).toLocaleString("en-GB", {timeZone: "UTC", dateStyle: "long", timeStyle: "medium"}) + " UTC";
+      $("freshness-note").textContent = snapshot.source_note;
+      $("source-note").textContent = snapshot.source_note;
+      $("run-root").textContent = "Run root: " + snapshot.run_root;
+      const qwen = snapshot.models.find(model => model.model === "qwen38");
+      $("page-title").textContent = qwen.completed === 6000 ? "Qwen's 500-prompt generation is complete." : "Track the saved inference work.";
+      $("generation-total").textContent = fmt(data.completed) + " / " + fmt(data.expected) + " cells";
+      $("generation-percent").textContent = pct(data.completed, data.expected) + (full && $("count-reuse").checked ? " conditional reuse scenario" : " generation artifacts counted");
+      $("model-ledger").replaceChildren();
+      for (const model of data.models) {
+        const row = el("div", undefined, "ledger-row");
+        const title = el("div"); title.append(el("div", MODEL_NAMES[model.model], "ledger-title"), el("div", full ? "26,009-prompt plan" : "500-prompt study", "ledger-caption"));
+        const middle = el("div"); const caption = el("div", undefined, "meter-caption");
+        caption.append(el("strong", fmt(model.completed) + " / " + fmt(model.expected)), el("span", fmt(model.expected - model.completed) + " remaining"));
+        const meter = el("progress"); meter.max = model.expected; meter.value = model.completed; meter.setAttribute("aria-label", MODEL_NAMES[model.model] + " saved generation cells");
+        if (model.completed === model.expected) meter.classList.add("complete");
+        middle.append(caption, meter);
+        const percent = el("div", pct(model.completed, model.expected), "percent"); percent.append(el("small", full && $("count-reuse").checked ? "conditional" : "saved artifacts"));
+        row.append(title, middle, percent); $("model-ledger").append(row);
+      }
+      $("reuse-note").textContent = full ? ($("count-reuse").checked ? "Scenario only: current-study outputs count toward the full plan. Reuse is not verified by this page." : fmt(snapshot.models.reduce((sum, model) => sum + model.completed, 0)) + " existing-study cells are excluded from this full-rollout count until their reuse is verified.") : "These counts describe the 500-prompt study only. New-prompt trial outputs need their own queue and progress record.";
+      $("shard-rows").replaceChildren();
+      for (const model of snapshot.models) for (const shard of model.shards) {
+        const row = el("tr");
+        for (const text of [MODEL_NAMES[model.model] + " / " + shard.shard, fmt(shard.completed) + " / " + fmt(shard.expected), pct(shard.completed, shard.expected), shard.read_error ? "Read error: " + shard.read_error : shard.status]) row.append(el("td", text));
+        $("shard-rows").append(row);
+      }
+      const readErrors = snapshot.models.flatMap(model => model.shards).filter(shard => shard.read_error).length;
+      if (readErrors) $("reuse-note").textContent += " " + readErrors + " shards had read errors; counts may understate saved work.";
+      $("pilot-count").textContent = snapshot.pilot.inspected === false ? "Not inspected" : snapshot.pilot.completed + " / 24";
+      $("pilot-status").textContent = snapshot.pilot.inspected === false ? "This collector did not inspect the pilot. Run it with --pilot-root before interpreting pilot progress." : "Saved status: " + snapshot.pilot.status + ". Check the snapshot timestamp before inferring live state.";
+      $("production-judge-count").textContent = "0 verified / " + fmt(data.expected) + " planned";
+      $("preserve-copy").textContent = "Preserve the " + fmt(qwen.completed) + " saved Qwen study cells. Later work must keep source hashes and any answer-recovery flags.";
+      $("preserve-state").textContent = qwen.completed === 6000 ? "Complete in snapshot" : "Incomplete in snapshot";
+      $("preserve-state").className = "state " + (qwen.completed === 6000 ? "good" : "attention");
+      $("pilot-roadmap-state").textContent = snapshot.pilot.completed === 24 ? "24 saved; inspect quality" : "New status needed";
+      $("job-rows").replaceChildren();
+      for (const job of snapshot.jobs) {
+        const row = el("tr"); const identity = el("td", job.job_id); if (job.name) identity.append(el("div", job.name, "ledger-caption")); row.append(identity);
+        for (const text of [job.state, job.elapsed, job.time_limit, job.exit_code]) row.append(el("td", text));
+        $("job-rows").append(row);
+      }
+      if (!snapshot.jobs.length) { const row = el("tr"); const cell = el("td", "No scheduler records in this snapshot."); cell.colSpan = 5; row.append(cell); $("job-rows").append(row); }
+      $("job-error").hidden = !snapshot.job_error;
+      $("job-error").textContent = snapshot.job_error ? "Scheduler read issue: " + snapshot.job_error : "";
+      renderTrial();
+      renderEstimates();
+    }
+    function renderTrial() {
+      $("trial-rows").replaceChildren();
+      const trial = snapshot.paired_trial;
+      if (!trial) { $("trial-freshness").textContent = "No new-cohort snapshot imported. Submission is not verified."; $("trial-submission-state").textContent = "Not verified"; return; }
+      for (const model of trial.models) {
+        const job = trial.jobs.find(row => row.job_id === model.job_id || row.job_id === model.job_id + "_0");
+        const row = el("tr");
+        for (const text of [MODEL_NAMES[model.model], fmt(model.completed) + " / 1,440", fmt(1440 - model.completed), job ? job.state : "Unknown"]) row.append(el("td", text));
+        $("trial-rows").append(row);
+      }
+      $("trial-submission-state").textContent = trial.models.every(model => model.job_id) ? "Job IDs recorded" : "Partial / not submitted";
+      $("trial-freshness").textContent = "Trial checked at " + trial.checked_at + ". " + fmt(trial.completed) + " / 2,880 saved cells. Root: " + trial.run_root + (trial.job_error ? ". Accounting: " + trial.job_error : "") + ". This does not change the original study totals.";
+    }
+    function renderEstimates() {
+      try {
+        const data = currentProgress();
+        const rates = {qwen38: rateRange($("qwen-low").value, $("qwen-high").value, "Qwen"), llama4: rateRange($("llama-low").value, $("llama-high").value, "Llama"), judge: rateRange($("judge-low").value, $("judge-high").value, "judge")};
+        const minutes = Number($("allocation-minutes").value), startup = Number($("startup-minutes").value), margin = Number($("margin-minutes").value);
+        if ([$("allocation-minutes"), $("startup-minutes"), $("margin-minutes")].some(input => input.value === "")) throw new Error("Enter the job, startup, and checkpoint minutes.");
+        const qwen = trialCapacity(minutes, startup, margin, rates.qwen38), llama = trialCapacity(minutes, startup, margin, rates.llama4);
+        $("qwen-capacity").textContent = rates.qwen38 ? fmt(qwen.low) + " to " + fmt(qwen.high) + " cells" : "Unknown until its rate is measured.";
+        $("llama-capacity").textContent = rates.llama4 ? fmt(llama.low) + " to " + fmt(llama.high) + " cells, scenario" : "Unknown until its rate is measured.";
+        $("usable-minutes").textContent = fmt(qwen.usable) + " minutes available for inference after startup and margin.";
+        $("pair-budget").textContent = fmt(qwen.pairGpuHours) + " GPU-hours";
+        $("estimate-rows").replaceChildren();
+        let baseLow = 0, baseHigh = 0, allKnown = true;
+        const estimateItems = data.models.map(model => ({name: MODEL_NAMES[model.model], remaining: model.expected - model.completed, rate: rates[model.model]}));
+        estimateItems.push({name: "Bulk judging, hypothetical", remaining: data.expected, rate: rates.judge});
+        for (const item of estimateItems) {
+          const hours = remainingHours(item.remaining, item.rate);
+          const row = el("tr"); row.append(el("td", item.name + ": " + fmt(item.remaining) + " cells"), el("td", rangeText(hours)), el("td", rangeText(hours, 4))); $("estimate-rows").append(row);
+          if (hours) { baseLow += hours.low; baseHigh += hours.high; } else allKnown = false;
+        }
+        $("estimate-total").className = "note";
+        $("estimate-total").textContent = allKnown ? "Scenario total for generation plus bulk judging: " + rangeText({low: baseLow, high: baseHigh}) + " inference-only node-hours, or " + rangeText({low: baseLow, high: baseHigh}, 4) + " four-GPU hours. This still excludes startup, retries, validation, adjudication, and queue waiting." : "Whole-experiment runtime remains unknown because required model rates, validation, and adjudication are not yet measured.";
+      } catch (error) {
+        $("estimate-total").className = "note error"; $("estimate-total").textContent = error.message;
+        for (const id of ["qwen-capacity", "llama-capacity", "pair-budget"]) $(id).textContent = "Check inputs";
+        $("usable-minutes").textContent = "Fix the inputs to update the estimate."; $("estimate-rows").replaceChildren();
+      }
+    }
+    for (const radio of document.querySelectorAll("input[name=scope]")) radio.addEventListener("change", render);
+    $("count-reuse").addEventListener("change", render);
+    for (const input of document.querySelectorAll("input[type=number]")) input.addEventListener("input", renderEstimates);
+    $("import-snapshot").addEventListener("click", () => {
+      try {
+        const text = $("snapshot-json").value.trim();
+        if (text.length > 2000000) throw new Error("Snapshot is too large. Use the compact roadmap status JSON, not full traces.");
+        const raw = JSON.parse(text);
+        const next = raw.format_version === "agentic-paired-trial-progress-v1" ? {...snapshot, paired_trial: validateTrial(raw)} : validateSnapshot(raw);
+        snapshot = next; render();
+        $("import-feedback").className = "note"; $("import-feedback").textContent = "Snapshot imported. Check its timestamp and any read errors. No cluster action was taken.";
+      } catch (error) { $("import-feedback").className = "note error"; $("import-feedback").textContent = "Import rejected. Previous data kept. " + error.message; }
+    });
+    $("reset-snapshot").addEventListener("click", () => { snapshot = validateSnapshot(DEFAULT_SNAPSHOT); $("snapshot-json").value = ""; render(); $("import-feedback").className = "note"; $("import-feedback").textContent = "Reset to the supplied 15 September snapshot. Calculator assumptions were kept."; });
+    $("copy-snapshot").addEventListener("click", async () => {
+      const text = JSON.stringify(snapshot, null, 2);
+      try { await navigator.clipboard.writeText(text); $("import-feedback").className = "note"; $("import-feedback").textContent = "Current snapshot JSON copied."; }
+      catch (_) { $("snapshot-json").value = text; $("snapshot-json").focus(); $("snapshot-json").select(); $("import-feedback").className = "note"; $("import-feedback").textContent = "Snapshot selected in the text box. Use your keyboard copy command."; }
+    });
+    render();
+  }
+  </script>
+</body>
+</html>

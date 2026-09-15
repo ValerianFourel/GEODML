@@ -17,6 +17,8 @@ to the remaining IDs. Never reuse a wave directory for a different plan.
 
 ## Components
 
+- `prepare_agentic_new_cohort.py` freezes a shared new-prompt cohort, excluding
+  the original 500-prompt selection by both ID and normalized question text.
 - `prepare_agentic_generation_tasks.py` freezes generator cell IDs.
 - `prepare_agentic_judge_tasks.py` freezes blind bulk and validation queues.
 - `prepare_agentic_adjudication.py` applies predefined disagreement rules and
@@ -34,6 +36,41 @@ The Slurm worker intentionally has no `#SBATCH --time` or fixed accelerator
 request. A specifically approved wall time and resource request must be supplied
 at submission. The worker records the approved time and its supporting estimate
 in `allocation_attempts.jsonl`.
+
+## New prompts for a paired generator trial
+
+The CPU-only `prepare_agentic_new_cohort.py` reads the original pilot's
+`selection-manifest.json` to resolve the frozen full-population prompt and axis
+files. It verifies all source and original-pilot artifact hashes and row counts.
+Its defaults require the 26,009-row population and 500 excluded pilot prompts.
+The original files are read-only. A new output directory is required.
+
+The default cohort contains 120 prompts, six from each of the 20 existing axis
+bins. It preserves the population's observed percentiles and bin boundaries.
+It does not recompute an axis after removing the pilot. Question identity uses
+the readiness population's whitespace-collapse and case-folding policy, so
+different IDs with matching text are also excluded. Repeated eligible text is
+deduplicated by stable candidate-ID order before selection. The manifest records
+these counts and the exclusion-ID hash. Analysis weights refer only to this
+eligible population, not the entire 26,009-row population.
+
+Required CLI arguments are `--selection-root`, `--output-dir`, and
+`--source-git-commit`. Optional `--prompt-count`, `--axis-bins`, and
+`--master-seed` default to 120, 20, and 20260916. Prompt count must be a multiple
+of axis-bin count to remain compatible with the existing inference loader's
+balanced-selection contract. The preparer writes `pilot-prompts.jsonl`,
+`pilot-axis.jsonl`, `selection-records.jsonl`, and `selection-manifest.json`.
+No allocation, model load, or inference occurs during preparation.
+
+Both generator models should use these exact prompt files and the same frozen
+1,440-cell task queue. Keep their wave output directories and completed-result
+roots separate. Generator cell IDs describe prompt and factorial identity, not
+model identity. Completed Qwen cells must never be supplied as completed Llama
+cells. A one-hour trial may finish only part of each queue; artifact completion
+and model-to-model quality comparisons are separate checks. The existing runner
+executes its selected cells in canonical prompt/factor order. A balanced planned
+cohort therefore does not imply a balanced subset at the one-hour cutoff. Audit
+the completed prompt and factor mix before making comparisons.
 
 ## Recovery guarantees
 

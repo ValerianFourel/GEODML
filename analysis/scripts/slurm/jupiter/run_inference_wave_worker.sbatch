@@ -4,7 +4,8 @@
 #SBATCH --ntasks=1
 #SBATCH --output=slurm-%A_%a.out
 #SBATCH --error=slurm-%A_%a.err
-set -euo pipefail
+set +u
+set -eo pipefail
 
 : "${ACL_ARR_VENV:?}"
 : "${SLURM_ARRAY_TASK_ID:?Submit this script as a Slurm array}"
@@ -23,14 +24,20 @@ fi
 module load Stages/2026 GCC Python CUDA
 module load git
 source "$ACL_ARR_VENV/bin/activate"
+set -u
+: "${SLURM_JOB_ID:?Run through Slurm}"
 test "$(git -C "$GEODML_EXECUTION_REPOSITORY" rev-parse HEAD)" = \
   "$GEODML_EXECUTION_COMMIT"
 test -z "$(git -C "$GEODML_EXECUTION_REPOSITORY" status --porcelain --untracked-files=all)"
 
-case "$GEODML_WORKER_LAUNCHER" in
-  "$GEODML_EXECUTION_REPOSITORY"/*) ;;
-  *) printf '%s\n' 'Worker launcher must belong to the pinned repository.' >&2; exit 2 ;;
-esac
+python3 - "$GEODML_EXECUTION_REPOSITORY" "$GEODML_WORKER_LAUNCHER" <<'PY'
+import sys
+from pathlib import Path
+
+repository, launcher = (Path(value).resolve(strict=True) for value in sys.argv[1:])
+if repository not in launcher.parents:
+    raise ValueError("Worker launcher must belong to the pinned repository")
+PY
 test -x "$GEODML_WORKER_LAUNCHER"
 
 geodml_worker_index="$SLURM_ARRAY_TASK_ID"
@@ -60,27 +67,113 @@ print(f"INFERENCE_WAVE_PREFLIGHT=PASS worker={index} tasks={worker['task_count']
 PY
 
 mkdir -p "$geodml_worker_output"
-python3 - "$geodml_worker_output/allocation_attempts.jsonl" <<'PY'
+command -v flock >/dev/null
+exec 9>>"$geodml_worker_output/.worker.lock"
+if ! flock -n 9; then
+  printf 'Worker output already has an active writer: %s\n' "$geodml_worker_output" >&2
+  exit 75
+fi
+
+export GEODML_WORKER_TASKS="$geodml_worker_tasks"
+export GEODML_WORKER_OUTPUT="$geodml_worker_output"
+export GEODML_WORKER_ATTEMPT_ID
+GEODML_WORKER_ATTEMPT_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+export GEODML_WORKER_STARTED_AT
+GEODML_WORKER_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+geodml_record_allocation() {
+  python3 - "$geodml_worker_output/allocation_attempts.jsonl" "$1" "${2:-}" <<'PY'
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+status = sys.argv[2]
+env = os.environ
+wave_manifest = Path(env["GEODML_WAVE_ROOT"]) / "run_manifest.json"
+tasks = Path(env["GEODML_WORKER_TASKS"])
+
+
+def log_path(key):
+    value = env.get(key)
+    if value is None:
+        return None
+    replacements = {
+        "%%": "%",
+        "%A": env.get("SLURM_ARRAY_JOB_ID") or env["SLURM_JOB_ID"],
+        "%a": env["SLURM_ARRAY_TASK_ID"],
+        "%j": env["SLURM_JOB_ID"],
+    }
+    return re.sub(r"%%|%[Aaj]", lambda match: replacements[match.group()], value)
+
+
 row = {
-    "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
-    "slurm_array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
-    "slurm_array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
-    "approved_walltime": os.environ["GEODML_APPROVED_WALLTIME"],
-    "allocation_estimate": os.environ["GEODML_ALLOCATION_ESTIMATE"],
+    "attempt_id": env["GEODML_WORKER_ATTEMPT_ID"],
+    "status": status,
+    "exit_code": int(sys.argv[3]) if sys.argv[3] else None,
+    "started_at_utc": env["GEODML_WORKER_STARTED_AT"],
+    "finished_at_utc": None if status == "running" else datetime.now(timezone.utc).isoformat(),
+    "slurm_job_id": env["SLURM_JOB_ID"],
+    "slurm_array_job_id": env.get("SLURM_ARRAY_JOB_ID"),
+    "slurm_array_task_id": env["SLURM_ARRAY_TASK_ID"],
+    "git_commit": env["GEODML_EXECUTION_COMMIT"],
+    "repository": env["GEODML_EXECUTION_REPOSITORY"],
+    "launcher": env["GEODML_WORKER_LAUNCHER"],
+    "model_slug": env.get("GEODML_MODEL_SLUG"),
+    "virtual_environment": env["ACL_ARR_VENV"],
+    "output": env["GEODML_WORKER_OUTPUT"],
+    "wave_manifest": str(wave_manifest),
+    "wave_manifest_sha256": hashlib.sha256(wave_manifest.read_bytes()).hexdigest(),
+    "tasks": str(tasks),
+    "tasks_sha256": hashlib.sha256(tasks.read_bytes()).hexdigest(),
+    "stdout": log_path("GEODML_WORKER_STDOUT"),
+    "stderr": log_path("GEODML_WORKER_STDERR"),
+    "approved_walltime": env["GEODML_APPROVED_WALLTIME"],
+    "allocation_estimate": env["GEODML_ALLOCATION_ESTIMATE"],
+    "resources": {key: env.get(key) for key in (
+        "SLURM_JOB_NUM_NODES", "SLURM_NTASKS", "SLURM_CPUS_PER_TASK",
+        "SLURM_CPUS_ON_NODE", "SLURM_MEM_PER_NODE", "SLURM_GPUS_ON_NODE",
+        "SLURM_JOB_NODELIST",
+    )},
 }
 with path.open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(row, sort_keys=True) + "\n")
     stream.flush()
     os.fsync(stream.fileno())
 PY
+}
+geodml_record_allocation running
 
-export GEODML_WORKER_TASKS="$geodml_worker_tasks"
-export GEODML_WORKER_OUTPUT="$geodml_worker_output"
+geodml_launcher_pid=""
+geodml_finish() {
+  geodml_exit_status=$?
+  trap - EXIT INT TERM
+  if [[ -n "$geodml_launcher_pid" ]]; then
+    kill -TERM "$geodml_launcher_pid" 2>/dev/null || true
+    wait "$geodml_launcher_pid" 2>/dev/null || true
+  fi
+  if [[ "$geodml_exit_status" = 0 ]]; then
+    geodml_terminal_status=complete
+  else
+    geodml_terminal_status=failed_or_interrupted
+  fi
+  geodml_record_allocation "$geodml_terminal_status" "$geodml_exit_status" || \
+    printf '%s\n' 'Could not append terminal allocation event; consult Slurm accounting.' >&2
+  exit "$geodml_exit_status"
+}
+trap geodml_finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cd "$GEODML_EXECUTION_REPOSITORY"
-exec "$GEODML_WORKER_LAUNCHER"
+"$GEODML_WORKER_LAUNCHER" &
+geodml_launcher_pid=$!
+if wait "$geodml_launcher_pid"; then
+  geodml_launcher_status=0
+else
+  geodml_launcher_status=$?
+fi
+geodml_launcher_pid=""
+exit "$geodml_launcher_status"
