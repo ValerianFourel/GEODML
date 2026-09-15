@@ -41,6 +41,7 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     _prepare_config,
     _previous_resume_config,
     _repair_resume_config,
+    _select_cells,
     _serial_resume_config,
     run_smoke,
 )
@@ -434,6 +435,39 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             set().union(*prompt_id_sets),
             {prompt.prompt_id for prompt in prompts},
         )
+
+    def test_explicit_cell_selection_is_exact_and_canonical(self) -> None:
+        prompts = tuple(
+            CalibrationPrompt(
+                prompt_id=f"prompt-{index}",
+                prompt=f"Question {index}?",
+                question_sha256=f"{index:064x}",
+                axis_bin=index,
+                keyword=f"keyword-{index}",
+            )
+            for index in range(2)
+        )
+        cells = _cells(prompts)
+        with TemporaryDirectory() as directory:
+            task_path = Path(directory) / "tasks.jsonl"
+            requested = [cells[7].cell_id, cells[1].cell_id, cells[10].cell_id]
+            task_path.write_text(
+                "".join(json.dumps({"cell_id": value}) + "\n" for value in requested),
+                encoding="utf-8",
+            )
+            selected = _select_cells(cells, task_path)
+            self.assertEqual(
+                [cell.cell_id for cell in selected],
+                [cells[1].cell_id, cells[7].cell_id, cells[10].cell_id],
+            )
+
+            task_path.write_text(
+                json.dumps({"cell_id": requested[0]}) + "\n"
+                + json.dumps({"cell_id": requested[0]}) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                _select_cells(cells, task_path)
 
     def test_twenty_five_prompt_calibration_runs_and_resumes_300_cells(self) -> None:
         with TemporaryDirectory() as directory:

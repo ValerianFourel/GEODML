@@ -442,6 +442,7 @@ class SmokeInputs:
     disable_thinking: bool = False
     prompts_jsonl: Path | None = None
     selection_records_jsonl: Path | None = None
+    cell_ids_jsonl: Path | None = None
     prompt_count: int = 1
     prompt_selection_seed: int = 20260912
     prompt_shard_index: int = 0
@@ -487,6 +488,8 @@ class SmokeInputs:
             raise ValueError("prompt sharding requires frozen prompt inputs")
         if self.production_conditions and self.prompts_jsonl is None:
             raise ValueError("production conditions require frozen prompt inputs")
+        if self.cell_ids_jsonl is not None and self.prompts_jsonl is None:
+            raise ValueError("cell selection requires frozen prompt inputs")
 
     @property
     def resolved_query_max_tokens(self) -> int:
@@ -677,10 +680,34 @@ def _cells(
     return tuple(cells)
 
 
+def _select_cells(
+    cells: Sequence[SmokeCell], cell_ids_jsonl: Path | None
+) -> tuple[SmokeCell, ...]:
+    """Select an exact, ordered subset from a frozen cell population."""
+
+    if cell_ids_jsonl is None:
+        return tuple(cells)
+    requested: list[str] = []
+    for row in _read_jsonl_objects(cell_ids_jsonl):
+        cell_id = row.get("cell_id")
+        if not isinstance(cell_id, str) or not cell_id:
+            raise ValueError("cell selection row lacks cell_id")
+        requested.append(cell_id)
+    if len(requested) != len(set(requested)):
+        raise ValueError("cell selection contains duplicate cell IDs")
+    indexed = {cell.cell_id: cell for cell in cells}
+    unknown = set(requested) - set(indexed)
+    if unknown:
+        raise ValueError("cell selection contains unknown cell IDs")
+    requested_set = set(requested)
+    return tuple(cell for cell in cells if cell.cell_id in requested_set)
+
+
 def _config(
     inputs: SmokeInputs,
     keyword: str,
     prompts: Sequence[CalibrationPrompt] | None = None,
+    cells: Sequence[SmokeCell] | None = None,
     target_urls: Mapping[tuple[str, str], str] | None = None,
     target_url_selection_audit: Mapping[str, Mapping[str, int]] | None = None,
 ) -> dict[str, Any]:
@@ -809,6 +836,20 @@ def _config(
                     _canonical(target_identity)
                 ).hexdigest(),
                 "target_url_count": len(target_identity),
+            })
+        if inputs.cell_ids_jsonl is not None:
+            if cells is None:
+                raise AssertionError("cell selection lacks selected cells")
+            config.update({
+                "cell_count": len(cells),
+                "selected_prompt_count": len({
+                    cell.prompt_id for cell in cells if cell.prompt_id is not None
+                }),
+                "cell_selection": {
+                    "path": str(inputs.cell_ids_jsonl.resolve()),
+                    "sha256": _sha256_file(inputs.cell_ids_jsonl),
+                    "policy": "explicit-frozen-cell-id-set-v1",
+                },
             })
     return config
 
@@ -1168,11 +1209,12 @@ async def run_smoke(
         f"Answer the following retrieval question: {keyword}. "
         "For the reactive method, perform at least one search before finishing."
     )
-    cells = _cells(prompts)
+    cells = _select_cells(_cells(prompts), inputs.cell_ids_jsonl)
     config = _config(
         inputs,
         keyword,
         prompts,
+        cells,
         target_urls,
         target_url_selection_audit,
     )
@@ -1515,6 +1557,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--prompts-jsonl", type=Path)
     parser.add_argument("--selection-records-jsonl", type=Path)
+    parser.add_argument("--cell-ids-jsonl", type=Path)
     parser.add_argument("--prompt-count", type=int, default=1)
     parser.add_argument("--prompt-selection-seed", type=int, default=20260912)
     parser.add_argument("--prompt-shard-index", type=int, default=0)
@@ -1557,6 +1600,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         disable_thinking=arguments.disable_thinking,
         prompts_jsonl=arguments.prompts_jsonl,
         selection_records_jsonl=arguments.selection_records_jsonl,
+        cell_ids_jsonl=arguments.cell_ids_jsonl,
         prompt_count=arguments.prompt_count,
         prompt_selection_seed=arguments.prompt_selection_seed,
         prompt_shard_index=arguments.prompt_shard_index,

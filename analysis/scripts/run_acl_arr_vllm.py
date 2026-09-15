@@ -45,6 +45,13 @@ from analysis.interpretability.pipeline.acl_arr_document_experiment import (  # 
     validate_judge_output,
     validate_rerank_output,
 )
+from analysis.interpretability.pipeline.agentic_judging import (  # noqa: E402
+    AgenticJudgeTask,
+    FORMAT_VERSION as AGENTIC_JUDGE_FORMAT_VERSION,
+    agentic_judge_schema,
+    render_agentic_judge_prompt,
+    validate_agentic_judgment,
+)
 
 
 def _now() -> str:
@@ -173,6 +180,46 @@ def _judge_context(manifest_path: Path, tasks_path: Path):
         raise ValueError("judge task file must contain one judge configuration")
     judge_model_id, judge_model_revision = next(iter(judge_identities))
     return manifest, tasks, document_sets, judge_model_id, judge_model_revision
+
+
+def _agentic_judge_context(
+    manifest_path: Path, tasks_path: Path, *, judge_role: str
+):
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("format_version") != AGENTIC_JUDGE_FORMAT_VERSION:
+        raise ValueError("unsupported agentic judge plan format")
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise ValueError("agentic judge manifest lacks artifacts")
+    queue_identity = artifacts.get("bulk_tasks")
+    if not isinstance(queue_identity, dict):
+        raise ValueError("agentic judge manifest lacks the canonical task queue")
+    canonical_path = Path(str(queue_identity.get("path", "")))
+    if _sha256(canonical_path) != queue_identity.get("sha256"):
+        raise ValueError("canonical agentic judge task queue hash mismatch")
+    model = manifest.get(f"{judge_role}_model")
+    if not isinstance(model, dict):
+        raise ValueError(
+            f"agentic judge manifest lacks {judge_role} model identity"
+        )
+    tasks = [AgenticJudgeTask.from_dict(row) for row in _read_jsonl(tasks_path)]
+    if any(task.format_version != AGENTIC_JUDGE_FORMAT_VERSION for task in tasks):
+        raise ValueError("agentic judge task has an unsupported format")
+    canonical = {
+        task.judge_task_id: task
+        for task in (
+            AgenticJudgeTask.from_dict(row) for row in _read_jsonl(canonical_path)
+        )
+    }
+    for task in tasks:
+        if canonical.get(task.judge_task_id) != task:
+            raise ValueError("agentic judge task is absent from the canonical queue")
+    return (
+        tasks,
+        judge_role,
+        str(model["model_id"]),
+        str(model["model_revision"]),
+    )
 
 
 def _rerank_schema(count: int) -> dict[str, Any]:
@@ -434,8 +481,13 @@ async def _execute_one(item, *, client, fake):
         prompt = str(item["prompt"])
         rejected_hashes = []
         for validation_attempt in range(1, maximum_validation_attempts + 1):
+            retry_task_id = item["base"].get("task_id") or item["base"].get(
+                "judge_task_id"
+            )
+            if not isinstance(retry_task_id, str):
+                raise ValueError("inference item lacks a stable task ID")
             seed = (int(item["seed"]) if validation_attempt == 1 else
-                    _validation_retry_seed(int(item["seed"]), item["base"]["task_id"], validation_attempt))
+                    _validation_retry_seed(int(item["seed"]), retry_task_id, validation_attempt))
             if fake:
                 raw, usage = str(item["fake_output"]), {}
             else:
@@ -619,6 +671,46 @@ def _prepare_judge(
     }
 
 
+def _prepare_agentic_judge(
+    task: AgenticJudgeTask, *, max_tokens: int
+) -> dict[str, Any]:
+    evidence_ids = tuple(row.evidence_id for row in task.evidence)
+    fake_support = (
+        [{"evidence_id": evidence_ids[0], "use_score": 3}]
+        if evidence_ids
+        else []
+    )
+    return {
+        "base": {
+            "judge_task_id": task.judge_task_id,
+            "blind_case_id": task.blind_case_id,
+            "evidence_ids": list(evidence_ids),
+            "fake_backend": False,
+        },
+        "prompt": render_agentic_judge_prompt(task),
+        "schema_name": "agentic_independent_judge",
+        "schema": agentic_judge_schema(evidence_ids),
+        "validator": lambda raw: validate_agentic_judgment(
+            raw, allowed_evidence_ids=evidence_ids
+        ),
+        "fake_output": json.dumps(
+            {
+                "request_fulfillment": 3,
+                "evidence_grounding": 3,
+                "ideal_relevance_ranking": list(evidence_ids),
+                "realized_support_ranking": fake_support,
+                "unsupported_claim_count": 0,
+                "judge_confidence": 3,
+            }
+        ),
+        "temperature": 0.0,
+        "max_tokens": max_tokens,
+        "seed": int(hashlib.sha256(task.judge_task_id.encode()).hexdigest()[:8], 16),
+        "maximum_validation_attempts": 3,
+        "validation_feedback_contract": "search-experience-validation-feedback-v1",
+    }
+
+
 def _journal_rows(path):
     if not path.exists():
         return
@@ -722,6 +814,7 @@ async def _run_locked(args, ownership) -> int:
     ):
         raise ValueError("output exists; use --resume or a new output directory")
 
+    chat_template_kwargs = None
     if args.command == "primary":
         plan, tasks, model, pipeline = _primary_context(
             Path(args.plan_manifest).resolve(), tasks_path
@@ -742,7 +835,7 @@ async def _run_locked(args, ownership) -> int:
             model=model,
         )
         source_manifest = str(Path(args.plan_manifest).resolve())
-    else:
+    elif args.command == "judge":
         judge_manifest, tasks, document_sets, model_id, model_revision = _judge_context(
             Path(args.judge_manifest).resolve(), tasks_path
         )
@@ -753,6 +846,20 @@ async def _run_locked(args, ownership) -> int:
             task, document_sets[task.candidate_set_id]
         )
         source_manifest = str(Path(args.judge_manifest).resolve())
+    else:
+        tasks, judge_role, model_id, model_revision = _agentic_judge_context(
+            Path(args.judge_manifest).resolve(),
+            tasks_path,
+            judge_role=args.judge_role,
+        )
+        pipeline = f"agentic-judge-{judge_role}"
+        id_field = "judge_task_id"
+        prepare = lambda task: _prepare_agentic_judge(
+            task, max_tokens=args.max_output_tokens
+        )
+        source_manifest = str(Path(args.judge_manifest).resolve())
+        if args.disable_thinking:
+            chat_template_kwargs = {"enable_thinking": False}
 
     task_ids = [getattr(task, id_field) for task in tasks]
     if len(set(task_ids)) != len(task_ids):
@@ -762,6 +869,12 @@ async def _run_locked(args, ownership) -> int:
                 "pipeline": pipeline, "model_id": model_id, "model_revision": model_revision,
                 "fake_backend": args.fake, "pilot_only": args.pilot_only,
                 "maximum_attempts": args.max_attempts, "request_timeout": args.request_timeout}
+    if args.command == "agentic-judge":
+        identity.update(
+            judge_role=args.judge_role,
+            max_output_tokens=args.max_output_tokens,
+            disable_thinking=args.disable_thinking,
+        )
     completed = _validate_resume(output, identity, tasks, prepare, id_field) if args.resume else set()
     pending = [task for task in tasks if getattr(task, id_field) not in completed]
     if args.max_tasks:
@@ -817,6 +930,12 @@ async def _run_locked(args, ownership) -> int:
             )
         },
     }
+    if args.command == "agentic-judge":
+        manifest.update(
+            judge_role=args.judge_role,
+            max_output_tokens=args.max_output_tokens,
+            disable_thinking=args.disable_thinking,
+        )
     output.mkdir(parents=True, exist_ok=True)
     ownership.enter_context(_writer_lock(output))
     if args.resume:
@@ -835,6 +954,7 @@ async def _run_locked(args, ownership) -> int:
             server_model_name=server_model_name,
             timeout_seconds=args.request_timeout,
             maximum_attempts=args.max_attempts,
+            chat_template_kwargs=chat_template_kwargs,
         )
 
     succeeded = 0
@@ -984,6 +1104,12 @@ def _parser() -> argparse.ArgumentParser:
     judge = subparsers.add_parser("judge")
     _add_common(judge)
     judge.add_argument("--judge-manifest", required=True)
+    agentic = subparsers.add_parser("agentic-judge")
+    _add_common(agentic)
+    agentic.add_argument("--judge-manifest", required=True)
+    agentic.add_argument("--judge-role", choices=("bulk", "validation"), required=True)
+    agentic.add_argument("--max-output-tokens", type=int, default=512)
+    agentic.add_argument("--disable-thinking", action="store_true")
     return parser
 
 
@@ -995,6 +1121,8 @@ def main() -> int:
         raise SystemExit("timeout and attempts must be positive")
     if args.max_tasks < 0:
         raise SystemExit("--max-tasks must be non-negative")
+    if args.command == "agentic-judge" and args.max_output_tokens <= 0:
+        raise SystemExit("--max-output-tokens must be positive")
     try:
         return asyncio.run(_run(args))
     except (FileNotFoundError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:

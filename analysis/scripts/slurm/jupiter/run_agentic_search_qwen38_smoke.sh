@@ -26,10 +26,15 @@ test ! -e "$SEARCH_AGENTIC_GPU_TELEMETRY"
 
 geodml_prompt_args=()
 geodml_cell_concurrency_args=()
+geodml_cell_selection_args=()
 if [[ -n "${SEARCH_AGENTIC_CELL_CONCURRENCY:-}" ]]; then
   geodml_cell_concurrency_args=(
     --cell-concurrency "$SEARCH_AGENTIC_CELL_CONCURRENCY"
   )
+fi
+if [[ -n "${SEARCH_AGENTIC_CELL_IDS_JSONL:-}" ]]; then
+  test -s "$SEARCH_AGENTIC_CELL_IDS_JSONL"
+  geodml_cell_selection_args=(--cell-ids-jsonl "$SEARCH_AGENTIC_CELL_IDS_JSONL")
 fi
 geodml_expected_cells="${SEARCH_AGENTIC_EXPECTED_CELL_COUNT:-12}"
 if [[ -n "${SEARCH_AGENTIC_PROMPTS_JSONL:-}" ]]; then
@@ -117,6 +122,7 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --request-concurrency "${SEARCH_AGENTIC_REQUEST_CONCURRENCY:-1}" \
     "${geodml_cell_concurrency_args[@]}" \
     --disable-thinking \
+    "${geodml_cell_selection_args[@]}" \
     "${geodml_prompt_args[@]}"
 
 python3 - "$SEARCH_AGENTIC_OUTPUT/run_manifest.json" "$geodml_expected_cells" <<'PY'
