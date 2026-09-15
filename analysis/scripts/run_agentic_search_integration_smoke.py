@@ -55,6 +55,10 @@ EVIDENCE_ID_RESUME_COMMIT = "c5eba6036fc1bef032bfa0992007f396133b72e7"
 REPAIR_RESUME_COMMIT = "3d0fa062094dca9571198ae8198be6a00b634f7e"
 SERIAL_RESUME_COMMIT = "6a2469958df8355234982a45608c220780b855a0"
 OPTIMIZED_RESUME_COMMIT = "40d848175ce327585b048efc293e7bfa5e4482c5"
+MALFORMED_PREFIX_V1_RESUME_COMMITS = (
+    "0b8902f23109b24e7f47fe5dcfc053e75cdfbaf5",
+    "f301dc549107a855127f5be67fb95b523f6dc024",
+)
 FAILED_CELL_RETRY_PASSES = 1
 
 
@@ -751,7 +755,7 @@ def _config(
             "ranking_reference_mode": "evidence-id-v1",
             "final_answer_max_characters": FINAL_ANSWER_MAX_CHARACTERS,
             "final_attempt_repair_mode": (
-                "evidence-projection-and-malformed-prefix-v1"
+                "evidence-projection-and-malformed-prefix-v2"
             ),
             "structured_output_schema_mode": "xgrammar-structural-v1",
         },
@@ -886,9 +890,10 @@ def _optimized_resume_config(
     config: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     policy = config.get("execution_policy", {})
-    if policy.get("final_attempt_repair_mode") != (
-        "evidence-projection-and-malformed-prefix-v1"
-    ):
+    if policy.get("final_attempt_repair_mode") not in {
+        "evidence-projection-and-malformed-prefix-v1",
+        "evidence-projection-and-malformed-prefix-v2",
+    }:
         return None
     previous = json.loads(json.dumps(config))
     previous["git_commit"] = OPTIMIZED_RESUME_COMMIT
@@ -1043,6 +1048,24 @@ def _prepare_config(
             config["disable_thinking"],
         ),
     ]
+    if config["execution_policy"].get("final_attempt_repair_mode") == (
+        "evidence-projection-and-malformed-prefix-v2"
+    ):
+        for source_commit in MALFORMED_PREFIX_V1_RESUME_COMMITS:
+            previous = json.loads(json.dumps(config))
+            previous["git_commit"] = source_commit
+            previous["execution_policy"]["final_attempt_repair_mode"] = (
+                "evidence-projection-and-malformed-prefix-v1"
+            )
+            candidates.append((
+                previous,
+                hashlib.sha256(_canonical(previous)).hexdigest(),
+                source_commit,
+                previous["execution_policy"]["max_tokens_by_purpose"][
+                    "parallel_final"
+                ],
+                previous["disable_thinking"],
+            ))
     compatible_sources = [
         {
             "config": candidate,

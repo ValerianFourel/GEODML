@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from analysis.interpretability.pipeline.agentic_search import (
     AgentExecutionError,
@@ -33,6 +34,7 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     VllmAgentGenerator,
     _build_target_urls,
     _cells,
+    _config,
     _evidence_id_resume_config,
     _legacy_resume_config,
     _load_calibration_prompts,
@@ -48,6 +50,131 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_malformed_finish_policy_resume_preserves_completed_artifacts(self) -> None:
+        for source_commit in (
+            "0b8902f23109b24e7f47fe5dcfc053e75cdfbaf5",
+            "f301dc549107a855127f5be67fb95b523f6dc024",
+        ):
+            with self.subTest(source_commit=source_commit), TemporaryDirectory() as directory:
+                inputs = replace(_smoke_inputs(Path(directory)), cell_concurrency=12)
+
+                def previous_config(*args, **kwargs):
+                    value = _config(*args, **kwargs)
+                    value["execution_policy"]["final_attempt_repair_mode"] = (
+                        "evidence-projection-and-malformed-prefix-v1"
+                    )
+                    return value
+
+                with patch.dict("os.environ", {"GEODML_EXECUTION_COMMIT": source_commit}), patch(
+                    "analysis.scripts.run_agentic_search_integration_smoke._config",
+                    side_effect=previous_config,
+                ), self.assertRaisesRegex(RuntimeError, "1 agentic-search cells failed"):
+                    asyncio.run(run_smoke(
+                        inputs,
+                        client_context=_FakeClientContext(failed_final_passes=2),
+                        compactor=ContextCompactor(LexicalOverlapScorer()),
+                    ))
+
+                manifest_path = inputs.output / "run_manifest.json"
+                before = json.loads(manifest_path.read_text(encoding="utf-8"))
+                self.assertEqual(before["completed_count"], 11)
+                failed_id, = before["failed_cell_ids"]
+                preserved = {
+                    path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for kind in ("results", "traces", "diagnostics")
+                    for path in (inputs.output / kind).glob("*.json")
+                    if path.stem != failed_id
+                }
+                self.assertEqual(len(preserved), 33)
+                failed_traces = {
+                    path: path.read_bytes()
+                    for path in (inputs.output / "failed_traces").glob("*/*.json")
+                }
+                client = _FakeClientContext()
+                with patch.dict("os.environ", {"GEODML_EXECUTION_COMMIT": "new-commit"}):
+                    completed = asyncio.run(run_smoke(
+                        inputs,
+                        client_context=client,
+                        compactor=ContextCompactor(LexicalOverlapScorer()),
+                    ))
+
+                self.assertEqual(client.call_count, 2)
+                self.assertEqual(completed["completed_count"], 12)
+                self.assertEqual(completed["remaining_count"], 0)
+                self.assertEqual(completed["status"], "complete")
+                self.assertEqual(
+                    completed["execution_policy"]["final_attempt_repair_mode"],
+                    "evidence-projection-and-malformed-prefix-v2",
+                )
+                self.assertEqual(
+                    completed["resume_migration"]["source_git_commit"], source_commit
+                )
+                self.assertEqual(
+                    completed["resume_migration"]["source_config_sha256"],
+                    before["config_sha256"],
+                )
+                self.assertEqual(
+                    completed["resume_migration"]["preserved_completed_count"], 11
+                )
+                self.assertEqual(preserved, {
+                    path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for path in preserved
+                })
+                self.assertEqual(failed_traces, {
+                    path: path.read_bytes() for path in failed_traces
+                })
+
+    def test_malformed_finish_policy_migration_rejects_unrelated_changes(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = _smoke_inputs(root)
+            with patch.dict("os.environ", {"GEODML_EXECUTION_COMMIT": "new-commit"}):
+                current = _config(inputs, "Berlin population")
+            self.assertEqual(
+                current["execution_policy"]["final_attempt_repair_mode"],
+                "evidence-projection-and-malformed-prefix-v2",
+            )
+            current_hash = hashlib.sha256(json.dumps(
+                current, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            for source_commit in (
+                "0b8902f23109b24e7f47fe5dcfc053e75cdfbaf5",
+                "f301dc549107a855127f5be67fb95b523f6dc024",
+            ):
+                for field, value in (
+                    ("seed", 999),
+                    ("model_revision", "b" * 40),
+                    ("condition_mode", "different-condition-mode"),
+                    ("git_commit", "unknown-source-commit"),
+                    ("execution_policy", {
+                        **current["execution_policy"],
+                        "final_attempt_repair_mode": "evidence-projection-and-malformed-prefix-v1",
+                        "max_tokens_by_purpose": {
+                            **current["execution_policy"]["max_tokens_by_purpose"],
+                            "reactive_action": 4096,
+                        },
+                    }),
+                ):
+                    with self.subTest(source_commit=source_commit, field=field):
+                        previous = json.loads(json.dumps(current))
+                        previous["git_commit"] = source_commit
+                        previous["execution_policy"]["final_attempt_repair_mode"] = (
+                            "evidence-projection-and-malformed-prefix-v1"
+                        )
+                        previous[field] = value
+                        previous_hash = hashlib.sha256(json.dumps(
+                            previous, ensure_ascii=False, sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")).hexdigest()
+                        path = root / "config.json"
+                        path.write_text(json.dumps({
+                            **previous, "config_sha256": previous_hash,
+                        }), encoding="utf-8")
+                        original = path.read_bytes()
+                        with self.assertRaisesRegex(ValueError, "configuration differs"):
+                            _prepare_config(path, current, current_hash)
+                        self.assertEqual(path.read_bytes(), original)
+
     def test_optimized_resume_config_preserves_completed_cells(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -65,7 +192,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
                     },
                     "maximum_active_cells": 12,
                     "final_attempt_repair_mode": (
-                        "evidence-projection-and-malformed-prefix-v1"
+                        "evidence-projection-and-malformed-prefix-v2"
                     ),
                     "structured_output_schema_mode": "xgrammar-structural-v1",
                 },
@@ -1190,7 +1317,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
         )
         self.assertEqual(
             manifest["execution_policy"]["final_attempt_repair_mode"],
-            "evidence-projection-and-malformed-prefix-v1",
+            "evidence-projection-and-malformed-prefix-v2",
         )
         self.assertEqual(
             manifest["execution_policy"]["structured_output_schema_mode"],

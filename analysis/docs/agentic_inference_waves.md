@@ -48,6 +48,36 @@ prior wave output root as a completed-results root. The next wave contains only
 missing task IDs. This works with a small number of long jobs or a larger number
 of short jobs without changing the scientific task definition.
 
+### Recovered generator answers
+
+Generator repair policy `evidence-projection-and-malformed-prefix-v2` also covers
+malformed reactive finish actions. Only the final bounded attempt can recover an
+explicit `finish`, a complete ranking, and a nonempty model-written answer prefix.
+Malformed search actions, incomplete rankings, and ambiguous extra fields remain
+failures. The raw response and `controller_repair` event stay in the trace, with
+`malformed_json_recovered`, `recovered_answer_quote_observed`, and
+`answer_truncated` flags. A completed artifact can therefore contain a recovered
+answer prefix; it is not evidence of answer quality or a complete original answer.
+The existing token and answer-length limits are unchanged.
+
+The runner accepts an exact matching v1 configuration from `0b8902f` or `f301dc5`
+for a logged resume migration. It preserves completed results, traces, and
+diagnostics and executes only missing cells. Other configuration changes still
+fail the resume check.
+
+For an existing legacy shard, `run_agentic_search_qwen38_resume.sbatch` resumes
+in place through the original Qwen launcher. Keep its full prompt population,
+shard assignment, and concurrency settings; the runner skips completed cells.
+Do not add a cell-selection file to that legacy configuration. The wrapper
+clears that override, binds the expected job ID to the new batch job, writes an
+allocation record, and uses job-specific server and GPU logs in
+`GEODML_RESUME_ATTEMPT_DIR`. Submission must supply the approved wall-time,
+resources, `GEODML_APPROVED_WALLTIME`, and `GEODML_ALLOCATION_ESTIMATE`; the wrapper
+does not allocate resources itself. An advisory output lock rejects concurrent
+resume wrappers. Older launchers do not acquire this lock, so first check that
+no older job is writing the shard. New parallel work should use the separate
+wave worker directories.
+
 ## Judge roles
 
 The bulk judge sees only the request, independently ordered evidence, and the

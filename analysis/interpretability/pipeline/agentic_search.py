@@ -729,6 +729,7 @@ class ReactiveSnippetLoopV1(AgenticMethod):
                 final_attempt_repair=lambda value: _repair_action(
                     value, observations, force_finish=False
                 ),
+                malformed_json_repair=_recover_malformed_action_mapping,
             )
             if action["action"] == "finish":
                 return _result(self.method_id, condition, action, observations, trace)
@@ -777,6 +778,7 @@ class ReactiveSnippetLoopV1(AgenticMethod):
             final_attempt_repair=lambda value: _repair_action(
                 value, observations, force_finish=True
             ),
+            malformed_json_repair=_recover_malformed_action_mapping,
         )
         return _result(self.method_id, condition, final, observations, trace)
 
@@ -1016,26 +1018,71 @@ def _recover_malformed_final_mapping(
     }
 
 
+def _recover_malformed_action_mapping(
+    raw: str,
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Recover only a finish in schema field order, never an incomplete action.
+
+    Action and ranking must be complete before the answer begins. A closed
+    answer may be missing the object terminator, but extra fields or trailing
+    content are ambiguous and cannot be recovered.
+    """
+    if not isinstance(raw, str):
+        raise TypeError("LLM output must be text")
+    prefix = re.match(
+        r'\s*\{\s*"action"\s*:\s*"finish"\s*,\s*"ranking"\s*:\s*', raw
+    )
+    if prefix is None:
+        raise ValueError("malformed action lacks an explicit leading finish")
+    decoder = json.JSONDecoder()
+    ranking, ranking_end = decoder.raw_decode(raw, prefix.end())
+    answer_key = re.match(r'\s*,\s*"answer"\s*:\s*"', raw[ranking_end:])
+    if answer_key is None:
+        raise ValueError("malformed finish lacks an answer string")
+    answer_start = ranking_end + answer_key.end()
+    try:
+        answer, answer_end = decoder.raw_decode(raw, answer_start - 1)
+    except json.JSONDecodeError as error:
+        if error.msg != "Unterminated string starting at":
+            raise
+        answer, terminated = _decode_json_string_prefix(raw, answer_start)
+    else:
+        terminated = True
+        if raw[answer_end:].strip() not in {"", "}"}:
+            raise ValueError("malformed finish has ambiguous trailing content")
+    answer = _nonempty_text(answer, "recovered answer prefix")
+    answer.encode("utf-8")  # Reject lone surrogates before hashing/saving a trace.
+    return {
+        "action": "finish",
+        "ranking": ranking,
+        "answer": answer,
+    }, {
+        "malformed_json_recovered": True,
+        "recovered_answer_prefix_characters": len(answer),
+        "recovered_answer_quote_observed": terminated,
+    }
+
+
 def _decode_json_string_prefix(raw: str, start: int) -> tuple[str, bool]:
-    characters: list[str] = []
     cursor = start
     while cursor < len(raw):
         character = raw[cursor]
         if character == '"':
-            return "".join(characters), True
+            break
         if character == "\\":
             escape_length = 6 if raw[cursor : cursor + 2] == "\\u" else 2
             escaped = raw[cursor : cursor + escape_length]
             if len(escaped) != escape_length:
                 break
-            characters.append(json.loads(f'"{escaped}"'))
             cursor += escape_length
             continue
         if ord(character) < 0x20:
             break
-        characters.append(character)
         cursor += 1
-    return "".join(characters), False
+    # Decode together so escaped UTF-16 surrogate pairs become one codepoint.
+    answer = json.loads('"' + raw[start:cursor] + '"')
+    answer.encode("utf-8")
+    return answer, cursor < len(raw) and raw[cursor] == '"'
 
 
 def _repair_ranking(

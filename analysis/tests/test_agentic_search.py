@@ -12,6 +12,7 @@ from analysis.interpretability.pipeline.agentic_search import (
     AgentExecutionError,
     ContextCompactor,
     ExperimentalCondition,
+    FINAL_ANSWER_MAX_CHARACTERS,
     IdentityConditionHook,
     MemoizingSnippetScorer,
     ParallelExpansionV1,
@@ -463,6 +464,142 @@ class AgenticSearchTests(unittest.TestCase):
             repairs[0].payload["dropped_ranking_references"],
             ["https://outside.test/"],
         )
+
+    def test_reactive_recovers_malformed_finish_on_last_attempt(self):
+        answers = (
+            "Useful answer.", 'Quoted "evidence" and café. ',
+            "Astral \U0001f600 evidence.", "Note. " * 2200,
+        )
+        for forced in (False, True):
+            for answer in answers:
+                for closed_quote in (False, True):
+                    with self.subTest(
+                        forced=forced, answer=answer[:30], closed=closed_quote,
+                    ):
+                        raw = (
+                            '{"action":"finish","ranking":["S1","outside","S1"],'
+                            '"answer":' + json.dumps(answer, ensure_ascii=True)
+                        )
+                        if not closed_quote:
+                            raw = raw[:-1]
+                        search_count = 3 if forced else 1
+                        llm = ScriptedLLM([
+                            json.dumps({"action": "search", "query": "first"})
+                        ] * search_count + [raw] * 3)
+                        method = ReactiveSnippetLoopV1(
+                            llm=llm,
+                            search=StaticSearchAdapter(
+                                "searxng", {"first": [snippet(1)]},
+                            ),
+                            compactor=ContextCompactor(PositionScorer()),
+                            condition_hook=IdentityConditionHook(),
+                        )
+
+                        result = asyncio.run(method.run(
+                            "Question", ExperimentalCondition.NATURAL,
+                        ))
+
+                        self.assertEqual(
+                            result.answer, answer[:FINAL_ANSWER_MAX_CHARACTERS],
+                        )
+                        self.assertEqual(result.ranking, ("https://example.test/1",))
+                        self.assertEqual(len(llm.requests), search_count + 3)
+                        calls = [
+                            e for e in result.trace.events if e.event_type == "llm_call"
+                        ]
+                        self.assertEqual(
+                            [e.payload["attempt"] for e in calls[-3:]], [1, 2, 3],
+                        )
+                        self.assertTrue(all(
+                            e.payload["raw_output"] == raw for e in calls[-3:]
+                        ))
+                        repairs = [
+                            e.payload for e in result.trace.events
+                            if e.event_type == "controller_repair"
+                        ]
+                        self.assertEqual(len(repairs), 1)
+                        repair = repairs[0]
+                        self.assertEqual(
+                            repair["purpose"],
+                            "reactive_forced_finish" if forced else "reactive_action",
+                        )
+                        self.assertTrue(repair["malformed_json_recovered"])
+                        self.assertEqual(repair["forced_finish"], forced)
+                        self.assertEqual(
+                            repair["recovered_answer_quote_observed"], closed_quote,
+                        )
+                        self.assertEqual(
+                            repair["recovered_answer_prefix_characters"], len(answer),
+                        )
+                        self.assertEqual(
+                            repair["answer_truncated"],
+                            len(answer) > FINAL_ANSWER_MAX_CHARACTERS,
+                        )
+                        self.assertEqual(
+                            repair["dropped_ranking_references"], ["outside", "S1"],
+                        )
+                        self.assertIn(
+                            "JSONDecodeError", repair["trigger_validation_error"],
+                        )
+                        with tempfile.TemporaryDirectory() as directory:
+                            path = Path(directory) / "trace.json"
+                            digest = write_trace_atomic(path, result.trace)
+                            saved = json.loads(path.read_text(encoding="utf-8"))
+                            self.assertEqual(saved["trace_sha256"], digest)
+
+    def test_reactive_rejects_ambiguous_malformed_actions(self):
+        prefix = '{"action":"finish","ranking":["S1"],"answer":'
+        malformed_outputs = (
+            '{"action":"search","query":"unfinished',
+            '{"action":"search","ranking":["S1"],"answer":"text',
+            '{"ranking":["S1"],"answer":"text',
+            '{"action":"finish","ranking":["S1",',
+            '{"action":"finish","ranking":"S1","answer":"text',
+            '{"action":"finish","ranking":[1],"answer":"text',
+            '{"action":"finish","ranking":["S1"]',
+            '{"action":"finish","action":"search","ranking":["S1"],"answer":"text',
+            '{"action":"finish","ranking":[],"ranking":["S1"],"answer":"text',
+            prefix + '"',
+            prefix + '"   ',
+            prefix + 'null',
+            prefix + '"text","action":"search"',
+            prefix + '"text"} {"action":"search"}',
+            prefix + '"text","answer":"other"',
+            prefix + '"text" unexpected content',
+            prefix + '"invalid\\q',
+            prefix + '"invalid\\ud800',
+            prefix + '"invalid\\ud800"',
+        )
+        for forced in (False, True):
+            for raw in malformed_outputs:
+                with self.subTest(forced=forced, raw=raw):
+                    search_count = 3 if forced else 1
+                    llm = ScriptedLLM([
+                        json.dumps({"action": "search", "query": "first"})
+                    ] * search_count + [raw] * 3)
+                    method = ReactiveSnippetLoopV1(
+                        llm=llm,
+                        search=StaticSearchAdapter(
+                            "searxng", {"first": [snippet(1)]},
+                        ),
+                        compactor=ContextCompactor(PositionScorer()),
+                        condition_hook=IdentityConditionHook(),
+                    )
+
+                    with self.assertRaises(AgentExecutionError) as raised:
+                        asyncio.run(method.run(
+                            "Question", ExperimentalCondition.NATURAL,
+                        ))
+
+                    events = raised.exception.trace.events
+                    self.assertFalse(any(
+                        e.event_type == "controller_repair" for e in events
+                    ))
+                    rejected = [
+                        e for e in events if e.event_type == "controller_repair_rejected"
+                    ]
+                    self.assertEqual(len(rejected), 1)
+                    self.assertEqual(len(llm.requests), search_count + 3)
 
     def test_schema_retry_exhaustion_exposes_complete_trace(self):
         llm = ScriptedLLM(["bad", "still bad", "also bad"])
