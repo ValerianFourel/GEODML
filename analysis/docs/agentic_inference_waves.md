@@ -80,6 +80,49 @@ wave worker directories.
 
 ## Judge roles
 
+### Bounded Nemotron plumbing pilot
+
+`prepare_agentic_judge_pilot.py` prepares a separate Nemotron-only queue from one
+completed Qwen shard, without regenerating or modifying its outputs. The default
+pilot selects two prompts from the lowest and highest available axis bins, with
+seeded tie-breaking, and includes all 12 factorial cells for each prompt. It
+checks the selected result and trace hashes and retains the private source
+mapping. This 24-case sample tests the pipeline, not representative judge quality.
+The full-coverage production preparer is unchanged.
+
+`run_nemotron_judge_pilot.sbatch` serves the cached BF16 model at revision
+`bf77c3174f68ad409e1c2aa60daeb46e32d1c606` and runs only that queue. Submission
+must supply the separately approved `01:00:00` wall-time and one node with four
+GH200 GPUs, 32 CPUs, and 512G memory. The wrapper records the approval, estimate,
+commit, environment versions, allocation resources, and terminal status. It
+checks the cached shards and JSON schemas before loading weights. Eager serving
+and reasoning-off are fixed for this short pilot; they are not a throughput
+benchmark or a judge-accuracy recommendation.
+
+Set `GEODML_JUDGE_PILOT_ROOT` to a new directory containing `plan/` from the
+preparer. Also export `GEODML_EXECUTION_REPOSITORY`, `GEODML_EXECUTION_COMMIT`,
+`ACL_ARR_VENV`, `GEODML_CACHE_ROOT`, `HF_HUB_CACHE`,
+`GEODML_APPROVED_WALLTIME`, and `GEODML_ALLOCATION_ESTIMATE`.
+
+The worker writes `nemotron/outcomes.jsonl`, `attempts.jsonl`, `failures.jsonl`,
+and an atomically updated `run_manifest.json`. Each completed judgment is
+flushed and synced. Outcomes include both an ideal evidence-relevance ranking
+and a ranking of evidence supporting the existing answer, plus fulfillment and
+grounding scores. Join evidence IDs to URLs using the matching task in
+`plan/bulk_tasks.jsonl`. All pilot outputs remain `scientific_result=false`.
+
+The wrapper rejects a reused attempt directory and takes an exclusive pilot
+lock. Its underlying runner supports missing-task resume, but another allocation
+or attempt requires fresh approval and a separately prepared launch. Do not
+repeat the submission command to monitor it. Inspect `logs/slurm-<job>.out`,
+`logs/slurm-<job>.err`, `logs/server.log`, and `logs/gpu.csv` instead.
+
+No GLM model is invented, downloaded, or launched by this pilot. A later paired
+comparison can reuse the frozen public tasks after its own model/runtime checks
+and allocation approval.
+
+### Bulk and validation
+
 The bulk judge sees only the request, independently ordered evidence, and the
 answer. It does not see generator identity, search method, engine, condition, or
 the generator's ranking. It independently produces an ideal relevance ranking
