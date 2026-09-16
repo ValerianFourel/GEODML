@@ -13,6 +13,7 @@ from pathlib import Path
 COHORT_FORMATS = {
     "agentic-paired-new-cohort-trial-v1",
     "agentic-four-generator-backlog-v1",
+    "agentic-generator-backlog-v2",
 }
 SELECTION_FORMATS = {"readiness-axis-balanced-pilot-v1", "agentic-new-prompt-cohort-v1"}
 

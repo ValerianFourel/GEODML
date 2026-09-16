@@ -1,4 +1,4 @@
-"""Four-job budget, immutable backlog, and fail-closed submission without Slurm."""
+"""Approved schedules, immutable backlogs, and fail-closed Slurm submission."""
 
 from __future__ import annotations
 
@@ -119,6 +119,7 @@ def backlog(tmp_path, monkeypatch):
     })
     environment = {
         "PATH": "/usr/bin:/bin", "GEODML_APPROVED_WALLTIME": "03:00:00",
+        "GEODML_MAXIMUM_TOTAL_GPU_HOURS": "48",
         "GEODML_ALLOCATION_ESTIMATE": "Four approved 3h jobs including startup and drain; cap 48 GPU-hours.",
         "GEODML_EXECUTION_REPOSITORY": str(repository), "GEODML_EXECUTION_COMMIT": "a" * 40,
         "HF_HUB_CACHE": str(cache), "GEODML_CACHE_ROOT": str(cache), "ACL_ARR_VENV": str(venv),
@@ -206,6 +207,59 @@ def test_four_allocations_share_backlog_and_claims_with_fixed_resources(backlog)
     with pytest.raises(FileExistsError, match="intent already exists"):
         module.submit_backlog(**backlog["arguments"])
     assert len(backlog["calls"]) == 2
+
+
+def test_ten_twelve_hour_allocations_use_five_slots_per_model(backlog):
+    args = {
+        **backlog["arguments"],
+        "approved_walltime": "12:00:00",
+        "workers_per_model": 5,
+        "maximum_total_gpu_hours": 480,
+    }
+    backlog["environment"].update(
+        GEODML_APPROVED_WALLTIME="12:00:00",
+        GEODML_MAXIMUM_TOTAL_GPU_HOURS="480",
+        GEODML_ALLOCATION_ESTIMATE="Ten explicitly approved 12h jobs; cap 480 GPU-hours.",
+    )
+    result = module.submit_backlog(**args)
+    root = args["run_root"]
+    assert result["format_version"] == "agentic-generator-backlog-v2"
+    assert result["allocation_count"] == 10
+    assert result["workers_per_model"] == 5
+    assert result["maximum_total_gpu_hours"] == 480
+    assert len(backlog["calls"]) == 2
+    for command, options in backlog["calls"]:
+        assert {"--array=0-4%5", "--time=12:00:00", "--gres=gpu:4"} <= set(command)
+        assert "backlog-12h" in next(value for value in command if value.startswith("--job-name="))
+        assert options["env"]["GEODML_MAXIMUM_TOTAL_GPU_HOURS"] == "480"
+        wave = json.loads((root / "models" / options["env"]["GEODML_MODEL_SLUG"] /
+                           "wave/run_manifest.json").read_text())
+        assert wave["worker_count"] == 5
+
+
+def test_resume_reuses_only_an_exact_prior_shared_claim_root(backlog):
+    args = backlog["arguments"]
+    prior = args["run_root"].parent / "prior"
+    module.submit_backlog(**{**args, "run_root": prior, "submit": False})
+    result = module.submit_backlog(**{
+        **args,
+        "run_root": args["run_root"],
+        "resume_from_run_root": prior,
+    })
+    assert result["resume_from"]["run_root"] == str(prior)
+    assert result["claim_root"] == str(prior / "claims")
+    for _, options in backlog["calls"]:
+        assert options["env"]["GEODML_INFERENCE_CLAIM_ROOT"] == str(prior / "claims")
+
+
+def test_resume_rejects_a_different_prior_queue_before_slurm_submission(backlog):
+    args = backlog["arguments"]
+    prior = args["run_root"].parent / "prior"
+    module.submit_backlog(**{**args, "run_root": prior, "submit": False})
+    (prior / "tasks.jsonl").write_text("{}\n")
+    with pytest.raises(ValueError, match="task queue differs"):
+        module.submit_backlog(**{**args, "resume_from_run_root": prior})
+    assert not backlog["calls"]
 
 
 def test_prepare_only_can_be_rechecked_then_submitted_once(backlog, monkeypatch):

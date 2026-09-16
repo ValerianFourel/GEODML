@@ -121,14 +121,23 @@ the same frozen population, and its prompt, axis and selection-record hashes mus
 verify. Exclusions use both IDs and normalized text and retain provenance.
 `--expected-excluded-count` still checks the original 500-prompt selection.
 
-### Approved four-job generator launch
+### Approved generator backlog launch
 
 `submit_agentic_generator_backlog.py` prepares a separate backlog from a supplied
-frozen cohort. It never extends an existing queue or reruns the historical trial.
-The current approved layout is two Qwen3.8 jobs and two Llama4 jobs, each with one
-node, four GH200 GPUs, 32 CPUs, 512G memory and `03:00:00` wall-time. Two arrays
-with tasks `0-1` create four allocations in total, capped at 48 GPU-hours.
+frozen cohort. Its schedule is explicit: `--approved-walltime`,
+`--workers-per-model`, and `--maximum-total-gpu-hours` must agree with the two
+approval environment variables. For example, two Qwen3.8 and two Llama4 jobs,
+each with one node, four GH200 GPUs, 32 CPUs, 512G memory and `03:00:00` wall-time,
+use `--workers-per-model 2` and a 48 GPU-hour cap. The command derives the exact
+zero-based Slurm array range; it never silently changes the requested count.
 There is no automatic resubmission or requeue.
+
+To continue the same frozen queue in a later approved allocation, pass
+`--resume-from-run-root` pointing at its prior run root. The launcher accepts that
+only if its cohort and serialized `tasks.jsonl` match exactly, then uses the prior
+run's shared durable claim store. Completed cells are materialized rather than
+inferred again, and live claims make simultaneous allocations skip each other's
+work. A mismatched queue fails before `sbatch`.
 
 For this launch, freeze 1,200 prompts after excluding the original 500 and the
 later 120-prompt cohort. This gives each model 14,400 cells, enough backlog to

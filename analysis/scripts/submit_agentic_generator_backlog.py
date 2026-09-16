@@ -1,4 +1,4 @@
-"""Freeze a supplied cohort and submit the approved four three-hour generator jobs."""
+"""Freeze a supplied cohort and submit a bounded, resumable generator backlog."""
 
 from __future__ import annotations
 
@@ -51,6 +51,8 @@ from analysis.scripts.submit_agentic_paired_trial import (
     _snapshot,
 )
 
+# These preserve the already-run four-allocation launcher as the default.  New
+# schedules must be explicit at both the CLI and the approved environment.
 APPROVED_WALLTIME = "03:00:00"
 APPROVED_PROMPT_COUNT = 1200
 WORKERS_PER_MODEL = 2
@@ -89,12 +91,45 @@ def _copy_frozen(source: Path, destination: Path, digest: str) -> None:
     _sync_directory(destination.parent)
 
 
+def _schedule(
+    approved_walltime: str, workers_per_model: int, maximum_total_gpu_hours: int,
+) -> dict[str, Any]:
+    """Validate the exact user-approved Slurm layout before preparing a run."""
+    matched = re.fullmatch(r"([0-9]{2,}):([0-5][0-9]):([0-5][0-9])", approved_walltime)
+    if matched is None:
+        raise ValueError("approved wall-time must use positive HH:MM:SS")
+    hours, minutes, seconds = (int(value) for value in matched.groups())
+    total_seconds = 3600 * hours + 60 * minutes + seconds
+    if total_seconds <= 0:
+        raise ValueError("approved wall-time must be positive")
+    if type(workers_per_model) is not int or workers_per_model <= 0:
+        raise ValueError("workers per model must be a positive integer")
+    if type(maximum_total_gpu_hours) is not int or maximum_total_gpu_hours <= 0:
+        raise ValueError("maximum total GPU-hours must be a positive integer")
+    expected = 2 * workers_per_model * 4 * total_seconds / 3600
+    if expected != int(expected) or maximum_total_gpu_hours != int(expected):
+        raise ValueError(
+            "maximum GPU-hours must exactly equal two models × workers × four GPUs × wall-time"
+        )
+    walltime_tag = f"{hours}h" if minutes == seconds == 0 else approved_walltime.replace(":", "")
+    return {
+        "approved_walltime": approved_walltime,
+        "workers_per_model": workers_per_model,
+        "allocation_count": 2 * workers_per_model,
+        "maximum_total_gpu_hours": maximum_total_gpu_hours,
+        "array": f"0-{workers_per_model - 1}%{workers_per_model}",
+        "job_name_tag": walltime_tag,
+    }
+
+
 def _preflight(
     environment: Mapping[str, str], profile_root: Path, source_git_commit: str,
-    *, submit: bool,
+    *, submit: bool, schedule: Mapping[str, Any],
 ) -> tuple[dict[str, str], dict[str, Any]]:
-    if _require(environment, "GEODML_APPROVED_WALLTIME") != APPROVED_WALLTIME:
-        raise ValueError("this approval is exactly four 03:00:00 jobs, at most 48 GPU-hours")
+    if _require(environment, "GEODML_APPROVED_WALLTIME") != schedule["approved_walltime"]:
+        raise ValueError("environment approval wall-time differs from requested schedule")
+    if _require(environment, "GEODML_MAXIMUM_TOTAL_GPU_HOURS") != str(schedule["maximum_total_gpu_hours"]):
+        raise ValueError("environment GPU-hour cap differs from requested schedule")
     estimate = _require(environment, "GEODML_ALLOCATION_ESTIMATE")
     if re.fullmatch(r"[0-9a-f]{40}", source_git_commit) is None:
         raise ValueError("source Git commit must be a full lowercase Git SHA")
@@ -117,7 +152,8 @@ def _preflight(
     env.update(
         GEODML_EXECUTION_REPOSITORY=str(repository),
         GEODML_EXECUTION_COMMIT=source_git_commit,
-        GEODML_APPROVED_WALLTIME=APPROVED_WALLTIME,
+        GEODML_APPROVED_WALLTIME=schedule["approved_walltime"],
+        GEODML_MAXIMUM_TOTAL_GPU_HOURS=str(schedule["maximum_total_gpu_hours"]),
         GEODML_ALLOCATION_ESTIMATE=estimate,
         GEODML_START_MARGIN_SECONDS="120", GEODML_CLEANUP_MARGIN_SECONDS="45",
     )
@@ -279,23 +315,61 @@ def _cohort_inputs(cohort: Path) -> tuple[dict[str, Any], dict[str, Path]]:
     return manifest, sources
 
 
-def _command(run_root: Path, slug: str, account: str, partition: str) -> list[str]:
+def _command(
+    run_root: Path, slug: str, account: str, partition: str, schedule: Mapping[str, Any],
+) -> list[str]:
     logs = run_root / "models" / slug / "logs"
     return [
-        "sbatch", "--parsable", "--no-requeue", "--array=0-1%2",
+        "sbatch", "--parsable", "--no-requeue", f"--array={schedule['array']}",
         f"--account={account}", f"--partition={partition}",
         "--nodes=1", "--ntasks=1", "--cpus-per-task=32", "--mem=512G",
-        "--gres=gpu:4", f"--time={APPROVED_WALLTIME}", "--export=ALL",
-        f"--job-name=geodml-{slug}-backlog-3h", f"--chdir={REPOSITORY_ROOT}",
+        "--gres=gpu:4", f"--time={schedule['approved_walltime']}", "--export=ALL",
+        f"--job-name=geodml-{slug}-backlog-{schedule['job_name_tag']}", f"--chdir={REPOSITORY_ROOT}",
         f"--output={logs}/slurm-%A_%a.out", f"--error={logs}/slurm-%A_%a.err",
         str(REPOSITORY_ROOT / "analysis/scripts/slurm/jupiter/run_inference_wave_worker.sbatch"),
     ]
+
+
+def _resume_claims(
+    resume_from_run_root: Path | None, cohort_root: Path, tasks: list[dict[str, Any]],
+) -> dict[str, str] | None:
+    """Accept only an exact frozen queue as a durable shared-claim predecessor."""
+    if resume_from_run_root is None:
+        return None
+    root = resume_from_run_root.resolve()
+    manifest_path = _file(root / "run_manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("format_version") not in {
+        "agentic-four-generator-backlog-v1", "agentic-generator-backlog-v2",
+    }:
+        raise ValueError("resume source is not a compatible generator backlog")
+    if manifest.get("request", {}).get("cohort_root") != str(cohort_root):
+        raise ValueError("resume source uses a different frozen cohort")
+    prior_tasks = _file(root / "tasks.jsonl")
+    if prior_tasks.read_bytes() != b"".join(
+        json.dumps(task, ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
+        for task in tasks
+    ):
+        raise ValueError("resume source task queue differs from the requested queue")
+    claim_root = root / "claims"
+    if claim_root.exists() and not claim_root.is_dir():
+        raise ValueError("resume source claim root is not a directory")
+    return {
+        "run_root": str(root),
+        "run_manifest_sha256": _hash(manifest_path),
+        "tasks_sha256": _hash(prior_tasks),
+        "claim_root": str(claim_root),
+    }
 
 
 def submit_backlog(
     *, cohort_root: Path, run_root: Path, profile_root: Path,
     source_git_commit: str, account: str, partition: str, submit: bool = False,
     environment: Mapping[str, str] | None = None,
+    approved_walltime: str = APPROVED_WALLTIME,
+    workers_per_model: int = WORKERS_PER_MODEL,
+    maximum_total_gpu_hours: int = MAXIMUM_GPU_HOURS,
+    resume_from_run_root: Path | None = None,
 ) -> dict[str, Any]:
     """Prepare once; submit two arrays once, with no automatic submission recovery."""
     cohort_root, run_root, profile_root = (
@@ -309,11 +383,21 @@ def submit_backlog(
     # Reject recorded attempts before any preparation or external command.
     if run_root.exists() and any(run_root.glob("models/*/submission-intent.json")):
         raise FileExistsError("submission intent already exists; inspect Slurm, never resubmit this run")
+    schedule = _schedule(approved_walltime, workers_per_model, maximum_total_gpu_hours)
     env, models = _preflight(
         dict(os.environ if environment is None else environment), profile_root,
-        source_git_commit, submit=submit,
+        source_git_commit, submit=submit, schedule=schedule,
     )
     cohort, sources = _cohort_inputs(cohort_root)
+    source_prompts = _load_calibration_prompts(
+        cohort_root / "pilot-prompts.jsonl", cohort_root / "selection-records.jsonl",
+        prompt_count=cohort["prompt_count"], seed=PROMPT_SELECTION_SEED,
+    )
+    source_cells = _cells(source_prompts)
+    tasks = [{"cell_id": cell.cell_id, **cell.core} for cell in source_cells]
+    if len(tasks) != cohort["expected_cells_per_model"]:
+        raise ValueError("cohort cell count differs from its manifest")
+    resume = _resume_claims(resume_from_run_root, cohort_root, tasks)
     for slug, model in models.items():
         sources[f"profiles/{slug}.json"] = Path(model["profile"])
     search_paths = {}
@@ -337,8 +421,11 @@ def submit_backlog(
             "HF_HUB_CACHE", "GEODML_CACHE_ROOT", "ACL_ARR_VENV",
             "SEARCH_AGENTIC_CROSS_ENCODER_SNAPSHOT", "SEARCH_AGENTIC_CROSS_ENCODER_REVISION",
         )},
-        "approved_walltime_per_job": APPROVED_WALLTIME,
+        "approved_walltime_per_job": schedule["approved_walltime"],
+        "workers_per_model": schedule["workers_per_model"],
+        "maximum_total_gpu_hours": schedule["maximum_total_gpu_hours"],
         "allocation_estimate": env["GEODML_ALLOCATION_ESTIMATE"],
+        "resume_from": resume,
     }
     run_root.mkdir(parents=True, exist_ok=True)
     with (run_root / ".submission.lock").open("a") as lock:
@@ -360,17 +447,19 @@ def submit_backlog(
             if any(path.name != ".submission.lock" for path in run_root.iterdir()):
                 raise FileExistsError("run root contains unrecognized or incomplete preparation")
             manifest = {
-                "format_version": "agentic-four-generator-backlog-v1", "status": "preparing",
+                "format_version": "agentic-generator-backlog-v2", "status": "preparing",
                 "scientific_result": False, "created_at_utc": _now(), "request": request,
                 "git_commit": source_git_commit, "prompt_count": cohort["prompt_count"],
                 "cells_per_model": cohort["expected_cells_per_model"],
-                "approved_walltime_per_job": APPROVED_WALLTIME,
+                "approved_walltime_per_job": schedule["approved_walltime"],
                 "allocation_estimate": env["GEODML_ALLOCATION_ESTIMATE"],
-                "allocation_count": 4, "workers_per_model": WORKERS_PER_MODEL,
-                "maximum_total_gpu_hours": MAXIMUM_GPU_HOURS,
+                "allocation_count": schedule["allocation_count"],
+                "workers_per_model": schedule["workers_per_model"],
+                "maximum_total_gpu_hours": schedule["maximum_total_gpu_hours"],
                 "resources_per_job": {"nodes": 1, "gpus": 4, "gpu_type": "GH200", "cpus": 32, "memory": "512G"},
                 "prompt_selection_seed": PROMPT_SELECTION_SEED, "wave_seed": WAVE_SEED,
-                "claim_root": str(run_root / "claims"),
+                "claim_root": resume["claim_root"] if resume else str(run_root / "claims"),
+                "resume_from": resume,
                 "claim_identity": "agentic-generator-shared-v1: cell, model, revision, request hash",
                 "cutoff_policy": "actual Slurm end; 120s admission margin; 45s cleanup margin",
                 "automatic_resubmission": False,
@@ -385,8 +474,9 @@ def submit_backlog(
                     prompt_count=cohort["prompt_count"], seed=PROMPT_SELECTION_SEED,
                 )
                 cells = _cells(prompts)
-                if len(cells) != cohort["expected_cells_per_model"]:
-                    raise ValueError("cohort cell count differs from its manifest")
+                frozen_tasks = [{"cell_id": cell.cell_id, **cell.core} for cell in cells]
+                if frozen_tasks != tasks:
+                    raise ValueError("copied cohort produced a different task queue")
                 adapters = {
                     engine: FrozenSnapshotSearchAdapter(engine, path)
                     for engine, path in search_paths.items()
@@ -404,7 +494,6 @@ def submit_backlog(
                         for (prompt, engine), url in sorted(targets.items())
                     ])).hexdigest(),
                 }
-                tasks = [{"cell_id": cell.cell_id, **cell.core} for cell in cells]
                 tasks_path = run_root / "tasks.jsonl"
                 _atomic_jsonl(tasks_path, tasks)
                 for slug in models:
@@ -413,11 +502,14 @@ def submit_backlog(
                         model_root / "wave", source_tasks_path=tasks_path,
                         wave=build_inference_wave(
                             tasks, task_id_field="cell_id", completed_task_ids=set(),
-                            worker_count=WORKERS_PER_MODEL, master_seed=WAVE_SEED, dispatch_mode="backlog",
+                            worker_count=schedule["workers_per_model"], master_seed=WAVE_SEED,
+                            dispatch_mode="backlog",
                         ),
                     )
                     (model_root / "logs").mkdir()
-                    manifest["models"][slug]["command"] = _command(run_root, slug, account, partition)
+                    manifest["models"][slug]["command"] = _command(
+                        run_root, slug, account, partition, schedule,
+                    )
                 manifest["frozen_files"] = {
                     str(path.relative_to(run_root)): _hash(path)
                     for path in run_root.rglob("*")
@@ -440,7 +532,7 @@ def submit_backlog(
                 "GEODML_WAVE_ROOT": str(model_root / "wave"),
                 "GEODML_WAVE_OUTPUT_ROOT": str(model_root / "outputs"),
                 "GEODML_WAVE_LOG_ROOT": str(logs),
-                "GEODML_INFERENCE_CLAIM_ROOT": str(run_root / "claims"),
+                "GEODML_INFERENCE_CLAIM_ROOT": resume["claim_root"] if resume else str(run_root / "claims"),
                 "GEODML_WORKER_LAUNCHER": str(REPOSITORY_ROOT / "analysis/scripts/slurm/jupiter/run_agentic_generation_worker.sh"),
                 "GEODML_WORKER_STDOUT": str(logs / "slurm-%A_%a.out"),
                 "GEODML_WORKER_STDERR": str(logs / "slurm-%A_%a.err"),
@@ -455,7 +547,7 @@ def submit_backlog(
                 "SEARCH_AGENTIC_PRODUCTION_CONDITIONS": "1",
                 "SEARCH_AGENTIC_REQUEST_CONCURRENCY": "4", "SEARCH_AGENTIC_CELL_CONCURRENCY": "12",
             }
-            command = _command(run_root, slug, account, partition)
+            command = _command(run_root, slug, account, partition, schedule)
             intent_path = model_root / "submission-intent.json"
             intent = {"requested_at_utc": _now(), "command": command, "status": "submission_requested"}
             # fsync both file and directory before sbatch can create any allocation.
@@ -500,8 +592,15 @@ def main() -> int:
         parser.add_argument("--" + flag, type=Path, required=True)
     for flag in ("source-git-commit", "account", "partition"):
         parser.add_argument("--" + flag, required=True)
+    parser.add_argument("--approved-walltime", default=APPROVED_WALLTIME)
+    parser.add_argument("--workers-per-model", type=int, default=WORKERS_PER_MODEL)
+    parser.add_argument("--maximum-total-gpu-hours", type=int, default=MAXIMUM_GPU_HOURS)
+    parser.add_argument(
+        "--resume-from-run-root", type=Path,
+        help="Reuse only the matching prior run's durable shared claims.",
+    )
     action = parser.add_mutually_exclusive_group()
-    action.add_argument("--submit", action="store_true", help="Submit the four approved jobs; otherwise prepare only")
+    action.add_argument("--submit", action="store_true", help="Submit the explicitly approved jobs; otherwise prepare only")
     action.add_argument("--prepare-only", dest="submit", action="store_false")
     parser.set_defaults(submit=False)
     arguments = parser.parse_args()
@@ -512,7 +611,10 @@ def main() -> int:
         raise SystemExit(str(error)) from error
     print(f"BACKLOG_STATUS={manifest['status']}")
     print(f"RUN_ROOT={arguments.run_root.resolve()}")
-    print("ALLOCATIONS=4 MAXIMUM_GPU_HOURS=48")
+    print(
+        f"ALLOCATIONS={manifest['allocation_count']} "
+        f"MAXIMUM_GPU_HOURS={manifest['maximum_total_gpu_hours']}"
+    )
     for slug, model in manifest["models"].items():
         if "job_id" in model:
             print(f"{slug.upper()}_ARRAY_JOB={model['job_id']}")
