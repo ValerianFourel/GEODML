@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 FORMAT_VERSION = "geodml-inference-wave-v1"
+BACKLOG_FORMAT_VERSION = "geodml-inference-wave-v2"
 
 
 def _canonical(value: object) -> bytes:
@@ -38,6 +39,7 @@ class InferenceWave:
     source_task_ids_sha256: str
     completed_task_ids_sha256: str
     workers: tuple[tuple[dict[str, Any], ...], ...]
+    dispatch_mode: str = "partition"
 
     @property
     def pending_task_count(self) -> int:
@@ -57,6 +59,7 @@ def build_inference_wave(
     completed_task_ids: set[str],
     worker_count: int,
     master_seed: int = 20260915,
+    dispatch_mode: str = "partition",
 ) -> InferenceWave:
     """Freeze missing tasks and assign them by stable modulo."""
 
@@ -64,6 +67,8 @@ def build_inference_wave(
         raise ValueError("task ID field must be non-empty")
     if type(worker_count) is not int or worker_count <= 0:
         raise ValueError("worker count must be a positive integer")
+    if dispatch_mode not in {"partition", "backlog"}:
+        raise ValueError("dispatch mode must be partition or backlog")
     indexed: dict[str, dict[str, Any]] = {}
     for number, raw in enumerate(tasks, 1):
         row = dict(raw)
@@ -81,7 +86,7 @@ def build_inference_wave(
     missing_ids = set(indexed) - completed_task_ids
     if not missing_ids:
         raise ValueError("source queue has no missing tasks")
-    if worker_count > len(missing_ids):
+    if dispatch_mode == "partition" and worker_count > len(missing_ids):
         raise ValueError("cannot assign more workers than missing tasks")
     ordered_ids = sorted(
         missing_ids,
@@ -92,9 +97,14 @@ def build_inference_wave(
     )
     workers: list[list[dict[str, Any]]] = [[] for _ in range(worker_count)]
     for position, task_id in enumerate(ordered_ids):
-        workers[position % worker_count].append(indexed[task_id])
+        slot = (
+            int(hashlib.sha256(task_id.encode()).hexdigest(), 16) % worker_count
+            if dispatch_mode == "backlog" else position % worker_count
+        )
+        workers[slot].append(indexed[task_id])
+    format_version = BACKLOG_FORMAT_VERSION if dispatch_mode == "backlog" else FORMAT_VERSION
     identity = {
-        "format_version": FORMAT_VERSION,
+        "format_version": format_version,
         "task_id_field": task_id_field,
         "master_seed": master_seed,
         "source_task_ids": sorted(indexed),
@@ -103,13 +113,14 @@ def build_inference_wave(
     }
     return InferenceWave(
         wave_id="inference-wave-" + _hash(identity)[:24],
-        format_version=FORMAT_VERSION,
+        format_version=format_version,
         task_id_field=task_id_field,
         master_seed=master_seed,
         source_task_count=len(indexed),
         source_task_ids_sha256=_hash(sorted(indexed)),
         completed_task_ids_sha256=_hash(sorted(completed_task_ids)),
         workers=tuple(tuple(worker) for worker in workers),
+        dispatch_mode=dispatch_mode,
     )
 
 
@@ -183,6 +194,22 @@ def write_inference_wave(
         "worker_task_counts": [len(worker) for worker in wave.workers],
         "workers": worker_artifacts,
     }
+    if wave.dispatch_mode == "backlog":
+        backlog_path = output / "backlog.jsonl"
+        rows = sorted(
+            (row for worker in wave.workers for row in worker),
+            key=lambda row: row[wave.task_id_field],
+        )
+        _atomic_jsonl(backlog_path, rows)
+        manifest.update(
+            dispatch_mode="backlog",
+            assignment_policy="stable-task-hash-preferred-worksteal-v1",
+            backlog={
+                "path": str(backlog_path.resolve()),
+                "task_count": len(rows),
+                "sha256": hashlib.sha256(backlog_path.read_bytes()).hexdigest(),
+            },
+        )
     if source_tasks_path is not None:
         source_path = source_tasks_path.resolve()
         manifest["source_tasks"] = {

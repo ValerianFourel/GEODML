@@ -43,7 +43,14 @@ def _environment(root: Path, *, stage_status: int = 0) -> dict[str, str]:
         "    output = pathlib.Path(args[args.index('--output-dir') + 1])\n"
         "    output.mkdir(parents=True, exist_ok=True)\n"
         "    queue = pathlib.Path(args[args.index('--tasks') + 1])\n"
-        "    total = len(queue.read_text().splitlines())\n"
+        "    rows = [json.loads(line) for line in queue.read_text().splitlines()]\n"
+        "    mode = args[args.index('--dispatch-mode') + 1] if '--dispatch-mode' in args else 'partition'\n"
+        "    if '--worker-count' in args and mode == 'partition':\n"
+        "        import hashlib\n"
+        "        count = int(args[args.index('--worker-count') + 1])\n"
+        "        index = int(args[args.index('--worker-index') + 1])\n"
+        "        rows = [row for row in rows if int(hashlib.sha256(row['judge_task_id'].encode()).hexdigest(), 16) % count == index]\n"
+        "    total = len(rows)\n"
         "    completed = int(os.environ.get('TEST_COMPLETED_COUNT', str(total)))\n"
         "    (output / 'run_manifest.json').write_text(json.dumps({\n"
         "        'status': os.environ.get('TEST_RUNTIME_STATUS', 'complete'),\n"
@@ -325,6 +332,7 @@ def test_wrapper_has_valid_shell_and_no_allocation_defaults():
 
 def _throughput_environment(root):
     env = _environment(root)
+    env["GEODML_JUDGE_CLAIM_ROOT"] = str(root / "shared-judgments")
     env["GEODML_APPROVED_WALLTIME"] = "00:30:00"
     env["SLURM_JOB_START_TIME"] = str(int(time.time()))
     env["SLURM_JOB_END_TIME"] = str(int(time.time()) + 1800)
@@ -344,6 +352,57 @@ def _throughput_environment(root):
     }
     manifest_path.write_text(json.dumps(manifest))
     return env
+
+
+def _recorded_queue(root, env, *, prompt_tokens):
+    from analysis.tests.test_agentic_judge_transcript import _plan, _recorded_result
+
+    source = root / "source"
+    result, prompt, _ = _recorded_result(source)
+    task, = _plan(source, result, prompt, recorded_conversation=True).bulk_tasks
+    plan = root / "pilot/plan"
+    queue = plan / "bulk_tasks.jsonl"
+    queue.write_text(json.dumps(task.to_dict()) + "\n")
+    manifest_path = plan / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["format_version"] = task.format_version
+    manifest["artifacts"]["bulk_tasks"]["sha256"] = hashlib.sha256(queue.read_bytes()).hexdigest()
+    manifest["summary"] = {"pending_task_count": 1, "bulk_task_count": 1,
+                           "available_task_count": 1, "excluded_task_count": 0}
+    manifest_path.write_text(json.dumps(manifest))
+    (root / "imports/transformers.py").write_text(
+        "import json, os\n"
+        "class AutoTokenizer:\n"
+        "    @staticmethod\n"
+        "    def from_pretrained(path, **kwargs):\n"
+        "        assert kwargs == {'local_files_only': True, 'trust_remote_code': True}\n"
+        "        return AutoTokenizer()\n"
+        "    def apply_chat_template(self, messages, **kwargs):\n"
+        "        assert kwargs['truncation'] is False\n"
+        "        assert kwargs['enable_thinking'] is False\n"
+        "        assert 'RECORDED CONVERSATION' in messages[0]['content']\n"
+        f"        return {{'input_ids': [1] * {prompt_tokens}}}\n"
+    )
+
+
+def test_full_conversation_context_overflow_stops_before_gpu_start(tmp_path):
+    env = _throughput_environment(tmp_path)
+    _recorded_queue(tmp_path, env, prompt_tokens=16000)
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode != 0
+    assert "context" in result.stderr.lower(), result.stderr
+    assert not (tmp_path / "capture").exists()
+    assert not (tmp_path / "gpu-pid").exists()
+
+
+def test_full_conversation_context_budget_is_recorded(tmp_path):
+    env = _throughput_environment(tmp_path)
+    _recorded_queue(tmp_path, env, prompt_tokens=1000)
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["context_budget"]["max_prompt_tokens"] == 1000
+    assert record["context_budget"]["max_required_tokens"] == 3048
 
 
 def test_queue_uses_variable_approved_time_and_reports_checkpoint(tmp_path):
@@ -376,6 +435,126 @@ def test_queue_stops_after_exhausting_tasks(tmp_path):
     record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
     assert record["status"] == "complete"
     assert record["remaining_count"] == 0
+
+
+def test_queue_passes_shared_claim_root_and_slot_to_runner(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_CLAIM_ROOT"] = str(tmp_path / "shared-judgments")
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    run = json.loads((tmp_path / "capture").read_text().splitlines()[1])
+    assert run[run.index("--claim-root") + 1] == env["GEODML_JUDGE_CLAIM_ROOT"]
+    assert run[run.index("--worker-index") + 1] == "0"
+    assert run[run.index("--worker-count") + 1] == "1"
+
+
+def test_parallel_queue_attempts_have_separate_logs_and_same_plan(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_CLAIM_ROOT"] = str(tmp_path / "shared-judgments")
+    env["GEODML_JUDGE_QUEUE_ROOT"] = str(tmp_path / "pilot")
+    for job_id in ("987654", "987655"):
+        result = _run({**env, "SLURM_JOB_ID": job_id}, QUEUE_WRAPPER)
+        assert result.returncode == 0, result.stderr
+        attempt = tmp_path / "pilot/attempts" / ("job" + job_id + "-worker0")
+        record = json.loads((attempt / "logs/allocation.json").read_text())
+        assert record["output"] == str(attempt / "nemotron")
+        assert record["claim_root"] == env["GEODML_JUDGE_CLAIM_ROOT"]
+    calls = [json.loads(line) for line in (tmp_path / "capture").read_text().splitlines()]
+    for run in calls[1::2]:
+        assert run[run.index("--tasks") + 1] == str(tmp_path / "pilot/plan/bulk_tasks.jsonl")
+
+
+def test_queue_requires_shared_claim_root_before_model_load(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env.pop("GEODML_JUDGE_CLAIM_ROOT", None)
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+
+
+def test_queue_rejects_relative_claim_root(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_CLAIM_ROOT"] = "relative-claims"
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+
+
+def test_queue_records_expanded_slurm_log_paths(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_STDOUT"] = str(tmp_path / "logs/slurm-%A_%a-%j.out")
+    env["GEODML_JUDGE_STDERR"] = str(tmp_path / "logs/slurm-%j.err")
+    env["SLURM_ARRAY_JOB_ID"] = "987650"
+    env["SLURM_ARRAY_TASK_ID"] = "0"
+    env["SLURM_ARRAY_TASK_COUNT"] = "1"
+    env["SLURM_ARRAY_TASK_MIN"] = "0"
+    env["SLURM_ARRAY_TASK_MAX"] = "0"
+    env["SLURM_ARRAY_TASK_STEP"] = "1"
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["stdout"] == str(tmp_path / "logs/slurm-987650_0-987654.out")
+    assert record["stderr"] == str(tmp_path / "logs/slurm-987654.err")
+
+
+def test_queue_rejects_nonzero_based_automatic_array(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env.update(SLURM_ARRAY_TASK_ID="1", SLURM_ARRAY_TASK_MIN="1",
+               SLURM_ARRAY_TASK_MAX="3", SLURM_ARRAY_TASK_COUNT="3",
+               SLURM_ARRAY_TASK_STEP="1")
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+
+
+def test_queue_slot_count_matches_runner_and_stops_invalid_slots(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_WORKER_COUNT"] = "3"
+    env["GEODML_JUDGE_WORKER_INDEX"] = "1"
+    env["GEODML_JUDGE_DISPATCH_MODE"] = "partition"
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    expected = sum(int(hashlib.sha256(f"task-{i}".encode()).hexdigest(), 16) % 3 == 1 for i in range(36))
+    assert record["task_count"] == record["completed_count"] == expected
+    assert record["source_task_count"] == 36
+    assert record["worker_index"] == 1 and record["worker_count"] == 3
+    assert record["remaining_count"] == 0
+
+
+def test_queue_default_backlog_does_not_strand_tasks_in_other_slots(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_WORKER_COUNT"] = "3"
+    env["GEODML_JUDGE_WORKER_INDEX"] = "1"
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["task_count"] == record["completed_count"] == 36
+    assert record["dispatch_mode"] == "backlog"
+    run = json.loads((tmp_path / "capture").read_text().splitlines()[-1])
+    assert run[run.index("--dispatch-mode") + 1] == "backlog"
+
+
+def test_queue_empty_preferred_slot_can_process_other_slots(tmp_path):
+    env = _throughput_environment(tmp_path)
+    count = 1000
+    occupied = {int(hashlib.sha256(f"task-{i}".encode()).hexdigest(), 16) % count for i in range(36)}
+    env["GEODML_JUDGE_WORKER_COUNT"] = str(count)
+    env["GEODML_JUDGE_WORKER_INDEX"] = str(next(index for index in range(count) if index not in occupied))
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["completed_count"] == 36
+
+
+@pytest.mark.parametrize("worker_index,worker_count", [("2", "2"), ("-1", "2"), ("0", "0")])
+def test_queue_refuses_invalid_slot_before_server(tmp_path, worker_index, worker_count):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_WORKER_COUNT"] = worker_count
+    env["GEODML_JUDGE_WORKER_INDEX"] = worker_index
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
 
 
 def test_queue_wrapper_runs_from_slurm_spool_copy(tmp_path):

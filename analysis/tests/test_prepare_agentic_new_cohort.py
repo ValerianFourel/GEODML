@@ -239,3 +239,230 @@ def test_wrong_expected_source_count_fails_before_output(tmp_path):
     assert run.returncode != 0
     assert "count differs" in run.stderr
     assert not output.exists()
+
+
+def _read_rows(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def _prior_cohort(selection: Path, root: Path) -> Path:
+    result = _run(selection, root)
+    assert result.returncode == 0, result.stderr
+    return root
+
+
+def test_extra_cohorts_exclude_id_union_and_record_verified_provenance(tmp_path):
+    selection = _fixture(tmp_path)
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    second = _prior_cohort(selection, tmp_path / "same-prior-selection")
+    output = tmp_path / "cohort"
+    result = _run(
+        selection, output,
+        "--exclude-cohort-root", str(prior),
+        "--exclude-cohort-root", str(second),
+    )
+    assert result.returncode == 0, result.stderr
+    excluded = {
+        row["candidate_id"]
+        for root in (selection, prior, second)
+        for row in _read_rows(root / "pilot-prompts.jsonl")
+    }
+    rows = _read_rows(output / "pilot-prompts.jsonl")
+    assert len(rows) == 20
+    assert not excluded.intersection(row["candidate_id"] for row in rows)
+    manifest = json.loads((output / "selection-manifest.json").read_text())
+    assert manifest["original_excluded_prompt_count"] == 20
+    assert manifest["additional_excluded_prompt_count"] == 20
+    assert manifest["excluded_prompt_count"] == 40
+    assert manifest["eligible_population_count"] == 160
+    assert len(manifest["additional_exclusions"]) == 2
+    for provenance, root in zip(manifest["additional_exclusions"], (prior, second)):
+        assert provenance["prompt_count"] == 20
+        for key, filename in (
+            ("selection_manifest", "selection-manifest.json"),
+            ("prompts", "pilot-prompts.jsonl"),
+            ("axis_map", "pilot-axis.jsonl"),
+            ("selection_records", "selection-records.jsonl"),
+        ):
+            path = root / filename
+            assert provenance[key]["path"] == str(path.resolve())
+            assert provenance[key]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    repeated = tmp_path / "repeated"
+    assert _run(
+        selection, repeated,
+        "--exclude-cohort-root", str(prior),
+        "--exclude-cohort-root", str(second),
+    ).returncode == 0
+    assert (output / "selection-manifest.json").read_bytes() == (
+        repeated / "selection-manifest.json"
+    ).read_bytes()
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["pilot-prompts.jsonl", "pilot-axis.jsonl", "selection-records.jsonl"],
+)
+@pytest.mark.parametrize("damage", ["missing", "changed"])
+def test_extra_exclusion_artifacts_fail_closed(tmp_path, filename, damage):
+    selection = _fixture(tmp_path)
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    path = prior / filename
+    if damage == "missing":
+        path.unlink()
+    else:
+        path.write_text(path.read_text() + "\n")
+    output = tmp_path / "cohort"
+    result = _run(selection, output, "--exclude-cohort-root", str(prior))
+    assert result.returncode != 0
+    assert "No such file" in result.stderr or "hash mismatch" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("field", ["prompts", "axis_map"])
+@pytest.mark.parametrize("changed", ["sha256", "rows"])
+def test_extra_exclusion_from_different_population_fails_closed(tmp_path, field, changed):
+    selection = _fixture(tmp_path)
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    path = prior / "selection-manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["sources"][field][changed] = "0" * 64 if changed == "sha256" else 199
+    path.write_text(json.dumps(manifest))
+    output = tmp_path / "cohort"
+    result = _run(selection, output, "--exclude-cohort-root", str(prior))
+    assert result.returncode != 0
+    assert "population source differs" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("artifact", ["prompts", "axis_map", "selection_records"])
+@pytest.mark.parametrize("invalid_id", ["duplicate", "outside-population"])
+def test_extra_exclusion_candidate_ids_fail_closed(tmp_path, artifact, invalid_id):
+    selection = _fixture(tmp_path)
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    path = prior / "selection-manifest.json"
+    manifest = json.loads(path.read_text())
+    artifact_path = prior / manifest["artifacts"][artifact]["path"]
+    rows = _read_rows(artifact_path)
+    rows[0]["candidate_id"] = (
+        rows[1]["candidate_id"] if invalid_id == "duplicate" else "unknown-candidate"
+    )
+    manifest["artifacts"][artifact] = _write_rows(artifact_path, rows)
+    path.write_text(json.dumps(manifest))
+    output = tmp_path / "cohort"
+    result = _run(selection, output, "--exclude-cohort-root", str(prior))
+    assert result.returncode != 0
+    assert "IDs are duplicated or outside" in result.stderr or "ID sets differ" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("field", ["prompt_count", "population_count", "axis_bins"])
+def test_extra_exclusion_manifest_counts_fail_closed(tmp_path, field):
+    selection = _fixture(tmp_path)
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    path = prior / "selection-manifest.json"
+    manifest = json.loads(path.read_text())
+    target = manifest["diagnostics"] if field == "axis_bins" else manifest
+    target[field] += 1
+    path.write_text(json.dumps(manifest))
+    output = tmp_path / "cohort"
+    result = _run(selection, output, "--exclude-cohort-root", str(prior))
+    assert result.returncode != 0
+    assert "count differs" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("damage", ["missing", "wrong-format"])
+def test_extra_exclusion_requires_cohort_manifest(tmp_path, damage):
+    selection = _fixture(tmp_path)
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    path = prior / "selection-manifest.json"
+    if damage == "missing":
+        path.unlink()
+    else:
+        manifest = json.loads(path.read_text())
+        manifest["format_version"] = "unknown"
+        path.write_text(json.dumps(manifest))
+    output = tmp_path / "cohort"
+    result = _run(selection, output, "--exclude-cohort-root", str(prior))
+    assert result.returncode != 0
+    assert "No such file" in result.stderr or "agentic-new-prompt-cohort-v1" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("artifact", ["prompts", "axis_map", "selection_records"])
+def test_extra_exclusion_rows_must_match_population_even_with_valid_hash(tmp_path, artifact):
+    selection = _fixture(tmp_path)
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    path = prior / "selection-manifest.json"
+    manifest = json.loads(path.read_text())
+    artifact_path = prior / manifest["artifacts"][artifact]["path"]
+    rows = _read_rows(artifact_path)
+    if artifact == "prompts":
+        rows[0]["question"] += " changed"
+    elif artifact == "axis_map":
+        rows[0]["axis_1_percentile_0_1"] = 0.987
+    else:
+        rows[0]["axis_bin"] = (rows[0]["axis_bin"] + 1) % 4
+    manifest["artifacts"][artifact] = _write_rows(artifact_path, rows)
+    path.write_text(json.dumps(manifest))
+    output = tmp_path / "cohort"
+    result = _run(selection, output, "--exclude-cohort-root", str(prior))
+    assert result.returncode != 0
+    assert "frozen population" in result.stderr
+    assert not output.exists()
+
+
+def test_extra_exclusion_also_removes_equivalent_text_under_other_ids(tmp_path):
+    selection = _fixture(tmp_path)
+    prompts = _read_rows(tmp_path / "population.jsonl")
+    axes = _read_rows(tmp_path / "axes.jsonl")
+    prompts[2]["question"] = "  " + prompts[1]["question"].upper() + "  \n"
+    digest = hashlib.sha256(prompts[2]["question"].encode()).hexdigest()
+    prompts[2]["question_sha256"] = digest
+    axes[2]["text_sha256"] = digest
+    original_path = selection / "selection-manifest.json"
+    original = json.loads(original_path.read_text())
+    original["sources"]["prompts"] = _write_rows(tmp_path / "population.jsonl", prompts)
+    original["sources"]["axis_map"] = _write_rows(tmp_path / "axes.jsonl", axes)
+    original_path.write_text(json.dumps(original))
+    prior = _prior_cohort(selection, tmp_path / "prior")
+    path = prior / "selection-manifest.json"
+    manifest = json.loads(path.read_text())
+    # Use a known, valid population subset containing the first duplicate text.
+    chosen = list(range(1, 200, 10))
+    for artifact, filename, rows in (
+        ("prompts", "pilot-prompts.jsonl", [prompts[i] for i in chosen]),
+        ("axis_map", "pilot-axis.jsonl", [axes[i] for i in chosen]),
+        ("selection_records", "selection-records.jsonl", [
+            {"candidate_id": prompts[i]["candidate_id"], "axis_bin": (i // 10) % 4}
+            for i in chosen
+        ]),
+    ):
+        manifest["artifacts"][artifact] = _write_rows(prior / filename, rows)
+    path.write_text(json.dumps(manifest))
+    output = tmp_path / "cohort"
+    result = _run(selection, output, "--exclude-cohort-root", str(prior))
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((output / "selection-manifest.json").read_text())
+    assert manifest["excluded_prompt_count"] == 40
+    assert manifest["additional_text_overlap_count"] == 1
+    assert manifest["eligible_population_count"] == 159
+    assert prompts[2]["candidate_id"] not in {
+        row["candidate_id"] for row in _read_rows(output / "pilot-prompts.jsonl")
+    }
+
+
+def test_no_extra_cohort_preserves_historical_artifact_bytes_and_manifest_schema(tmp_path):
+    selection = _fixture(tmp_path)
+    output = _prior_cohort(selection, tmp_path / "cohort")
+    expected = {
+        "selection-records.jsonl": "4637827ce1ad51a53c039e85b280f2b672d1cc6f3abd92a4c837a6b2ebffde0e",
+        "pilot-prompts.jsonl": "bca25191c41539f3fcf6c044e503d041ab0c985d939faf9220303ff77c646299",
+        "pilot-axis.jsonl": "9e9a9a8b8083c34e2ea7ab85750b84f11532d330eb3c4c3511cecb2572595ee1",
+    }
+    for filename, digest in expected.items():
+        assert hashlib.sha256((output / filename).read_bytes()).hexdigest() == digest
+    manifest = json.loads((output / "selection-manifest.json").read_text())
+    assert "additional_exclusions" not in manifest
+    assert "original_excluded_prompt_count" not in manifest
+    assert "additional_excluded_prompt_count" not in manifest

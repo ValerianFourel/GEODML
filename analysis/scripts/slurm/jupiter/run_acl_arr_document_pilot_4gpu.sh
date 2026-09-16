@@ -35,6 +35,7 @@ fi
 
 REPOSITORY_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPOSITORY_ROOT"
+source "$REPOSITORY_ROOT/analysis/scripts/slurm/jupiter/inference_endpoint_security.sh"
 PLAN_ROOT="$ACL_ARR_RUN_ROOT/plan"
 PLAN_MANIFEST="$PLAN_ROOT/run_manifest.json"
 RESULTS_ROOT="$ACL_ARR_RUN_ROOT/results"
@@ -128,8 +129,11 @@ start_server() {
     local configuration_id="$3"
     local server_log="$LOG_ROOT/vllm-${configuration_id}.log"
     local extra_args=()
+    local readiness_status
 
     stop_server
+    geodml_init_inference_endpoint || return 2
+    geodml_private_server_log "$server_log" || return 2
     if [[ "$model_id" == mistralai/Mistral-Small-4-* ]]; then
         extra_args+=(--attention-backend FLASH_ATTN_MLA)
     fi
@@ -152,17 +156,23 @@ start_server() {
     for _ in $(seq 1 180); do
         if ! kill -0 "$server_pid" 2>/dev/null; then
             echo "ERROR: vLLM exited while loading $model_id" >&2
-            tail -n 120 "$server_log" >&2
+            geodml_safe_server_tail "$server_log" >&2
             return 1
         fi
-        if curl -fsS "$SERVER_URL/models" >/dev/null 2>&1; then
+        if geodml_probe_inference_endpoint "$SERVER_URL" "$model_id"; then
             echo "SERVER_READY model=$model_id"
             return 0
+        else
+            readiness_status=$?
+            if [[ "$readiness_status" != "1" ]]; then
+                echo "ERROR: inference endpoint security gate failed" >&2
+                return 2
+            fi
         fi
         sleep 5
     done
     echo "ERROR: vLLM did not become ready for $model_id" >&2
-    tail -n 120 "$server_log" >&2
+    geodml_safe_server_tail "$server_log" >&2
     return 1
 }
 

@@ -81,6 +81,25 @@ def test_wave_rejects_duplicate_tasks_or_excess_workers() -> None:
         )
 
 
+def test_backlog_wave_freezes_all_pending_tasks_independent_of_worker_width(tmp_path):
+    tasks = [{"task_id": f"task-{index}"} for index in range(3)]
+    digests = []
+    for width in (1, 5):
+        wave = build_inference_wave(
+            tasks, task_id_field="task_id", completed_task_ids={"task-0"},
+            worker_count=width, dispatch_mode="backlog",
+        )
+        artifacts = write_inference_wave(tmp_path / f"wave-{width}", wave=wave)
+        manifest = json.loads(artifacts.manifest_path.read_text())
+        assert manifest["format_version"] == "geodml-inference-wave-v2"
+        assert manifest["dispatch_mode"] == "backlog"
+        backlog = Path(manifest["backlog"]["path"])
+        assert [json.loads(line)["task_id"] for line in backlog.read_text().splitlines()] == ["task-1", "task-2"]
+        assert manifest["pending_task_count"] == manifest["backlog"]["task_count"] == 2
+        digests.append(manifest["backlog"]["sha256"])
+    assert digests[0] == digests[1]
+
+
 def test_generation_queue_and_cli_wave_support_arbitrary_width(tmp_path: Path) -> None:
     prompts = tmp_path / "prompts.jsonl"
     selections = tmp_path / "selections.jsonl"
@@ -139,6 +158,8 @@ def test_generation_queue_and_cli_wave_support_arbitrary_width(tmp_path: Path) -
             "cell_id",
             "--worker-count",
             "5",
+            "--dispatch-mode",
+            "partition",
             "--output-dir",
             str(wave_root),
         ],
@@ -192,3 +213,6 @@ def test_wave_cli_reads_completed_judge_outcome_journals(tmp_path: Path) -> None
     )
     assert run.returncode == 0, run.stderr
     assert "MISSING_TASKS=2" in run.stdout
+    manifest = json.loads((tmp_path / "wave/run_manifest.json").read_text())
+    assert manifest["format_version"] == "geodml-inference-wave-v2"
+    assert manifest["dispatch_mode"] == "backlog"

@@ -6,14 +6,23 @@ The inference pipeline has three independent task queues:
 2. blinded bulk judgments;
 3. blinded validation and adjudication judgments.
 
-Each queue uses the same wave mechanism. A wave freezes the tasks that are still
-missing, orders their stable IDs with a seeded hash, and assigns position `i` to
-worker `i % worker_count`. Workers therefore have disjoint queues and differ in
-size by at most one task.
+Each queue can use the same wave mechanism. New CLI preparations default to a
+version-2 `backlog` wave: freeze all approved missing tasks once, and give every
+worker access to that same immutable backlog. Stable hash slots set the preferred
+order, not exclusive ownership. After its preferred tasks, a worker tries missing
+tasks in other slots. Per-task shared locks, not the number of submitted jobs,
+prevent simultaneous inference on the same task.
 
-Changing `worker_count` in a later wave is safe. The planner first scans all
-completed result roots, removes those IDs, and then applies the new modulo only
-to the remaining IDs. Never reuse a wave directory for a different plan.
+Later allocations reuse the same backlog and claim directory. They discover
+committed results and skip inference without rebuilding slices. Different worker
+counts can overlap safely when all workers use these claims. No job submits its
+successor or adds prompts beyond the frozen plan. Adding approved work requires a
+new immutable plan; do not rewrite a live wave directory.
+
+Historical version-1 waves and the Python builder's default `partition` mode keep
+their fixed subsets for compatibility. They do not gain work stealing merely by
+checking out newer code. The historical paired-trial submitter remains one such
+fixed-plan path; prepare a version-2 wave to use the new dispatcher.
 
 ## Components
 
@@ -23,8 +32,8 @@ to the remaining IDs. Never reuse a wave directory for a different plan.
 - `prepare_agentic_judge_tasks.py` freezes blind bulk and validation queues.
 - `prepare_agentic_adjudication.py` applies predefined disagreement rules and
   produces additional blind validation tasks.
-- `prepare_inference_wave.py` creates any number of disjoint worker queues from
-  one of those sources.
+- `prepare_inference_wave.py` freezes a shared backlog from one of those sources;
+  `--dispatch-mode partition` retains the historical disjoint worker queues.
 - `run_inference_wave_worker.sbatch` validates one array task and invokes a thin
   worker launcher.
 - `run_agentic_generation_worker.sh` dispatches a generator worker to the
@@ -68,10 +77,12 @@ does not mean every cell completed. The batch allocation journal distinguishes
 this from `complete`. Resume only the missing work in a separately approved run.
 
 If a frozen queue is exhausted, the worker exits and records `queue_exhausted`.
-It cannot invent new scientific tasks to fill the remaining minutes. Static
-modulo workers do not steal another worker's queue; prepare sufficiently large
-queues and rebalance missing IDs in the next approved wave. Full allocation usage
-is a throughput objective, not a guarantee of 100% instantaneous GPU utilization.
+If every remaining task is locked by another job, it reports shared work busy
+instead of falsely reporting completion. It revisits busy tasks after making
+useful progress, but does not spin or hold idle GPUs when all remaining work is
+owned elsewhere. Terminal bounded failures are recorded separately and require
+review rather than being retried in every allocation. Full allocation usage is
+a throughput objective, not a guarantee of 100% instantaneous GPU utilization.
 
 Historical fixed-scope pilots and finite CPU stages retain their task definitions.
 They are explicit exceptions and are not the default for new throughput launches.
@@ -104,7 +115,42 @@ balanced-selection contract. The preparer writes `pilot-prompts.jsonl`,
 `pilot-axis.jsonl`, `selection-records.jsonl`, and `selection-manifest.json`.
 No allocation, model load, or inference occurs during preparation.
 
-Both generator models should use these exact prompt files and the same frozen
+Pass `--exclude-cohort-root` for each additional prior new-prompt cohort, including
+the 120-prompt paired trial. The option is repeatable. Each cohort must refer to
+the same frozen population, and its prompt, axis and selection-record hashes must
+verify. Exclusions use both IDs and normalized text and retain provenance.
+`--expected-excluded-count` still checks the original 500-prompt selection.
+
+### Approved four-job generator launch
+
+`submit_agentic_generator_backlog.py` prepares a separate backlog from a supplied
+frozen cohort. It never extends an existing queue or reruns the historical trial.
+The current approved layout is two Qwen3.8 jobs and two Llama4 jobs, each with one
+node, four GH200 GPUs, 32 CPUs, 512G memory and `03:00:00` wall-time. Two arrays
+with tasks `0-1` create four allocations in total, capped at 48 GPU-hours.
+There is no automatic resubmission or requeue.
+
+For this launch, freeze 1,200 prompts after excluding the original 500 and the
+later 120-prompt cohort. This gives each model 14,400 cells, enough backlog to
+exceed its estimated two-job capacity. At the earlier steady rates, each Qwen
+job may save about 3,600–3,900 cells and each Llama job about 5,500–5,800, assuming
+5–15 minutes of startup and a two-minute admission margin. Queueing, slower
+prompts, retries and security failures can reduce that yield. Completion of the
+entire queue is not promised.
+
+Preparation is the default. Submission requires `--submit`, the approved budget
+environment variables, and a successful CPU-only private-network check. Each
+compute-node serving stage also isolates itself before starting the model.
+No JSC document or manually asserted security flag substitutes for these checks.
+See [endpoint security](inference_endpoint_security.md).
+
+The helper validates both models before the first `sbatch`, records submission
+intent durably before contacting Slurm, and rejects a repeated submission even
+after an ambiguous timeout or partial acceptance. Inspect recorded job IDs and
+Slurm state before requesting any separately approved recovery. Do not delete
+submission records to make the command run again.
+
+For the historical 120-prompt trial, both generator models use the same frozen
 1,440-cell task queue. Keep their wave output directories and completed-result
 roots separate. Generator cell IDs describe prompt and factorial identity, not
 model identity. Completed Qwen cells must never be supplied as completed Llama
@@ -122,10 +168,79 @@ attempt and outcome, and atomically refresh their manifest after every task.
 Each worker has its own output directory, so parallel workers never share a
 journal or manifest writer.
 
-After interruption, build a new wave from the original queue and pass every
-prior wave output root as a completed-results root. The next wave contains only
-missing task IDs. This works with a small number of long jobs or a larger number
-of short jobs without changing the scientific task definition.
+After interruption in backlog mode, reuse the frozen queue and shared claim
+root with a new job output directory. Completed task identities remain unchanged;
+only uncommitted tasks are executable. The generic wrapper creates per-job output
+directories under `outputs/attempts/` so different allocations never share a
+manifest writer. Use the durable registry or deduplicate compatible task
+identities when reporting; summing per-job copied artifacts overcounts progress.
+The old paired-trial report only describes its original fixed worker outputs.
+
+Legacy outputs outside that registry still need explicit compatibility checks and
+import/exclusion. The generic wave preparer's completed-ID scan is not a
+scientific-provenance audit. Keep completed-result roots model-specific, and
+never infer compatibility merely because cell IDs match. No existing datasets or
+completed files are rewritten to migrate a queue automatically.
+
+### Shared claims across overlapping runs
+
+Version-2 generic wave workers require one absolute shared
+`GEODML_INFERENCE_CLAIM_ROOT`. Generator workers pass it to
+`--shared-claim-root`. Model identity, revision, cell content and scientific
+configuration distinguish generator claims, while output paths, worker count and
+Slurm job IDs do not. Success records contain the result, trace, diagnostics and
+original producer provenance. An unfinished call interrupted by the deadline
+leaves no terminal failure record, so a later job can take it.
+
+New judge batch workers require `GEODML_JUDGE_CLAIM_ROOT`. Set it to the same
+durable directory for every related judge queue and allocation, including later
+waves. A different path creates an independent registry and cannot prevent
+duplicate work. Do not put the registry in job-local temporary storage or delete
+its lock files while jobs can run. Old pinned jobs do not gain this protection
+when the source checkout is updated.
+
+The judge runner accepts `--claim-root`, `--worker-index`, `--worker-count`, and
+`--dispatch-mode backlog`. For a shared canonical task queue, the preferred slot is
+`int(SHA256(judge_task_id), 16) % worker_count == worker_index`, with zero-based
+indices. Every task has exactly one preferred slot for a given worker count, but
+all tasks remain eligible in backlog mode. This assigns judgment cells, not whole
+prompt groups: one prompt can have multiple factorial cells. The Nemotron queue
+wrapper defaults to backlog mode; `GEODML_JUDGE_DISPATCH_MODE=partition` explicitly
+retains the old fixed-slot behavior. Version-1 generic wave workers use the
+default single runtime slot because their queues were already partitioned.
+
+Immediately before an inference call, the worker acquires a nonblocking lock for
+that exact task, judge model/revision, protocol, and request fingerprint. Worker
+count, output directory, and queue path do not change this identity. A busy task
+is left pending. A committed result is verified and reused without another model
+call. A new result is flushed, synced, and atomically committed to the shared
+registry before the worker journal is updated. Each worker still owns a separate
+manifest and journal. Reused results retain the original producing job,
+invocation, and code revision as well as the consuming invocation's metadata.
+Count unique compatible judgment identities, not the sum
+of copied outcomes from multiple worker journals.
+
+Changing the worker count in a later allocation can redistribute the same queue;
+the shared registry protects completed tasks even if old and new assignments
+overlap. Use a new worker output directory when changing slot parameters. There
+is no lock expiry or timeout-based stealing. Process exit releases the lock.
+After a crash before durable commit, an unfinished call may need to be repeated:
+this is not an exactly-once guarantee for remote HTTP execution. Committed
+outcomes are not regenerated. Invalid committed records stop the worker rather
+than silently triggering replacement inference.
+
+After bounded attempts fail, backlog workers persist a separate immutable
+`*.failed.json` record. Later allocations report the failure without repeating
+the model calls. Failed tasks are never counted as completed. Cancellation and
+allocation deadlines do not create these records. Do not delete failure records
+or change scientific settings simply to consume the remaining allocation.
+
+These guarantees require all writers to use the shared registry on a filesystem
+with coherent cross-node `flock`, atomic rename, and `fsync`. Multiprocess local
+tests do not verify JUPITER's filesystem semantics; verify those before expanding
+to simultaneous nodes. Never mix uncoordinated legacy writers into the same
+active queue. Existing legacy journals must still be verified and excluded by
+the preparer; the registry does not automatically discover unrelated directories.
 
 ### Recovered generator answers
 
@@ -175,8 +290,18 @@ The queue wrapper uses the same pinned model and judgment schema as the earlier
 allocation deadline and handles intentional checkpoints. This is throughput
 plumbing, not judge-quality validation; outputs remain `scientific_result=false`.
 It never submits another job. A new queue/attempt must not reuse the old pilot
-directory. The generic wave mechanism remains the route for parallel judging
-and modulo redistribution of missing tasks.
+directory.
+
+For parallel Nemotron jobs, point `GEODML_JUDGE_QUEUE_ROOT` at one frozen queue
+containing `plan/`, and set the common `GEODML_JUDGE_CLAIM_ROOT`. Set
+`GEODML_JUDGE_WORKER_COUNT` and each zero-based `GEODML_JUDGE_WORKER_INDEX`, or
+use a zero-based contiguous Slurm array with the same number of slots. The
+wrapper creates separate `attempts/job<job-id>-worker<index>/` directories for
+serving profiles, logs, journals, and manifests. The canonical plan stays shared
+and read-only. Submission stdout/stderr default to queue-level
+`logs/slurm-<job-id>.out` and `.err`; matching submission paths must be supplied.
+Empty or invalid slots fail before loading a model. Every additional allocation
+still requires a runtime estimate and explicit wall-time approval.
 
 ### Bounded Nemotron plumbing pilot
 
@@ -221,11 +346,30 @@ and allocation approval.
 
 ### Bulk and validation
 
-The bulk judge sees only the request, independently ordered evidence, and the
-answer. It does not see generator identity, search method, engine, condition, or
+By default, the bulk judge sees only the request, independently ordered evidence,
+and the answer. It does not see generator identity, search method, engine, condition, or
 the generator's ranking. It independently produces an ideal relevance ranking
 and a realized answer-support ranking.
 
 The validation judge receives the same blind task representation on a frozen,
 stratified subset. Predefined low-confidence and disagreement rules route
 additional cases to validation. A judge never sees another judge's output.
+
+Both judge preparers accept `--recorded-conversation` for a separate v2 protocol.
+It includes recorded LLM prompts and responses, schema retries and repairs, and
+the compacted tool observations shown to the generator. Each LLM input records
+its visible URLs, original S IDs, one-based input positions, and corresponding
+judge E IDs. The generator's final ranking is visible, and the workflow may be
+inferred; this mode is not ranking-blinded. Discarded and pre-ablation retrieval
+results are not supplied as evidence the generator saw. These are saved search
+snippets, not full web pages: no live text is fetched, hidden reasoning is not
+available, and lower-level transport retries may be absent. Recorded turns are
+never truncated. The Nemotron wrapper checks the exact pinned local chat
+tokenizer plus the 2,048-token output budget against its 16,384-token context
+before loading the model. Oversized tasks stop the launch with their IDs rather
+than silently dropping turns. Other serving profiles must perform the same
+capacity check with their own tokenizer and context limit.
+V2 binds both case and task IDs to its protocol and conversation hash. The old
+24-case v1 pilot remains a different protocol and cannot satisfy v2 completion
+or adjudication coverage. Prepare a separate output plan; retain the original
+source-cell mapping when joining results across protocols.

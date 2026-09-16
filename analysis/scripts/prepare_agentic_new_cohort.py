@@ -9,7 +9,7 @@ import json
 import re
 import sys
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ from analysis.interpretability.pipeline.inference_wave import (
 )
 from analysis.scripts.select_readiness_axis_pilot import (
     FORMAT_VERSION,
+    Candidate,
     _canonical,
     _normalize,
     select_candidates,
@@ -53,6 +54,33 @@ def _verified_rows(
     return rows, {"path": str(path), "sha256": digest, "rows": len(rows)}
 
 
+def _validate_excluded_rows(
+    prompts: list[dict[str, Any]],
+    axes: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+    by_id: Mapping[str, Candidate],
+) -> set[str]:
+    excluded_ids = {row["candidate_id"] for row in prompts}
+    if len(excluded_ids) != len(prompts) or not excluded_ids.issubset(by_id):
+        raise ValueError("excluded prompt IDs are duplicated or outside the population")
+    if len(axes) != len(excluded_ids) or len(records) != len(excluded_ids):
+        raise ValueError("excluded artifact lengths differ")
+    if {row["candidate_id"] for row in axes} != excluded_ids or {
+        row["candidate_id"] for row in records
+    } != excluded_ids:
+        raise ValueError("excluded artifact candidate ID sets differ")
+    for row in prompts:
+        if row != by_id[row["candidate_id"]].prompt:
+            raise ValueError("excluded prompt differs from the frozen population")
+    for row in axes:
+        if row != by_id[row["candidate_id"]].axis:
+            raise ValueError("excluded axis row differs from the frozen population")
+    for row in records:
+        if row.get("axis_bin") != by_id[row["candidate_id"]].axis_bin:
+            raise ValueError("excluded axis bin differs from the frozen population")
+    return excluded_ids
+
+
 def prepare_new_cohort(
     selection_root: Path,
     output: Path,
@@ -63,6 +91,7 @@ def prepare_new_cohort(
     expected_population_count: int = 26009,
     expected_excluded_count: int = 500,
     source_git_commit: str,
+    exclude_cohort_roots: Sequence[Path] = (),
 ) -> Path:
     """Validate original inputs, exclude previous text/IDs, and freeze one cohort."""
     if output.exists():
@@ -104,26 +133,52 @@ def prepare_new_cohort(
     # Compute bins from the frozen population percentiles, never rerank/rebin a subset.
     population = _normalize(prompts, axes, axis_bins)
     by_id = {row.candidate_id: row for row in population}
-    excluded_ids = {row["candidate_id"] for row in old_prompts}
-    if len(excluded_ids) != len(old_prompts) or not excluded_ids.issubset(by_id):
-        raise ValueError("excluded prompt IDs are duplicated or outside the population")
-    if len(old_axes) != len(excluded_ids) or len(old_records) != len(excluded_ids):
-        raise ValueError("excluded artifact lengths differ")
-    if {row["candidate_id"] for row in old_axes} != excluded_ids or {
-        row["candidate_id"] for row in old_records
-    } != excluded_ids:
-        raise ValueError("excluded artifact candidate ID sets differ")
-    for row in old_prompts:
-        if row != by_id[row["candidate_id"]].prompt:
-            raise ValueError("excluded prompt differs from the frozen population")
-    for row in old_axes:
-        if row != by_id[row["candidate_id"]].axis:
-            raise ValueError("excluded axis row differs from the frozen population")
-    for row in old_records:
-        if row.get("axis_bin") != by_id[row["candidate_id"]].axis_bin:
-            raise ValueError("excluded axis bin differs from the frozen population")
-
+    excluded_ids = _validate_excluded_rows(old_prompts, old_axes, old_records, by_id)
+    original_excluded_count = len(excluded_ids)
     excluded_text = {_question_key(row["question"]) for row in old_prompts}
+    additional_exclusions = []
+    for cohort_root in exclude_cohort_roots:
+        cohort_manifest_path = cohort_root / "selection-manifest.json"
+        cohort_bytes = cohort_manifest_path.read_bytes()
+        cohort = json.loads(cohort_bytes)
+        if cohort["format_version"] != "agentic-new-prompt-cohort-v1":
+            raise ValueError("extra exclusion must be an agentic-new-prompt-cohort-v1")
+        if cohort["diagnostics"]["axis_bins"] != axis_bins:
+            raise ValueError("extra exclusion axis-bin count differs")
+        if cohort["population_count"] != len(population):
+            raise ValueError("extra exclusion population count differs")
+        for key, source in (("prompts", prompt_source), ("axis_map", axis_source)):
+            previous_source = cohort["sources"][key]
+            if (
+                previous_source["sha256"] != source["sha256"]
+                or type(previous_source["rows"]) is not int
+                or previous_source["rows"] != source["rows"]
+            ):
+                raise ValueError(f"extra exclusion population source differs: {key}")
+        cohort_rows: dict[str, list[dict[str, Any]]] = {}
+        provenance: dict[str, Any] = {
+            "selection_manifest": {
+                "path": str(cohort_manifest_path.resolve()),
+                "sha256": hashlib.sha256(cohort_bytes).hexdigest(),
+            },
+        }
+        for key in ("prompts", "axis_map", "selection_records"):
+            cohort_rows[key], provenance[key] = _verified_rows(
+                cohort_root, cohort["artifacts"][key], f"extra excluded {key}"
+            )
+        cohort_ids = _validate_excluded_rows(
+            cohort_rows["prompts"], cohort_rows["axis_map"],
+            cohort_rows["selection_records"], by_id,
+        )
+        if cohort["prompt_count"] != len(cohort_ids):
+            raise ValueError("extra exclusion prompt count differs")
+        provenance["prompt_count"] = len(cohort_ids)
+        additional_exclusions.append(provenance)
+        excluded_ids.update(cohort_ids)
+        excluded_text.update(
+            _question_key(row["question"]) for row in cohort_rows["prompts"]
+        )
+
     seen_text: set[str] = set()
     eligible = []
     text_overlap_count = 0
@@ -216,6 +271,11 @@ def prepare_new_cohort(
                 "prompts": old_prompt_source,
                 "selection_records": old_record_source,
             },
+            **({
+                "original_excluded_prompt_count": original_excluded_count,
+                "additional_excluded_prompt_count": len(excluded_ids) - original_excluded_count,
+                "additional_exclusions": additional_exclusions,
+            } if additional_exclusions else {}),
             "axis_policy": "preserve-frozen-population-percentiles-and-bin-boundaries",
             "selection_design": "equal axis-bin quotas and near-equal keyword quotas over eligible prompts",
             "analysis_weight_population": "eligible prompts after exclusion and exact-text deduplication",
@@ -235,7 +295,14 @@ def main() -> int:
     parser.add_argument("--axis-bins", type=int, default=20)
     parser.add_argument("--master-seed", type=int, default=20260916)
     parser.add_argument("--expected-population-count", type=int, default=26009)
-    parser.add_argument("--expected-excluded-count", type=int, default=500)
+    parser.add_argument(
+        "--expected-excluded-count", type=int, default=500,
+        help="expected prompt count in the original selection, before extra exclusions",
+    )
+    parser.add_argument(
+        "--exclude-cohort-root", type=Path, action="append", default=[],
+        help="also exclude a verified prior new-prompt cohort; may be repeated",
+    )
     parser.add_argument("--source-git-commit", required=True)
     arguments = parser.parse_args()
     try:
@@ -248,6 +315,7 @@ def main() -> int:
             expected_population_count=arguments.expected_population_count,
             expected_excluded_count=arguments.expected_excluded_count,
             source_git_commit=arguments.source_git_commit,
+            exclude_cohort_roots=[root.resolve() for root in arguments.exclude_cohort_root],
         )
     except (OSError, ValueError, TypeError, KeyError) as error:
         raise SystemExit(str(error)) from error

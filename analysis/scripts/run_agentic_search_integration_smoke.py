@@ -8,6 +8,7 @@ import asyncio
 from collections import Counter
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
+import fcntl
 import hashlib
 import json
 import os
@@ -41,6 +42,11 @@ from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
 )
 from analysis.interpretability.pipeline.inference_budget import (  # noqa: E402
     AllocationBudget,
+)
+from analysis.interpretability.pipeline.inference_claims import (
+    ClaimIdentity,
+    InferenceClaimStore,
+    TaskClaim,
 )
 from analysis.scripts.run_acl_arr_vllm import VllmChatClient  # noqa: E402
 
@@ -456,6 +462,9 @@ class SmokeInputs:
     prompt_shard_index: int = 0
     prompt_shard_count: int = 1
     production_conditions: bool = False
+    shared_claim_root: Path | None = None
+    worker_index: int = 0
+    worker_count: int = 1
 
     def __post_init__(self) -> None:
         budgets = [
@@ -498,6 +507,12 @@ class SmokeInputs:
             raise ValueError("production conditions require frozen prompt inputs")
         if self.cell_ids_jsonl is not None and self.prompts_jsonl is None:
             raise ValueError("cell selection requires frozen prompt inputs")
+        if type(self.worker_count) is not int or self.worker_count < 1:
+            raise ValueError("worker_count must be a positive integer")
+        if type(self.worker_index) is not int or not 0 <= self.worker_index < self.worker_count:
+            raise ValueError("worker_index must be in [0, worker_count)")
+        if self.shared_claim_root is None and (self.worker_index or self.worker_count != 1):
+            raise ValueError("worker preferences require a shared claim root")
 
     @property
     def resolved_query_max_tokens(self) -> int:
@@ -968,6 +983,8 @@ def _prepare_config(
     path: Path,
     config: Mapping[str, Any],
     config_hash: str,
+    *,
+    shared_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     current = {**config, "config_sha256": config_hash}
     optimized_config = _optimized_resume_config(config)
@@ -1093,6 +1110,37 @@ def _prepare_config(
     stored = json.loads(path.read_text(encoding="utf-8"))
     if stored == current:
         return compatible_sources, None
+    if shared_mode:
+        # Scheduling-only commits/server relocations may resume the same local
+        # backlog. Scientific settings and frozen source hashes remain exact.
+        runtime_keys = {
+            "git_commit", "slurm_job_id", "base_url", "config_sha256",
+            "request_concurrency", "cell_concurrency",
+        }
+
+        def scientific_config(value):
+            result = {k: v for k, v in value.items() if k not in runtime_keys}
+            result["execution_policy"] = {
+                k: v for k, v in value["execution_policy"].items() if k != "maximum_active_cells"
+            }
+            return result
+
+        if (
+            scientific_config(stored) == scientific_config(current)
+            and stored.get("config_sha256") == hashlib.sha256(_canonical({
+                k: v for k, v in stored.items() if k != "config_sha256"
+            })).hexdigest()
+        ):
+            source = {
+                "config": {k: v for k, v in stored.items() if k != "config_sha256"},
+                "config_sha256": stored["config_sha256"],
+                "git_commit": stored.get("git_commit"),
+                "max_tokens": stored["execution_policy"]["max_tokens_by_purpose"]["parallel_final"],
+                "disable_thinking": stored["disable_thinking"],
+            }
+            compatible_sources.append(source)
+            _write_json_atomic(path, current)
+            return compatible_sources, source
     for source in compatible_sources:
         if stored == {
             **source["config"],
@@ -1185,6 +1233,109 @@ def _load_completed_cells(
     return completed, pending
 
 
+def _generator_claim_identity(
+    cell: SmokeCell, inputs: SmokeInputs, config: Mapping[str, Any],
+    legacy_prompt: str, target_urls: Mapping[tuple[str, str], str] | None,
+    *, method_source_sha256: str,
+) -> ClaimIdentity:
+    """Per-cell semantics, independent of cohort partition, paths and allocation."""
+    policy = {k: v for k, v in config["execution_policy"].items()
+              if k not in {"maximum_active_cells", "failed_cell_retry_passes"}}
+    request = {
+        "cell": cell.core,
+        "prompt": cell.prompt if cell.prompt is not None else legacy_prompt,
+        "seed": inputs.seed,
+        "disable_thinking": inputs.disable_thinking,
+        "execution_policy": policy,
+        "condition_mode": config["condition_mode"],
+        "retrieval_mode": config["retrieval_mode"],
+        "snapshot_sha256": config["search_snapshots"][cell.engine]["sha256"],
+        "cross_encoder_revision": inputs.cross_encoder_revision,
+        "target_url": None if target_urls is None else target_urls[(cell.prompt_id, cell.engine)],
+        "agentic_method_source_sha256": method_source_sha256,
+    }
+    return ClaimIdentity(
+        task_id=cell.cell_id, model_id=inputs.model_id,
+        model_revision=inputs.model_revision,
+        protocol="agentic-generator-shared-v1",
+        request_sha256=hashlib.sha256(_canonical(request)).hexdigest(),
+    )
+
+
+def _validate_shared_generator_bundle(
+    cell: SmokeCell, prompt: str, value: dict[str, Any], *, failed: bool = False,
+) -> None:
+    required = {"trace", "diagnostics", "producer"} | ({"error", "attempts"} if failed else {"result"})
+    if set(value) != required:
+        raise ValueError("shared generator bundle fields differ")
+    trace, diagnostic = value["trace"], value["diagnostics"]
+    if not isinstance(trace, dict) or not isinstance(diagnostic, dict):
+        raise ValueError("shared generator trace and diagnostics must be objects")  # noqa: TRY004
+    core = {k: v for k, v in trace.items() if k != "trace_sha256"}
+    digest = hashlib.sha256(_canonical(core)).hexdigest()
+    if trace.get("trace_sha256") != digest:
+        raise ValueError("shared generator trace hash mismatch")
+    if (
+        trace.get("method_id") != cell.method_class.method_id
+        or trace.get("condition") != cell.condition.value
+        or trace.get("search_engine") != cell.engine
+        or trace.get("user_prompt_sha256") != hashlib.sha256(prompt.encode()).hexdigest()
+    ):
+        raise ValueError("shared generator trace identity mismatch")
+    expected = {"cell_id": cell.cell_id, **cell.core}
+    if any(diagnostic.get(k) != v for k, v in expected.items()):
+        raise ValueError("shared generator diagnostics identity mismatch")
+    if diagnostic.get("status") != ("failed" if failed else "complete"):
+        raise ValueError("shared generator diagnostics status mismatch")
+    if not isinstance(value["producer"], dict) or not {
+        "git_commit", "slurm_job_id", "source_config_sha256",
+    } <= value["producer"].keys():
+        raise ValueError("shared generator producer provenance missing")
+    if failed:
+        if value["attempts"] != FAILED_CELL_RETRY_PASSES + 1 or not isinstance(value["error"], str):
+            raise ValueError("shared generator bounded failure metadata invalid")
+        return
+    result = value["result"]
+    if not isinstance(result, dict) or "trace" in result:
+        raise ValueError("shared generator result must be path-independent")
+    if any(result.get(k) != v for k, v in expected.items()) or result.get("trace_sha256") != digest:
+        raise ValueError("shared generator result identity mismatch")
+    if not isinstance(result.get("answer"), str) or not result["answer"].strip():
+        raise ValueError("shared generator answer missing")
+    ranking = result.get("ranking")
+    if not isinstance(ranking, list) or any(not isinstance(url, str) or not url for url in ranking):
+        raise ValueError("shared generator ranking malformed")
+    if len(set(ranking)) != len(ranking):
+        raise ValueError("shared generator ranking contains duplicates")
+
+
+def _materialize_shared_generator_bundle(
+    output: Path, cell: SmokeCell, bundle: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Shared commit is authoritative after a crash between these local writes."""
+    trace_path = output / "traces" / f"{cell.cell_id}.json"
+    result_path = output / "results" / f"{cell.cell_id}.json"
+    record = {**bundle["result"], "trace": str(trace_path.resolve())}
+    provenance_path = output / "provenance" / f"{cell.cell_id}.json"
+    if provenance_path.exists():
+        if json.loads(provenance_path.read_text()) != bundle["producer"]:
+            raise ValueError("local producer provenance conflicts with shared commit")
+    else:
+        _write_json_atomic(provenance_path, bundle["producer"])
+    if result_path.exists():
+        existing = _validate_completed_cell(cell, trace_path, result_path)
+        if existing != record:
+            raise ValueError("local completed result conflicts with shared commit")
+        return existing
+    for path, value in (
+        (trace_path, bundle["trace"]),
+        (output / "diagnostics" / f"{cell.cell_id}.json", bundle["diagnostics"]),
+        (result_path, record),
+    ):
+        _write_json_atomic(path, value)
+    return record
+
+
 def validate_manifest_artifacts(
     manifest_path: Path, expected_cells: int,
 ) -> dict[str, Any]:
@@ -1202,7 +1353,9 @@ def validate_manifest_artifacts(
     ):
         raise ValueError("generator manifest counts are inconsistent")
     if manifest.get("status") == "checkpointed":
-        if remaining_count == 0 or manifest.get("stop_reason") != "allocation_deadline":
+        if remaining_count == 0 or manifest.get("stop_reason") not in {
+            "allocation_deadline", "shared_tasks_busy",
+        }:
             raise ValueError("generator checkpoint does not record a deadline stop")
     elif manifest.get("status") != "complete" or remaining_count != 0:
         raise ValueError("generator queue did not complete or checkpoint at its deadline")
@@ -1232,6 +1385,28 @@ def validate_manifest_artifacts(
 
 
 async def run_smoke(
+    inputs: SmokeInputs,
+    *,
+    client_context: Any | None = None,
+    compactor: ContextCompactor | None = None,
+) -> dict[str, Any]:
+    if inputs.shared_claim_root is None:
+        return await _run_smoke(inputs, client_context=client_context, compactor=compactor)
+    # Cell locks protect shared inference; a separate permanent output lock
+    # protects this output's config, manifest and local materialized files.
+    inputs.output.mkdir(parents=True, exist_ok=True)
+    with (inputs.output / ".generator-output.lock").open("a") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("generator output already has an active writer") from error
+        try:
+            return await _run_smoke(inputs, client_context=client_context, compactor=compactor)
+        finally:
+            fcntl.flock(stream, fcntl.LOCK_UN)
+
+
+async def _run_smoke(
     inputs: SmokeInputs,
     *,
     client_context: Any | None = None,
@@ -1295,10 +1470,12 @@ async def run_smoke(
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
     inputs.output.mkdir(parents=True, exist_ok=True)
     config_path = inputs.output / "config.json"
+    prior_config = json.loads(config_path.read_text()) if config_path.is_file() else None
     compatible_sources, migrated_source = _prepare_config(
         config_path,
         config,
         config_hash,
+        shared_mode=inputs.shared_claim_root is not None,
     )
 
     completed, pending = _load_completed_cells(inputs.output, cells)
@@ -1350,8 +1527,81 @@ async def run_smoke(
             resume_migration["prior_resume_migration"] = existing_manifest[
                 "resume_migration"
             ]
+    claim_store = InferenceClaimStore(inputs.shared_claim_root) if inputs.shared_claim_root else None
+    shared_identities = {}
+    shared_failed: set[str] = set()
+    shared_busy: set[str] = set()
+    shared_stats = {
+        "root": str(inputs.shared_claim_root.resolve()) if inputs.shared_claim_root else None,
+        "worker_index": inputs.worker_index, "worker_count": inputs.worker_count,
+        "dispatch_policy": "stable-slot-preference-then-steal-v1",
+        "reused_count": 0, "exported_count": 0, "committed_count": 0,
+    }
+
+    def validate_bundle(cell: SmokeCell, value: dict[str, Any], *, failed: bool = False) -> None:
+        _validate_shared_generator_bundle(
+            cell, cell.prompt if cell.prompt is not None else legacy_prompt, value, failed=failed,
+        )
+
+    if claim_store is not None:
+        method_source_sha256 = _sha256_file(
+            REPOSITORY_ROOT / "analysis/interpretability/pipeline/agentic_search.py"
+        )
+        for cell in cells:
+            identity = _generator_claim_identity(
+                cell, inputs, config, legacy_prompt, target_urls,
+                method_source_sha256=method_source_sha256,
+            )
+            shared_identities[cell.cell_id] = identity
+            with claim_store.try_claim(
+                identity, validate=lambda value, cell=cell: validate_bundle(cell, value),
+                validate_failure=lambda value, cell=cell: validate_bundle(cell, value, failed=True),
+            ) as claim:
+                if cell.cell_id in completed:
+                    record = completed[cell.cell_id]
+                    diagnostic_path = inputs.output / "diagnostics" / f"{cell.cell_id}.json"
+                    source = prior_config or {**config, "config_sha256": config_hash}
+                    provenance_path = inputs.output / "provenance" / f"{cell.cell_id}.json"
+                    bundle = {
+                        "result": {k: v for k, v in record.items() if k != "trace"},
+                        "trace": json.loads(Path(record["trace"]).read_text()),
+                        "diagnostics": json.loads(diagnostic_path.read_text()),
+                        "producer": {
+                            # A legacy output can mix commits after a migration.
+                            # Preserve its source record, do not invent a per-cell
+                            # producer or stamp this importing allocation on it.
+                            "git_commit": None if resume_migration else source["git_commit"],
+                            "slurm_job_id": source.get("slurm_job_id"),
+                            "source_config_sha256": source["config_sha256"],
+                            "source_config_git_commit": source["git_commit"],
+                            "imported_legacy_artifact": True,
+                        },
+                    }
+                    if provenance_path.is_file():
+                        bundle["producer"] = json.loads(provenance_path.read_text())
+                    validate_bundle(cell, bundle)
+                    if claim.status == "owned":
+                        claim.commit(bundle)
+                        shared_stats["exported_count"] += 1
+                        _materialize_shared_generator_bundle(inputs.output, cell, bundle)
+                    elif claim.status == "completed":
+                        _materialize_shared_generator_bundle(inputs.output, cell, claim.outcome)
+                    elif claim.status == "failed":
+                        raise ValueError("local completed cell conflicts with terminal shared failure")
+                    else:
+                        raise RuntimeError("cannot export a completed cell while another worker owns it")
+                elif claim.status == "completed":
+                    completed[cell.cell_id] = _materialize_shared_generator_bundle(inputs.output, cell, claim.outcome)
+                    shared_stats["reused_count"] += 1
+                elif claim.status == "failed":
+                    shared_failed.add(cell.cell_id)
+        pending = [cell for cell in cells if cell.cell_id not in completed]
+        pending.sort(key=lambda cell: (
+            int(hashlib.sha256(cell.cell_id.encode()).hexdigest(), 16) % inputs.worker_count != inputs.worker_index,
+            cell.cell_id,
+        ))
     if not pending:
-        if existing_manifest is not None:
+        if existing_manifest is not None and claim_store is None:
             if (
                 existing_manifest.get("status") not in {"complete", "checkpointed"}
                 or existing_manifest.get("completed_count") != config["cell_count"]
@@ -1361,6 +1611,7 @@ async def run_smoke(
             if (
                 existing_manifest.get("config_sha256") == config_hash
                 and existing_manifest.get("status") == "complete"
+                and claim_store is None
             ):
                 return existing_manifest
         finished = {
@@ -1377,6 +1628,8 @@ async def run_smoke(
         }
         if resume_migration is not None:
             finished["resume_migration"] = resume_migration
+        if claim_store is not None:
+            finished["shared_backlog"] = shared_stats
         _write_json_atomic(manifest_path, finished)
         return finished
 
@@ -1386,6 +1639,7 @@ async def run_smoke(
         for cell_id in (existing_manifest or {}).get("failed_cell_ids", [])
         if cell_id in pending_by_id
     }
+    known_failed.update({cell_id: pending_by_id[cell_id] for cell_id in shared_failed})
     peak_active_cells = 0
     deadline_reached = False
 
@@ -1411,6 +1665,8 @@ async def run_smoke(
         }
         if resume_migration is not None:
             value["resume_migration"] = resume_migration
+        if claim_store is not None:
+            value["shared_backlog"] = {**shared_stats, "busy_cell_ids": sorted(shared_busy)}
         _write_json_atomic(manifest_path, value)
         return value
 
@@ -1453,7 +1709,9 @@ async def run_smoke(
             raise
         request_semaphore = asyncio.Semaphore(inputs.request_concurrency)
 
-        async def execute(cell: SmokeCell) -> tuple[str, dict[str, Any]]:
+        async def execute_once(
+            cell: SmokeCell, claim: TaskClaim | None = None,
+        ) -> tuple[str, dict[str, Any]]:
             cell_started = time.perf_counter()
             trace_path = inputs.output / "traces" / f"{cell.cell_id}.json"
             result_path = inputs.output / "results" / f"{cell.cell_id}.json"
@@ -1517,7 +1775,8 @@ async def run_smoke(
                 raise RuntimeError(
                     "Reactive-Snippet-Loop-v1 did not exercise retrieval"
                 )
-            trace_hash = write_trace_atomic(trace_path, result.trace)
+            trace_value = result.trace.to_dict()
+            trace_hash = trace_value["trace_sha256"]
             record = {
                 "cell_id": cell.cell_id,
                 **cell.core,
@@ -1541,15 +1800,73 @@ async def run_smoke(
                         for call in condition_hook.calls
                     ),
                 }
-            _write_json_atomic(diagnostics_path, {
+            diagnostic = {
                 "cell_id": cell.cell_id,
                 **cell.core,
                 "status": "complete",
                 "elapsed_seconds": time.perf_counter() - cell_started,
                 "llm_calls": generator.diagnostics,
-            })
+            }
+            if claim is not None:
+                claim.commit({
+                    "result": {k: v for k, v in record.items() if k != "trace"},
+                    "trace": trace_value, "diagnostics": diagnostic,
+                    "producer": {
+                        "git_commit": config["git_commit"],
+                        "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+                        "source_config_sha256": config_hash,
+                    },
+                })
+                shared_stats["committed_count"] += 1
+                return cell.cell_id, _materialize_shared_generator_bundle(inputs.output, cell, claim.outcome)
+            write_trace_atomic(trace_path, result.trace)
+            _write_json_atomic(diagnostics_path, diagnostic)
             _write_json_atomic(result_path, record)
             return cell.cell_id, record
+
+        class SharedFailure(RuntimeError):
+            pass
+
+        async def execute(cell: SmokeCell) -> tuple[str, dict[str, Any] | None]:
+            if claim_store is None:
+                return await execute_once(cell)
+            with claim_store.try_claim(
+                shared_identities[cell.cell_id],
+                validate=lambda value: validate_bundle(cell, value),
+                validate_failure=lambda value: validate_bundle(cell, value, failed=True),
+            ) as claim:
+                if claim.status == "busy":
+                    shared_busy.add(cell.cell_id)
+                    return cell.cell_id, None
+                shared_busy.discard(cell.cell_id)
+                if claim.status == "completed":
+                    record = _materialize_shared_generator_bundle(inputs.output, cell, claim.outcome)
+                    shared_stats["reused_count"] += 1
+                    return cell.cell_id, record
+                if claim.status == "failed":
+                    raise SharedFailure("cell has a durable bounded failure")
+                for attempt in range(FAILED_CELL_RETRY_PASSES + 1):
+                    if not allocation_budget.can_start():
+                        shared_busy.add(cell.cell_id)
+                        return cell.cell_id, None
+                    try:
+                        return await execute_once(cell, claim)
+                    except AgentExecutionError as error:
+                        if attempt == FAILED_CELL_RETRY_PASSES:
+                            claim.fail({
+                                "trace": error.trace.to_dict(),
+                                "diagnostics": json.loads((
+                                    inputs.output / "diagnostics" / f"{cell.cell_id}.json"
+                                ).read_text()),
+                                "error": str(error), "attempts": attempt + 1,
+                                "producer": {
+                                    "git_commit": config["git_commit"],
+                                    "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+                                    "source_config_sha256": config_hash,
+                                },
+                            })
+                            raise
+            raise AssertionError("shared generator attempt loop did not terminate")
 
         async def run_pass(
             cells_for_pass: Sequence[SmokeCell],
@@ -1558,7 +1875,7 @@ async def run_smoke(
         ) -> list[SmokeCell]:
             nonlocal peak_active_cells, deadline_reached
             next_cell_index = 0
-            active: dict[asyncio.Task[tuple[str, dict[str, Any]]], SmokeCell] = {}
+            active: dict[asyncio.Task[tuple[str, dict[str, Any] | None]], SmokeCell] = {}
             failed: list[SmokeCell] = []
 
             def fill() -> None:
@@ -1596,9 +1913,12 @@ async def run_smoke(
                         except AgentExecutionError:
                             failed.append(cell)
                             known_failed[cell.cell_id] = cell
+                        except SharedFailure:
+                            known_failed[cell.cell_id] = cell
                         else:
-                            completed[cell_id] = record
-                            known_failed.pop(cell_id, None)
+                            if record is not None:
+                                completed[cell_id] = record
+                                known_failed.pop(cell_id, None)
                         checkpoint(retry_passes_completed)
                     fill()
             except BaseException:
@@ -1612,7 +1932,7 @@ async def run_smoke(
 
         failed = await run_pass(pending, retry_passes_completed=0)
         retry_passes_completed = 0
-        for retry_pass in range(1, FAILED_CELL_RETRY_PASSES + 1):
+        for retry_pass in range(1, (FAILED_CELL_RETRY_PASSES + 1) if claim_store is None else 1):
             if not failed:
                 break
             if deadline_reached or not allocation_budget.can_start():
@@ -1623,18 +1943,28 @@ async def run_smoke(
                 failed,
                 retry_passes_completed=retry_pass,
             )
+        if claim_store is not None and shared_busy and allocation_budget.can_start():
+            # A peer may have finished or crashed while we consumed other cells.
+            # Revisit busy work once; if only owned work remains, leave a clear
+            # checkpoint instead of claiming completion or idling out the job.
+            await run_pass(
+                [cell for cell in pending if cell.cell_id in shared_busy],
+                retry_passes_completed=0,
+            )
     remaining_count = config["cell_count"] - len(completed)
-    stopped_at_deadline = deadline_reached and remaining_count > 0
+    stopped_at_deadline = (deadline_reached or not allocation_budget.can_start()) and remaining_count > 0
+    stopped_busy = bool(shared_busy) and remaining_count > 0 and not stopped_at_deadline
     manifest = {
         **config,
         "config_sha256": config_hash,
         "status": (
-            "checkpointed" if stopped_at_deadline
+            "checkpointed" if stopped_at_deadline or stopped_busy
             else "complete_with_failures" if known_failed
             else "complete"
         ),
         "stop_reason": (
             "allocation_deadline" if stopped_at_deadline
+            else "shared_tasks_busy" if stopped_busy
             else "bounded_failures" if known_failed
             else "queue_exhausted"
         ),
@@ -1648,6 +1978,8 @@ async def run_smoke(
     }
     if resume_migration is not None:
         manifest["resume_migration"] = resume_migration
+    if claim_store is not None:
+        manifest["shared_backlog"] = {**shared_stats, "busy_cell_ids": sorted(shared_busy)}
     _write_json_atomic(inputs.output / "run_manifest.json", manifest)
     if known_failed and not stopped_at_deadline:
         raise RuntimeError(
@@ -1689,6 +2021,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--prompts-jsonl", type=Path)
     parser.add_argument("--selection-records-jsonl", type=Path)
     parser.add_argument("--cell-ids-jsonl", type=Path)
+    parser.add_argument("--shared-claim-root", type=Path)
+    parser.add_argument("--worker-index", type=int, default=0)
+    parser.add_argument("--worker-count", type=int, default=1)
     parser.add_argument("--prompt-count", type=int, default=1)
     parser.add_argument("--prompt-selection-seed", type=int, default=20260912)
     parser.add_argument("--prompt-shard-index", type=int, default=0)
@@ -1737,6 +2072,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         prompt_shard_index=arguments.prompt_shard_index,
         prompt_shard_count=arguments.prompt_shard_count,
         production_conditions=arguments.production_conditions,
+        shared_claim_root=arguments.shared_claim_root,
+        worker_index=arguments.worker_index,
+        worker_count=arguments.worker_count,
     )
     manifest = asyncio.run(run_smoke(inputs))
     print("AGENTIC_INTEGRATION_SMOKE=" + json.dumps({

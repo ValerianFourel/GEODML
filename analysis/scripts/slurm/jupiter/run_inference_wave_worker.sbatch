@@ -8,7 +8,6 @@ set +u
 set -eo pipefail
 
 : "${ACL_ARR_VENV:?}"
-: "${SLURM_ARRAY_TASK_ID:?Submit this script as a Slurm array}"
 : "${GEODML_EXECUTION_REPOSITORY:?}"
 : "${GEODML_EXECUTION_COMMIT:?}"
 : "${GEODML_WAVE_ROOT:?}"
@@ -55,31 +54,74 @@ PY
 )"
 printf 'ALLOCATION_WORK_POLICY=%s\n' "$GEODML_ALLOCATION_BUDGET_JSON"
 
-geodml_worker_index="$SLURM_ARRAY_TASK_ID"
-geodml_worker_name="$(printf 'worker-%05d' "$geodml_worker_index")"
-geodml_worker_tasks="$GEODML_WAVE_ROOT/workers/$geodml_worker_name.jsonl"
-geodml_worker_output="$GEODML_WAVE_OUTPUT_ROOT/$geodml_worker_name"
-
-python3 - "$GEODML_WAVE_ROOT/run_manifest.json" "$geodml_worker_index" \
-  "$geodml_worker_tasks" <<'PY'
+geodml_dispatch_config="$(python3 - "$GEODML_WAVE_ROOT/run_manifest.json" <<'PY'
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
+env = os.environ
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-index = int(sys.argv[2])
-path = Path(sys.argv[3]).resolve()
-assert manifest["format_version"] == "geodml-inference-wave-v1"
-assert manifest["status"] == "planned"
-assert 0 <= index < manifest["worker_count"]
-worker = manifest["workers"][index]
-assert worker["worker_index"] == index
-assert Path(worker["path"]).resolve() == path
-assert hashlib.sha256(path.read_bytes()).hexdigest() == worker["sha256"]
-assert sum(1 for line in path.read_text().splitlines() if line.strip()) == worker["task_count"]
-print(f"INFERENCE_WAVE_PREFLIGHT=PASS worker={index} tasks={worker['task_count']}")
+if manifest["status"] != "planned":
+    raise ValueError("Inference wave must have planned status")
+if manifest["format_version"] == "geodml-inference-wave-v2":
+    if manifest["dispatch_mode"] != "backlog":
+        raise ValueError("Version 2 inference waves require backlog dispatch")
+    mode = "backlog"
+    claim_root = env.get("GEODML_INFERENCE_CLAIM_ROOT", "")
+    if not claim_root or not Path(claim_root).is_absolute():
+        raise ValueError("Backlog workers require one absolute shared GEODML_INFERENCE_CLAIM_ROOT")
+    explicit = ("GEODML_WORKER_INDEX" in env, "GEODML_WORKER_COUNT" in env)
+    if any(explicit) and not all(explicit):
+        raise ValueError("Set both worker index and count, or neither")
+    if all(explicit):
+        index, count = int(env["GEODML_WORKER_INDEX"]), int(env["GEODML_WORKER_COUNT"])
+    elif "SLURM_ARRAY_TASK_ID" in env:
+        count = int(env["SLURM_ARRAY_TASK_COUNT"])
+        if (env.get("SLURM_ARRAY_TASK_MIN") != "0" or env.get("SLURM_ARRAY_TASK_STEP") != "1"
+                or int(env["SLURM_ARRAY_TASK_MAX"]) != count - 1):
+            raise ValueError("Automatic slots require a contiguous zero-based Slurm array")
+        index = int(env["SLURM_ARRAY_TASK_ID"])
+    else:
+        index, count = 0, 1
+    if not 0 <= index < count:
+        raise ValueError("Invalid preferred worker slot")
+    artifact = manifest["backlog"]
+    path = (Path(sys.argv[1]).parent / "backlog.jsonl").resolve()
+    output = Path(env["GEODML_WAVE_OUTPUT_ROOT"]) / "attempts" / f"job{env['SLURM_JOB_ID']}-worker{index:05d}"
+else:
+    if manifest["format_version"] != "geodml-inference-wave-v1":
+        raise ValueError("Unsupported inference wave format")
+    mode = "partition"
+    index, count = int(env["SLURM_ARRAY_TASK_ID"]), manifest["worker_count"]
+    if not 0 <= index < count:
+        raise ValueError("Invalid partition worker slot")
+    artifact = manifest["workers"][index]
+    if artifact["worker_index"] != index:
+        raise ValueError("Partition worker identity mismatch")
+    path = (Path(sys.argv[1]).parent / "workers" / f"worker-{index:05d}.jsonl").resolve()
+    output = Path(env["GEODML_WAVE_OUTPUT_ROOT"]) / f"worker-{index:05d}"
+if Path(artifact["path"]).resolve() != path:
+    raise ValueError("Inference queue path mismatch")
+if hashlib.sha256(path.read_bytes()).hexdigest() != artifact["sha256"]:
+    raise ValueError("Inference queue hash mismatch")
+if sum(1 for line in path.read_text().splitlines() if line.strip()) != artifact["task_count"]:
+    raise ValueError("Inference queue task count mismatch")
+for value in (str(path), str(output)):
+    if any(character in value for character in "\t\r\n"):
+        raise ValueError("Worker paths cannot contain control whitespace")
+print(f"INFERENCE_WAVE_PREFLIGHT=PASS mode={mode} worker={index}/{count} tasks={artifact['task_count']}", file=sys.stderr)
+print("\t".join(map(str, (mode, index, count, path, output))))
 PY
+)"
+IFS=$'\t' read -r GEODML_DISPATCH_MODE GEODML_WORKER_INDEX GEODML_WORKER_COUNT \
+  geodml_worker_tasks geodml_worker_output <<< "$geodml_dispatch_config"
+if [[ "$GEODML_DISPATCH_MODE" = partition ]]; then
+  GEODML_WORKER_INDEX=0
+  GEODML_WORKER_COUNT=1
+fi
+export GEODML_DISPATCH_MODE GEODML_WORKER_INDEX GEODML_WORKER_COUNT
 
 mkdir -p "$geodml_worker_output"
 command -v flock >/dev/null
@@ -123,7 +165,7 @@ def log_path(key):
     replacements = {
         "%%": "%",
         "%A": env.get("SLURM_ARRAY_JOB_ID") or env["SLURM_JOB_ID"],
-        "%a": env["SLURM_ARRAY_TASK_ID"],
+        "%a": env.get("SLURM_ARRAY_TASK_ID", "0"),
         "%j": env["SLURM_JOB_ID"],
     }
     return re.sub(r"%%|%[Aaj]", lambda match: replacements[match.group()], value)
@@ -137,7 +179,11 @@ row = {
     "finished_at_utc": None if status == "running" else datetime.now(timezone.utc).isoformat(),
     "slurm_job_id": env["SLURM_JOB_ID"],
     "slurm_array_job_id": env.get("SLURM_ARRAY_JOB_ID"),
-    "slurm_array_task_id": env["SLURM_ARRAY_TASK_ID"],
+    "slurm_array_task_id": env.get("SLURM_ARRAY_TASK_ID"),
+    "dispatch_mode": env["GEODML_DISPATCH_MODE"],
+    "preferred_worker_index": int(env["GEODML_WORKER_INDEX"]),
+    "preferred_worker_count": int(env["GEODML_WORKER_COUNT"]),
+    "claim_root": env.get("GEODML_INFERENCE_CLAIM_ROOT") if env["GEODML_DISPATCH_MODE"] == "backlog" else None,
     "git_commit": env["GEODML_EXECUTION_COMMIT"],
     "repository": env["GEODML_EXECUTION_REPOSITORY"],
     "launcher": env["GEODML_WORKER_LAUNCHER"],

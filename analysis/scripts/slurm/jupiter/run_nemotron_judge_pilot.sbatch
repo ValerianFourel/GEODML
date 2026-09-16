@@ -22,9 +22,19 @@ set -u
 : "${GEODML_APPROVED_WALLTIME:?}"
 : "${GEODML_ALLOCATION_ESTIMATE:?}"
 export GEODML_JUDGE_EXECUTION_MODE="${GEODML_JUDGE_EXECUTION_MODE:-fixed}"
+export GEODML_JUDGE_PLAN_ROOT="${GEODML_JUDGE_PLAN_ROOT:-$GEODML_JUDGE_PILOT_ROOT/plan}"
+export GEODML_JUDGE_WORKER_INDEX="${GEODML_JUDGE_WORKER_INDEX:-0}"
+export GEODML_JUDGE_WORKER_COUNT="${GEODML_JUDGE_WORKER_COUNT:-1}"
+export GEODML_JUDGE_DISPATCH_MODE="${GEODML_JUDGE_DISPATCH_MODE:-partition}"
+geodml_claim_args=(--worker-index "$GEODML_JUDGE_WORKER_INDEX" --worker-count "$GEODML_JUDGE_WORKER_COUNT" --dispatch-mode "$GEODML_JUDGE_DISPATCH_MODE")
 case "$GEODML_JUDGE_EXECUTION_MODE" in
   fixed) test "$GEODML_APPROVED_WALLTIME" = 01:00:00 ;;
-  throughput) : "${SLURM_JOB_END_TIME:?Throughput mode requires the actual allocation end time}" ;;
+  throughput)
+    : "${SLURM_JOB_END_TIME:?Throughput mode requires the actual allocation end time}"
+    : "${GEODML_JUDGE_CLAIM_ROOT:?All related judge jobs must share one claim directory}"
+    [[ "$GEODML_JUDGE_CLAIM_ROOT" = /* ]] || { printf '%s\n' 'Claim root must be an absolute shared path.' >&2; exit 2; }
+    geodml_claim_args+=(--claim-root "$GEODML_JUDGE_CLAIM_ROOT")
+    ;;
   *) printf 'Unknown judge execution mode: %s\n' "$GEODML_JUDGE_EXECUTION_MODE" >&2; exit 2 ;;
 esac
 test "${SLURM_JOB_NUM_NODES:?}" = 1
@@ -35,8 +45,9 @@ test "$(git -C "$GEODML_EXECUTION_REPOSITORY" rev-parse HEAD)" = "$GEODML_EXECUT
 test -z "$(git -C "$GEODML_EXECUTION_REPOSITORY" status --porcelain --untracked-files=all)"
 cd "$GEODML_EXECUTION_REPOSITORY"
 
-test -s "$GEODML_JUDGE_PILOT_ROOT/plan/run_manifest.json"
-test -s "$GEODML_JUDGE_PILOT_ROOT/plan/bulk_tasks.jsonl"
+test -s "$GEODML_JUDGE_PLAN_ROOT/run_manifest.json"
+test -s "$GEODML_JUDGE_PLAN_ROOT/bulk_tasks.jsonl"
+mkdir -p "$GEODML_JUDGE_PILOT_ROOT"
 command -v flock >/dev/null
 exec 9>>"$GEODML_JUDGE_PILOT_ROOT/.pilot.lock"
 if ! flock -n 9; then
@@ -65,16 +76,21 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 
 import xgrammar
-from analysis.interpretability.pipeline.agentic_judging import agentic_judge_schema
+from analysis.interpretability.pipeline.agentic_judging import (
+    TRANSCRIPT_FORMAT_VERSION,
+    agentic_judge_schema,
+)
 from analysis.interpretability.pipeline.inference_budget import AllocationBudget
-from analysis.scripts.run_acl_arr_vllm import _agentic_judge_context
+from analysis.scripts.run_acl_arr_vllm import _agentic_judge_context, task_in_worker
 
 env = os.environ
 root = Path(env["GEODML_JUDGE_PILOT_ROOT"])
-manifest_path = root / "plan/run_manifest.json"
-queue = root / "plan/bulk_tasks.jsonl"
+plan_root = Path(env["GEODML_JUDGE_PLAN_ROOT"])
+manifest_path = plan_root / "run_manifest.json"
+queue = plan_root / "bulk_tasks.jsonl"
 manifest = json.loads(manifest_path.read_text())
 mode = env["GEODML_JUDGE_EXECUTION_MODE"]
 budget = AllocationBudget.from_environment(require=mode == "throughput")
@@ -101,6 +117,21 @@ if mode == "throughput":
         raise ValueError("Throughput queue coverage counts disagree")
 if manifest.get("scientific_result") is not False or manifest.get("pilot_only") is not True:
     raise ValueError("A judge pilot must not claim scientific results")
+source_task_count = len(tasks)
+worker_index = int(env["GEODML_JUDGE_WORKER_INDEX"])
+worker_count = int(env["GEODML_JUDGE_WORKER_COUNT"])
+dispatch_mode = env["GEODML_JUDGE_DISPATCH_MODE"]
+if dispatch_mode not in {"partition", "backlog"}:
+    raise ValueError("Unknown judge dispatch mode")
+if mode == "fixed" and (worker_index, worker_count) != (0, 1):
+    raise ValueError("Historical fixed pilot cannot be divided into worker slots")
+if mode == "fixed" and dispatch_mode != "partition":
+    raise ValueError("Historical fixed pilot must retain partition dispatch")
+task_in_worker("validate-slot", worker_index, worker_count)
+if dispatch_mode == "partition":
+    tasks = [task for task in tasks if task_in_worker(task.judge_task_id, worker_index, worker_count)]
+if not tasks:
+    raise ValueError("This worker slot has no tasks; model was not loaded")
 snapshot = Path(env["HF_HUB_CACHE"]) / (
     "models--nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/snapshots/" + revision
 )
@@ -116,6 +147,19 @@ for name in weights + ["config.json", "tokenizer.json", "tokenizer_config.json"]
         raise ValueError(f"Missing or invalid cached model file: {name}")
     if (snapshot / name).stat().st_size <= 0:
         raise ValueError(f"Empty cached model file: {name}")
+context_budget = None
+if manifest["format_version"] == TRANSCRIPT_FORMAT_VERSION:
+    from transformers import AutoTokenizer
+    from analysis.scripts.check_agentic_judge_context import check_agentic_judge_context_budget
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        str(snapshot), local_files_only=True, trust_remote_code=True,
+    )
+    context_budget = check_agentic_judge_context_budget(
+        tasks, tokenizer=tokenizer, max_model_len=16384,
+        max_output_tokens=2048, disable_thinking=True,
+    )
+    context_budget = {key: value for key, value in context_budget.items() if key != "tasks"}
 for task in tasks:
     schema = agentic_judge_schema([item.evidence_id for item in task.evidence])
     xgrammar.Grammar.from_json_schema(json.dumps(schema))
@@ -136,6 +180,18 @@ if len(parts) != 3 or int(days) < 0 or parts[0] < 0 or not all(0 <= part < 60 fo
 approved_seconds = int(days) * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2]
 if approved_seconds <= 0:
     raise ValueError("Approved walltime must be positive")
+
+
+def log_path(key, suffix):
+    value = env.get(key, str(root / "logs" / f"slurm-{env['SLURM_JOB_ID']}.{suffix}"))
+    replacements = {
+        "%%": "%", "%j": env["SLURM_JOB_ID"],
+        "%A": env.get("SLURM_ARRAY_JOB_ID", env["SLURM_JOB_ID"]),
+        "%a": env.get("SLURM_ARRAY_TASK_ID", "0"),
+    }
+    return re.sub(r"%%|%[Aaj]", lambda match: replacements[match.group()], value)
+
+
 record = {
     "status": "starting",
     "scientific_result": False,
@@ -152,6 +208,12 @@ record = {
     "model_revision": revision,
     "model_snapshot": str(snapshot),
     "task_count": len(tasks),
+    "source_task_count": source_task_count,
+    "worker_index": worker_index,
+    "worker_count": worker_count,
+    "dispatch_mode": dispatch_mode,
+    "context_budget": context_budget,
+    "claim_root": str(Path(env["GEODML_JUDGE_CLAIM_ROOT"]).resolve()) if mode == "throughput" else None,
     "available_task_count": manifest.get("summary", {}).get("available_task_count", len(tasks)),
     "excluded_task_count": manifest.get("summary", {}).get("excluded_task_count", 0),
     "tasks_sha256": hashlib.sha256(queue.read_bytes()).hexdigest(),
@@ -160,8 +222,8 @@ record = {
     "platform": platform.machine(),
     "versions": versions,
     "output": str(root / "nemotron"),
-    "stdout": str(root / "logs" / f"slurm-{env['SLURM_JOB_ID']}.out"),
-    "stderr": str(root / "logs" / f"slurm-{env['SLURM_JOB_ID']}.err"),
+    "stdout": log_path("GEODML_JUDGE_STDOUT", "out"),
+    "stderr": log_path("GEODML_JUDGE_STDERR", "err"),
     "server_log": str(root / "logs/server.log"),
     "gpu_telemetry": str(root / "logs/gpu.csv"),
     "resources": {
@@ -233,6 +295,8 @@ record.update(
     runtime_status=runtime.get("status"),
     completed_count=runtime.get("completed_count"),
     remaining_count=runtime.get("remaining_count"),
+    stop_reason=runtime.get("stop_reason"),
+    shared_claims=runtime.get("shared_claims"),
     finished_at_utc=datetime.now(timezone.utc).isoformat(),
 )
 temporary = path.with_suffix(".tmp")
@@ -276,14 +340,15 @@ python3 analysis/scripts/search_vllm_stage.py run \
   --startup-timeout-seconds 900 \
   -- \
   python3 analysis/scripts/run_acl_arr_vllm.py agentic-judge \
-    --tasks "$GEODML_JUDGE_PILOT_ROOT/plan/bulk_tasks.jsonl" \
-    --judge-manifest "$GEODML_JUDGE_PILOT_ROOT/plan/run_manifest.json" \
+    --tasks "$GEODML_JUDGE_PLAN_ROOT/bulk_tasks.jsonl" \
+    --judge-manifest "$GEODML_JUDGE_PLAN_ROOT/run_manifest.json" \
     --judge-role bulk --output-dir "$GEODML_JUDGE_PILOT_ROOT/nemotron" \
     --base-url http://127.0.0.1:8010/v1 \
     --server-model-name "$GEODML_PILOT_MODEL_ID" \
     --server-model-revision "$GEODML_PILOT_MODEL_REVISION" \
     --max-concurrency 4 --max-output-tokens 2048 --max-attempts 3 \
-    --request-timeout 120 --scheduler rolling --pilot-only --resume --disable-thinking &
+    --request-timeout 120 --scheduler rolling --pilot-only --resume --disable-thinking \
+    "${geodml_claim_args[@]}" &
 geodml_stage_pid=$!
 if wait "$geodml_stage_pid"; then
   geodml_stage_status=0

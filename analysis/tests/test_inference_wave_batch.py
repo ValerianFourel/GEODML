@@ -266,3 +266,117 @@ def test_wave_does_not_label_checkpointed_result_complete(tmp_path):
     terminal = json.loads((output / "allocation_attempts.jsonl").read_text().splitlines()[-1])
     assert terminal["status"] == "checkpointed"
     assert terminal["stop_reason"] == "allocation_deadline"
+
+
+def _backlog_environment(tmp_path):
+    env = _environment(tmp_path)
+    wave = Path(env["GEODML_WAVE_ROOT"])
+    backlog = wave / "backlog.jsonl"
+    backlog.write_text('{"cell_id":"first"}\n{"cell_id":"second"}\n')
+    manifest = json.loads((wave / "run_manifest.json").read_text())
+    manifest.update(format_version="geodml-inference-wave-v2", dispatch_mode="backlog", backlog={
+        "path": str(backlog), "task_count": 2,
+        "sha256": hashlib.sha256(backlog.read_bytes()).hexdigest(),
+    })
+    (wave / "run_manifest.json").write_text(json.dumps(manifest))
+    env.update(GEODML_INFERENCE_CLAIM_ROOT=str(tmp_path / "claims"),
+               GEODML_WORKER_INDEX="3", GEODML_WORKER_COUNT="4")
+    launcher = Path(env["GEODML_WORKER_LAUNCHER"])
+    launcher.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$GEODML_DISPATCH_MODE|$GEODML_WORKER_INDEX|$GEODML_WORKER_COUNT|$GEODML_WORKER_TASKS|$GEODML_INFERENCE_CLAIM_ROOT\" >> \"$TEST_CAPTURE\"\n"
+    )
+    return env
+
+
+def test_backlog_uses_whole_queue_and_independent_attempts_for_later_jobs(tmp_path):
+    env = _backlog_environment(tmp_path)
+    assert _run(env).returncode == 0
+    env["SLURM_JOB_ID"] = "987655"
+    assert _run(env).returncode == 0
+    captures = (tmp_path / "capture").read_text().splitlines()
+    assert len(captures) == 2
+    assert all(line == f"backlog|3|4|{tmp_path}/wave/backlog.jsonl|{tmp_path}/claims" for line in captures)
+    records = sorted((tmp_path / "output/attempts").glob("job*-worker00003/allocation_attempts.jsonl"))
+    assert len(records) == 2
+    for path in records:
+        row = json.loads(path.read_text().splitlines()[0])
+        assert row["dispatch_mode"] == "backlog"
+        assert row["claim_root"] == str(tmp_path / "claims")
+
+
+@pytest.mark.parametrize("problem", ["missing_claim_root", "relative_claim_root", "corrupt_backlog", "invalid_slot"])
+def test_backlog_refuses_invalid_input_before_launcher(tmp_path, problem):
+    env = _backlog_environment(tmp_path)
+    if problem == "missing_claim_root":
+        env.pop("GEODML_INFERENCE_CLAIM_ROOT")
+    elif problem == "relative_claim_root":
+        env["GEODML_INFERENCE_CLAIM_ROOT"] = "relative"
+    elif problem == "invalid_slot":
+        env["GEODML_WORKER_INDEX"] = "4"
+    else:
+        (tmp_path / "wave/backlog.jsonl").write_text('{}\n')
+    result = _run(env)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+
+
+@pytest.mark.parametrize("array", [False, True])
+def test_backlog_infers_single_job_or_current_array_slots(tmp_path, array):
+    env = _backlog_environment(tmp_path)
+    env.pop("GEODML_WORKER_INDEX")
+    env.pop("GEODML_WORKER_COUNT")
+    if array:
+        env.update(SLURM_ARRAY_TASK_ID="2", SLURM_ARRAY_TASK_COUNT="3",
+                   SLURM_ARRAY_TASK_MIN="0", SLURM_ARRAY_TASK_MAX="2", SLURM_ARRAY_TASK_STEP="1")
+        expected_slot = "2|3"
+    else:
+        env.pop("SLURM_ARRAY_TASK_ID")
+        expected_slot = "0|1"
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "capture").read_text().startswith(f"backlog|{expected_slot}|")
+
+
+def test_backlog_rejects_sparse_automatic_array(tmp_path):
+    env = _backlog_environment(tmp_path)
+    env.pop("GEODML_WORKER_INDEX")
+    env.pop("GEODML_WORKER_COUNT")
+    env.update(SLURM_ARRAY_TASK_ID="2", SLURM_ARRAY_TASK_COUNT="3",
+               SLURM_ARRAY_TASK_MIN="0", SLURM_ARRAY_TASK_MAX="4", SLURM_ARRAY_TASK_STEP="2")
+    result = _run(env)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+
+
+def test_backlog_integrity_remains_enforced_with_python_optimization(tmp_path):
+    env = _backlog_environment(tmp_path)
+    env["PYTHONOPTIMIZE"] = "1"
+    (tmp_path / "wave/backlog.jsonl").write_text('{"cell_id":"unapproved"}\n')
+    result = _run(env)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+
+
+@pytest.mark.parametrize("slug", ["qwen38", "llama4"])
+def test_generator_bridge_passes_shared_backlog_to_pinned_model_launcher(tmp_path, slug):
+    root = tmp_path / "repository"
+    launcher = root / f"analysis/scripts/slurm/jupiter/run_agentic_search_{slug}_smoke.sh"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$SEARCH_AGENTIC_SHARED_CLAIM_ROOT|$SEARCH_AGENTIC_WORKER_INDEX|$SEARCH_AGENTIC_WORKER_COUNT|$SEARCH_AGENTIC_CELL_IDS_JSONL\"\n"
+    )
+    tasks = tmp_path / "tasks.jsonl"
+    tasks.write_text('{"cell_id":"first"}\n')
+    env = {**os.environ,
+           "GEODML_WORKER_TASKS": str(tasks), "GEODML_WORKER_OUTPUT": str(tmp_path / "output"),
+           "GEODML_MODEL_SLUG": slug, "GEODML_DISPATCH_MODE": "backlog",
+           "GEODML_INFERENCE_CLAIM_ROOT": str(tmp_path / "claims"),
+           "GEODML_WORKER_INDEX": "1", "GEODML_WORKER_COUNT": "2", "SLURM_JOB_ID": "123"}
+    run = subprocess.run(
+        ["bash", str(REPOSITORY / "analysis/scripts/slurm/jupiter/run_agentic_generation_worker.sh")],
+        cwd=root, env=env, text=True, capture_output=True, check=False, timeout=5,
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == f"{tmp_path}/claims|1|2|{tasks}"

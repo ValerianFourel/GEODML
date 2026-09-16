@@ -24,6 +24,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from analysis.interpretability.pipeline.agentic_judging import (
     FORMAT_VERSION,
+    TRANSCRIPT_FORMAT_VERSION,
     AgenticJudgeModel,
     _atomic_json,
     _atomic_jsonl,
@@ -31,6 +32,7 @@ from analysis.interpretability.pipeline.agentic_judging import (
     _file_identity,
     _load_prompts,
     _task_and_mapping,
+    judge_blinding,
 )
 from analysis.scripts.prepare_agentic_judge_tasks import _merged_prompts
 from analysis.scripts.run_acl_arr_vllm import (
@@ -86,6 +88,8 @@ def _excluded_judgments(paths, tasks, *, master_seed):
             "attempts": _file_identity(path.parent / "attempts.jsonl"),
         }
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        if {task.format_version for task in tasks} != {plan.get("format_version")}:
+            raise ValueError("excluded judgment format differs from the current judging mode")
         if plan.get("master_seed") != master_seed:
             raise ValueError("excluded judgment master seed mismatch")
         if (
@@ -128,6 +132,7 @@ def prepare_pilot(
     master_seed: int = 20260915,
     all_available: bool = False,
     exclude_outcomes: tuple[Path, ...] = (),
+    recorded_conversation: bool = False,
 ) -> Path:
     """Freeze extreme-bin prompts or all prompts, excluding verified prior work."""
     if type(prompt_count) is not int or prompt_count not in (1, 2):
@@ -221,6 +226,7 @@ def prepare_pilot(
                 prompt=prompts[prompt_id],
                 generator_model_id=GENERATOR_MODEL_ID,
                 master_seed=master_seed,
+                recorded_conversation=recorded_conversation,
             )
             tasks.append(task)
             mappings.append(mapping)
@@ -271,11 +277,12 @@ def prepare_pilot(
         ),
         "execution_mode": "throughput" if all_available else "fixed",
     }
+    format_version = TRANSCRIPT_FORMAT_VERSION if recorded_conversation else FORMAT_VERSION
     plan_id = (
         "agentic-judge-pilot-"
         + _digest(
             {
-                "format_version": FORMAT_VERSION,
+                "format_version": format_version,
                 "master_seed": master_seed,
                 "model": model,
                 "task_ids": [task.judge_task_id for task in tasks],
@@ -298,7 +305,7 @@ def prepare_pilot(
     _atomic_json(
         destination,
         {
-            "format_version": FORMAT_VERSION,
+            "format_version": format_version,
             "judge_plan_id": plan_id,
             "status": "planned",
             "scientific_result": False,
@@ -306,7 +313,7 @@ def prepare_pilot(
             "git_commit": git_commit,
             "master_seed": master_seed,
             "bulk_model": model,
-            "blinding": "generator-treatment-and-ranking-hidden-v1",
+            "blinding": judge_blinding(format_version),
             "pilot": pilot,
             "sources": sources,
             "summary": {
@@ -342,6 +349,10 @@ def main() -> int:
                         help="Freeze all complete prompt groups as a throughput pilot")
     parser.add_argument("--exclude-outcomes", type=Path, action="append", default=[],
                         help="Verify and exclude a prior Nemotron outcomes journal; repeatable")
+    parser.add_argument(
+        "--recorded-conversation", action="store_true",
+        help="Use separate v2 judgments with full recorded turns and visible generator rankings",
+    )
     args = parser.parse_args()
     try:
         manifest_path = prepare_pilot(**vars(args))

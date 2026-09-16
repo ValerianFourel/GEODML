@@ -31,10 +31,10 @@ module load git
 hash -r
 command -v git >/dev/null
 command -v setsid >/dev/null
-command -v curl >/dev/null
 
 REPOSITORY_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPOSITORY_ROOT"
+source "$REPOSITORY_ROOT/analysis/scripts/slurm/jupiter/inference_endpoint_security.sh"
 test "$(git rev-parse HEAD)" = "$GEODML_RECOVERY_COMMIT"
 git diff --quiet HEAD --
 test -x "$ACL_ARR_VENV/bin/python"
@@ -165,6 +165,8 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 echo "START_RECOVERY_SERVER model=$MODEL_ID revision=$MODEL_REVISION context=40960"
+geodml_init_inference_endpoint
+geodml_private_server_log "$SERVER_LOG"
 # With job control disabled, the child is not a process-group leader, so setsid
 # execs vLLM without forking and its PID is also the private process-group ID.
 set +m
@@ -175,18 +177,24 @@ server_deadline=$((SECONDS + 900))
 while (( SECONDS < server_deadline )); do
     if ! kill -0 "$server_pid" 2>/dev/null; then
         echo "ERROR: recovery vLLM exited while loading" >&2
-        tail -n 120 "$SERVER_LOG" >&2
+        geodml_safe_server_tail "$SERVER_LOG" >&2
         exit 1
     fi
-    if curl --max-time 2 -fsS "$SERVER_URL/models" >/dev/null 2>&1; then
+    if geodml_probe_inference_endpoint "$SERVER_URL" "$MODEL_ID"; then
         server_ready=1
         break
+    else
+        readiness_status=$?
+        if [[ "$readiness_status" != "1" ]]; then
+            echo "ERROR: inference endpoint security gate failed" >&2
+            exit 2
+        fi
     fi
     sleep 5
 done
 if [[ "$server_ready" != "1" ]]; then
     echo "ERROR: recovery vLLM was not ready within 15 minutes" >&2
-    tail -n 120 "$SERVER_LOG" >&2
+    geodml_safe_server_tail "$SERVER_LOG" >&2
     exit 1
 fi
 echo "RECOVERY_SERVER_READY model=$MODEL_ID"

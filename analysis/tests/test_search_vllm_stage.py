@@ -356,27 +356,19 @@ class SearchVllmStageTests(unittest.TestCase):
             def poll(self):
                 return None
 
-        class Response:
-            def __init__(self, model_id):
-                self.model_id = model_id
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return None
-
-            def read(self):
-                return json.dumps({"data": [{"id": self.model_id}]}).encode()
-
-        with mock.patch.object(stage, "urlopen", return_value=Response(record["model"]["model_id"])):
-            stage.wait_until_ready(
+        receipt = {"status": "verified"}
+        with mock.patch.object(stage, "probe_endpoint", return_value=receipt) as probe:
+            actual = stage.wait_until_ready(
                 Process(),
                 base_url=record["serving"]["public_base_url"],
                 model_id=record["model"]["model_id"],
+                api_key="synthetic-key",
                 timeout_seconds=1,
             )
-        with mock.patch.object(stage, "urlopen", return_value=Response("other/model")), \
+            self.assertEqual(actual, receipt)
+            probe.assert_called_once_with(record["serving"]["public_base_url"],
+                                          record["model"]["model_id"], "synthetic-key", timeout_seconds=2)
+        with mock.patch.object(stage, "probe_endpoint", side_effect=RuntimeError("unexpected model")), \
                 mock.patch.object(stage.time, "monotonic", side_effect=[0.0, 0.0, 2.0, 2.0]), \
                 mock.patch.object(stage.time, "sleep"):
             with self.assertRaisesRegex(RuntimeError, "expected"):
@@ -384,6 +376,7 @@ class SearchVllmStageTests(unittest.TestCase):
                     Process(),
                     base_url=record["serving"]["public_base_url"],
                     model_id=record["model"]["model_id"],
+                    api_key="synthetic-key",
                     timeout_seconds=1,
                 )
 

@@ -47,12 +47,17 @@ from analysis.interpretability.pipeline.acl_arr_document_experiment import (  # 
 )
 from analysis.interpretability.pipeline.agentic_judging import (  # noqa: E402
     AgenticJudgeTask,
-    FORMAT_VERSION as AGENTIC_JUDGE_FORMAT_VERSION,
+    SUPPORTED_FORMAT_VERSIONS as AGENTIC_JUDGE_FORMAT_VERSIONS,
     agentic_judge_schema,
     render_agentic_judge_prompt,
     validate_agentic_judgment,
 )
 from analysis.interpretability.pipeline.inference_budget import AllocationBudget
+from analysis.interpretability.pipeline.inference_claims import (
+    ClaimIdentity,
+    InferenceClaimStore,
+)
+from analysis.scripts.inference_endpoint_security import validate_endpoint
 
 
 def _now() -> str:
@@ -187,7 +192,7 @@ def _agentic_judge_context(
     manifest_path: Path, tasks_path: Path, *, judge_role: str
 ):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("format_version") != AGENTIC_JUDGE_FORMAT_VERSION:
+    if manifest.get("format_version") not in AGENTIC_JUDGE_FORMAT_VERSIONS:
         raise ValueError("unsupported agentic judge plan format")
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -204,14 +209,16 @@ def _agentic_judge_context(
             f"agentic judge manifest lacks {judge_role} model identity"
         )
     tasks = [AgenticJudgeTask.from_dict(row) for row in _read_jsonl(tasks_path)]
-    if any(task.format_version != AGENTIC_JUDGE_FORMAT_VERSION for task in tasks):
-        raise ValueError("agentic judge task has an unsupported format")
+    if any(task.format_version != manifest["format_version"] for task in tasks):
+        raise ValueError("agentic judge task format does not match the plan")
     canonical = {
         task.judge_task_id: task
         for task in (
             AgenticJudgeTask.from_dict(row) for row in _read_jsonl(canonical_path)
         )
     }
+    if any(task.format_version != manifest["format_version"] for task in canonical.values()):
+        raise ValueError("canonical agentic judge task format does not match the plan")
     for task in tasks:
         if canonical.get(task.judge_task_id) != task:
             raise ValueError("agentic judge task is absent from the canonical queue")
@@ -299,7 +306,13 @@ class VllmChatClient:
         chat_template_kwargs: Mapping[str, Any] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
+        environment_key = os.environ.get("VLLM_API_KEY")
+        self.api_key = environment_key if api_key is None else api_key
+        self._managed_auth = os.environ.get("GEODML_INFERENCE_AUTH_REQUIRED") == "1"
+        if self._managed_auth:
+            validate_endpoint(self.base_url)
+            if not environment_key or self.api_key != environment_key:
+                raise ValueError("managed inference requires its server credential")
         self.server_model_name = server_model_name
         self.timeout_seconds = timeout_seconds
         self.maximum_attempts = maximum_attempts
@@ -327,11 +340,13 @@ class VllmChatClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
-        self.session = aiohttp.ClientSession(headers=headers, timeout=timeout)
+        self.session = aiohttp.ClientSession(headers=headers, timeout=timeout, trust_env=False)
         try:
             await self.verify_server_identity()
-        except BaseException:
+        except BaseException as exc:
             await self.session.close()
+            if isinstance(exc, Exception) and self.api_key and self.api_key in str(exc):
+                raise RuntimeError(str(exc).replace(self.api_key, "[REDACTED]")) from None
             raise
         return self
 
@@ -341,11 +356,16 @@ class VllmChatClient:
 
     async def verify_server_identity(self) -> None:
         assert self.session is not None
-        async with self.session.get(f"{self.base_url}/models") as response:
+        request_options = {"allow_redirects": False} if self._managed_auth else {}
+        async with self.session.get(f"{self.base_url}/models", **request_options) as response:
             body = await response.text()
+            if self.api_key and self.api_key in body:
+                raise RuntimeError("vLLM identity response exposed its credential")
             if response.status != 200:
-                raise RuntimeError(f"vLLM model identity request failed: {response.status} {body}")
+                raise RuntimeError(f"vLLM model identity request failed: HTTP {response.status}")
             payload = json.loads(body)
+            if self.api_key and self.api_key in json.dumps(payload, ensure_ascii=False):
+                raise RuntimeError("vLLM identity response exposed its credential")
         served = {
             str(item.get("id"))
             for item in payload.get("data", [])
@@ -403,13 +423,21 @@ class VllmChatClient:
             body = None
             try:
                 async with self.session.post(
-                    f"{self.base_url}/chat/completions", json=payload
+                    f"{self.base_url}/chat/completions", json=payload,
+                    **({"allow_redirects": False} if self._managed_auth else {}),
                 ) as response:
                     body = await response.text()
                     status_code = response.status
                     if response.status != 200:
-                        raise RuntimeError(f"HTTP {response.status}: {body[:1000]}")
+                        body = None
+                        raise RuntimeError(f"HTTP {response.status}: response body omitted")
+                    if self.api_key and self.api_key in body:
+                        body = body.replace(self.api_key, "[REDACTED]")
+                        raise RuntimeError("vLLM response exposed its credential")
                     value = json.loads(body)
+                    if self.api_key and self.api_key in json.dumps(value, ensure_ascii=False):
+                        body = "[REDACTED CREDENTIAL RESPONSE]"
+                        raise RuntimeError("vLLM response exposed its credential")
                 content = value["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
                     raise RuntimeError("vLLM response content is not text")
@@ -418,6 +446,9 @@ class VllmChatClient:
             except Exception as exc:
                 last_error = exc
                 error = f"{type(exc).__name__}: {exc}"
+                if self.api_key and self.api_key in error:
+                    error = error.replace(self.api_key, "[REDACTED]")
+                    last_error = RuntimeError(error)
             except BaseException as exc:
                 self._audit({**event, "event": "end", "finished_at": _now(),
                              "duration_seconds": time.monotonic() - started,
@@ -521,11 +552,14 @@ async def _execute_one(item, *, client, fake):
     return result
 
 
-async def _iter_execute(prepared, *, client, maximum_concurrency, fake, budget=None):
+async def _iter_execute(
+    prepared, *, client, maximum_concurrency, fake, budget=None, execute_one=None,
+):
     """Yield completed requests, drain to the work deadline, then cancel stragglers."""
     if maximum_concurrency <= 0:
         raise ValueError("maximum_concurrency must be positive")
     source = iter(prepared)
+    execute_one = execute_one or _execute_one
     active = set()
     try:
         while True:
@@ -533,7 +567,7 @@ async def _iter_execute(prepared, *, client, maximum_concurrency, fake, budget=N
                 item = next(source, None)
                 if item is None:
                     break
-                active.add(asyncio.create_task(_execute_one(item, client=client, fake=fake)))
+                active.add(asyncio.create_task(execute_one(item, client=client, fake=fake)))
             if not active:
                 break
             remaining = None if budget is None else budget.work_seconds_left()
@@ -809,10 +843,126 @@ async def _run(args) -> int:
         return await _run_locked(args, ownership)
 
 
+def task_in_worker(task_id: str, worker_index: int, worker_count: int) -> bool:
+    """Assign stable task IDs independently of queue order or completed gaps."""
+    if (
+        type(worker_count) is not int or worker_count <= 0
+        or type(worker_index) is not int or not 0 <= worker_index < worker_count
+    ):
+        raise ValueError("worker count must be positive and worker index in [0, count)")
+    if not isinstance(task_id, str) or not task_id:
+        raise ValueError("worker assignment requires a non-empty task ID")
+    return int(hashlib.sha256(task_id.encode("utf-8")).hexdigest(), 16) % worker_count == worker_index
+
+
+def _shared_claim_identity(item, *, args, model_id, model_revision):
+    # This contract excludes queue hashes, local journals and worker layout.
+    # Altering any actual inference setting must select a different claim.
+    contract = {
+        "judge_role": args.judge_role,
+        "disable_thinking": args.disable_thinking,
+        "fake_backend": args.fake,
+        "pilot_only": args.pilot_only,
+        "maximum_attempts": args.max_attempts,
+        "request_timeout": args.request_timeout,
+        "maximum_validation_attempts": item.get("maximum_validation_attempts", 1),
+        "validation_feedback_contract": item.get("validation_feedback_contract"),
+    }
+    digest = hashlib.sha256(json.dumps(
+        contract, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode()).hexdigest()
+    return ClaimIdentity(
+        task_id=item["base"]["judge_task_id"], model_id=model_id,
+        model_revision=model_revision, protocol=f"agentic-judge-shared-v1:{digest}",
+        request_sha256=_request_sha256(item),
+    )
+
+
+def _validate_shared_record(result, *, item, fake, pilot_only, ok):
+    if (
+        not isinstance(result, dict) or result.get("ok") is not ok
+        or result.get("base") != item["base"]
+        or result.get("request_sha256") != _request_sha256(item)
+        or result.get("fake_backend") is not fake
+        or result.get("pilot_only") is not pilot_only
+    ):
+        raise ValueError("shared outcome task, request or execution identity mismatch")
+    duration = result.get("duration_seconds")
+    if (
+        not isinstance(result.get("usage"), dict)
+        or not isinstance(duration, (int, float)) or isinstance(duration, bool)
+        or not math.isfinite(duration) or duration < 0
+        or not isinstance(result.get("started_at"), str)
+        or not isinstance(result.get("finished_at"), str)
+    ):
+        raise ValueError("shared outcome lacks valid execution accounting")
+    producer = result.get("producer")
+    if (
+        not isinstance(producer, dict)
+        or any(not isinstance(producer.get(key), str) or not producer[key]
+               for key in ("run_id", "invocation_id", "execution_git_commit"))
+        or not isinstance(producer.get("slurm"), dict)
+        or set(producer["slurm"]) != {"SLURM_JOB_ID", "SLURM_ARRAY_JOB_ID", "SLURM_ARRAY_TASK_ID"}
+        or any(value is not None and not isinstance(value, str) for value in producer["slurm"].values())
+    ):
+        raise ValueError("shared outcome lacks immutable producer provenance")
+
+
+def _validate_shared_outcome(result, *, item, fake, pilot_only):
+    """Revalidate the complete successful result, not merely its file hash."""
+    _validate_shared_record(result, item=item, fake=fake, pilot_only=pilot_only, ok=True)
+    raw = result.get("raw_output")
+    if (
+        not isinstance(raw, str)
+        or hashlib.sha256(raw.encode()).hexdigest() != result.get("raw_output_sha256")
+        or item["validator"](raw) != result.get("parsed_output")
+    ):
+        raise ValueError("shared outcome output validation mismatch")
+
+
+def _validate_shared_failure(result, *, item, fake, pilot_only):
+    """Terminal bounded failures are durable, but never completed judgments."""
+    _validate_shared_record(result, item=item, fake=fake, pilot_only=pilot_only, ok=False)
+    raw = result.get("raw_output")
+    if (
+        not isinstance(result.get("error"), str) or not result["error"]
+        or (raw is not None and not isinstance(raw, str))
+        or result.get("raw_output_sha256") != (
+            hashlib.sha256(raw.encode()).hexdigest() if isinstance(raw, str) else None
+        )
+    ):
+        raise ValueError("shared failure validation mismatch")
+
+
+def _validate_worker_resume(manifest_path, dispatch):
+    if manifest_path.exists():
+        previous = json.loads(manifest_path.read_text())
+        saved = previous.get("worker_dispatch", {
+            "worker_index": 0, "worker_count": 1,
+            "assignment": "sha256-task-id-modulo-v1",
+        })
+        if saved != dispatch:
+            raise ValueError("resume worker assignment changed; use separate worker output directories")
+
+
 async def _run_locked(args, ownership) -> int:
     budget = AllocationBudget.from_environment()
     bounded = budget.work_seconds_left() is not None
-    scheduler = "rolling" if bounded else args.scheduler
+    claim_root = getattr(args, "claim_root", None)
+    worker_index = getattr(args, "worker_index", 0)
+    worker_count = getattr(args, "worker_count", 1)
+    dispatch_mode = getattr(args, "dispatch_mode", "partition")
+    task_in_worker("validate-slot", worker_index, worker_count)
+    if (worker_count > 1 or dispatch_mode == "backlog") and not claim_root:
+        raise ValueError("multiple workers and backlog dispatch require --claim-root on shared storage")
+    dispatch = {
+        "worker_index": worker_index, "worker_count": worker_count,
+        "assignment": "sha256-task-id-modulo-v1",
+    }
+    if dispatch_mode == "backlog":
+        dispatch.update(mode="backlog", assignment="sha256-task-id-preferred-slot-then-backlog-v1")
+    store = InferenceClaimStore(claim_root) if claim_root else None
+    scheduler = "rolling" if bounded or store is not None else args.scheduler
     tasks_path = Path(args.tasks).resolve()
     output = Path(args.output_dir).resolve()
     outcomes_path = output / "outcomes.jsonl"
@@ -874,6 +1024,15 @@ async def _run_locked(args, ownership) -> int:
     task_ids = [getattr(task, id_field) for task in tasks]
     if len(set(task_ids)) != len(task_ids):
         raise ValueError("task file contains duplicate task IDs")
+    source_task_count = len(tasks)
+    if dispatch_mode == "backlog":
+        # Modulo slots are locality hints, not ownership or eligibility. Every
+        # worker can fill the approved backlog when other slots are absent.
+        tasks = sorted(tasks, key=lambda task: not task_in_worker(
+            getattr(task, id_field), worker_index, worker_count,
+        ))
+    else:
+        tasks = [task for task in tasks if task_in_worker(getattr(task, id_field), worker_index, worker_count)]
     identity = {"tasks_sha256": _sha256(tasks_path),
                 "source_manifest_sha256": _sha256(Path(source_manifest)),
                 "pipeline": pipeline, "model_id": model_id, "model_revision": model_revision,
@@ -885,6 +1044,8 @@ async def _run_locked(args, ownership) -> int:
             max_output_tokens=args.max_output_tokens,
             disable_thinking=args.disable_thinking,
         )
+    if args.resume:
+        _validate_worker_resume(run_manifest_path, dispatch)
     completed = _validate_resume(output, identity, tasks, prepare, id_field) if args.resume else set()
     pending = [task for task in tasks if getattr(task, id_field) not in completed]
     if args.max_tasks:
@@ -908,6 +1069,7 @@ async def _run_locked(args, ownership) -> int:
         "scheduler": scheduler,
         "requested_scheduler": args.scheduler,
         "allocation_budget": budget.record(),
+        "worker_dispatch": dispatch,
         "pilot_only": args.pilot_only,
         "status": "running",
         "completed_count": len(completed),
@@ -921,6 +1083,7 @@ async def _run_locked(args, ownership) -> int:
             "path": str(tasks_path),
             "sha256": _sha256(tasks_path),
             "total_count": len(tasks),
+            "source_total_count": source_task_count,
             "already_completed_count": len(completed),
             "planned_this_invocation": len(pending),
             "attempted_this_invocation": 0,
@@ -952,9 +1115,30 @@ async def _run_locked(args, ownership) -> int:
             max_output_tokens=args.max_output_tokens,
             disable_thinking=args.disable_thinking,
         )
+    claim_counts = {
+        "reused_this_invocation": 0,
+        "failed_reused_this_invocation": 0,
+        "inference_tasks_this_invocation": 0,
+        "busy_this_invocation": 0,
+    }
+    if store is not None:
+        from analysis.scripts.prepare_acl_arr_experiment import _git_commit
+
+        producer = {
+            "run_id": run_id,
+            "invocation_id": manifest["invocation_id"],
+            "execution_git_commit": os.getenv("GEODML_EXECUTION_COMMIT") or _git_commit(),
+            "slurm": {key: os.getenv(key) for key in (
+                "SLURM_JOB_ID", "SLURM_ARRAY_JOB_ID", "SLURM_ARRAY_TASK_ID",
+            )},
+        }
+        manifest["execution_git_commit"] = producer["execution_git_commit"]
+        manifest["shared_claims"] = {"root": str(store.root), **claim_counts}
+        claim_counts = manifest["shared_claims"]
     output.mkdir(parents=True, exist_ok=True)
     ownership.enter_context(_writer_lock(output))
     if args.resume:
+        _validate_worker_resume(run_manifest_path, dispatch)
         if _validate_resume(output, identity, tasks, prepare, id_field) != completed:
             raise ValueError("resume changed while acquiring writer ownership; retry")
     elif any(path.exists() for path in (outcomes_path, failures_path, attempts_path, run_manifest_path)):
@@ -975,6 +1159,7 @@ async def _run_locked(args, ownership) -> int:
 
     succeeded = 0
     failed = 0
+    busy = 0
     admitted = 0
     deadline_interrupted = False
     chunk_size = max(args.max_concurrency, args.max_concurrency * 4)
@@ -992,23 +1177,85 @@ async def _run_locked(args, ownership) -> int:
             client_context.audit_callback = lambda event: persist(attempts, {
                 **event, "run_id": run_id, "invocation_id": manifest["invocation_id"]})
 
-        def prepared_pending():
+        def prepared_pending(batch):
             nonlocal admitted
-            for task in pending:
+            for task in batch:
                 item = prepare(task)
                 admitted += 1
                 manifest["tasks"]["attempted_this_invocation"] = admitted
                 yield item
 
+        async def execute_claimed(item, *, client, fake):
+            claim_identity = _shared_claim_identity(
+                item, args=args, model_id=model_id, model_revision=model_revision,
+            )
+            validate = lambda result: _validate_shared_outcome(
+                result, item=item, fake=fake, pilot_only=args.pilot_only,
+            )
+            validate_failure = lambda result: _validate_shared_failure(
+                result, item=item, fake=fake, pilot_only=args.pilot_only,
+            )
+            # Hold ownership across the HTTP request and durable shared commit.
+            # A crash before commit can require another call; this is not an
+            # exactly-once guarantee for an external model service.
+            with store.try_claim(claim_identity, validate=validate,
+                                 validate_failure=validate_failure) as claim:
+                if claim.status == "busy":
+                    return {"base": item["base"], "claim_busy": True}
+                if claim.status == "completed":
+                    claim_counts["reused_this_invocation"] += 1
+                    return {
+                        **claim.outcome, "shared_reused": True,
+                        "shared_claim_fingerprint": claim.fingerprint,
+                    }
+                if claim.status == "failed":
+                    claim_counts["failed_reused_this_invocation"] += 1
+                    return {
+                        **claim.failure, "shared_reused": True,
+                        "shared_claim_fingerprint": claim.fingerprint,
+                    }
+                claim_counts["inference_tasks_this_invocation"] += 1
+                result = await _execute_one(item, client=client, fake=fake)
+                if result["ok"] or dispatch_mode == "backlog":
+                    raw = result["raw_output"]
+                    result = {
+                        **result, "fake_backend": fake, "pilot_only": args.pilot_only,
+                        "raw_output_sha256": hashlib.sha256(raw.encode()).hexdigest() if isinstance(raw, str) else None,
+                        "producer": producer,
+                    }
+                    # Shared first: a local journal failure must not repeat the
+                    # expensive call from a subsequent worker output directory.
+                    if result["ok"]:
+                        claim.commit(result)
+                    else:
+                        claim.fail(result)
+                    result.update(shared_reused=False, shared_claim_fingerprint=claim.fingerprint)
+                return result
+
         async def results(client):
             if scheduler == "rolling":
-                async with aclosing(_iter_execute(prepared_pending(),
-                        client=client, maximum_concurrency=args.max_concurrency,
-                        fake=args.fake, budget=budget)) as stream:
-                    async for result in stream:
-                        yield result
+                batch = pending
+                while batch:
+                    busy_ids = set()
+                    progressed = False
+                    async with aclosing(_iter_execute(prepared_pending(batch),
+                            client=client, maximum_concurrency=args.max_concurrency,
+                            fake=args.fake, budget=budget,
+                            execute_one=execute_claimed if store is not None else None)) as stream:
+                        async for result in stream:
+                            if result.get("claim_busy"):
+                                busy_ids.add(result["base"][id_field])
+                            else:
+                                progressed = True
+                            yield result
+                    # Other jobs can release claims while this job processes
+                    # useful work. Recheck those gaps, but never spin waiting
+                    # when the entire remaining backlog is actively owned.
+                    if dispatch_mode != "backlog" or not progressed or not budget.can_start():
+                        break
+                    batch = [task for task in batch if getattr(task, id_field) in busy_ids]
             else:
-                prepared = prepared_pending()
+                prepared = prepared_pending(pending)
                 for offset in range(0, len(pending), chunk_size):
                     chunk = [next(prepared) for _ in pending[offset:offset + chunk_size]]
                     for result in await _execute(chunk,
@@ -1016,14 +1263,25 @@ async def _run_locked(args, ownership) -> int:
                         yield result
 
         async def process(client):
-            nonlocal succeeded, failed
+            nonlocal succeeded, failed, busy
             async with aclosing(results(client)) as stream:
                 async for result in stream:
+                    if result.get("claim_busy"):
+                        busy += 1
+                        claim_counts["busy_this_invocation"] = busy
+                        _atomic_json(run_manifest_path, manifest)
+                        continue
                     base = dict(result["base"])
                     base["fake_backend"] = args.fake
                     base["invocation_id"] = manifest["invocation_id"]
                     if args.pilot_only:
                         base.update(scientific_result=False, eligible_for_analysis=False)
+                    if "shared_claim_fingerprint" in result:
+                        base.update(
+                            shared_claim_fingerprint=result["shared_claim_fingerprint"],
+                            shared_reused=result["shared_reused"],
+                            producer=result["producer"],
+                        )
                     if result["ok"]:
                         raw = str(result["raw_output"])
                         persist(
@@ -1085,7 +1343,7 @@ async def _run_locked(args, ownership) -> int:
                         raise
                     deadline_interrupted = True
         except BaseException:
-            manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed
+            manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed - busy
             manifest.update(status="interrupted_or_error", finished_at=_now(),
                             completed_count=len(completed), remaining_count=len(tasks) - len(completed))
             _atomic_json(run_manifest_path, manifest)
@@ -1093,9 +1351,9 @@ async def _run_locked(args, ownership) -> int:
 
     stopped_for_deadline = (
         bounded and (deadline_interrupted or not budget.can_start())
-        and succeeded + failed < len(pending)
+        and len(completed) + failed < len(tasks)
     )
-    manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed
+    manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed - busy
     manifest.update(
         {
             "status": "complete" if len(completed) == len(tasks) else (
@@ -1104,7 +1362,8 @@ async def _run_locked(args, ownership) -> int:
             "stop_reason": (
                 "queue_exhausted" if len(completed) == len(tasks) else
                 "allocation_deadline" if stopped_for_deadline else
-                "bounded_failures" if failed else "task_limit"
+                "bounded_failures" if failed else
+                "shared_claims_busy" if busy else "task_limit"
             ),
             "scientific_result": not args.fake and not args.pilot_only and len(completed) == len(tasks),
             "eligible_for_analysis": not args.fake and not args.pilot_only and len(completed) == len(tasks),
@@ -1122,7 +1381,7 @@ async def _run_locked(args, ownership) -> int:
     print(f"OUTCOMES={succeeded}")
     print(f"FAILURES={failed}")
     print(f"MANIFEST={run_manifest_path}")
-    return 0 if len(completed) == len(tasks) or stopped_for_deadline else 2 if failed else 3
+    return 0 if len(completed) == len(tasks) or stopped_for_deadline or (busy and not failed) else 2 if failed else 3
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
@@ -1165,6 +1424,11 @@ def _parser() -> argparse.ArgumentParser:
     agentic.add_argument("--judge-role", choices=("bulk", "validation"), required=True)
     agentic.add_argument("--max-output-tokens", type=int, default=512)
     agentic.add_argument("--disable-thinking", action="store_true")
+    agentic.add_argument("--claim-root", help="Shared durable task ownership and completed outcomes.")
+    agentic.add_argument("--worker-index", type=int, default=0)
+    agentic.add_argument("--worker-count", type=int, default=1)
+    agentic.add_argument("--dispatch-mode", choices=("partition", "backlog"), default="partition",
+                         help="Backlog prefers the modulo slot then claims any missing approved task.")
     return parser
 
 

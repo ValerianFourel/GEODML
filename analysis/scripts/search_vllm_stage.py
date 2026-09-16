@@ -14,12 +14,28 @@ from pathlib import Path
 import re
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 from typing import Any, Mapping, Sequence
-from urllib.request import urlopen
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from analysis.scripts.inference_endpoint_security import (  # noqa: E402
+    EndpointSecurityError,
+    new_api_key,
+    probe_endpoint,
+    validate_endpoint,
+)
+from analysis.scripts.inference_network_namespace import (  # noqa: E402
+    ensure_private_network_namespace,
+    validate_network_namespace_receipt,
+    verify_private_network_namespace,
+)
 
 
 FORMAT_VERSION = "search-vllm-serving-profile-v1"
@@ -874,11 +890,31 @@ def load_runtime_binding(
         "signal",
         "failure",
         "cleanup_errors",
+        "access_control",
+        "network_isolation",
     }
     if not required_keys.issubset(value) or not set(value).issubset(
         required_keys | optional_keys
     ):
         raise ValueError("serving runtime record fields are malformed")
+    if "access_control" in value:
+        access = value["access_control"]
+        if (
+            not isinstance(access, dict)
+            or set(access) != {"mode", "status", "loopback_only", "anonymous_rejected",
+                               "wrong_key_rejected", "model_verified"}
+            or access["mode"] != "per-run-bearer-v1"
+            or access["status"] not in ("pending", "verified")
+            or access["loopback_only"] is not True
+            or any(access[key] is not (access["status"] == "verified")
+                   for key in ("anonymous_rejected", "wrong_key_rejected", "model_verified"))
+        ):
+            raise ValueError("serving runtime access-control receipt is invalid")
+    if "network_isolation" in value:
+        try:
+            validate_network_namespace_receipt(value["network_isolation"])
+        except EndpointSecurityError as exc:
+            raise ValueError("serving runtime network-isolation receipt is invalid") from exc
     profile_path = Path(str(value["profile_path"])).expanduser().resolve(strict=True)
     if load_profile(profile_path)["profile_sha256"] != expected_profile_sha256:
         raise ValueError("serving runtime record profile sidecar mismatch")
@@ -1185,11 +1221,28 @@ def wait_for_controller(
         time.sleep(poll_seconds)
 
 
-def _log_tail(path: Path, limit: int = 100) -> str:
+def _log_tail(path: Path, limit: int = 100, *, api_key: str = "") -> str:
     try:
-        return "\n".join(path.read_text(errors="replace").splitlines()[-limit:])
+        tail = "\n".join(path.read_text(errors="replace").splitlines()[-limit:])
+        return tail.replace(api_key, "[REDACTED]") if api_key else tail
     except OSError:
         return ""
+
+
+@contextmanager
+def _private_server_log(path: Path):
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600,
+    )
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise OSError("server log must be an owned regular file without hard links")
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "ab", buffering=0, closefd=False) as stream:
+            yield stream
+    finally:
+        os.close(descriptor)
 
 
 def wait_until_ready(
@@ -1197,8 +1250,10 @@ def wait_until_ready(
     *,
     base_url: str,
     model_id: str,
+    api_key: str,
     timeout_seconds: float,
-) -> None:
+) -> dict[str, Any]:
+    validate_endpoint(base_url)
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("startup timeout must be positive and finite")
     deadline = time.monotonic() + timeout_seconds
@@ -1208,18 +1263,11 @@ def wait_until_ready(
         if return_code is not None:
             raise RuntimeError(f"vLLM exited before readiness with status {return_code}")
         try:
-            with urlopen(base_url.rstrip("/") + "/models", timeout=2) as response:
-                payload = json.loads(response.read())
-            served = {
-                str(item.get("id"))
-                for item in payload.get("data", [])
-                if isinstance(item, dict)
-            }
-            if model_id in served:
-                return
-            last_error = f"endpoint serves {sorted(served)}, expected {model_id!r}"
-        except Exception as exc:
-            last_error = f"{type(exc).__name__}: {exc}"
+            return probe_endpoint(base_url, model_id, api_key, timeout_seconds=2)
+        except EndpointSecurityError:
+            raise
+        except (OSError, RuntimeError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}".replace(api_key, "[REDACTED]")
         time.sleep(min(5, max(0, deadline - time.monotonic())))
     raise RuntimeError(f"vLLM did not become ready before timeout: {last_error}")
 
@@ -1253,15 +1301,29 @@ def run_stage(
 ) -> int:
     profile = load_profile(profile_path)
     approval = benchmark_approval_binding(profile, benchmark_approval_path)
-    verify_runtime(profile)
     job_id = os.environ.get("SLURM_JOB_ID", "")
     if not job_id:
         raise ValueError("SLURM_JOB_ID is required")
+    if os.environ.get("SLURM_JOB_NUM_NODES", "1") != "1":
+        raise ValueError("this loopback serving stage requires a single-node allocation")
     command = list(controller_command)
     if command and command[0] == "--":
         command = command[1:]
     if not command:
         raise ValueError("a controller command is required")
+    isolated_command = [
+        sys.executable, str(Path(__file__).resolve()), "run",
+        "--profile", str(profile_path), "--server-log", str(server_log),
+        "--cache-base", str(cache_base),
+        "--startup-timeout-seconds", str(startup_timeout_seconds),
+    ]
+    if benchmark_approval_path is not None:
+        isolated_command.extend(("--benchmark-approval", str(benchmark_approval_path)))
+    isolated_command.extend(("--", *command))
+    # Re-exec into a fresh private network before any model/runtime process starts.
+    # No environment switch permits falling back to the node's network.
+    isolation = ensure_private_network_namespace(isolated_command)
+    verify_runtime(profile)
     visible_gpus = discover_visible_gpus()
     cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     _runtime_gpu_environment(profile, visible_gpus, cuda_visible_devices)
@@ -1277,6 +1339,17 @@ def run_stage(
         step_id=os.environ.get("SLURM_STEP_ID") or os.environ.get("SLURM_STEPID"),
         benchmark_approval=approval,
     )
+    api_key = new_api_key()
+    auth_environment = {
+        "VLLM_API_KEY": api_key,
+        "GEODML_INFERENCE_AUTH_REQUIRED": "1",
+        "VLLM_HOST_IP": "127.0.0.1",
+    }
+    runtime_record["access_control"] = {
+        "mode": "per-run-bearer-v1", "status": "pending", "loopback_only": True,
+        "anonymous_rejected": False, "wrong_key_rejected": False, "model_verified": False,
+    }
+    runtime_record["network_isolation"] = isolation
     with port_ownership(profile, cache_base=cache_base):
         server_log.parent.mkdir(parents=True, exist_ok=True)
         runtime_path = write_runtime_record(server_log, runtime_record)
@@ -1294,41 +1367,47 @@ def run_stage(
             for signum in (signal.SIGINT, signal.SIGTERM)
         }
         try:
-            with server_log.open("ab", buffering=0) as stream:
+            with _private_server_log(server_log) as stream:
                 server_environment = dict(os.environ)
                 server_environment.update(caches)
+                server_environment.update(auth_environment)
                 server = subprocess.Popen(
                     profile["server_argv"],
                     stdout=stream,
                     stderr=subprocess.STDOUT,
                     env=server_environment,
+                    close_fds=True,
                     start_new_session=True,
                 )
                 runtime_record.update(server_status="starting", server_pid=server.pid)
                 write_runtime_record(server_log, runtime_record)
                 try:
-                    wait_until_ready(
+                    runtime_record["access_control"] = wait_until_ready(
                         server,
                         base_url=profile["serving"]["public_base_url"],
                         model_id=profile["model"]["model_id"],
+                        api_key=api_key,
                         timeout_seconds=startup_timeout_seconds,
                     )
+                    runtime_record["network_isolation"] = verify_private_network_namespace()
                 except Exception as exc:
-                    tail = _log_tail(server_log)
+                    tail = _log_tail(server_log, api_key=api_key)
                     if tail:
                         raise RuntimeError(
-                            f"{exc}\nLAST_SERVER_LOG_LINES\n{tail}"
-                        ) from exc
+                            f"{exc}\nLAST_SERVER_LOG_LINES\n{tail}".replace(api_key, "[REDACTED]")
+                        ) from None
                     raise
                 runtime_record["server_status"] = "ready"
                 write_runtime_record(server_log, runtime_record)
                 controller_environment = dict(os.environ)
+                controller_environment.update(auth_environment)
                 controller_environment["GEODML_SERVING_RUNTIME_RECORD"] = str(
                     runtime_path.resolve()
                 )
                 controller = subprocess.Popen(
                     command,
                     env=controller_environment,
+                    close_fds=True,
                     start_new_session=True,
                 )
                 runtime_record.update(
@@ -1339,11 +1418,11 @@ def run_stage(
                 try:
                     controller_status = wait_for_controller(controller, server)
                 except RuntimeError as exc:
-                    tail = _log_tail(server_log)
+                    tail = _log_tail(server_log, api_key=api_key)
                     if tail:
                         raise RuntimeError(
-                            f"{exc}\nLAST_SERVER_LOG_LINES\n{tail}"
-                        ) from exc
+                            f"{exc}\nLAST_SERVER_LOG_LINES\n{tail}".replace(api_key, "[REDACTED]")
+                        ) from None
                     raise
                 runtime_record.update(
                     controller_status="exited",
@@ -1358,7 +1437,7 @@ def run_stage(
                 controller_started=controller is not None,
             )
         except BaseException as exc:
-            runtime_record["failure"] = f"{type(exc).__name__}: {exc}"
+            runtime_record["failure"] = f"{type(exc).__name__}: {exc}".replace(api_key, "[REDACTED]")
             if server is not None and server.poll() is not None:
                 runtime_record.update(
                     server_status="exited",
@@ -1366,6 +1445,8 @@ def run_stage(
                 )
             if controller is not None and controller.poll() is None:
                 runtime_record["controller_status"] = "terminating_after_failure"
+            if api_key in str(exc):
+                raise RuntimeError(runtime_record["failure"]) from None
             raise
         finally:
             cleanup_errors = []
@@ -1373,7 +1454,7 @@ def run_stage(
                 try:
                     _terminate_group(process)
                 except RuntimeError as exc:
-                    cleanup_errors.append(str(exc))
+                    cleanup_errors.append(str(exc).replace(api_key, "[REDACTED]"))
                 if process is not None:
                     exit_code = process.poll()
                     runtime_record[name + "_exit_code"] = exit_code

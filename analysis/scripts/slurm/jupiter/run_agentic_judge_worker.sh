@@ -9,6 +9,9 @@ export TRANSFORMERS_OFFLINE=1
 : "${GEODML_JUDGE_MANIFEST:?}"
 : "${GEODML_JUDGE_ROLE:?Use bulk or validation}"
 : "${GEODML_JUDGE_PROFILE:?Pinned vLLM serving profile}"
+export GEODML_JUDGE_CLAIM_ROOT="${GEODML_JUDGE_CLAIM_ROOT:-${GEODML_INFERENCE_CLAIM_ROOT:-}}"
+: "${GEODML_JUDGE_CLAIM_ROOT:?All related judge jobs must share one claim directory}"
+[[ "$GEODML_JUDGE_CLAIM_ROOT" = /* ]] || { printf '%s\n' 'Claim root must be an absolute shared path.' >&2; exit 2; }
 
 readarray -t geodml_model < <(
   python3 - "$GEODML_JUDGE_MANIFEST" "$GEODML_JUDGE_ROLE" <<'PY'
@@ -48,5 +51,9 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --server-model-revision "${geodml_model[1]}" \
     --max-concurrency "${GEODML_JUDGE_CONCURRENCY:-32}" \
     --max-output-tokens "${GEODML_JUDGE_MAX_OUTPUT_TOKENS:-512}" \
+    --claim-root "$GEODML_JUDGE_CLAIM_ROOT" \
+    --dispatch-mode "${GEODML_DISPATCH_MODE:-partition}" \
+    --worker-index "${GEODML_WORKER_INDEX:-0}" \
+    --worker-count "${GEODML_WORKER_COUNT:-1}" \
     --resume \
     "${geodml_thinking_args[@]}"

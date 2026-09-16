@@ -85,6 +85,10 @@ def _parser() -> argparse.ArgumentParser:
         "--completed-results-root", type=Path, action="append", default=[]
     )
     parser.add_argument("--worker-count", type=int, required=True)
+    parser.add_argument(
+        "--dispatch-mode", choices=("backlog", "partition"), default="backlog",
+        help="Share the frozen backlog with task claims, or preserve legacy static partitions",
+    )
     parser.add_argument("--master-seed", type=int, default=20260915)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser
@@ -110,6 +114,7 @@ def main() -> int:
             completed_task_ids=completed,
             worker_count=arguments.worker_count,
             master_seed=arguments.master_seed,
+            dispatch_mode=arguments.dispatch_mode,
         )
         artifacts = write_inference_wave(
             arguments.output_dir,

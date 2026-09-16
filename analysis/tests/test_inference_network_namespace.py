@@ -1,0 +1,225 @@
+"""Fail-closed namespace entry and kernel verification without model imports."""
+
+from __future__ import annotations
+
+import copy
+import json
+import os
+import shutil
+import struct
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from analysis.scripts import inference_network_namespace as network
+from analysis.scripts.inference_endpoint_security import EndpointSecurityError
+
+OUTSIDE = {"device": 4, "inode": 100}
+INSIDE = {"device": 4, "inode": 200}
+RECORD = {"parent_pid": 10, "parent_namespace": OUTSIDE, "outside_fd": 7}
+
+
+@pytest.fixture
+def isolated(monkeypatch):
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setattr(network.os, "getppid", lambda: 10)
+    monkeypatch.setattr(network, "_namespace", lambda pid: INSIDE.copy())
+    monkeypatch.setattr(network, "_outside_namespace", lambda record: OUTSIDE.copy())
+    monkeypatch.setattr(network.socket, "if_nameindex", lambda: [(1, "lo")])
+    monkeypatch.setattr(network, "_loopback_flags", lambda **kwargs: network._UP | network._LOOPBACK)
+    probes = []
+    monkeypatch.setattr(network, "_private_bind_probe", lambda: probes.append(True))
+    monkeypatch.setenv(network.MARKER, json.dumps(RECORD))
+    for key, value in network.TRANSPORT_ENVIRONMENT.items():
+        monkeypatch.setenv(key, value)
+    return probes
+
+
+def test_verified_receipt_uses_kernel_facts_and_private_probe(isolated):
+    receipt = network.verify_private_network_namespace()
+    assert receipt == {
+        "format_version": "geodml-network-namespace-v1", "status": "verified",
+        "outside_parent_pid": 10, "outside_namespace": OUTSIDE,
+        "current_namespace": INSIDE, "interfaces": ["lo"], "loopback_up": True,
+        "private_bind_verified": True, "external_tcp_isolated": True,
+    }
+    assert isolated == [True]
+
+
+@pytest.mark.parametrize("marker", [None, "1", "{}", "not-json", json.dumps({**RECORD, "outside_fd": True})])
+def test_missing_or_forged_marker_never_creates_socket(isolated, monkeypatch, marker):
+    if marker is None:
+        monkeypatch.delenv(network.MARKER)
+    else:
+        monkeypatch.setenv(network.MARKER, marker)
+    with pytest.raises(EndpointSecurityError):
+        network.verify_private_network_namespace()
+    assert isolated == []
+
+
+@pytest.mark.parametrize("failure", ["same_namespace", "changed_parent", "outside_changed", "external_interface", "lo_down", "rdma_enabled"])
+def test_invalid_kernel_or_transport_state_fails_before_bind(isolated, monkeypatch, failure):
+    if failure == "same_namespace":
+        monkeypatch.setattr(network, "_namespace", lambda pid: OUTSIDE.copy())
+    elif failure == "changed_parent":
+        monkeypatch.setattr(network.os, "getppid", lambda: 11)
+    elif failure == "outside_changed":
+        monkeypatch.setattr(network, "_outside_namespace", lambda record: {"device": 4, "inode": 101})
+    elif failure == "external_interface":
+        monkeypatch.setattr(network.socket, "if_nameindex", lambda: [(1, "lo"), (2, "eth0")])
+    elif failure == "lo_down":
+        monkeypatch.setattr(network, "_loopback_flags", lambda: network._LOOPBACK)
+    else:
+        monkeypatch.setenv("NCCL_IB_DISABLE", "0")
+    with pytest.raises(EndpointSecurityError):
+        network.verify_private_network_namespace()
+    assert isolated == []
+
+
+def test_unknown_kernel_state_redacts_exception_contents(isolated, monkeypatch):
+    def inaccessible(*args):
+        raise PermissionError("fixture-secret")
+
+    monkeypatch.setattr(network, "_namespace", inaccessible)
+    with pytest.raises(EndpointSecurityError) as caught:
+        network.verify_private_network_namespace()
+    assert "fixture-secret" not in str(caught.value)
+    assert isolated == []
+
+
+def test_descriptor_must_be_a_real_network_namespace(monkeypatch):
+    monkeypatch.setattr(network.fcntl, "ioctl", lambda fd, command: network._CLONE_NEWNET)
+    monkeypatch.setattr(network.os, "fstat", lambda fd: SimpleNamespace(st_dev=4, st_ino=100))
+    assert network._outside_namespace(RECORD) == OUTSIDE
+    monkeypatch.setattr(network.fcntl, "ioctl", lambda fd, command: 0x10000000)
+    with pytest.raises(EndpointSecurityError, match="not a network namespace"):
+        network._outside_namespace(RECORD)
+
+
+def test_closed_outside_descriptor_fails_closed(isolated, monkeypatch):
+    def closed(record):
+        raise OSError("bad descriptor")
+
+    monkeypatch.setattr(network, "_outside_namespace", closed)
+    with pytest.raises(EndpointSecurityError, match="could not be verified"):
+        network.verify_private_network_namespace()
+    assert isolated == []
+
+
+def test_entry_execs_unshare_without_fork_and_retains_only_namespace_fd(monkeypatch):
+    monkeypatch.delenv(network.MARKER, raising=False)
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setattr(network.shutil, "which", lambda name: "/usr/bin/unshare")
+    monkeypatch.setattr(network.os, "getppid", lambda: 10)
+    monkeypatch.setattr(network, "_namespace", lambda pid: OUTSIDE.copy())
+    monkeypatch.setattr(network.os, "open", lambda path, flags: 7)
+    monkeypatch.setattr(network.os, "fstat", lambda fd: SimpleNamespace(st_dev=4, st_ino=100))
+    inherited = []
+    monkeypatch.setattr(network.os, "set_inheritable", lambda fd, state: inherited.append((fd, state)))
+    executed = []
+
+    class Executed(BaseException):
+        pass
+
+    def execute(path, arguments):
+        executed.append((path, arguments))
+        raise Executed
+
+    monkeypatch.setattr(network.os, "execv", execute)
+    command = [sys.executable, "/repo/stage.py", "run", "--profile", "/data/profile.json"]
+    with pytest.raises(Executed):
+        network.ensure_private_network_namespace(command)
+    assert inherited == [(7, True)]
+    path, arguments = executed[0]
+    assert path == "/usr/bin/unshare"
+    assert arguments[:5] == [path, "--user", "--map-root-user", "--net", "--"]
+    assert "--fork" not in arguments
+    assert arguments[arguments.index("--outside-fd") + 1] == "7"
+    assert arguments[arguments.index("--exec") + 1:] == command
+
+
+def test_reentry_verifies_instead_of_recursively_unsharing(isolated, monkeypatch):
+    monkeypatch.setattr(network, "_enter_private_namespace", lambda command: pytest.fail("recursive unshare"))
+    assert network.ensure_private_network_namespace(["python", "stage.py"])["status"] == "verified"
+
+
+def test_unavailable_unshare_has_no_fallback(monkeypatch):
+    monkeypatch.delenv(network.MARKER, raising=False)
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setattr(network.shutil, "which", lambda name: None)
+    with pytest.raises(EndpointSecurityError, match="unshare is required"):
+        network.ensure_private_network_namespace(["python", "stage.py"])
+
+
+def test_loopback_ioctl_enables_existing_loopback_without_ip_command(monkeypatch):
+    from contextlib import nullcontext
+
+    monkeypatch.setattr(network.socket, "socket", lambda *args: nullcontext(SimpleNamespace(fileno=lambda: 8)))
+    calls = []
+    flags = network._LOOPBACK
+
+    def ioctl(descriptor, command, request):
+        nonlocal flags
+        calls.append(command)
+        assert descriptor == 8
+        assert request[:16].rstrip(b"\0") == b"lo"
+        if command == network._SET_FLAGS:
+            flags = struct.unpack_from("H", request, 16)[0]
+        return struct.pack("16sH22x", b"lo", flags)
+
+    monkeypatch.setattr(network.fcntl, "ioctl", ioctl)
+    assert network._loopback_flags(enable=True) == network._LOOPBACK | network._UP
+    assert calls == [network._GET_FLAGS, network._SET_FLAGS, network._GET_FLAGS]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("outside_parent_pid", True), ("outside_parent_pid", 0),
+    ("outside_namespace", {"device": True, "inode": 100}),
+    ("outside_namespace", {"device": 4, "inode": 0}),
+    ("current_namespace", OUTSIDE), ("interfaces", ["lo", "eth0"]),
+    ("loopback_up", 1), ("private_bind_verified", False),
+    ("external_tcp_isolated", "true"), ("status", "pending"),
+])
+def test_persisted_receipt_validation_is_strict_and_kernel_independent(isolated, monkeypatch, field, value):
+    receipt = copy.deepcopy(network.verify_private_network_namespace())
+    monkeypatch.setattr(network, "_kernel_state", lambda record: pytest.fail("historical receipt read kernel"))
+    assert network.validate_network_namespace_receipt(receipt) == receipt
+    receipt[field] = value
+    with pytest.raises(EndpointSecurityError, match="receipt"):
+        network.validate_network_namespace_receipt(receipt)
+
+
+def test_check_mode_uses_same_verification_and_prints_receipt(isolated, capsys):
+    assert network.main(["--check"]) == 0
+    assert "INFERENCE_NETWORK_NAMESPACE=" in capsys.readouterr().out
+    assert isolated == [True]
+
+
+def test_inside_mode_verifies_separation_before_any_interface_mutation(isolated, monkeypatch, capsys):
+    monkeypatch.setattr(network, "_namespace", lambda pid: OUTSIDE.copy())
+    monkeypatch.setattr(network, "_loopback_flags", lambda **kwargs: pytest.fail("changed host loopback"))
+    assert network.main([
+        "--inside", "--parent-pid", "10", "--parent-device", "4", "--parent-inode", "100",
+        "--outside-fd", "7", "--check",
+    ]) == 2
+    assert "separation was not verified" in capsys.readouterr().err
+    assert isolated == []
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux network namespaces")
+def test_real_linux_cpu_only_private_network_check():
+    if shutil.which("unshare") is None:
+        pytest.skip("unshare is not installed")
+    environment = {key: value for key, value in os.environ.items() if key != network.MARKER}
+    completed = subprocess.run(
+        [sys.executable, str(Path(network.__file__).resolve()), "--check"],
+        env=environment, capture_output=True, text=True, timeout=15, check=False,
+    )
+    if completed.returncode and "Operation not permitted" in completed.stderr:
+        pytest.skip("unprivileged user/network namespaces are disabled by this Linux host")
+    assert completed.returncode == 0, completed.stderr
+    receipt = json.loads(completed.stdout.split("INFERENCE_NETWORK_NAMESPACE=", 1)[1])
+    assert network.validate_network_namespace_receipt(receipt)["external_tcp_isolated"] is True

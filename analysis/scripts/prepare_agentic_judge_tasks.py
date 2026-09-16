@@ -120,6 +120,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--validation-fraction", type=float, default=0.02)
     parser.add_argument("--master-seed", type=int, default=20260915)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--recorded-conversation", action="store_true",
+        help="Use separate v2 judgments with full recorded turns and visible generator rankings",
+    )
     return parser
 
 
@@ -169,6 +173,7 @@ def main() -> int:
             ),
             validation_fraction=arguments.validation_fraction,
             master_seed=arguments.master_seed,
+            recorded_conversation=arguments.recorded_conversation,
         )
         artifacts = write_agentic_judge_plan(
             arguments.output_dir,
