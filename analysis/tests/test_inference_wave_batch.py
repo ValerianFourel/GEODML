@@ -93,6 +93,7 @@ def _environment(root: Path, *, launcher_status: int = 0) -> dict[str, str]:
         "GEODML_WORKER_STDOUT": str(root / "slurm-%A_%a-%j.out"),
         "GEODML_WORKER_STDERR": str(root / "slurm-%A_%a-%j.err"),
         "SLURM_JOB_ID": "987654",
+        "SLURM_JOB_END_TIME": str(int(time.time()) + 3600),
         "SLURM_ARRAY_JOB_ID": "987650",
         "SLURM_ARRAY_TASK_ID": "0",
         "SLURM_JOB_NUM_NODES": "1",
@@ -227,3 +228,41 @@ def test_wave_refuses_invalid_inputs_before_running(tmp_path, invalid):
     assert result.returncode != 0
     assert not (tmp_path / "capture").exists()
     assert not (tmp_path / "output/worker-00000/allocation_attempts.jsonl").exists()
+
+
+def test_wave_records_actual_allocation_budget(tmp_path):
+    env = _environment(tmp_path)
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    records = [json.loads(line) for line in (
+        tmp_path / "output/worker-00000/allocation_attempts.jsonl"
+    ).read_text().splitlines()]
+    assert records[0]["allocation_budget"]["end_epoch"] == int(env["SLURM_JOB_END_TIME"])
+    assert records[0]["allocation_budget"]["policy"] == "fill-approved-queue-v1"
+
+
+@pytest.mark.parametrize("deadline", [None, "1"])
+def test_wave_refuses_missing_or_elapsed_allocation_before_model_load(tmp_path, deadline):
+    env = _environment(tmp_path)
+    if deadline is None:
+        env.pop("SLURM_JOB_END_TIME")
+    else:
+        env["SLURM_JOB_END_TIME"] = deadline
+    result = _run(env)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+
+
+def test_wave_does_not_label_checkpointed_result_complete(tmp_path):
+    env = _environment(tmp_path)
+    output = tmp_path / "output/worker-00000"
+    output.mkdir(parents=True)
+    (output / "run_manifest.json").write_text(json.dumps({
+        "status": "checkpointed", "stop_reason": "allocation_deadline",
+        "completed_count": 1, "remaining_count": 5,
+    }))
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    terminal = json.loads((output / "allocation_attempts.jsonl").read_text().splitlines()[-1])
+    assert terminal["status"] == "checkpointed"
+    assert terminal["stop_reason"] == "allocation_deadline"

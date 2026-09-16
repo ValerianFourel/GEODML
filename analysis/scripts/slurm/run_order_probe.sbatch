@@ -1,11 +1,10 @@
 #!/bin/bash -l
 # Stage A' — order-sensitivity probe. One (model × engine × pool × variant × seed)
-# cell. Reuses cached SERPs (no HTTP). Self-resubmits via afterany dependency
-# on walltime/error, mirroring the main rerank chain.
+# cell. Reuses cached SERPs (no HTTP). Does not self-resubmit.
+# Any retry needs a fresh estimate and wall-time approval.
 #
 # Required exports: MODEL, ENGINE, POOL, PROMPT_VARIANT, SEED
 # Optional:         TOP_N (default 10), MAX_KEYWORDS (default unlimited),
-#                   ATTEMPT, MAX_ATTEMPTS,
 #                   LOCAL_PRECISION (default "full" = bf16; alt "4bit" = nf4)
 #
 # 70B at bf16 ≈ 140 GB; needs all 4 GPUs (already --gres=gpu:4 below).
@@ -67,10 +66,11 @@ set -e
 echo "[order_probe] python rc=$RC"
 if [ "$RC" -eq 0 ]; then
   touch "$OUTDIR/.done_${RUN_ID}_seed${SEED}"
-  echo "[order_probe] complete -- chain stops here."
+  echo "[order_probe] complete; no new allocation submitted."
   exit 0
 fi
 
+# Compatibility helper reports manual recovery only; it never calls sbatch.
 chain_resubmit "$0" \
   MODEL="$MODEL" ENGINE="$ENGINE" POOL="$POOL" \
   PROMPT_VARIANT="$PROMPT_VARIANT" SEED="$SEED" TOP_N="$TOP_N" \

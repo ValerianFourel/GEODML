@@ -3,7 +3,7 @@
 # typically 1.5-2.5 h, so a single 24 h walltime is plenty.
 #
 # Required exports: MODEL
-# Optional:         SAMPLE_N (default huge), ATTEMPT, MAX_ATTEMPTS
+# Optional:         SAMPLE_N (default huge)
 
 #SBATCH --partition=booster
 #SBATCH --nodes=1
@@ -44,10 +44,11 @@ set -e
 echo "[weights] python rc=$RC"
 if [ "$RC" -eq 0 ]; then
   touch "$OUTDIR/.done_${MODEL_TAG}"
-  echo "[weights] complete -- chain stops here."
+  echo "[weights] complete; no new allocation submitted."
   exit 0
 fi
 
+# Compatibility helper reports manual recovery only; it never calls sbatch.
 chain_resubmit "$0" \
   MODEL="$MODEL" SAMPLE_N="$SAMPLE_N" \
   PROMPT_VARIANT="$PROMPT_VARIANT" \

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import Counter
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 import hashlib
 import json
@@ -37,6 +38,9 @@ from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
     SentenceTransformersCrossEncoderScorer,
     Snippet,
     write_trace_atomic,
+)
+from analysis.interpretability.pipeline.inference_budget import (  # noqa: E402
+    AllocationBudget,
 )
 from analysis.scripts.run_acl_arr_vllm import VllmChatClient  # noqa: E402
 
@@ -1181,12 +1185,59 @@ def _load_completed_cells(
     return completed, pending
 
 
+def validate_manifest_artifacts(
+    manifest_path: Path, expected_cells: int,
+) -> dict[str, Any]:
+    """Validate a completed queue or a deadline checkpoint for cluster wrappers."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    completed_count = manifest.get("completed_count")
+    remaining_count = manifest.get("remaining_count")
+    if (
+        manifest.get("cell_count") != expected_cells
+        or manifest.get("scientific_result") is not False
+        or type(completed_count) is not int
+        or type(remaining_count) is not int
+        or min(completed_count, remaining_count) < 0
+        or completed_count + remaining_count != expected_cells
+    ):
+        raise ValueError("generator manifest counts are inconsistent")
+    if manifest.get("status") == "checkpointed":
+        if remaining_count == 0 or manifest.get("stop_reason") != "allocation_deadline":
+            raise ValueError("generator checkpoint does not record a deadline stop")
+    elif manifest.get("status") != "complete" or remaining_count != 0:
+        raise ValueError("generator queue did not complete or checkpoint at its deadline")
+
+    output = manifest_path.parent
+    result_paths = sorted((output / "results").glob("*.json"))
+    result_ids = {path.stem for path in result_paths}
+    trace_ids = {path.stem for path in (output / "traces").glob("*.json")}
+    if len(result_ids) != completed_count or trace_ids != result_ids:
+        raise ValueError("generator manifest counts differ from completed artifacts")
+    failed_ids = manifest.get("failed_cell_ids", [])
+    if len(set(failed_ids)) > remaining_count or set(failed_ids) & result_ids:
+        raise ValueError("generator manifest failed cell IDs are inconsistent")
+    methods = {method.method_id: method for method in METHODS}
+    for path in result_paths:
+        result = json.loads(path.read_text(encoding="utf-8"))
+        cell = SmokeCell(
+            cell_id=path.stem,
+            engine=result["engine"],
+            condition=ExperimentalCondition(result["condition"]),
+            method_class=methods[result["method"]],
+            prompt_id=result.get("prompt_id"),
+            prompt_sha256=result.get("prompt_sha256"),
+        )
+        _validate_completed_cell(cell, output / "traces" / path.name, path)
+    return manifest
+
+
 async def run_smoke(
     inputs: SmokeInputs,
     *,
     client_context: Any | None = None,
     compactor: ContextCompactor | None = None,
 ) -> dict[str, Any]:
+    allocation_budget = AllocationBudget.from_environment()
     if set(inputs.search_snapshots) != set(ENGINES):
         raise ValueError("both duckduckgo and searxng snapshots are required")
     adapters = {
@@ -1316,6 +1367,8 @@ async def run_smoke(
             **config,
             "config_sha256": config_hash,
             "status": "complete",
+            "stop_reason": "queue_exhausted",
+            "allocation_budget": allocation_budget.record(),
             "completed_count": len(completed),
             "remaining_count": 0,
             "compactor_cache_this_invocation": None,
@@ -1326,6 +1379,43 @@ async def run_smoke(
             finished["resume_migration"] = resume_migration
         _write_json_atomic(manifest_path, finished)
         return finished
+
+    pending_by_id = {cell.cell_id: cell for cell in pending}
+    known_failed = {
+        cell_id: pending_by_id[cell_id]
+        for cell_id in (existing_manifest or {}).get("failed_cell_ids", [])
+        if cell_id in pending_by_id
+    }
+    peak_active_cells = 0
+    deadline_reached = False
+
+    def checkpoint(
+        retry_passes_completed: int,
+        *,
+        stop_reason: str | None = None,
+    ) -> dict[str, Any]:
+        value = {
+            **config,
+            "config_sha256": config_hash,
+            "status": "checkpointed",
+            "stop_reason": stop_reason,
+            "allocation_budget": allocation_budget.record(),
+            "completed_count": len(completed),
+            "remaining_count": config["cell_count"] - len(completed),
+            "failed_cell_ids": sorted(known_failed),
+            "failed_cell_retry_passes_completed": retry_passes_completed,
+            "peak_active_cells_this_invocation": peak_active_cells,
+            "compactor_cache_this_invocation": (
+                _cache_metrics(compactor) if compactor is not None else None
+            ),
+        }
+        if resume_migration is not None:
+            value["resume_migration"] = resume_migration
+        _write_json_atomic(manifest_path, value)
+        return value
+
+    if not allocation_budget.can_start():
+        return checkpoint(0, stop_reason="allocation_deadline")
 
     if compactor is None:
         scorer = MemoizingSnippetScorer(
@@ -1349,28 +1439,18 @@ async def run_smoke(
                 {"enable_thinking": False} if inputs.disable_thinking else None
             ),
         )
-    peak_active_cells = 0
-
-    def checkpoint(
-        failed_cells: Sequence[SmokeCell],
-        retry_passes_completed: int,
-    ) -> None:
-        value = {
-            **config,
-            "config_sha256": config_hash,
-            "status": "checkpointed",
-            "completed_count": len(completed),
-            "remaining_count": config["cell_count"] - len(completed),
-            "failed_cell_ids": sorted(cell.cell_id for cell in failed_cells),
-            "failed_cell_retry_passes_completed": retry_passes_completed,
-            "peak_active_cells_this_invocation": peak_active_cells,
-            "compactor_cache_this_invocation": _cache_metrics(compactor),
-        }
-        if resume_migration is not None:
-            value["resume_migration"] = resume_migration
-        _write_json_atomic(manifest_path, value)
-
-    async with client_context as client:
+    if not allocation_budget.can_start():
+        return checkpoint(0, stop_reason="allocation_deadline")
+    async with AsyncExitStack() as exit_stack:
+        try:
+            client = await asyncio.wait_for(
+                exit_stack.enter_async_context(client_context),
+                timeout=allocation_budget.work_seconds_left(),
+            )
+        except asyncio.TimeoutError:
+            if allocation_budget.work_seconds_left() == 0:
+                return checkpoint(0, stop_reason="allocation_deadline")
+            raise
         request_semaphore = asyncio.Semaphore(inputs.request_concurrency)
 
         async def execute(cell: SmokeCell) -> tuple[str, dict[str, Any]]:
@@ -1476,18 +1556,22 @@ async def run_smoke(
             *,
             retry_passes_completed: int,
         ) -> list[SmokeCell]:
-            nonlocal peak_active_cells
-            cell_iterator = iter(cells_for_pass)
+            nonlocal peak_active_cells, deadline_reached
+            next_cell_index = 0
             active: dict[asyncio.Task[tuple[str, dict[str, Any]]], SmokeCell] = {}
             failed: list[SmokeCell] = []
 
             def fill() -> None:
-                nonlocal peak_active_cells
-                while len(active) < inputs.resolved_cell_concurrency:
-                    try:
-                        cell = next(cell_iterator)
-                    except StopIteration:
+                nonlocal peak_active_cells, next_cell_index, deadline_reached
+                while (
+                    len(active) < inputs.resolved_cell_concurrency
+                    and next_cell_index < len(cells_for_pass)
+                ):
+                    if not allocation_budget.can_start():
+                        deadline_reached = True
                         break
+                    cell = cells_for_pass[next_cell_index]
+                    next_cell_index += 1
                     active[asyncio.create_task(execute(cell))] = cell
                 peak_active_cells = max(peak_active_cells, len(active))
 
@@ -1496,17 +1580,26 @@ async def run_smoke(
                 while active:
                     done, _ = await asyncio.wait(
                         active,
+                        timeout=allocation_budget.work_seconds_left(),
                         return_when=asyncio.FIRST_COMPLETED,
                     )
+                    if not done:
+                        deadline_reached = True
+                        for task in active:
+                            task.cancel()
+                        await asyncio.gather(*active, return_exceptions=True)
+                        break
                     for task in done:
                         cell = active.pop(task)
                         try:
                             cell_id, record = task.result()
                         except AgentExecutionError:
                             failed.append(cell)
+                            known_failed[cell.cell_id] = cell
                         else:
                             completed[cell_id] = record
-                        checkpoint(failed, retry_passes_completed)
+                            known_failed.pop(cell_id, None)
+                        checkpoint(retry_passes_completed)
                     fill()
             except BaseException:
                 for task in active:
@@ -1522,18 +1615,33 @@ async def run_smoke(
         for retry_pass in range(1, FAILED_CELL_RETRY_PASSES + 1):
             if not failed:
                 break
+            if deadline_reached or not allocation_budget.can_start():
+                deadline_reached = True
+                break
             retry_passes_completed = retry_pass
             failed = await run_pass(
                 failed,
                 retry_passes_completed=retry_pass,
             )
+    remaining_count = config["cell_count"] - len(completed)
+    stopped_at_deadline = deadline_reached and remaining_count > 0
     manifest = {
         **config,
         "config_sha256": config_hash,
-        "status": "complete" if not failed else "complete_with_failures",
+        "status": (
+            "checkpointed" if stopped_at_deadline
+            else "complete_with_failures" if known_failed
+            else "complete"
+        ),
+        "stop_reason": (
+            "allocation_deadline" if stopped_at_deadline
+            else "bounded_failures" if known_failed
+            else "queue_exhausted"
+        ),
+        "allocation_budget": allocation_budget.record(),
         "completed_count": len(completed),
-        "remaining_count": config["cell_count"] - len(completed),
-        "failed_cell_ids": sorted(cell.cell_id for cell in failed),
+        "remaining_count": remaining_count,
+        "failed_cell_ids": sorted(known_failed),
         "failed_cell_retry_passes_completed": retry_passes_completed,
         "peak_active_cells_this_invocation": peak_active_cells,
         "compactor_cache_this_invocation": _cache_metrics(compactor),
@@ -1541,9 +1649,9 @@ async def run_smoke(
     if resume_migration is not None:
         manifest["resume_migration"] = resume_migration
     _write_json_atomic(inputs.output / "run_manifest.json", manifest)
-    if failed:
+    if known_failed and not stopped_at_deadline:
         raise RuntimeError(
-            f"{len(failed)} agentic-search cells failed after bounded retry"
+            f"{len(known_failed)} agentic-search cells failed after bounded retry"
         )
     return manifest
 

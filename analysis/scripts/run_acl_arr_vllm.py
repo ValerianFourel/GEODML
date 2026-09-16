@@ -52,6 +52,7 @@ from analysis.interpretability.pipeline.agentic_judging import (  # noqa: E402
     render_agentic_judge_prompt,
     validate_agentic_judgment,
 )
+from analysis.interpretability.pipeline.inference_budget import AllocationBudget
 
 
 def _now() -> str:
@@ -520,25 +521,31 @@ async def _execute_one(item, *, client, fake):
     return result
 
 
-async def _iter_execute(prepared, *, client, maximum_concurrency, fake):
-    """Yield completed requests with at most C prepared tasks in flight."""
+async def _iter_execute(prepared, *, client, maximum_concurrency, fake, budget=None):
+    """Yield completed requests, drain to the work deadline, then cancel stragglers."""
     if maximum_concurrency <= 0:
         raise ValueError("maximum_concurrency must be positive")
     source = iter(prepared)
     active = set()
     try:
         while True:
-            while len(active) < maximum_concurrency:
+            while len(active) < maximum_concurrency and (budget is None or budget.can_start()):
                 item = next(source, None)
                 if item is None:
                     break
                 active.add(asyncio.create_task(_execute_one(item, client=client, fake=fake)))
             if not active:
                 break
-            done, _ = await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
+            remaining = None if budget is None else budget.work_seconds_left()
+            done, _ = await asyncio.wait(
+                active, timeout=remaining, return_when=asyncio.FIRST_COMPLETED,
+            )
             for future in done:
                 active.remove(future)
                 yield future.result()
+            if not done:
+                # These tasks have no committed outcome and remain resumable.
+                break
     finally:
         for future in active:
             future.cancel()
@@ -803,6 +810,9 @@ async def _run(args) -> int:
 
 
 async def _run_locked(args, ownership) -> int:
+    budget = AllocationBudget.from_environment()
+    bounded = budget.work_seconds_left() is not None
+    scheduler = "rolling" if bounded else args.scheduler
     tasks_path = Path(args.tasks).resolve()
     output = Path(args.output_dir).resolve()
     outcomes_path = output / "outcomes.jsonl"
@@ -895,9 +905,13 @@ async def _run_locked(args, ownership) -> int:
         "run_id": run_id,
         "invocation_id": uuid.uuid4().hex,
         "resume_identity": identity,
-        "scheduler": args.scheduler,
+        "scheduler": scheduler,
+        "requested_scheduler": args.scheduler,
+        "allocation_budget": budget.record(),
         "pilot_only": args.pilot_only,
         "status": "running",
+        "completed_count": len(completed),
+        "remaining_count": len(tasks) - len(completed),
         "scientific_result": False,
         "eligible_for_analysis": False,
         "started_at": _now(),
@@ -908,7 +922,9 @@ async def _run_locked(args, ownership) -> int:
             "sha256": _sha256(tasks_path),
             "total_count": len(tasks),
             "already_completed_count": len(completed),
-            "attempted_this_invocation": len(pending),
+            "planned_this_invocation": len(pending),
+            "attempted_this_invocation": 0,
+            "interrupted_this_invocation": 0,
         },
         "pipeline": pipeline,
         "model_id": model_id,
@@ -959,6 +975,8 @@ async def _run_locked(args, ownership) -> int:
 
     succeeded = 0
     failed = 0
+    admitted = 0
+    deadline_interrupted = False
     chunk_size = max(args.max_concurrency, args.max_concurrency * 4)
     with (
         outcomes_path.open("a", encoding="utf-8", buffering=1) as outcomes,
@@ -974,15 +992,26 @@ async def _run_locked(args, ownership) -> int:
             client_context.audit_callback = lambda event: persist(attempts, {
                 **event, "run_id": run_id, "invocation_id": manifest["invocation_id"]})
 
+        def prepared_pending():
+            nonlocal admitted
+            for task in pending:
+                item = prepare(task)
+                admitted += 1
+                manifest["tasks"]["attempted_this_invocation"] = admitted
+                yield item
+
         async def results(client):
-            if args.scheduler == "rolling":
-                async with aclosing(_iter_execute((prepare(task) for task in pending),
-                        client=client, maximum_concurrency=args.max_concurrency, fake=args.fake)) as stream:
+            if scheduler == "rolling":
+                async with aclosing(_iter_execute(prepared_pending(),
+                        client=client, maximum_concurrency=args.max_concurrency,
+                        fake=args.fake, budget=budget)) as stream:
                     async for result in stream:
                         yield result
             else:
+                prepared = prepared_pending()
                 for offset in range(0, len(pending), chunk_size):
-                    for result in await _execute([prepare(t) for t in pending[offset:offset + chunk_size]],
+                    chunk = [next(prepared) for _ in pending[offset:offset + chunk_size]]
+                    for result in await _execute(chunk,
                             client=client, maximum_concurrency=args.max_concurrency, fake=args.fake):
                         yield result
 
@@ -1036,21 +1065,47 @@ async def _run_locked(args, ownership) -> int:
                     _atomic_json(run_manifest_path, manifest)
                     print(f"PROGRESS={succeeded + failed}/{len(pending)} SUCCEEDED={succeeded} FAILED={failed}", flush=True)
 
-        try:
-            if client_context is None or not pending:
+        async def run_processing():
+            if client_context is None or not pending or not budget.can_start():
                 await process(None)
             else:
                 async with client_context as client:
                     await process(client)
+
+        try:
+            remaining = budget.work_seconds_left()
+            if remaining is None:
+                await run_processing()
+            else:
+                try:
+                    # This also bounds server identity verification before dispatch.
+                    await asyncio.wait_for(run_processing(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    if budget.work_seconds_left() != 0:
+                        raise
+                    deadline_interrupted = True
         except BaseException:
+            manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed
             manifest.update(status="interrupted_or_error", finished_at=_now(),
                             completed_count=len(completed), remaining_count=len(tasks) - len(completed))
             _atomic_json(run_manifest_path, manifest)
             raise
 
+    stopped_for_deadline = (
+        bounded and (deadline_interrupted or not budget.can_start())
+        and succeeded + failed < len(pending)
+    )
+    manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed
     manifest.update(
         {
-            "status": "complete" if len(completed) == len(tasks) else "complete_with_failures" if failed else "checkpointed",
+            "status": "complete" if len(completed) == len(tasks) else (
+                "checkpointed" if stopped_for_deadline else "complete_with_failures" if failed else "checkpointed"
+            ),
+            "stop_reason": (
+                "queue_exhausted" if len(completed) == len(tasks) else
+                "allocation_deadline" if stopped_for_deadline else
+                "bounded_failures" if failed else "task_limit"
+            ),
             "scientific_result": not args.fake and not args.pilot_only and len(completed) == len(tasks),
             "eligible_for_analysis": not args.fake and not args.pilot_only and len(completed) == len(tasks),
             "completed_count": len(completed), "remaining_count": len(tasks) - len(completed),
@@ -1067,7 +1122,7 @@ async def _run_locked(args, ownership) -> int:
     print(f"OUTCOMES={succeeded}")
     print(f"FAILURES={failed}")
     print(f"MANIFEST={run_manifest_path}")
-    return 0 if len(completed) == len(tasks) else 2 if failed else 3
+    return 0 if len(completed) == len(tasks) or stopped_for_deadline else 2 if failed else 3
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:

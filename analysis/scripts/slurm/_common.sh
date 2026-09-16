@@ -108,34 +108,10 @@ skip_if_at_max() {
   fi
 }
 
-# Helper: chain a follow-up job that will pick up via --resume. Pass the path
-# to the current sbatch script as $1 and any extra --export key=value pairs
-# as $2..$N. Caller decides whether to call this (typically only on rc != 0).
+# Historical callers still invoke this helper after a checkpoint or failure.
+# Retain the interface, but never extend a budget by submitting another job.
+# Missing work needs a new estimate and explicit allocation-time approval.
 chain_resubmit() {
-  local script="$1"; shift
-  local extra=""
-  for kv in "$@"; do
-    extra="${extra:+$extra,}$kv"
-  done
-  local attempt="${ATTEMPT:-1}"
-  local max="${MAX_ATTEMPTS:-6}"
-  if [ "$attempt" -ge "$max" ]; then
-    echo "[chain] reached MAX_ATTEMPTS=$max — stopping. Investigate before resubmitting."
-    return 1
-  fi
-  local next=$((attempt + 1))
-  echo "[chain] queueing attempt $next/$max with --dependency=afterany:$SLURM_JOB_ID"
-  # JSC's submit filter requires --account on every sbatch even when ALL is
-  # forwarded — env exports don't satisfy it. Pull it from JUWELS_ACCOUNT.
-  local account_arg=()
-  if [ -n "${JUWELS_ACCOUNT:-}" ]; then
-    account_arg=(--account="$JUWELS_ACCOUNT")
-  else
-    echo "[chain] WARNING: JUWELS_ACCOUNT unset; sbatch will likely reject the submission."
-  fi
-  sbatch \
-    "${account_arg[@]}" \
-    --dependency=afterany:"$SLURM_JOB_ID" \
-    --export="ALL,ATTEMPT=$next,MAX_ATTEMPTS=$max${extra:+,$extra}" \
-    "$script"
+  printf '%s\n' '[chain] No automatic resubmission. Preserve checkpoints and obtain fresh wall-time approval for missing work.'
+  return 1
 }

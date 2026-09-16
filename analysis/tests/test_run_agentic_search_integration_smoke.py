@@ -9,6 +9,8 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -46,10 +48,237 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     _select_cells,
     _serial_resume_config,
     run_smoke,
+    validate_manifest_artifacts,
 )
 
 
 class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
+    def test_deadline_drains_active_cell_and_resumes_only_unfinished_work(self) -> None:
+        with TemporaryDirectory() as directory:
+            inputs = replace(_smoke_inputs(Path(directory)), request_concurrency=1)
+            budget = _FakeAllocationBudget(
+                can_start=lambda: not list((inputs.output / "results").glob("*.json")),
+            )
+            client = _FakeClientContext()
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=budget,
+            ) as budget_factory:
+                checkpointed = asyncio.run(run_smoke(
+                    inputs,
+                    client_context=client,
+                    compactor=ContextCompactor(LexicalOverlapScorer()),
+                ))
+            budget_factory.assert_called_once_with()
+            self.assertEqual(checkpointed["status"], "checkpointed")
+            self.assertEqual(checkpointed["stop_reason"], "allocation_deadline")
+            self.assertEqual(checkpointed["completed_count"], 1)
+            self.assertEqual(checkpointed["remaining_count"], 11)
+            self.assertEqual(checkpointed["failed_cell_ids"], [])
+            self.assertEqual(client.call_count, 2)
+            self.assertEqual(
+                validate_manifest_artifacts(inputs.output / "run_manifest.json", 12),
+                checkpointed,
+            )
+            retained = {
+                path: (path.read_bytes(), path.stat().st_mtime_ns)
+                for kind in ("results", "traces", "diagnostics")
+                for path in (inputs.output / kind).glob("*.json")
+            }
+            config_path = inputs.output / "config.json"
+            config_before = config_path.read_bytes()
+            self.assertNotIn("allocation_budget", json.loads(config_before))
+            resume_client = _FakeClientContext()
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=_FakeAllocationBudget(label="new-allocation"),
+            ):
+                completed = asyncio.run(run_smoke(
+                    inputs,
+                    client_context=resume_client,
+                    compactor=ContextCompactor(LexicalOverlapScorer()),
+                ))
+            self.assertEqual(completed["status"], "complete")
+            self.assertEqual(completed["stop_reason"], "queue_exhausted")
+            self.assertEqual(completed["completed_count"], 12)
+            self.assertEqual(resume_client.call_count, 22)
+            self.assertEqual(config_path.read_bytes(), config_before)
+            self.assertEqual(completed["config_sha256"], checkpointed["config_sha256"])
+            self.assertNotEqual(completed["allocation_budget"], checkpointed["allocation_budget"])
+            self.assertEqual(retained, {
+                path: (path.read_bytes(), path.stat().st_mtime_ns) for path in retained
+            })
+
+    def test_deadline_cancels_active_work_without_failure_or_completion(self) -> None:
+        class BlockingClient(_FakeClientContext):
+            entered = False
+
+            async def __aenter__(self):
+                self.entered = True
+                return self
+
+            async def complete(self, **kwargs):
+                self.call_count += 1
+                self.active_calls += 1
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.active_calls -= 1
+
+        with TemporaryDirectory() as directory:
+            inputs = replace(_smoke_inputs(Path(directory)), request_concurrency=1)
+            client = BlockingClient()
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=_FakeAllocationBudget(work_seconds_left=lambda: (
+                    0.0 if client.entered else None
+                )),
+            ):
+                manifest = asyncio.run(run_smoke(
+                    inputs,
+                    client_context=client,
+                    compactor=ContextCompactor(LexicalOverlapScorer()),
+                ))
+            self.assertEqual(manifest["status"], "checkpointed")
+            self.assertEqual(manifest["stop_reason"], "allocation_deadline")
+            self.assertEqual(manifest["completed_count"], 0)
+            self.assertEqual(manifest["remaining_count"], 12)
+            self.assertEqual(manifest["failed_cell_ids"], [])
+            self.assertEqual(client.call_count, 1)
+            self.assertEqual(client.active_calls, 0)
+            self.assertEqual(list((inputs.output / "results").glob("*.json")), [])
+            self.assertEqual(list((inputs.output / "failed_traces").glob("*/*.json")), [])
+
+    def test_deadline_bounds_client_identity_probe_and_preserves_real_timeouts(self) -> None:
+        class BlockingStartupClient(_FakeClientContext):
+            startup_cancelled = False
+
+            async def __aenter__(self):
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.startup_cancelled = True
+
+        class TimedOutStartupClient(_FakeClientContext):
+            async def __aenter__(self):
+                raise asyncio.TimeoutError("server identity timeout")
+
+        with TemporaryDirectory() as directory:
+            inputs = _smoke_inputs(Path(directory))
+            client = BlockingStartupClient()
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=_FakeAllocationBudget(work_seconds_left=lambda: (
+                    0.0 if client.startup_cancelled else 0.001
+                )),
+            ):
+                checkpointed = asyncio.run(run_smoke(
+                    inputs,
+                    client_context=client,
+                    compactor=ContextCompactor(LexicalOverlapScorer()),
+                ))
+            self.assertTrue(client.startup_cancelled)
+            self.assertEqual(checkpointed["status"], "checkpointed")
+            self.assertEqual(checkpointed["stop_reason"], "allocation_deadline")
+            self.assertEqual(checkpointed["remaining_count"], 12)
+            self.assertEqual(checkpointed["failed_cell_ids"], [])
+            self.assertEqual(client.call_count, 0)
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=_FakeAllocationBudget(work_seconds_left=lambda: 10.0),
+            ), self.assertRaisesRegex(asyncio.TimeoutError, "server identity timeout"):
+                asyncio.run(run_smoke(
+                    inputs,
+                    client_context=TimedOutStartupClient(),
+                    compactor=ContextCompactor(LexicalOverlapScorer()),
+                ))
+
+    def test_deadline_preserves_failed_ids_when_retry_is_cancelled(self) -> None:
+        with TemporaryDirectory() as directory:
+            inputs = replace(_smoke_inputs(Path(directory)), request_concurrency=1)
+            client = _FakeClientContext(failed_final_passes=1)
+            budget = _FakeAllocationBudget(work_seconds_left=lambda: (
+                0.0 if len(list((inputs.output / "results").glob("*.json"))) == 11
+                else None
+            ))
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=budget,
+            ):
+                checkpointed = asyncio.run(run_smoke(
+                    inputs,
+                    client_context=client,
+                    compactor=ContextCompactor(LexicalOverlapScorer()),
+                ))
+            self.assertEqual(checkpointed["status"], "checkpointed")
+            self.assertEqual(checkpointed["completed_count"], 11)
+            self.assertEqual(checkpointed["remaining_count"], 1)
+            self.assertEqual(checkpointed["failed_cell_retry_passes_completed"], 1)
+            self.assertEqual(len(checkpointed["failed_cell_ids"]), 1)
+            self.assertEqual(client.failed_final_calls, 3)
+            resume_client = _FakeClientContext()
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=_FakeAllocationBudget(can_start=lambda: False),
+            ):
+                expired = asyncio.run(run_smoke(inputs, client_context=resume_client))
+            self.assertEqual(expired["failed_cell_ids"], checkpointed["failed_cell_ids"])
+            self.assertEqual(resume_client.call_count, 0)
+
+    def test_deadline_before_retry_does_not_admit_retry(self) -> None:
+        with TemporaryDirectory() as directory:
+            inputs = replace(_smoke_inputs(Path(directory)), request_concurrency=1)
+            client = _FakeClientContext(failed_final_passes=1)
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=_FakeAllocationBudget(can_start=lambda: (
+                    len(list((inputs.output / "results").glob("*.json"))) < 11
+                )),
+            ):
+                manifest = asyncio.run(run_smoke(
+                    inputs,
+                    client_context=client,
+                    compactor=ContextCompactor(LexicalOverlapScorer()),
+                ))
+            self.assertEqual(manifest["status"], "checkpointed")
+            self.assertEqual(manifest["failed_cell_retry_passes_completed"], 0)
+            self.assertEqual(len(manifest["failed_cell_ids"]), 1)
+            self.assertEqual(client.call_count, 26)
+
+    def test_generator_wrappers_accept_checkpoint_without_completion_claim(self) -> None:
+        with TemporaryDirectory() as directory:
+            inputs = _smoke_inputs(Path(directory))
+            with patch(
+                "analysis.scripts.run_agentic_search_integration_smoke.AllocationBudget.from_environment",
+                return_value=_FakeAllocationBudget(can_start=lambda: False),
+            ):
+                checkpointed = asyncio.run(run_smoke(inputs))
+            manifest_path = inputs.output / "run_manifest.json"
+            repository = Path(__file__).resolve().parents[2]
+            for model in ("qwen38", "llama4"):
+                with self.subTest(model=model):
+                    wrapper = (
+                        repository / "analysis/scripts/slurm/jupiter"
+                        / f"run_agentic_search_{model}_smoke.sh"
+                    ).read_text(encoding="utf-8")
+                    validator = wrapper.rsplit("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+                    result = subprocess.run(
+                        [sys.executable, "-", str(manifest_path), "12"],
+                        input=validator, text=True, capture_output=True, cwd=repository,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("=CHECKPOINTED", result.stdout)
+                    self.assertNotIn("=PASS", result.stdout)
+            manifest_path.write_text(json.dumps({
+                **checkpointed, "completed_count": 1, "remaining_count": 11,
+            }))
+            with self.assertRaisesRegex(ValueError, "completed artifacts"):
+                validate_manifest_artifacts(manifest_path, 12)
+            manifest_path.write_text(json.dumps({**checkpointed, "remaining_count": 0}))
+            with self.assertRaisesRegex(ValueError, "counts are inconsistent"):
+                validate_manifest_artifacts(manifest_path, 12)
+
     def test_malformed_finish_policy_resume_preserves_completed_artifacts(self) -> None:
         for source_commit in (
             "0b8902f23109b24e7f47fe5dcfc053e75cdfbaf5",
@@ -1396,6 +1625,19 @@ def _parallel_method(generator: VllmAgentGenerator) -> ParallelExpansionV1:
         compactor=ContextCompactor(MemoizingSnippetScorer(LexicalOverlapScorer())),
         condition_hook=IdentityConditionHook(),
     )
+
+
+class _FakeAllocationBudget:
+    def __init__(
+        self, *, can_start=lambda: True, work_seconds_left=lambda: None,
+        label="test-allocation",
+    ):
+        self.can_start = can_start
+        self.work_seconds_left = work_seconds_left
+        self.label = label
+
+    def record(self):
+        return {"allocation": self.label}
 
 
 class _FakeClientContext:

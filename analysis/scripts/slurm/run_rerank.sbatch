@@ -1,11 +1,10 @@
 #!/bin/bash -l
 # Stage A — LLM rerank one (model × engine × pool × variant) cell of the grid.
 # Uses cached SERPs from data/serp/phase0_*.parquet (no HTTP).
-# Self-resubmits via afterany dependency on walltime/error.
+# Does not self-resubmit. Any retry needs a fresh estimate and wall-time approval.
 #
 # Required exports: MODEL, ENGINE, POOL, PROMPT_VARIANT
 # Optional:         TOP_N (default 10), MAX_KEYWORDS (default unlimited),
-#                   ATTEMPT, MAX_ATTEMPTS,
 #                   LOCAL_PRECISION (default "full" = bf16; alt "4bit" = nf4)
 #
 # 70B at bf16 ≈ 140 GB; needs all 4 GPUs (already --gres=gpu:4 below).
@@ -65,10 +64,11 @@ set -e
 echo "[rerank] python rc=$RC"
 if [ "$RC" -eq 0 ]; then
   touch "$OUTDIR/.done_rerank_${MODEL_TAG}_${PROMPT_VARIANT}"
-  echo "[rerank] complete -- chain stops here."
+  echo "[rerank] complete; no new allocation submitted."
   exit 0
 fi
 
+# Compatibility helper reports manual recovery only; it never calls sbatch.
 chain_resubmit "$0" \
   MODEL="$MODEL" ENGINE="$ENGINE" POOL="$POOL" \
   PROMPT_VARIANT="$PROMPT_VARIANT" TOP_N="$TOP_N" \

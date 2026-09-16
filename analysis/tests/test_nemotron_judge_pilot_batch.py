@@ -14,6 +14,7 @@ import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 WRAPPER = REPOSITORY / "analysis/scripts/slurm/jupiter/run_nemotron_judge_pilot.sbatch"
+QUEUE_WRAPPER = REPOSITORY / "analysis/scripts/slurm/jupiter/run_nemotron_judge_queue.sbatch"
 MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
 REVISION = "bf77c3174f68ad409e1c2aa60daeb46e32d1c606"
 
@@ -22,6 +23,9 @@ def _environment(root: Path, *, stage_status: int = 0) -> dict[str, str]:
     repository = root / "repository"
     scripts = repository / "analysis/scripts"
     scripts.mkdir(parents=True)
+    companion = scripts / "slurm/jupiter/run_nemotron_judge_pilot.sbatch"
+    companion.parent.mkdir(parents=True)
+    companion.write_text(WRAPPER.read_text())
     stage = scripts / "search_vllm_stage.py"
     stage.write_text(
         "import json, os, pathlib, sys, time\n"
@@ -35,6 +39,17 @@ def _environment(root: Path, *, stage_status: int = 0) -> dict[str, str]:
         "if os.environ.get('TEST_HOLD'):\n"
         "    while not pathlib.Path(os.environ['TEST_HOLD']).exists():\n"
         "        time.sleep(0.02)\n"
+        "if os.environ['TEST_STAGE_STATUS'] == '0' and not os.environ.get('TEST_MISSING_MANIFEST'):\n"
+        "    output = pathlib.Path(args[args.index('--output-dir') + 1])\n"
+        "    output.mkdir(parents=True, exist_ok=True)\n"
+        "    queue = pathlib.Path(args[args.index('--tasks') + 1])\n"
+        "    total = len(queue.read_text().splitlines())\n"
+        "    completed = int(os.environ.get('TEST_COMPLETED_COUNT', str(total)))\n"
+        "    (output / 'run_manifest.json').write_text(json.dumps({\n"
+        "        'status': os.environ.get('TEST_RUNTIME_STATUS', 'complete'),\n"
+        "        'completed_count': completed, 'remaining_count': total - completed}))\n"
+        "    if os.environ.get('TEST_RUNTIME_CORRUPT'):\n"
+        "        (output / 'run_manifest.json').write_text('broken')\n"
         "sys.exit(int(os.environ['TEST_STAGE_STATUS']))\n"
     )
     commands = root / "bin"
@@ -157,9 +172,9 @@ def _environment(root: Path, *, stage_status: int = 0) -> dict[str, str]:
     }
 
 
-def _run(env):
+def _run(env, wrapper=WRAPPER):
     return subprocess.run(
-        ["bash", str(WRAPPER)], env=env, capture_output=True, text=True,
+        ["bash", str(wrapper)], env=env, capture_output=True, text=True,
         check=False, timeout=15,
     )
 
@@ -298,10 +313,118 @@ def test_wrapper_lock_rejects_duplicate_job(tmp_path):
 
 
 def test_wrapper_has_valid_shell_and_no_allocation_defaults():
-    text = WRAPPER.read_text()
-    assert "#SBATCH" not in text
-    assert "sbatch " not in text
-    result = subprocess.run(
-        ["bash", "-n", str(WRAPPER)], capture_output=True, text=True, check=False
-    )
+    for wrapper in (WRAPPER, QUEUE_WRAPPER):
+        text = wrapper.read_text()
+        assert "#SBATCH" not in text
+        assert "sbatch " not in text
+        result = subprocess.run(
+            ["bash", "-n", str(wrapper)], capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def _throughput_environment(root):
+    env = _environment(root)
+    env["GEODML_APPROVED_WALLTIME"] = "00:30:00"
+    env["SLURM_JOB_START_TIME"] = str(int(time.time()))
+    env["SLURM_JOB_END_TIME"] = str(int(time.time()) + 1800)
+    plan = root / "pilot/plan"
+    queue = plan / "bulk_tasks.jsonl"
+    rows = [json.loads(line) for line in queue.read_text().splitlines()]
+    for index in range(24, 36):
+        rows.append({**rows[0], "judge_task_id": f"task-{index}", "blind_case_id": f"blind-{index}"})
+    queue.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    manifest_path = plan / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"]["bulk_tasks"]["sha256"] = hashlib.sha256(queue.read_bytes()).hexdigest()
+    manifest["pilot"] = {"execution_mode": "throughput"}
+    manifest["summary"] = {
+        "pending_task_count": 36, "bulk_task_count": 36, "available_task_count": 60,
+        "excluded_task_count": 24,
+    }
+    manifest_path.write_text(json.dumps(manifest))
+    return env
+
+
+def test_queue_uses_variable_approved_time_and_reports_checkpoint(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["TEST_RUNTIME_STATUS"] = "checkpointed"
+    env["TEST_COMPLETED_COUNT"] = "17"
+    result = _run(env, QUEUE_WRAPPER)
     assert result.returncode == 0, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["status"] == "checkpointed"
+    assert record["completed_count"] == 17
+    assert record["remaining_count"] == 19
+    assert record["task_count"] == 36
+    assert record["available_task_count"] == 60
+    assert record["excluded_task_count"] == 24
+    assert record["execution_mode"] == "throughput"
+    assert record["approved_walltime"] == "00:30:00"
+    assert record["maximum_gpu_hours"] == 2
+    assert record["allocation_budget"]["policy"] == "fill-approved-queue-v1"
+    assert record["allocation_budget"]["end_epoch"] == int(env["SLURM_JOB_END_TIME"])
+    assert len((tmp_path / "schemas").read_text().splitlines()) == 36
+
+
+def test_queue_stops_after_exhausting_tasks(tmp_path):
+    env = _throughput_environment(tmp_path)
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "capture").read_text().splitlines()
+    assert len(calls) == 2
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["status"] == "complete"
+    assert record["remaining_count"] == 0
+
+
+def test_queue_wrapper_runs_from_slurm_spool_copy(tmp_path):
+    env = _throughput_environment(tmp_path)
+    spool = tmp_path / "slurm-spool/job987654/slurm_script"
+    spool.parent.mkdir(parents=True)
+    spool.write_text(QUEUE_WRAPPER.read_text())
+    assert not (spool.parent / WRAPPER.name).exists()
+    result = _run(env, spool)
+    assert result.returncode == 0, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["status"] == "complete"
+    assert record["execution_mode"] == "throughput"
+
+
+@pytest.mark.parametrize("problem", ["missing_end", "expired", "too_late", "fixed_plan", "counts"])
+def test_queue_refuses_invalid_budget_or_plan_before_server(tmp_path, problem):
+    env = _throughput_environment(tmp_path)
+    if problem == "missing_end":
+        env.pop("SLURM_JOB_END_TIME")
+    elif problem == "expired":
+        env["SLURM_JOB_END_TIME"] = str(int(time.time()) - 1)
+    elif problem == "too_late":
+        env["SLURM_JOB_END_TIME"] = str(int(time.time()) + 60)
+    else:
+        path = tmp_path / "pilot/plan/run_manifest.json"
+        manifest = json.loads(path.read_text())
+        if problem == "fixed_plan":
+            manifest["pilot"]["execution_mode"] = "fixed"
+        else:
+            manifest["summary"]["excluded_task_count"] = 25
+        path.write_text(json.dumps(manifest))
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode != 0
+    assert not (tmp_path / "capture").exists()
+    assert not (tmp_path / "gpu-pid").exists()
+
+
+@pytest.mark.parametrize("problem", ["missing", "incomplete_complete", "corrupt"])
+def test_success_without_complete_or_checkpointed_manifest_is_failure(tmp_path, problem):
+    env = _environment(tmp_path)
+    if problem == "missing":
+        env["TEST_MISSING_MANIFEST"] = "1"
+    elif problem == "corrupt":
+        env["TEST_RUNTIME_CORRUPT"] = "1"
+    else:
+        env["TEST_COMPLETED_COUNT"] = "2"
+    result = _run(env)
+    assert result.returncode == 2, result.stderr
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["status"] == "failed_or_interrupted"
+    assert record["exit_code"] == 2

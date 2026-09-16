@@ -5,8 +5,7 @@
 # variants.
 #
 # Required exports: ENGINE, POOL
-# Optional:         FEATURES_DEVICE (cpu/cuda; default auto), HTML_RUN_ID,
-#                   ATTEMPT, MAX_ATTEMPTS
+# Optional:         FEATURES_DEVICE (cpu/cuda; default auto), HTML_RUN_ID
 #
 # Submit:
 #   sbatch --account=$JUWELS_ACCOUNT \
@@ -49,10 +48,11 @@ set -e
 echo "[features] python rc=$RC"
 if [ "$RC" -eq 0 ]; then
   touch "$OUTDIR/.done_features_${ENGINE}_top${POOL}"
-  echo "[features] complete -- chain stops here."
+  echo "[features] complete; no new allocation submitted."
   exit 0
 fi
 
+# Compatibility helper reports manual recovery only; it never calls sbatch.
 chain_resubmit "$0" \
   ENGINE="$ENGINE" POOL="$POOL" FEATURES_DEVICE="$FEATURES_DEVICE" \
   ${HTML_RUN_ID:+HTML_RUN_ID="$HTML_RUN_ID"} \

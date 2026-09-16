@@ -1,9 +1,9 @@
 #!/bin/bash -l
 # Single-submission orchestrator: chain rerank → features → merge → DML →
 # ablation → saliency → probing → figures, with --dependency=afterok between
-# stages. Each stage's individual chain_resubmit handles its own walltime
-# recovery; this orchestrator just enforces stage ordering and a single
-# operator entry point.
+# stages. Incomplete stages retain checkpoints and need fresh allocation
+# approval for recovery; this orchestrator enforces stage ordering and a
+# single operator entry point.
 #
 # Required exports: PROMPT_VARIANT (biased or neutral)
 # Optional:         JUWELS_ACCOUNT, JUWELS_PROJECT, MODELS (default both),

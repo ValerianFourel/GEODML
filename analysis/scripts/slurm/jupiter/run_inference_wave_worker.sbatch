@@ -40,6 +40,21 @@ if repository not in launcher.parents:
 PY
 test -x "$GEODML_WORKER_LAUNCHER"
 
+export GEODML_ALLOCATION_BUDGET_JSON
+GEODML_ALLOCATION_BUDGET_JSON="$(python3 - "$GEODML_EXECUTION_REPOSITORY" <<'PY'
+import json
+import sys
+sys.path.insert(0, sys.argv[1])
+from analysis.interpretability.pipeline.inference_budget import AllocationBudget
+
+budget = AllocationBudget.from_environment(require=True)
+if not budget.can_start():
+    raise SystemExit("No inference admission time remains in this allocation; model was not loaded")
+print(json.dumps(budget.record(), sort_keys=True))
+PY
+)"
+printf 'ALLOCATION_WORK_POLICY=%s\n' "$GEODML_ALLOCATION_BUDGET_JSON"
+
 geodml_worker_index="$SLURM_ARRAY_TASK_ID"
 geodml_worker_name="$(printf 'worker-%05d' "$geodml_worker_index")"
 geodml_worker_tasks="$GEODML_WAVE_ROOT/workers/$geodml_worker_name.jsonl"
@@ -95,6 +110,10 @@ status = sys.argv[2]
 env = os.environ
 wave_manifest = Path(env["GEODML_WAVE_ROOT"]) / "run_manifest.json"
 tasks = Path(env["GEODML_WORKER_TASKS"])
+runtime_path = Path(env["GEODML_WORKER_OUTPUT"]) / "run_manifest.json"
+runtime = json.loads(runtime_path.read_text()) if status != "running" and runtime_path.is_file() else {}
+if status == "complete" and runtime.get("status") == "checkpointed":
+    status = "checkpointed"
 
 
 def log_path(key):
@@ -133,6 +152,8 @@ row = {
     "stderr": log_path("GEODML_WORKER_STDERR"),
     "approved_walltime": env["GEODML_APPROVED_WALLTIME"],
     "allocation_estimate": env["GEODML_ALLOCATION_ESTIMATE"],
+    "allocation_budget": json.loads(env["GEODML_ALLOCATION_BUDGET_JSON"]),
+    "stop_reason": runtime.get("stop_reason"),
     "resources": {key: env.get(key) for key in (
         "SLURM_JOB_NUM_NODES", "SLURM_NTASKS", "SLURM_CPUS_PER_TASK",
         "SLURM_CPUS_ON_NODE", "SLURM_MEM_PER_NODE", "SLURM_GPUS_ON_NODE",

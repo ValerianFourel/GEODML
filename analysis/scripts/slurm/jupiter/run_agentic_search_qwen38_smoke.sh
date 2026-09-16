@@ -129,19 +129,20 @@ python3 - "$SEARCH_AGENTIC_OUTPUT/run_manifest.json" "$geodml_expected_cells" <<
 import json
 import sys
 from pathlib import Path
+from analysis.scripts.run_agentic_search_integration_smoke import validate_manifest_artifacts
 
-manifest = json.loads(Path(sys.argv[1]).read_text())
 expected_cells = int(sys.argv[2])
-expected = {
-    "status": "complete",
-    "cell_count": expected_cells,
-    "completed_count": expected_cells,
-    "remaining_count": 0,
-    "scientific_result": False,
+manifest = validate_manifest_artifacts(Path(sys.argv[1]), expected_cells)
+actual = {
+    key: manifest.get(key)
+    for key in (
+        "status", "stop_reason", "cell_count", "completed_count", "remaining_count",
+        "scientific_result",
+    )
 }
-actual = {key: manifest.get(key) for key in expected}
-assert actual == expected, actual
-if expected_cells == 12:
+if manifest["status"] == "checkpointed":
+    print(f"AGENTIC_QWEN38_{expected_cells}_CELL_RUN=CHECKPOINTED")
+elif expected_cells == 12:
     print("AGENTIC_QWEN38_12_CELL_SMOKE=PASS")
 else:
     print(f"AGENTIC_QWEN38_{expected_cells}_CELL_RUN=PASS")

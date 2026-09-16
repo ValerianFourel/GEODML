@@ -6,8 +6,7 @@
 # Optional:         DML_MEASUREMENT (default 'new'), DML_OUTCOMES (default rank_delta+post_rank),
 #                   DML_METHODS (default plr), DML_LEARNERS (default lgbm rf),
 #                   DML_SUBSETS (default POOLED+by_engine+by_model+by_pool),
-#                   N_FOLDS (default 5), DML_OLS (set to 1 to also emit OLS rows),
-#                   ATTEMPT, MAX_ATTEMPTS
+#                   N_FOLDS (default 5), DML_OLS (set to 1 to also emit OLS rows)
 #
 # Submit:
 #   sbatch --account=$JUWELS_ACCOUNT \
@@ -90,10 +89,11 @@ set -e
 echo "[dml] python rc=$RC"
 if [ "$RC" -eq 0 ]; then
   touch "$OUTDIR/.done_dml_${PROMPT_VARIANT}"
-  echo "[dml] complete -- chain stops here."
+  echo "[dml] complete; no new allocation submitted."
   exit 0
 fi
 
+# Compatibility helper reports manual recovery only; it never calls sbatch.
 chain_resubmit "$0" \
   PROMPT_VARIANT="$PROMPT_VARIANT" DML_MEASUREMENT="$DML_MEASUREMENT" N_FOLDS="$N_FOLDS" \
   ${DML_OUTCOMES:+DML_OUTCOMES="$DML_OUTCOMES"} \

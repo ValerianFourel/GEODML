@@ -40,6 +40,26 @@ and shuffled document conditions.
 - Avoid hard-coded usernames and machine-specific paths in committed code.
 - Add focused tests for every new behavioral contract.
 
+## Allocation-filling inference policy
+
+- Default every new inference `sbatch` to useful throughput across its approved
+  frozen backlog, not a small 12/24-case smoke cap. Apply this to generator,
+  post-processing, bulk judge, validation and adjudication jobs on every cluster.
+- Keep the model loaded and admit eligible missing tasks continuously within the
+  approved allocation. Checkpoint each completed task. Never repeat completed
+  tasks, change scientific settings, or retry known failures indefinitely just
+  to consume GPU time.
+- Use Slurm's actual allocation end time, including startup, with a short
+  admission/drain/cleanup margin. Record deadline checkpoints separately from
+  failures and full completion. A new allocation must not reset task identity.
+- Size and freeze a sufficiently large backlog before submission. If eligible
+  work runs out, report queue exhaustion; do not invent tasks or busy-wait.
+  Fixed-size historical pilots remain explicit exceptions, not default launchers.
+- Full utilization is a scheduling objective, not a promise of 100% GPU activity.
+  Do not auto-resubmit, extend wall-time, or increase resources. Fresh allocations
+  still need an estimate and Valerian's explicit approval. Running pinned jobs
+  are unchanged by local source edits.
+
 ## Cloud environment
 
 Run the repository setup with:

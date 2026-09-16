@@ -32,6 +32,47 @@ class SearchRuntimeTests(unittest.TestCase):
         return asyncio.run(runtime.run_prepared(self.items, directory, client=Client(),
             identity=self.identity, source_hashes={}, **kwargs))
 
+    def test_allocation_cutoff_checkpoints_and_resume_keeps_completed_tasks(self):
+        from types import SimpleNamespace
+
+        output = self.root / "deadline-results"
+        state = {"admit": True}
+        budget = SimpleNamespace(
+            can_start=lambda: state["admit"],
+            work_seconds_left=lambda: 100.0,
+            record=lambda: {"end_epoch": 123456},
+        )
+        dispatched = []
+
+        class Client:
+            async def complete(self, **request):
+                dispatched.append(request["prompt"])
+                state["admit"] = False
+                return '{"value":1}', {}
+
+        with patch.object(runtime.AllocationBudget, "from_environment", return_value=budget):
+            code = asyncio.run(runtime.run_prepared(
+                self.items, output, client=Client(), identity=self.identity,
+                source_hashes={}, max_concurrency=1,
+            ))
+        self.assertEqual(code, 0)
+        manifest = json.loads((output / "run_manifest.json").read_text())
+        self.assertEqual(manifest["status"], "checkpointed")
+        self.assertEqual(manifest["stop_reason"], "allocation_deadline")
+        self.assertEqual(manifest["completed_count"], 1)
+        self.assertEqual(manifest["attempted_this_invocation"], 1)
+        self.assertEqual(manifest["interrupted_this_invocation"], 0)
+        self.assertEqual(manifest["allocation_budget"], budget.record())
+        self.assertNotIn("allocation_budget", manifest["resume_identity"])
+        prefix = (output / "outcomes.jsonl").read_bytes()
+        self.assertEqual(dispatched, [self.items[0]["prompt"]])
+        self.assertEqual(self.execute(output, resume=True), 0)
+        final = json.loads((output / "run_manifest.json").read_text())
+        self.assertEqual(final["stop_reason"], "queue_exhausted")
+        self.assertEqual(final["attempted_this_invocation"], 2)
+        self.assertEqual(final["resume_identity"], manifest["resume_identity"])
+        self.assertTrue((output / "outcomes.jsonl").read_bytes().startswith(prefix))
+
     def test_validation_feedback_retries_with_audited_deterministic_prompt(self):
         calls = []
 

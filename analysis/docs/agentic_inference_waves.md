@@ -37,6 +37,48 @@ request. A specifically approved wall time and resource request must be supplied
 at submission. The worker records the approved time and its supporting estimate
 in `allocation_attempts.jsonl`.
 
+## Fill the approved allocation with useful work
+
+This is the default for new inference batch submissions. Freeze a backlog large
+enough to exceed the estimated capacity of each approved allocation. Do not size
+a one-hour throughput run as a 12/24-task smoke test. Workers keep one model server
+loaded and refill the rolling scheduler with eligible missing tasks. They do not
+sleep until expiry, repeat completed tasks, or retry failures indefinitely.
+
+`inference_budget.AllocationBudget` uses `SLURM_JOB_END_TIME`, the projected job
+end supplied by [Slurm](https://slurm.schedmd.com/sbatch.html). Model loading,
+compilation, and earlier work consume this same budget. When an actual start time
+and recorded approval are available, the deadline is the earlier of Slurm's end
+and the approved duration from that start. It never starts a fresh hour after
+model startup. The generic wave and Nemotron throughput wrappers require a valid
+deadline before loading the model.
+
+Defaults stop new admissions 120 seconds before the deadline. Existing calls can
+finish until 45 seconds before the deadline; unfinished calls are then cancelled
+without becoming fabricated successes or model failures. These margins are
+configurable with `GEODML_START_MARGIN_SECONDS` and
+`GEODML_CLEANUP_MARGIN_SECONDS`. A hard kill or slow filesystem can still prevent
+clean shutdown. Slurm remains the hard limit.
+
+Generator, primary/reranking and judge controllers record runtime
+`allocation_budget` outside scientific resume identities. A deliberate cutoff
+returns a successful process exit with `status=checkpointed`,
+`stop_reason=allocation_deadline`, and the true remaining count. Exit zero alone
+does not mean every cell completed. The batch allocation journal distinguishes
+this from `complete`. Resume only the missing work in a separately approved run.
+
+If a frozen queue is exhausted, the worker exits and records `queue_exhausted`.
+It cannot invent new scientific tasks to fill the remaining minutes. Static
+modulo workers do not steal another worker's queue; prepare sufficiently large
+queues and rebalance missing IDs in the next approved wave. Full allocation usage
+is a throughput objective, not a guarantee of 100% instantaneous GPU utilization.
+
+Historical fixed-scope pilots and finite CPU stages retain their task definitions.
+They are explicit exceptions and are not the default for new throughput launches.
+The legacy `chain_resubmit` helper no longer submits additional jobs: saved gaps
+require a new estimate and fresh wall-time approval. This policy never extends a
+running allocation, changes model/token settings, or silently updates pinned jobs.
+
 ## New prompts for a paired generator trial
 
 The CPU-only `prepare_agentic_new_cohort.py` reads the original pilot's
@@ -116,6 +158,25 @@ no older job is writing the shard. New parallel work should use the separate
 wave worker directories.
 
 ## Judge roles
+
+### Allocation-filling Nemotron queue
+
+For new throughput runs, use `prepare_agentic_judge_pilot.py --all-available`
+and `run_nemotron_judge_queue.sbatch`. The preparer freezes every complete prompt
+group in the selected completed source shard instead of selecting two prompts.
+Repeat `--exclude-outcomes PATH` for existing compatible Nemotron journals.
+Exclusions validate the prior plan, seed, model revision, resume identity,
+requests and saved outputs; overlapping or conflicting coverage is rejected.
+The new queue records available, excluded and pending counts and retains the
+exclusion provenance. Existing judgments are not rewritten or regenerated.
+
+The queue wrapper uses the same pinned model and judgment schema as the earlier
+24-case pilot. It accepts the separately approved wall-time, checks the actual
+allocation deadline and handles intentional checkpoints. This is throughput
+plumbing, not judge-quality validation; outputs remain `scientific_result=false`.
+It never submits another job. A new queue/attempt must not reuse the old pilot
+directory. The generic wave mechanism remains the route for parallel judging
+and modulo redistribution of missing tasks.
 
 ### Bounded Nemotron plumbing pilot
 

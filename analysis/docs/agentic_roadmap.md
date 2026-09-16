@@ -51,9 +51,11 @@ the model identity; scanning Qwen's completed cells for a Llama wave would
 incorrectly suppress Llama work. Freeze each wave before starting workers and
 create a new missing-only wave when changing worker count.
 
-The existing runner checkpoints completed cells individually. A Slurm hard
-timeout can still interrupt active calls. A timeout is not proof that saved
-cells were lost, and saved cells do not prove that the entire queue finished.
+The runner checkpoints completed cells individually. New batch workers use the
+actual allocation end time, stop admitting new cells shortly before expiry, and
+drain active work before cleanup. A deliberate stop reports `checkpointed` with
+`stop_reason=allocation_deadline`. A Slurm hard kill can still interrupt active
+calls. Neither a timeout nor exit zero alone establishes complete queue coverage.
 
 Allocation approval and the cluster submission are separate from this
 dashboard. Never use a refresh command as a submission command.
@@ -86,3 +88,10 @@ budgets or answer quality.
 The generic worker disables nounset during module setup, takes a per-output
 writer lock, and records allocation start and terminal events. A hard kill
 can prevent the terminal event; Slurm accounting remains authoritative.
+
+All new inference batch launches should use a backlog large enough to fill their
+approved time. The old 24-case Nemotron pilot is complete, not a template for
+another one-hour throughput job. The new allocation-filling queue uses
+`--all-available` and validated `--exclude-outcomes` inputs to avoid repeating
+judgments. See `agentic_inference_waves.md` for deadline margins and exceptions.
+No source change modifies an already-submitted pinned job.

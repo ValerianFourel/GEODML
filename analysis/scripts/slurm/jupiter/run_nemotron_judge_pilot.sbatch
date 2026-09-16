@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Submission supplies the approved one-hour, one-node resource request.
+# Submission supplies the specifically approved time and one-node resources.
+# Historical fixed mode remains 24 tasks and one hour. The queue wrapper selects
+# throughput mode with an allocation deadline and all available planned work.
 set +u
 set -eo pipefail
 export DEBUGINFOD_URLS="${DEBUGINFOD_URLS:-}"
@@ -19,7 +21,12 @@ set -u
 : "${HF_HUB_CACHE:?}"
 : "${GEODML_APPROVED_WALLTIME:?}"
 : "${GEODML_ALLOCATION_ESTIMATE:?}"
-test "$GEODML_APPROVED_WALLTIME" = 01:00:00
+export GEODML_JUDGE_EXECUTION_MODE="${GEODML_JUDGE_EXECUTION_MODE:-fixed}"
+case "$GEODML_JUDGE_EXECUTION_MODE" in
+  fixed) test "$GEODML_APPROVED_WALLTIME" = 01:00:00 ;;
+  throughput) : "${SLURM_JOB_END_TIME:?Throughput mode requires the actual allocation end time}" ;;
+  *) printf 'Unknown judge execution mode: %s\n' "$GEODML_JUDGE_EXECUTION_MODE" >&2; exit 2 ;;
+esac
 test "${SLURM_JOB_NUM_NODES:?}" = 1
 test "${SLURM_GPUS_ON_NODE:?}" = 4
 test "${SLURM_CPUS_PER_TASK:?}" = 32
@@ -61,6 +68,7 @@ import platform
 
 import xgrammar
 from analysis.interpretability.pipeline.agentic_judging import agentic_judge_schema
+from analysis.interpretability.pipeline.inference_budget import AllocationBudget
 from analysis.scripts.run_acl_arr_vllm import _agentic_judge_context
 
 env = os.environ
@@ -68,6 +76,10 @@ root = Path(env["GEODML_JUDGE_PILOT_ROOT"])
 manifest_path = root / "plan/run_manifest.json"
 queue = root / "plan/bulk_tasks.jsonl"
 manifest = json.loads(manifest_path.read_text())
+mode = env["GEODML_JUDGE_EXECUTION_MODE"]
+budget = AllocationBudget.from_environment(require=mode == "throughput")
+if mode == "throughput" and not budget.can_start():
+    raise ValueError("Insufficient allocation time remains to start the judge server")
 tasks, _, model_id, revision = _agentic_judge_context(
     manifest_path, queue, judge_role="bulk"
 )
@@ -75,8 +87,18 @@ if (model_id, revision) != (
     env["GEODML_PILOT_MODEL_ID"], env["GEODML_PILOT_MODEL_REVISION"]
 ):
     raise ValueError("Pilot judge identity differs from the approved Nemotron snapshot")
-if len(tasks) != 24 or len({task.judge_task_id for task in tasks}) != 24:
+if len({task.judge_task_id for task in tasks}) != len(tasks):
+    raise ValueError("Judge task IDs must be unique")
+if mode == "fixed" and len(tasks) != 24:
     raise ValueError("This pilot requires exactly 24 unique judge tasks")
+if mode == "throughput":
+    if manifest.get("pilot", {}).get("execution_mode") != "throughput":
+        raise ValueError("Throughput mode requires an all-available throughput plan")
+    summary = manifest.get("summary", {})
+    if (summary.get("pending_task_count") != len(tasks)
+            or summary.get("bulk_task_count") != len(tasks)
+            or summary.get("available_task_count") != len(tasks) + summary.get("excluded_task_count", -1)):
+        raise ValueError("Throughput queue coverage counts disagree")
 if manifest.get("scientific_result") is not False or manifest.get("pilot_only") is not True:
     raise ValueError("A judge pilot must not claim scientific results")
 snapshot = Path(env["HF_HUB_CACHE"]) / (
@@ -97,19 +119,31 @@ for name in weights + ["config.json", "tokenizer.json", "tokenizer_config.json"]
 for task in tasks:
     schema = agentic_judge_schema([item.evidence_id for item in task.evidence])
     xgrammar.Grammar.from_json_schema(json.dumps(schema))
-print("NEMOTRON_PILOT_PREFLIGHT=PASS tasks=24 weight_shards=13 schemas=24", flush=True)
+print(f"NEMOTRON_PILOT_PREFLIGHT=PASS mode={mode} tasks={len(tasks)} weight_shards=13 schemas={len(tasks)}", flush=True)
 versions = {}
 for package in ("vllm", "transformers", "huggingface-hub", "xgrammar", "torch"):
     try:
         versions[package] = metadata.version(package)
     except metadata.PackageNotFoundError:
         versions[package] = None
+walltime = env["GEODML_APPROVED_WALLTIME"]
+days, separator, clock = walltime.partition("-")
+if not separator:
+    days, clock = "0", days
+parts = [int(part) for part in clock.split(":")]
+if len(parts) != 3 or int(days) < 0 or parts[0] < 0 or not all(0 <= part < 60 for part in parts[1:]):
+    raise ValueError("Approved walltime must use [days-]HH:MM:SS")
+approved_seconds = int(days) * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2]
+if approved_seconds <= 0:
+    raise ValueError("Approved walltime must be positive")
 record = {
     "status": "starting",
     "scientific_result": False,
     "approved_walltime": env["GEODML_APPROVED_WALLTIME"],
     "allocation_estimate": env["GEODML_ALLOCATION_ESTIMATE"],
-    "maximum_gpu_hours": 4,
+    "maximum_gpu_hours": approved_seconds * 4 / 3600,
+    "execution_mode": mode,
+    "allocation_budget": budget.record(),
     "slurm_job_id": env["SLURM_JOB_ID"],
     "git_commit": env["GEODML_EXECUTION_COMMIT"],
     "started_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -118,6 +152,8 @@ record = {
     "model_revision": revision,
     "model_snapshot": str(snapshot),
     "task_count": len(tasks),
+    "available_task_count": manifest.get("summary", {}).get("available_task_count", len(tasks)),
+    "excluded_task_count": manifest.get("summary", {}).get("excluded_task_count", 0),
     "tasks_sha256": hashlib.sha256(queue.read_bytes()).hexdigest(),
     "plan_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
     "virtual_environment": env["ACL_ARR_VENV"],
@@ -170,9 +206,33 @@ import sys
 path = Path(os.environ["GEODML_JUDGE_PILOT_ROOT"]) / "logs/allocation.json"
 record = json.loads(path.read_text())
 status = int(sys.argv[1])
+runtime_path = Path(record["output"]) / "run_manifest.json"
+try:
+    runtime = json.loads(runtime_path.read_text()) if runtime_path.exists() else {}
+    if not isinstance(runtime, dict):
+        raise ValueError("runtime manifest must be an object")
+except (OSError, ValueError) as error:
+    runtime = {}
+    record["runtime_manifest_error"] = str(error)
+terminal = "failed_or_interrupted"
+if status == 0:
+    completed = runtime.get("completed_count")
+    remaining = runtime.get("remaining_count")
+    valid_counts = (type(completed) is int and type(remaining) is int
+                    and completed >= 0 and remaining >= 0
+                    and completed + remaining == record["task_count"])
+    if valid_counts and runtime.get("status") == "complete" and remaining == 0:
+        terminal = "complete"
+    elif valid_counts and runtime.get("status") == "checkpointed" and remaining > 0:
+        terminal = "checkpointed"
+    else:
+        status = 2
 record.update(
-    status="complete" if status == 0 else "failed_or_interrupted",
+    status=terminal,
     exit_code=status,
+    runtime_status=runtime.get("status"),
+    completed_count=runtime.get("completed_count"),
+    remaining_count=runtime.get("remaining_count"),
     finished_at_utc=datetime.now(timezone.utc).isoformat(),
 )
 temporary = path.with_suffix(".tmp")
@@ -183,6 +243,8 @@ with temporary.open("x", encoding="utf-8") as stream:
     os.fsync(stream.fileno())
 temporary.replace(path)
 print("NEMOTRON_PILOT_COMMAND_STATUS=" + str(status), flush=True)
+if status != int(sys.argv[1]):
+    raise SystemExit(status)
 PY
   exit "$geodml_exit_status"
 }

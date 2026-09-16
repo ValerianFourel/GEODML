@@ -26,6 +26,7 @@ from analysis.scripts.run_acl_arr_vllm import (
 from analysis.interpretability.pipeline.acl_arr_document_experiment import (
     iter_experiment_tasks, load_plan_from_artifacts,
 )
+from analysis.interpretability.pipeline.inference_budget import AllocationBudget
 
 BUNDLE_VERSION = "search-experience-bundle-v1"
 _CURRENT_ANSWER_SCHEMA = object()
@@ -407,6 +408,8 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
                        serving_profile=None):
     if max_concurrency < 1 or max_tasks < 0:
         raise ValueError("concurrency must be positive and max_tasks nonnegative")
+    budget = AllocationBudget.from_environment()
+    bounded = budget.work_seconds_left() is not None
     identity = _run_identity(items, identity)
     binding, profile = _serving_profile_details(serving_profile, identity)
     runtime_binding = _serving_runtime_details(profile)
@@ -450,13 +453,15 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
         started_at = _now()
         manifest = {**identity, "format_version": "search-experience-run-v1",
                     "resume_identity": identity, "source_artifacts_sha256": source_hashes,
+                    "allocation_budget": budget.record(),
                     "run_id": run_id,
                     "status": "running", "started_at": started_at, "finished_at": None,
                     "scientific_result": False, "eligible_for_analysis": False,
                     "task_count": len(items), "completed_count": len(completed),
                     "remaining_count": len(items) - len(completed),
                     "tasks": {"sha256": identity["tasks_sha256"]},
-                    "maximum_concurrency": max_concurrency, "attempted_this_invocation": 0}
+                    "maximum_concurrency": max_concurrency, "attempted_this_invocation": 0,
+                    "planned_this_invocation": len(pending), "interrupted_this_invocation": 0}
         if binding is not None:
             manifest["serving_profile"] = binding
         if runtime_binding is not None:
@@ -477,6 +482,8 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
             manifest["serving_invocations"] = history
         _atomic_json(manifest_path, manifest)
         failures = 0
+        settled = 0
+        stopped_for_deadline = False
         with (output / "outcomes.jsonl").open("a", encoding="utf-8") as outcomes, \
                 (output / "failures.jsonl").open("a", encoding="utf-8") as failed, \
                 (output / "attempts.jsonl").open("a", encoding="utf-8") as attempts:
@@ -487,9 +494,15 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
             old_audit = getattr(client, "audit_callback", None)
             if client is not None:
                 client.audit_callback = lambda event: persist(attempts, {**event, "run_id": manifest["run_id"]})
+
+            def pending_items():
+                for item in pending:
+                    manifest["attempted_this_invocation"] += 1
+                    yield item
+
             try:
-                async with aclosing(_iter_execute(pending, client=client,
-                        maximum_concurrency=max_concurrency, fake=False)) as results:
+                async with aclosing(_iter_execute(pending_items(), client=client,
+                        maximum_concurrency=max_concurrency, fake=False, budget=budget)) as results:
                     async for result in results:
                         row = {**result["base"], **{k: v for k, v in result.items() if k not in ("base", "ok")},
                                "run_id": manifest["run_id"], "scientific_result": False,
@@ -501,9 +514,10 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
                             completed.add(row["task_id"])
                         else:
                             failures += 1
-                        manifest.update(completed_count=len(completed), remaining_count=len(items) - len(completed),
-                            attempted_this_invocation=manifest["attempted_this_invocation"] + 1)
+                        settled += 1
+                        manifest.update(completed_count=len(completed), remaining_count=len(items) - len(completed))
                         _atomic_json(manifest_path, manifest)
+                stopped_for_deadline = bounded and not budget.can_start() and settled < len(pending)
                 verify_sources(source_hashes)
                 if binding is not None:
                     current_binding, _ = _serving_profile_details(
@@ -513,7 +527,14 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
                         raise ValueError("serving profile changed during the run")
                 if _serving_runtime_details(profile) != runtime_binding:
                     raise ValueError("serving runtime changed during the run")
-                manifest["status"] = "complete" if len(completed) == len(items) else "complete_with_failures" if failures else "checkpointed"
+                manifest["status"] = "complete" if len(completed) == len(items) else (
+                    "checkpointed" if stopped_for_deadline else "complete_with_failures" if failures else "checkpointed"
+                )
+                manifest["stop_reason"] = (
+                    "queue_exhausted" if len(completed) == len(items) else
+                    "allocation_deadline" if stopped_for_deadline else
+                    "bounded_failures" if failures else "task_limit"
+                )
             except BaseException as exc:
                 manifest.update(status="interrupted_or_error", error=f"{type(exc).__name__}: {exc}")
                 raise
@@ -522,11 +543,12 @@ async def run_prepared(items, output, *, client, identity, source_hashes,
                     client.audit_callback = old_audit
                 finished_at = _now()
                 manifest.update(finished_at=finished_at, failures_this_invocation=failures,
+                    interrupted_this_invocation=manifest["attempted_this_invocation"] - settled,
                     **{name + "_sha256": _sha256(output / (name + ".jsonl")) for name in ("outcomes", "failures", "attempts")})
                 if "serving_invocations" in manifest:
                     manifest["serving_invocations"][-1]["finished_at"] = finished_at
                 _atomic_json(manifest_path, manifest)
-    return 0 if len(completed) == len(items) else 2 if failures else 3
+    return 0 if len(completed) == len(items) or stopped_for_deadline else 2 if failures else 3
 
 
 def _validated_primary(bundle_directory, primary_output):

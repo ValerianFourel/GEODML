@@ -6,7 +6,7 @@
 #
 # Required exports: MODEL
 # Optional:         SAMPLE_N (default huge), T7_KWS (default huge), FRAME
-#                   (default both), RUN_FILTER, ATTEMPT, MAX_ATTEMPTS
+#                   (default both), RUN_FILTER
 #
 # RUN_FILTER must match the model:
 #   Llama-3.3-70B-Instruct -> searxng_Llama-3.3-70B-Instruct_serp50_top10
@@ -77,10 +77,11 @@ set -e
 echo "[probing] python rc=$RC"
 if [ "$RC" -eq 0 ]; then
   touch "$OUTDIR/.done_${MODEL_TAG}"
-  echo "[probing] complete -- chain stops here."
+  echo "[probing] complete; no new allocation submitted."
   exit 0
 fi
 
+# Compatibility helper reports manual recovery only; it never calls sbatch.
 chain_resubmit "$0" \
   MODEL="$MODEL" SAMPLE_N="$SAMPLE_N" T7_KWS="$T7_KWS" FRAME="$FRAME" \
   RUN_FILTER="$RUN_FILTER" PROMPT_VARIANT="$PROMPT_VARIANT" \

@@ -5,8 +5,7 @@
 # running both in one job risks blowing the 24 h walltime cap.
 #
 # Required exports: MODEL, FRAME (full | robust_winners)
-# Optional:         SAMPLE_N (default huge so all eligible kws are taken),
-#                   ATTEMPT, MAX_ATTEMPTS
+# Optional:         SAMPLE_N (default huge so all eligible kws are taken)
 
 #SBATCH --partition=booster
 #SBATCH --nodes=1
@@ -50,10 +49,11 @@ set -e
 echo "[saliency] python rc=$RC"
 if [ "$RC" -eq 0 ]; then
   touch "$OUTDIR/.done_${MODEL_TAG}_${FRAME}"
-  echo "[saliency] complete -- chain stops here."
+  echo "[saliency] complete; no new allocation submitted."
   exit 0
 fi
 
+# Compatibility helper reports manual recovery only; it never calls sbatch.
 chain_resubmit "$0" \
   MODEL="$MODEL" FRAME="$FRAME" SAMPLE_N="$SAMPLE_N" \
   PROMPT_VARIANT="$PROMPT_VARIANT" \

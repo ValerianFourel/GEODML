@@ -189,7 +189,7 @@ def submit_trial(
         "prompt_count": 120, "cells_per_model": 1440,
         "prompt_selection_seed": PROMPT_SELECTION_SEED, "cohort_seed": COHORT_SEED,
         "request_concurrency": 4, "cell_concurrency": 12,
-        "cutoff_policy": "Slurm may time out; retain completed per-cell artifacts, retry only missing cells",
+        "cutoff_policy": "fill-approved-queue-v1: rolling missing-cell work, deadline drain, atomic checkpoints",
         "models": {slug: {**model, "status": "not_submitted"} for slug, model in models.items()},
     }
     _atomic_json(manifest_path, manifest)
