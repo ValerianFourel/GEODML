@@ -138,9 +138,11 @@ job may save about 3,600–3,900 cells and each Llama job about 5,500–5,800, a
 prompts, retries and security failures can reduce that yield. Completion of the
 entire queue is not promised.
 
-Preparation is the default. Submission requires `--submit`, the approved budget
-environment variables, and a successful CPU-only private-network check. Each
-compute-node serving stage also isolates itself before starting the model.
+Preparation is the default. Submission requires `--submit` and the approved
+budget environment variables. It does not create namespaces on the login node.
+Each compute-node serving stage must isolate itself before starting the model.
+If the compute node cannot provide isolation, the job exits without starting
+vLLM. Submission alone does not prove that inference can run.
 No JSC document or manually asserted security flag substitutes for these checks.
 See [endpoint security](inference_endpoint_security.md).
 

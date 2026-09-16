@@ -179,7 +179,7 @@ def test_four_allocations_share_backlog_and_claims_with_fixed_resources(backlog)
     assert "network_isolation" not in result
     assert result["cells_per_model"] == 14400
     assert len(backlog["calls"]) == 2
-    assert len(backlog["probes"]) == 1
+    assert not backlog["probes"]
     assert len((root / "tasks.jsonl").read_text().splitlines()) == 14400
     for (slug, job), (command, options) in zip(
         (("qwen38", "12345"), ("llama4", "12346")), backlog["calls"], strict=True,
@@ -386,7 +386,7 @@ def test_wrong_cohort_or_unverified_exclusions_never_submit(backlog, change):
     assert not backlog["arguments"]["run_root"].exists()
 
 
-def test_failed_namespace_probe_prevents_all_allocations(backlog, monkeypatch):
+def test_login_namespace_restriction_does_not_block_compute_job_submission(backlog, monkeypatch):
     real_run = module.subprocess.run
 
     def run(command, **kwargs):
@@ -395,7 +395,16 @@ def test_failed_namespace_probe_prevents_all_allocations(backlog, monkeypatch):
         return real_run(command, **kwargs)
 
     monkeypatch.setattr(module.subprocess, "run", run)
-    with pytest.raises(RuntimeError, match="No GPU jobs submitted"):
+    result = module.submit_backlog(**backlog["arguments"])
+    assert result["status"] == "submitted"
+    assert len(backlog["calls"]) == 2
+    assert not backlog["probes"]
+
+
+def test_missing_compute_isolation_helper_prevents_submission(backlog):
+    repository = Path(backlog["environment"]["GEODML_EXECUTION_REPOSITORY"])
+    (repository / "analysis/scripts/inference_network_namespace.py").unlink()
+    with pytest.raises(ValueError, match="inference_network_namespace"):
         module.submit_backlog(**backlog["arguments"])
     assert not backlog["calls"]
     assert not backlog["arguments"]["run_root"].exists()

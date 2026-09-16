@@ -81,14 +81,19 @@ Its distributed dependencies can open additional listeners, including a PyTorch
 TCPStore on all interfaces. Setting `VLLM_HOST_IP=127.0.0.1` is not proof that every
 dependency listener is private. See the [vLLM security guidance](https://docs.vllm.ai/en/latest/usage/security/).
 
-The new generator submission helper runs the namespace helper's CPU-only
-`--check` before submitting. Every shared serving stage independently creates and
-verifies its own private namespace on the allocated compute node. This protects
+The generator submission helper checks that the namespace helper exists, but
+does not execute it on the login node. Login and compute nodes can have different
+namespace policies. In particular, a login node with `user/max_user_namespaces=0`
+cannot perform this check even if the allocated compute node supports isolation.
+Every shared serving stage creates and verifies its private namespace on the
+allocated compute node before loading the model or starting vLLM. This protects
 TCP listeners during startup as well as after readiness, even if a dependency
 binds to all interfaces inside that namespace. See the
 [Linux network namespace documentation](https://man7.org/linux/man-pages/man7/network_namespaces.7.html).
-The login-node check cannot establish compute-node or CUDA compatibility.
-If JUPITER disallows unprivileged namespaces, stop and request JSC's supported
+Submission is not proof of compute-node or CUDA compatibility. If the compute
+node disallows unprivileged namespaces, the job exits without starting vLLM;
+allocated startup time can still be charged. There is no automatic retry.
+If JUPITER disallows unprivileged namespaces on compute nodes, request its supported
 isolation procedure rather than disabling this gate. No JSC confirmation is
 assumed or required as a substitute for runtime verification.
 

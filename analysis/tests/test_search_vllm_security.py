@@ -141,7 +141,7 @@ def test_lost_isolation_prevents_controller_even_with_valid_http_auth(stage_run,
     assert runtime["controller_status"] == "not_started"
 
 
-def test_isolation_failure_prevents_server_and_runtime_probe(stage_run, monkeypatch):
+def test_isolation_failure_prevents_server_and_runtime_probe(stage_run, monkeypatch, tmp_path):
     run, launches, _, _ = stage_run
 
     def unavailable(*args):
@@ -149,9 +149,13 @@ def test_isolation_failure_prevents_server_and_runtime_probe(stage_run, monkeypa
 
     monkeypatch.setattr(stage, "ensure_private_network_namespace", unavailable)
     monkeypatch.setattr(stage, "verify_runtime", lambda *args: pytest.fail("runtime probed before isolation"))
+    monkeypatch.setattr(stage, "discover_visible_gpus", lambda: pytest.fail("GPU discovery before isolation"))
+    monkeypatch.setattr(stage, "ensure_port_available", lambda *args: pytest.fail("port bound before isolation"))
     with pytest.raises(security.EndpointSecurityError, match="isolation unavailable"):
         run()
     assert launches == []
+    assert not (tmp_path / "server.log").exists()
+    assert not (tmp_path / "server.log.runtime.json").exists()
 
 
 @pytest.mark.parametrize("field,bad", [

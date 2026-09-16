@@ -167,19 +167,9 @@ def _preflight(
                SEARCH_AGENTIC_CROSS_ENCODER_REVISION=BGE_REVISION)
     for name in ("SEARCH_AGENTIC_DDG_SNAPSHOT", "SEARCH_AGENTIC_SEARXNG_SNAPSHOT"):
         env[name] = str(_file(Path(_require(environment, name)).resolve()))
-    if submit:
-        namespace_helper = _file(repository / "analysis/scripts/inference_network_namespace.py")
-        try:
-            subprocess.run(
-                [sys.executable, str(namespace_helper), "--check"],
-                check=True, timeout=30, capture_output=True, text=True,
-            )
-        except subprocess.CalledProcessError:
-            raise RuntimeError(
-                "Network isolation check failed before submission; run python3 "
-                "analysis/scripts/inference_network_namespace.py --check for details. "
-                "No GPU jobs submitted."
-            ) from None
+    # Login-node namespace policy does not establish compute-node capability.
+    # The serving stage must create and verify isolation before starting vLLM.
+    _file(repository / "analysis/scripts/inference_network_namespace.py")
     return env, models
 
 
