@@ -8,8 +8,10 @@ from unittest.mock import patch
 import pytest
 
 from analysis.interpretability.pipeline.agentic_search import (
+    AgenticResult,
     ContextCompactor,
     LexicalOverlapScorer,
+    ReactiveSnippetLoopV1,
 )
 from analysis.scripts.run_agentic_search_integration_smoke import run_smoke
 from analysis.tests.test_run_agentic_search_integration_smoke import (
@@ -111,6 +113,36 @@ def test_known_failure_is_durable_and_next_job_does_not_retry_it(tmp_path):
     assert manifest["completed_count"] == 11
     assert manifest["remaining_count"] == 1
     assert manifest["stop_reason"] == "bounded_failures"
+
+
+def test_reactive_retrieval_contract_failure_retries_cell_without_killing_worker(tmp_path):
+    inputs = inputs_for(tmp_path)
+    client = _FakeClientContext()
+    original = ReactiveSnippetLoopV1.run
+    skipped = 0
+
+    async def skip_retrieval_once(self, user_prompt, condition):
+        nonlocal skipped
+        if skipped == 0:
+            skipped += 1
+            return AgenticResult(
+                method_id=self.method_id,
+                condition=condition,
+                ranking=(),
+                answer="Premature finish",
+                final_snippets=(),
+                trace=self._trace(user_prompt, condition, {"synthetic_test": 1}),
+            )
+        return await original(self, user_prompt, condition)
+
+    with patch.object(ReactiveSnippetLoopV1, "run", skip_retrieval_once):
+        manifest = asyncio.run(run(inputs, client))
+
+    assert skipped == 1
+    assert manifest["status"] == "complete"
+    assert manifest["completed_count"] == 12
+    assert manifest["failed_cell_ids"] == []
+    assert len(list((inputs.output / "failed_traces").glob("*/*.json"))) == 1
 
 
 def test_deadline_checkpoint_then_peer_completion_reuses_in_original_output(tmp_path):

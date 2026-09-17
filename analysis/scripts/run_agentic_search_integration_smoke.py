@@ -1744,6 +1744,23 @@ async def _run_smoke(
                     cell.prompt if cell.prompt is not None else legacy_prompt,
                     cell.condition,
                 )
+                search_count = sum(
+                    event.event_type == "search" for event in result.trace.events
+                )
+                expected_searches = (
+                    3 if cell.method_class is ParallelExpansionV1 else None
+                )
+                if expected_searches is not None and search_count != expected_searches:
+                    raise AgentExecutionError(
+                        f"{cell.method_class.method_id} made {search_count} searches, "
+                        f"expected {expected_searches}",
+                        result.trace,
+                    )
+                if cell.method_class is ReactiveSnippetLoopV1 and search_count < 1:
+                    raise AgentExecutionError(
+                        "Reactive-Snippet-Loop-v1 did not exercise retrieval",
+                        result.trace,
+                    )
             except AgentExecutionError as error:
                 failure_hash = error.trace.to_dict()["trace_sha256"]
                 failure_path = (
@@ -1760,21 +1777,6 @@ async def _run_smoke(
                     "llm_calls": generator.diagnostics,
                 })
                 raise
-            search_count = sum(
-                event.event_type == "search" for event in result.trace.events
-            )
-            expected_searches = (
-                3 if cell.method_class is ParallelExpansionV1 else None
-            )
-            if expected_searches is not None and search_count != expected_searches:
-                raise RuntimeError(
-                    f"{cell.method_class.method_id} made {search_count} searches, "
-                    f"expected {expected_searches}"
-                )
-            if cell.method_class is ReactiveSnippetLoopV1 and search_count < 1:
-                raise RuntimeError(
-                    "Reactive-Snippet-Loop-v1 did not exercise retrieval"
-                )
             trace_value = result.trace.to_dict()
             trace_hash = trace_value["trace_sha256"]
             record = {
