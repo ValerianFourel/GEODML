@@ -30,6 +30,7 @@ approved_walltime="$6"
 maximum_gpu_hours="$7"
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 manifest="$run_root/run_manifest.json"
+test -z "$(git -C "$repository" status --porcelain --untracked-files=all)"
 
 source "${ACL_ARR_ENVIRONMENT_FILE:-$HOME/geodml-acl-arr-pilot.env}"
 if ! type module >/dev/null 2>&1; then source /etc/profile; fi
