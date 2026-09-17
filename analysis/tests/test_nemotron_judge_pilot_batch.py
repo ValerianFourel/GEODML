@@ -32,6 +32,9 @@ def _environment(root: Path, *, stage_status: int = 0) -> dict[str, str]:
         "args = sys.argv[1:]\n"
         "with open(os.environ['TEST_CAPTURE'], 'a') as stream:\n"
         "    stream.write(json.dumps(args) + '\\n')\n"
+        "if os.environ.get('TEST_BOUNDARY_CAPTURE'):\n"
+        "    pathlib.Path(os.environ['TEST_BOUNDARY_CAPTURE']).write_text(\n"
+        "        os.environ.get('GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY', ''))\n"
         "if args[0] == 'prepare':\n"
         "    path = pathlib.Path(args[args.index('--profile') + 1])\n"
         "    path.write_text('{}')\n"
@@ -460,6 +463,14 @@ def test_queue_passes_shared_claim_root_and_slot_to_runner(tmp_path):
     assert run[run.index("--claim-root") + 1] == env["GEODML_JUDGE_CLAIM_ROOT"]
     assert run[run.index("--worker-index") + 1] == "0"
     assert run[run.index("--worker-count") + 1] == "1"
+
+
+def test_queue_uses_verified_exclusive_slurm_boundary(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["TEST_BOUNDARY_CAPTURE"] = str(tmp_path / "boundary")
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "boundary").read_text() == "1"
 
 
 def test_parallel_queue_attempts_have_separate_logs_and_same_plan(tmp_path):
