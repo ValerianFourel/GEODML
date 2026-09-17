@@ -198,7 +198,7 @@ def test_pilot_wrapper_checks_inputs_and_propagates_status(tmp_path, stage_statu
     assert prepare[prepare.index("--data-parallel-size") + 1] == "1"
     assert prepare[prepare.index("--model-id") + 1] == MODEL
     assert prepare[prepare.index("--model-revision") + 1] == REVISION
-    assert prepare[prepare.index("--max-model-len") + 1] == "16384"
+    assert prepare[prepare.index("--max-model-len") + 1] == "73728"
     assert "--enforce-eager" in prepare
     assert run[0] == "run"
     assert run[run.index("--startup-timeout-seconds") + 1] == "900"
@@ -387,12 +387,26 @@ def _recorded_queue(root, env, *, prompt_tokens):
 
 def test_full_conversation_context_overflow_stops_before_gpu_start(tmp_path):
     env = _throughput_environment(tmp_path)
-    _recorded_queue(tmp_path, env, prompt_tokens=16000)
+    _recorded_queue(tmp_path, env, prompt_tokens=72000)
     result = _run(env, QUEUE_WRAPPER)
     assert result.returncode != 0
     assert "context" in result.stderr.lower(), result.stderr
     assert not (tmp_path / "capture").exists()
     assert not (tmp_path / "gpu-pid").exists()
+
+
+def test_full_conversation_context_observed_maximum_fits_without_truncation(tmp_path):
+    env = _throughput_environment(tmp_path)
+    _recorded_queue(tmp_path, env, prompt_tokens=64841)
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    calls = [json.loads(line) for line in (tmp_path / "capture").read_text().splitlines()]
+    prepare, _ = calls
+    assert prepare[prepare.index("--max-model-len") + 1] == "73728"
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["context_budget"]["max_prompt_tokens"] == 64841
+    assert record["context_budget"]["max_required_tokens"] == 66889
+    assert record["context_budget"]["max_model_len"] == 73728
 
 
 def test_full_conversation_context_budget_is_recorded(tmp_path):

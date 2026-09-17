@@ -66,6 +66,7 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export GEODML_PILOT_MODEL_ID=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
 export GEODML_PILOT_MODEL_REVISION=bf77c3174f68ad409e1c2aa60daeb46e32d1c606
+export GEODML_JUDGE_MAX_MODEL_LEN=73728
 export PYTHONUNBUFFERED=1
 
 python3 - <<'PY'
@@ -93,6 +94,9 @@ manifest_path = plan_root / "run_manifest.json"
 queue = plan_root / "bulk_tasks.jsonl"
 manifest = json.loads(manifest_path.read_text())
 mode = env["GEODML_JUDGE_EXECUTION_MODE"]
+max_model_len = int(env["GEODML_JUDGE_MAX_MODEL_LEN"])
+if max_model_len != 73728:
+    raise ValueError("Nemotron judge max model length must remain pinned at 73728")
 budget = AllocationBudget.from_environment(require=mode == "throughput")
 if mode == "throughput" and not budget.can_start():
     raise ValueError("Insufficient allocation time remains to start the judge server")
@@ -156,7 +160,7 @@ if manifest["format_version"] == TRANSCRIPT_FORMAT_VERSION:
         str(snapshot), local_files_only=True, trust_remote_code=True,
     )
     context_budget = check_agentic_judge_context_budget(
-        tasks, tokenizer=tokenizer, max_model_len=16384,
+        tasks, tokenizer=tokenizer, max_model_len=max_model_len,
         max_output_tokens=2048, disable_thinking=True,
     )
     context_budget = {key: value for key, value in context_budget.items() if key != "tasks"}
@@ -206,6 +210,7 @@ record = {
     "finished_at_utc": None,
     "model_id": model_id,
     "model_revision": revision,
+    "max_model_len": max_model_len,
     "model_snapshot": str(snapshot),
     "task_count": len(tasks),
     "source_task_count": source_task_count,
@@ -330,7 +335,7 @@ python3 analysis/scripts/search_vllm_stage.py prepare \
   --cache-base "$GEODML_CACHE_ROOT/compile-cache" \
   --expected-gpu-name-pattern GH200 \
   --data-parallel-size 1 --tensor-parallel-size 4 \
-  --dtype bfloat16 --max-model-len 16384 --gpu-memory-utilization 0.85 \
+  --dtype bfloat16 --max-model-len "$GEODML_JUDGE_MAX_MODEL_LEN" --gpu-memory-utilization 0.85 \
   --request-concurrency 4 --enforce-eager
 
 python3 analysis/scripts/search_vllm_stage.py run \
