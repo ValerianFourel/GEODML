@@ -53,11 +53,14 @@ single-node job with `Exclusive=NODE`, or legacy Slurm's equivalent `Shared=0`,
 on the allocated node. JUPITER's Slurm 25.05 build omits both fields; for that
 representation the verifier requires `OverSubscribe=NO` and independently
 matches the job's one-node CPU allocation in both `NumCPUs` and `AllocTRES`
-against the positive `SLURM_CPUS_ON_NODE` value. If `Exclusive` is present it
-remains authoritative, so conflicting scheduler evidence is rejected. Missing
-or conflicting scheduler evidence stops the job. This path retains literal
-loopback binding, per-run native authentication, and loopback-only NCCL/Gloo
-transport. It does not claim that a private kernel network namespace exists.
+against the positive `SLURM_JOB_CPUS_PER_NODE` value. Batch steps that do not
+provide that job-level variable fall back to `SLURM_CPUS_ON_NODE`; ordinary
+`srun` steps do not, because that value describes only the step. If `Exclusive`
+is present it remains authoritative, so conflicting scheduler evidence is
+rejected. Missing or conflicting scheduler evidence stops the job. This path
+retains literal loopback binding, per-run native authentication, and
+loopback-only NCCL/Gloo transport. It does not claim that a private kernel
+network namespace exists.
 Other launchers continue to require the namespace path unless they explicitly
 request and verify the whole-node boundary.
 

@@ -152,7 +152,9 @@ def _verify_exclusive_slurm_boundary() -> dict:
         if "=" in item
     )
     exclusive_disposition = fields.get("Exclusive")
-    cpus_on_node = os.environ.get("SLURM_CPUS_ON_NODE", "")
+    cpus_on_node = os.environ.get("SLURM_JOB_CPUS_PER_NODE", "") or os.environ.get(
+        "SLURM_CPUS_ON_NODE", "",
+    )
     jupiter_full_node_allocation = (
         exclusive_disposition is None
         and "Shared" not in fields

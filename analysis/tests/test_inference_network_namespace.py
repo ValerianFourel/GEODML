@@ -220,7 +220,8 @@ def test_jupiter_slurm_full_node_record_verifies_whole_node_exclusivity(monkeypa
     monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
     monkeypatch.setenv("SLURM_JOB_NUM_NODES", "1")
     monkeypatch.setenv("SLURM_JOB_NODELIST", "jpbo-082-43")
-    monkeypatch.setenv("SLURM_CPUS_ON_NODE", "288")
+    monkeypatch.setenv("SLURM_CPUS_ON_NODE", "32")
+    monkeypatch.setenv("SLURM_JOB_CPUS_PER_NODE", "288")
     output = (
         "JobId=1856970 ArrayJobId=1856970 ArrayTaskId=0 JobState=RUNNING "
         "NodeList=jpbo-082-43 NumNodes=1 NumCPUs=288 OverSubscribe=NO "
