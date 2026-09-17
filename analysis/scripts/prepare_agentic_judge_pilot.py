@@ -131,6 +131,7 @@ def prepare_pilot(
     prompt_count: int = 2,
     master_seed: int = 20260915,
     all_available: bool = False,
+    allow_incomplete_prompt_groups: bool = False,
     exclude_outcomes: tuple[Path, ...] = (),
     recorded_conversation: bool = False,
 ) -> Path:
@@ -139,6 +140,10 @@ def prepare_pilot(
         raise ValueError("pilot prompt-count must be 1 or 2, at most 24 cases")
     if exclude_outcomes and not all_available:
         raise ValueError("exclude-outcomes requires all-available throughput mode")
+    if allow_incomplete_prompt_groups and not all_available:
+        raise ValueError(
+            "allow-incomplete-prompt-groups requires all-available throughput mode"
+        )
     output = output_dir.resolve()
     if output.exists():
         raise FileExistsError(f"refusing to overwrite judge pilot: {output}")
@@ -231,7 +236,10 @@ def prepare_pilot(
     }
     if not all_available and len(complete_prompt_ids) != len(by_prompt):
         raise ValueError("source shard has incomplete per-prompt factorial coverage")
-    if len(complete_prompt_ids) < (1 if all_available else prompt_count):
+    if (
+        not (all_available and allow_incomplete_prompt_groups)
+        and len(complete_prompt_ids) < (1 if all_available else prompt_count)
+    ):
         raise ValueError("source shard has too few completed prompts")
 
     def selection_key(prompt_id):
@@ -239,8 +247,13 @@ def prepare_pilot(
             f"{master_seed}:judge-pilot:{prompt_id}".encode()
         ).hexdigest()
 
+    eligible_prompt_ids = (
+        set(by_prompt)
+        if all_available and allow_incomplete_prompt_groups
+        else complete_prompt_ids
+    )
     ordered = sorted(
-        complete_prompt_ids,
+        eligible_prompt_ids,
         key=lambda pid: (axis_bins[pid], selection_key(pid)),
     )
     selected = ordered if all_available else [ordered[0]]
@@ -261,7 +274,9 @@ def prepare_pilot(
             mappings.append(mapping)
     tasks.sort(key=lambda task: task.judge_task_id)
     mappings.sort(key=lambda mapping: mapping.judge_task_id)
-    if len({task.judge_task_id for task in tasks}) != len(selected) * 12:
+    if len({task.judge_task_id for task in tasks}) != sum(
+        len(by_prompt[prompt_id]) for prompt_id in selected
+    ):
         raise ValueError("pilot task identities are not unique")
     available_task_count = len(tasks)
     excluded, exclusion_sources = _excluded_judgments(
@@ -292,6 +307,9 @@ def prepare_pilot(
         "selected_prompt_ids": selected,
         "prompt_count": len(selected),
         "cells_per_prompt": 12,
+        "selected_cell_count": available_task_count,
+        "incomplete_prompt_count": len(by_prompt) - len(complete_prompt_ids),
+        "allow_incomplete_prompt_groups": allow_incomplete_prompt_groups,
         "selected_axis_bins": [axis_bins[p] for p in selected],
         "selection_method": (
             "all-complete-prompt-groups-v1" if all_available
@@ -300,11 +318,16 @@ def prepare_pilot(
         "source_generator_root": str(root),
         "source_git_commit": manifest["git_commit"],
         "source_completed_count": len(result_paths),
-        "skipped_incomplete_prompt_count": len(by_prompt) - len(complete_prompt_ids),
+        "skipped_incomplete_prompt_count": (
+            0
+            if allow_incomplete_prompt_groups
+            else len(by_prompt) - len(complete_prompt_ids)
+        ),
         "skipped_incomplete_cell_count": sum(
             len(cells)
             for prompt_id, cells in by_prompt.items()
             if prompt_id not in complete_prompt_ids
+            and not allow_incomplete_prompt_groups
         ),
         "scope": (
             "allocation-filling-throughput-not-scientific-validation" if all_available
@@ -382,6 +405,14 @@ def main() -> int:
     parser.add_argument("--master-seed", type=int, default=20260915)
     selection.add_argument("--all-available", action="store_true",
                         help="Freeze all complete prompt groups as a throughput pilot")
+    parser.add_argument(
+        "--allow-incomplete-prompt-groups",
+        action="store_true",
+        help=(
+            "With --all-available, freeze every verified completed cell even when "
+            "its 12-cell prompt group is incomplete"
+        ),
+    )
     parser.add_argument("--exclude-outcomes", type=Path, action="append", default=[],
                         help="Verify and exclude a prior Nemotron outcomes journal; repeatable")
     parser.add_argument(

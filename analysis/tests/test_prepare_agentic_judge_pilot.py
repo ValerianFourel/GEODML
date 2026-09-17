@@ -315,6 +315,39 @@ def test_all_available_accepts_checkpoint_and_skips_incomplete_prompt_group(tmp_
     }
 
 
+def test_all_available_can_explicitly_freeze_incomplete_prompt_groups(tmp_path):
+    shard, command = _fixture(tmp_path)
+    for path in sorted((shard / "results").glob("cell-1-*.json"))[:3]:
+        path.unlink()
+    manifest_path = shard / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update(
+        status="checkpointed",
+        completed_count=33,
+        remaining_count=3,
+        cell_count=36,
+    )
+    manifest.pop("prompt_shard_index")
+    manifest_path.write_text(json.dumps(manifest))
+
+    run = _run(
+        command
+        + ["--all-available", "--allow-incomplete-prompt-groups"]
+    )
+    assert run.returncode == 0, run.stderr
+    plan = json.loads((tmp_path / "plan/run_manifest.json").read_text())
+    assert plan["pilot"]["selected_prompt_ids"] == [
+        "prompt-0",
+        "prompt-1",
+        "prompt-2",
+    ]
+    assert plan["pilot"]["incomplete_prompt_count"] == 1
+    assert plan["pilot"]["skipped_incomplete_prompt_count"] == 0
+    assert plan["pilot"]["skipped_incomplete_cell_count"] == 0
+    assert plan["pilot"]["selected_cell_count"] == 33
+    assert plan["summary"]["pending_task_count"] == 33
+
+
 def test_throughput_excludes_verified_previous_24_and_records_coverage(tmp_path):
     _, command = _fixture(tmp_path)
     assert _run(command).returncode == 0

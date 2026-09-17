@@ -297,6 +297,10 @@ and `run_nemotron_judge_queue.sbatch`. The preparer freezes every complete promp
 group in the selected completed or checkpointed source instead of selecting two
 prompts. It records and skips partial prompt groups so factorial comparisons do
 not silently mix incomplete coverage into the queue.
+For an explicitly exploratory ranking-agreement run,
+`--allow-incomplete-prompt-groups` freezes every verified completed cell from a
+checkpoint instead. The manifest records this choice and the incomplete prompt
+count; the pilot remains ineligible for scientific-result claims.
 Repeat `--exclude-outcomes PATH` for existing compatible Nemotron journals.
 Exclusions validate the prior plan, seed, model revision, resume identity,
 requests and saved outputs; overlapping or conflicting coverage is rejected.
