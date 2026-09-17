@@ -1,8 +1,9 @@
-"""Start inference inside a Linux network namespace containing only loopback.
+"""Start inference behind a verified network boundary.
 
-No model is imported here. Namespace creation is mandatory and precedes the
-first listening socket. A disabled unshare facility is a launch failure, with
-no host-network fallback. The same CPU-only path is available through --check.
+No model is imported here. The default boundary is a Linux network namespace
+containing only loopback. A generator job may instead opt into a whole-node
+Slurm boundary, which must be verified from the controller before the first
+listening socket. The same CPU-only namespace path is available through --check.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import os
 import shutil
 import socket
 import struct
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -37,6 +39,7 @@ _UP = 0x1
 _LOOPBACK = 0x8
 _GET_NAMESPACE_TYPE = 0xB703
 _CLONE_NEWNET = 0x40000000
+_EXCLUSIVE_BOUNDARY_ENVIRONMENT = "GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"
 
 
 def _integer(value, *, minimum):
@@ -53,6 +56,37 @@ def _namespace_record(value):
 
 def validate_network_namespace_receipt(value: Mapping) -> dict:
     """Validate saved evidence without making claims about the current kernel."""
+    exclusive_keys = {
+        "format_version", "status", "mode", "slurm_job_id", "slurm_array_job_id",
+        "slurm_array_task_id", "node_list",
+        "exclusive_disposition", "other_jobs_excluded", "loopback_transport_required",
+        "native_authentication_required",
+    }
+    if isinstance(value, dict) and set(value) == exclusive_keys:
+        if (
+            value["format_version"] != "geodml-exclusive-slurm-boundary-v1"
+            or value["status"] != "verified"
+            or value["mode"] != "exclusive-slurm-node-authenticated-loopback"
+            or not isinstance(value["slurm_job_id"], str)
+            or not value["slurm_job_id"]
+            or not (
+                value["slurm_array_job_id"] is None
+                and value["slurm_array_task_id"] is None
+                or isinstance(value["slurm_array_job_id"], str)
+                and value["slurm_array_job_id"]
+                and isinstance(value["slurm_array_task_id"], str)
+                and value["slurm_array_task_id"]
+            )
+            or not isinstance(value["node_list"], str)
+            or not value["node_list"]
+            or value["exclusive_disposition"] != "NODE"
+            or any(value[key] is not True for key in (
+                "other_jobs_excluded", "loopback_transport_required",
+                "native_authentication_required",
+            ))
+        ):
+            raise EndpointSecurityError("invalid exclusive Slurm boundary receipt")
+        return dict(value)
     keys = {
         "format_version", "status", "outside_parent_pid", "outside_namespace",
         "current_namespace", "interfaces", "loopback_up", "private_bind_verified",
@@ -73,6 +107,70 @@ def validate_network_namespace_receipt(value: Mapping) -> dict:
     ):
         raise EndpointSecurityError("invalid private network namespace receipt")
     return dict(value)
+
+
+def _slurm_job_identity() -> tuple[str, str | None, str | None, str]:
+    job_id = os.environ.get("SLURM_JOB_ID", "")
+    array_job = os.environ.get("SLURM_ARRAY_JOB_ID", "")
+    array_task = os.environ.get("SLURM_ARRAY_TASK_ID", "")
+    if not job_id.isdigit():
+        raise EndpointSecurityError("exclusive Slurm node requires a numeric job ID")
+    if bool(array_job) != bool(array_task):
+        raise EndpointSecurityError("exclusive Slurm array identity is incomplete")
+    if array_job:
+        if not array_job.isdigit() or not array_task.isdigit():
+            raise EndpointSecurityError("exclusive Slurm array identity is invalid")
+        return job_id, array_job, array_task, f"{array_job}_{array_task}"
+    return job_id, None, None, job_id
+
+
+def _verify_exclusive_slurm_boundary() -> dict:
+    if sys.platform != "linux":
+        raise EndpointSecurityError("exclusive Slurm node verification requires Linux")
+    if os.environ.get("SLURM_JOB_NUM_NODES") != "1":
+        raise EndpointSecurityError("exclusive Slurm boundary requires one allocated node")
+    node_list = os.environ.get("SLURM_JOB_NODELIST", "")
+    if not node_list:
+        raise EndpointSecurityError("exclusive Slurm boundary requires an allocated node")
+    job_id, array_job_id, array_task_id, reference = _slurm_job_identity()
+    executable = shutil.which("scontrol")
+    if executable is None:
+        raise EndpointSecurityError("scontrol is required to verify the exclusive Slurm node")
+    try:
+        completed = subprocess.run(
+            [executable, "show", "job", "--oneliner", reference],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise EndpointSecurityError("exclusive Slurm node could not be verified") from None
+    fields = dict(
+        item.split("=", 1) for item in completed.stdout.split()
+        if "=" in item
+    )
+    if (
+        completed.returncode != 0
+        or fields.get("JobId") != job_id
+        or fields.get("ArrayJobId") != array_job_id
+        or fields.get("ArrayTaskId") != array_task_id
+        or fields.get("JobState") != "RUNNING"
+        or fields.get("Exclusive") != "NODE"
+        or fields.get("NodeList") != node_list
+    ):
+        raise EndpointSecurityError("exclusive Slurm node could not be verified")
+    os.environ.update(TRANSPORT_ENVIRONMENT)
+    return validate_network_namespace_receipt({
+        "format_version": "geodml-exclusive-slurm-boundary-v1",
+        "status": "verified",
+        "mode": "exclusive-slurm-node-authenticated-loopback",
+        "slurm_job_id": job_id,
+        "slurm_array_job_id": array_job_id,
+        "slurm_array_task_id": array_task_id,
+        "node_list": node_list,
+        "exclusive_disposition": "NODE",
+        "other_jobs_excluded": True,
+        "loopback_transport_required": True,
+        "native_authentication_required": True,
+    })
 
 
 def _namespace(process: int | str) -> dict[str, int]:
@@ -142,6 +240,8 @@ def _private_bind_probe() -> None:
 
 def verify_private_network_namespace() -> dict:
     """Re-read kernel facts; an environment marker alone cannot pass this gate."""
+    if os.environ.get(_EXCLUSIVE_BOUNDARY_ENVIRONMENT) == "1" and MARKER not in os.environ:
+        return _verify_exclusive_slurm_boundary()
     try:
         record = _record(json.loads(os.environ.get(MARKER, "")))
         outside, current = _kernel_state(record)
@@ -203,13 +303,15 @@ def _enter_private_namespace(command: Sequence[str] | None) -> None:
 
 
 def ensure_private_network_namespace(command: Sequence[str]) -> dict:
-    """Exec into isolation, or verify a stage re-entering through this helper."""
+    """Enter a namespace or verify an explicitly requested whole-node boundary."""
     if isinstance(command, (str, bytes)) or not command or any(
         not isinstance(item, str) or not item for item in command
     ):
         raise EndpointSecurityError("private namespace requires a nonempty command")
     if MARKER in os.environ:
         return verify_private_network_namespace()
+    if os.environ.get(_EXCLUSIVE_BOUNDARY_ENVIRONMENT) == "1":
+        return _verify_exclusive_slurm_boundary()
     _enter_private_namespace(command)
     raise EndpointSecurityError("private namespace entry unexpectedly returned")
 

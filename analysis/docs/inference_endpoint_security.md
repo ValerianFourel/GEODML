@@ -37,14 +37,24 @@ after decoding as well, so escaped credentials cannot pass through model identit
 errors or saved outputs. A response that reflects the credential is rejected
 rather than saved as a scientific result.
 
-Before starting any model process, the shared launcher re-executes itself in a
-fresh Linux user and network namespace. Server and controller share that private
-network, which must have only the loopback interface. Verification reads the
-actual process namespace against a retained outside-namespace descriptor, checks the interface list, and
-tests a private loopback connection. An environment marker alone is not proof.
-The launcher repeats verification before admitting controller work and records
-the receipt. Unsupported or disabled namespaces stop execution; there is no
-fallback to the node network. Native HTTP authentication is a separate check.
+Before starting any model process, the shared launcher verifies one of two
+explicit network boundaries. Its default path re-executes into a fresh Linux
+user and network namespace. Server and controller share that private network,
+which must have only the loopback interface. Verification reads the actual
+process namespace against a retained outside-namespace descriptor, checks the
+interface list, and tests a private loopback connection. An environment marker
+alone is not proof.
+
+The generator backlog uses a whole-node Slurm boundary because JUPITER Booster
+nodes rejected unprivileged `unshare` with `ENOSPC` on 16 September 2026. Its
+submission command includes `--exclusive`. Before loading a model, the worker
+queries its own array element through `scontrol` and requires a running,
+single-node job with `Exclusive=NODE` on the allocated node. Missing or
+conflicting scheduler evidence stops the job. This path retains literal
+loopback binding, per-run native authentication, and loopback-only NCCL/Gloo
+transport. It does not claim that a private kernel network namespace exists.
+Other launchers continue to require the namespace path unless they explicitly
+request and verify the whole-node boundary.
 
 The helper enables loopback only inside the new namespace. It does not change
 the host firewall or network interfaces. NCCL/Gloo socket traffic is restricted to
@@ -81,21 +91,15 @@ Its distributed dependencies can open additional listeners, including a PyTorch
 TCPStore on all interfaces. Setting `VLLM_HOST_IP=127.0.0.1` is not proof that every
 dependency listener is private. See the [vLLM security guidance](https://docs.vllm.ai/en/latest/usage/security/).
 
-The generator submission helper checks that the namespace helper exists, but
-does not execute it on the login node. Login and compute nodes can have different
-namespace policies. In particular, a login node with `user/max_user_namespaces=0`
-cannot perform this check even if the allocated compute node supports isolation.
-Every shared serving stage creates and verifies its private namespace on the
-allocated compute node before loading the model or starting vLLM. This protects
-TCP listeners during startup as well as after readiness, even if a dependency
-binds to all interfaces inside that namespace. See the
-[Linux network namespace documentation](https://man7.org/linux/man-pages/man7/network_namespaces.7.html).
-Submission is not proof of compute-node or CUDA compatibility. If the compute
-node disallows unprivileged namespaces, the job exits without starting vLLM;
-allocated startup time can still be charged. There is no automatic retry.
-If JUPITER disallows unprivileged namespaces on compute nodes, request its supported
-isolation procedure rather than disabling this gate. No JSC confirmation is
-assumed or required as a substitute for runtime verification.
+The generator submission helper checks that the boundary helper exists, but
+does not execute a namespace probe on the login node. Login and compute nodes
+can have different namespace policies. The scheduler must confirm whole-node
+exclusivity from inside each opted-in generator worker. Submission alone is not
+proof. Namespace-based launchers still verify isolation on the allocated node
+before loading the model or starting vLLM. See the
+[Linux network namespace documentation](https://man7.org/linux/man-pages/man7/network_namespaces.7.html)
+and the [Slurm `--exclusive` contract](https://slurm.schedmd.com/sbatch.html#OPT_exclusive).
+There is no automatic retry or downgrade from either boundary.
 
 Per-run credentials do not protect against administrators, another process under
 the same Unix account, or a compromised model runtime. No source change can

@@ -141,6 +141,78 @@ def test_entry_execs_unshare_without_fork_and_retains_only_namespace_fd(monkeypa
     assert arguments[arguments.index("--exec") + 1:] == command
 
 
+def test_verified_exclusive_slurm_node_avoids_unavailable_user_namespace(monkeypatch):
+    monkeypatch.delenv(network.MARKER, raising=False)
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setattr(network.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setenv("GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY", "1")
+    monkeypatch.setenv("SLURM_JOB_ID", "1845304")
+    monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "1845271")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
+    monkeypatch.setenv("SLURM_JOB_NUM_NODES", "1")
+    monkeypatch.setenv("SLURM_JOB_NODELIST", "jpbo-108-47")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(
+            command, 0,
+            "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING "
+            "Exclusive=NODE NodeList=jpbo-108-47\n",
+            "",
+        )
+
+    monkeypatch.setattr(network.subprocess, "run", run)
+    monkeypatch.setattr(
+        network, "_enter_private_namespace", lambda command: pytest.fail("called unshare")
+    )
+    receipt = network.ensure_private_network_namespace(["python", "stage.py"])
+    assert receipt == {
+        "format_version": "geodml-exclusive-slurm-boundary-v1",
+        "status": "verified",
+        "mode": "exclusive-slurm-node-authenticated-loopback",
+        "slurm_job_id": "1845304",
+        "slurm_array_job_id": "1845271",
+        "slurm_array_task_id": "0",
+        "node_list": "jpbo-108-47",
+        "exclusive_disposition": "NODE",
+        "other_jobs_excluded": True,
+        "loopback_transport_required": True,
+        "native_authentication_required": True,
+    }
+    assert calls == [(
+        ["/usr/bin/scontrol", "show", "job", "--oneliner", "1845271_0"],
+        {"capture_output": True, "text": True, "timeout": 10, "check": False},
+    )]
+    assert network.verify_private_network_namespace() == receipt
+
+
+@pytest.mark.parametrize("scontrol_output", [
+    "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING Exclusive=NO NodeList=jpbo-108-47\n",
+    "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=PENDING Exclusive=NODE NodeList=(null)\n",
+    "JobId=other JobState=RUNNING Exclusive=NODE NodeList=jpbo-108-47\n",
+])
+def test_unverified_slurm_exclusivity_fails_closed(monkeypatch, scontrol_output):
+    monkeypatch.delenv(network.MARKER, raising=False)
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setenv("GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY", "1")
+    monkeypatch.setenv("SLURM_JOB_ID", "1845304")
+    monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "1845271")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
+    monkeypatch.setenv("SLURM_JOB_NUM_NODES", "1")
+    monkeypatch.setenv("SLURM_JOB_NODELIST", "jpbo-108-47")
+    monkeypatch.setattr(network.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        network.subprocess, "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, scontrol_output, ""),
+    )
+    monkeypatch.setattr(
+        network, "_enter_private_namespace", lambda command: pytest.fail("called unshare")
+    )
+    with pytest.raises(EndpointSecurityError, match="exclusive Slurm node"):
+        network.ensure_private_network_namespace(["python", "stage.py"])
+
+
 def test_reentry_verifies_instead_of_recursively_unsharing(isolated, monkeypatch):
     monkeypatch.setattr(network, "_enter_private_namespace", lambda command: pytest.fail("recursive unshare"))
     assert network.ensure_private_network_namespace(["python", "stage.py"])["status"] == "verified"

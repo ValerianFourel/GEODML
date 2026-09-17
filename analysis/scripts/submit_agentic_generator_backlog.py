@@ -323,7 +323,7 @@ def _command(
         "sbatch", "--parsable", "--no-requeue", f"--array={schedule['array']}",
         f"--account={account}", f"--partition={partition}",
         "--nodes=1", "--ntasks=1", "--cpus-per-task=32", "--mem=512G",
-        "--gres=gpu:4", f"--time={schedule['approved_walltime']}", "--export=ALL",
+        "--gres=gpu:4", "--exclusive", f"--time={schedule['approved_walltime']}", "--export=ALL",
         f"--job-name=geodml-{slug}-backlog-{schedule['job_name_tag']}", f"--chdir={REPOSITORY_ROOT}",
         f"--output={logs}/slurm-%A_%a.out", f"--error={logs}/slurm-%A_%a.err",
         str(REPOSITORY_ROOT / "analysis/scripts/slurm/jupiter/run_inference_wave_worker.sbatch"),
@@ -456,7 +456,8 @@ def submit_backlog(
                 "allocation_count": schedule["allocation_count"],
                 "workers_per_model": schedule["workers_per_model"],
                 "maximum_total_gpu_hours": schedule["maximum_total_gpu_hours"],
-                "resources_per_job": {"nodes": 1, "gpus": 4, "gpu_type": "GH200", "cpus": 32, "memory": "512G"},
+                "resources_per_job": {"nodes": 1, "gpus": 4, "gpu_type": "GH200", "cpus": 32,
+                                      "memory": "512G", "exclusive_node": True},
                 "prompt_selection_seed": PROMPT_SELECTION_SEED, "wave_seed": WAVE_SEED,
                 "claim_root": resume["claim_root"] if resume else str(run_root / "claims"),
                 "resume_from": resume,
@@ -529,6 +530,7 @@ def submit_backlog(
             logs = model_root / "logs"
             worker_env = {
                 **env, "GEODML_MODEL_SLUG": slug,
+                "GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY": "1",
                 "GEODML_WAVE_ROOT": str(model_root / "wave"),
                 "GEODML_WAVE_OUTPUT_ROOT": str(model_root / "outputs"),
                 "GEODML_WAVE_LOG_ROOT": str(logs),

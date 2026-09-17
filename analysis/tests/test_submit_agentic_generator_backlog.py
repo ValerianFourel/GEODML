@@ -187,8 +187,10 @@ def test_four_allocations_share_backlog_and_claims_with_fixed_resources(backlog)
     ):
         assert {"--array=0-1%2", "--nodes=1", "--ntasks=1", "--cpus-per-task=32",
                 "--mem=512G", "--gres=gpu:4", "--time=03:00:00", "--export=ALL",
-                "--parsable", "--no-requeue", "--account=test-account", "--partition=test-partition"} <= set(command)
+                "--exclusive", "--parsable", "--no-requeue", "--account=test-account",
+                "--partition=test-partition"} <= set(command)
         env = options["env"]
+        assert env["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] == "1"
         assert env["GEODML_INFERENCE_CLAIM_ROOT"] == str(root / "claims")
         assert env["SEARCH_AGENTIC_PROMPT_COUNT"] == "1200"
         assert env["SEARCH_AGENTIC_CELL_CONCURRENCY"] == "12"
