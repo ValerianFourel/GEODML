@@ -30,3 +30,15 @@ def test_existing_allocation_helper_rejects_unknown_action() -> None:
 
     assert result.returncode == 64
     assert "prepare or launch" in result.stderr
+
+
+def test_existing_allocation_helper_initializes_external_srun_environment() -> None:
+    script = SCRIPT.read_text()
+
+    assert script.index("module load Stages/2026 GCC Python CUDA git") < script.index(
+        'git -C "$repository" status'
+    )
+    assert 'scontrol show job --oneliner "$job_id"' in script
+    assert 'export SLURM_JOB_NUM_NODES="${SLURM_JOB_NUM_NODES:-' in script
+    assert 'export SLURM_JOB_CPUS_PER_NODE="${SLURM_JOB_CPUS_PER_NODE:-' in script
+    assert 'export SLURM_JOB_END_TIME="${SLURM_JOB_END_TIME:-' in script
