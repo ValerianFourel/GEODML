@@ -718,13 +718,19 @@ class ReactiveSnippetLoopV1(AgenticMethod):
             request = LLMRequest(
                 purpose="reactive_action",
                 prompt=_reactive_prompt(user_prompt, observations, iteration),
-                response_schema=_action_schema(force_finish=False),
+                response_schema=_action_schema(
+                    force_finish=False,
+                    require_search=iteration == 1,
+                ),
             )
             action = await self._call_json(
                 trace=trace,
                 request=request,
                 validator=lambda value: _validate_action(
-                    value, observations, force_finish=False
+                    value,
+                    observations,
+                    force_finish=False,
+                    require_search=iteration == 1,
                 ),
                 final_attempt_repair=lambda value: _repair_action(
                     value, observations, force_finish=False
@@ -961,12 +967,15 @@ def _validate_action(
     snippets: Sequence[Snippet],
     *,
     force_finish: bool,
+    require_search: bool = False,
 ) -> dict[str, Any]:
     action = value.get("action")
     if action == "search" and not force_finish:
         if set(value) != {"action", "query"}:
             raise ValueError("search action must contain only action and query")
         return {"action": "search", "query": _nonempty_text(value["query"], "search query")}
+    if require_search:
+        raise ValueError("the first reactive action must be search")
     if action == "finish":
         if set(value) != {"action", "ranking", "answer"}:
             raise ValueError("finish action must contain only action, ranking, and answer")
@@ -1218,6 +1227,7 @@ def _final_schema() -> dict[str, Any]:
 def _action_schema(
     *,
     force_finish: bool,
+    require_search: bool = False,
 ) -> dict[str, Any]:
     finish = {
         "type": "object",
@@ -1234,6 +1244,16 @@ def _action_schema(
     }
     if force_finish:
         return finish
+    if require_search:
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["action", "query"],
+            "properties": {
+                "action": {"const": "search"},
+                "query": {"type": "string", "minLength": 1},
+            },
+        }
     return {
         "oneOf": [
             {

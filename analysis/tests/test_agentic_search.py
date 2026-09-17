@@ -656,7 +656,7 @@ class AgenticSearchTests(unittest.TestCase):
             3,
         )
 
-    def test_reactive_loop_can_finish_without_search(self):
+    def test_reactive_loop_requires_search_before_finish(self):
         llm = ScriptedLLM([json.dumps({
             "action": "finish", "ranking": [], "answer": "No search needed."
         })])
@@ -668,13 +668,12 @@ class AgenticSearchTests(unittest.TestCase):
             condition_hook=IdentityConditionHook(),
         )
 
-        result = asyncio.run(method.run(
-            "Answer directly.", ExperimentalCondition.NATURAL
-        ))
-
-        self.assertEqual(result.answer, "No search needed.")
+        with self.assertRaises(AgentExecutionError):
+            asyncio.run(method.run(
+                "Answer directly.", ExperimentalCondition.NATURAL
+            ))
         self.assertEqual(search.calls, [])
-        self.assertEqual(result.final_snippets, ())
+        self.assertEqual(llm.requests[0].response_schema["required"], ["action", "query"])
 
     def test_reactive_finish_rejects_unobserved_urls_and_retries(self):
         llm = ScriptedLLM([
@@ -707,12 +706,19 @@ class AgenticSearchTests(unittest.TestCase):
         self.assertEqual(len(llm.requests), 3)
 
     def test_trace_is_written_atomically_with_a_stable_hash(self):
-        llm = ScriptedLLM([json.dumps({
-            "action": "finish", "ranking": [], "answer": "Done."
-        })])
+        llm = ScriptedLLM([
+            json.dumps({"action": "search", "query": "known"}),
+            json.dumps({
+                "action": "finish",
+                "ranking": ["https://example.test/1"],
+                "answer": "Done.",
+            }),
+        ])
         method = ReactiveSnippetLoopV1(
             llm=llm,
-            search=StaticSearchAdapter("searxng", {}),
+            search=StaticSearchAdapter("searxng", {
+                "known": [snippet(1)],
+            }),
             compactor=ContextCompactor(PositionScorer()),
             condition_hook=IdentityConditionHook(),
         )
