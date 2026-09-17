@@ -93,6 +93,7 @@ def _copy_frozen(source: Path, destination: Path, digest: str) -> None:
 
 def _schedule(
     approved_walltime: str, workers_per_model: int, maximum_total_gpu_hours: int,
+    model_count: int,
 ) -> dict[str, Any]:
     """Validate the exact user-approved Slurm layout before preparing a run."""
     matched = re.fullmatch(r"([0-9]{2,}):([0-5][0-9]):([0-5][0-9])", approved_walltime)
@@ -106,16 +107,18 @@ def _schedule(
         raise ValueError("workers per model must be a positive integer")
     if type(maximum_total_gpu_hours) is not int or maximum_total_gpu_hours <= 0:
         raise ValueError("maximum total GPU-hours must be a positive integer")
-    expected = 2 * workers_per_model * 4 * total_seconds / 3600
+    if type(model_count) is not int or model_count <= 0:
+        raise ValueError("model count must be a positive integer")
+    expected = model_count * workers_per_model * 4 * total_seconds / 3600
     if expected != int(expected) or maximum_total_gpu_hours != int(expected):
         raise ValueError(
-            "maximum GPU-hours must exactly equal two models × workers × four GPUs × wall-time"
+            "maximum GPU-hours must exactly equal selected models × workers × four GPUs × wall-time"
         )
     walltime_tag = f"{hours}h" if minutes == seconds == 0 else approved_walltime.replace(":", "")
     return {
         "approved_walltime": approved_walltime,
         "workers_per_model": workers_per_model,
-        "allocation_count": 2 * workers_per_model,
+        "allocation_count": model_count * workers_per_model,
         "maximum_total_gpu_hours": maximum_total_gpu_hours,
         "array": f"0-{workers_per_model - 1}%{workers_per_model}",
         "job_name_tag": walltime_tag,
@@ -124,7 +127,7 @@ def _schedule(
 
 def _preflight(
     environment: Mapping[str, str], profile_root: Path, source_git_commit: str,
-    *, submit: bool, schedule: Mapping[str, Any],
+    *, submit: bool, schedule: Mapping[str, Any], model_slugs: tuple[str, ...],
 ) -> tuple[dict[str, str], dict[str, Any]]:
     if _require(environment, "GEODML_APPROVED_WALLTIME") != schedule["approved_walltime"]:
         raise ValueError("environment approval wall-time differs from requested schedule")
@@ -176,7 +179,8 @@ def _preflight(
             raise ValueError("the generation worker must be executable")
     cache = Path(env["HF_HUB_CACHE"])
     models = {}
-    for slug, specification in MODELS.items():
+    for slug in model_slugs:
+        specification = MODELS[slug]
         profile_path = _file(profile_root / specification["profile"])
         profile = load_profile(profile_path)
         expected = {key: specification[key] for key in ("model_id", "model_revision")}
@@ -370,8 +374,9 @@ def submit_backlog(
     workers_per_model: int = WORKERS_PER_MODEL,
     maximum_total_gpu_hours: int = MAXIMUM_GPU_HOURS,
     resume_from_run_root: Path | None = None,
+    model_slugs: tuple[str, ...] = tuple(MODELS),
 ) -> dict[str, Any]:
-    """Prepare once; submit two arrays once, with no automatic submission recovery."""
+    """Prepare once; submit the selected model arrays with no automatic recovery."""
     cohort_root, run_root, profile_root = (
         path.resolve() for path in (cohort_root, run_root, profile_root)
     )
@@ -383,10 +388,17 @@ def submit_backlog(
     # Reject recorded attempts before any preparation or external command.
     if run_root.exists() and any(run_root.glob("models/*/submission-intent.json")):
         raise FileExistsError("submission intent already exists; inspect Slurm, never resubmit this run")
-    schedule = _schedule(approved_walltime, workers_per_model, maximum_total_gpu_hours)
+    model_slugs = tuple(model_slugs)
+    if not model_slugs or len(set(model_slugs)) != len(model_slugs) or any(
+        slug not in MODELS for slug in model_slugs
+    ):
+        raise ValueError("select one or more distinct supported model slugs")
+    schedule = _schedule(
+        approved_walltime, workers_per_model, maximum_total_gpu_hours, len(model_slugs),
+    )
     env, models = _preflight(
         dict(os.environ if environment is None else environment), profile_root,
-        source_git_commit, submit=submit, schedule=schedule,
+        source_git_commit, submit=submit, schedule=schedule, model_slugs=model_slugs,
     )
     cohort, sources = _cohort_inputs(cohort_root)
     source_prompts = _load_calibration_prompts(
@@ -601,11 +613,16 @@ def main() -> int:
         "--resume-from-run-root", type=Path,
         help="Reuse only the matching prior run's durable shared claims.",
     )
+    parser.add_argument(
+        "--model", dest="model_slugs", action="append", choices=tuple(MODELS),
+        help="Submit only this model; repeat for more than one. Defaults to both models.",
+    )
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--submit", action="store_true", help="Submit the explicitly approved jobs; otherwise prepare only")
     action.add_argument("--prepare-only", dest="submit", action="store_false")
     parser.set_defaults(submit=False)
     arguments = parser.parse_args()
+    arguments.model_slugs = tuple(arguments.model_slugs or MODELS)
     try:
         manifest = submit_backlog(**vars(arguments))
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError,

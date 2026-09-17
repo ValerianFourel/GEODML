@@ -132,6 +132,11 @@ use `--workers-per-model 2` and a 48 GPU-hour cap. The command derives the exact
 zero-based Slurm array range; it never silently changes the requested count.
 There is no automatic resubmission or requeue.
 
+By default the helper submits both generator models. An explicitly approved
+model-specific allocation may pass `--model qwen38` or `--model llama4`. The
+GPU-hour cap then covers only the selected model. Repeating `--model` selects
+more than one model; duplicate or unknown model slugs fail before submission.
+
 To continue the same frozen queue in a later approved allocation, pass
 `--resume-from-run-root` pointing at its prior run root. The launcher accepts that
 only if its cohort and serialized `tasks.jsonl` match exactly, then uses the prior

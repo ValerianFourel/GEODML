@@ -239,6 +239,35 @@ def test_ten_twelve_hour_allocations_use_five_slots_per_model(backlog):
         assert wave["worker_count"] == 5
 
 
+def test_single_qwen_one_hour_schedule_submits_one_bounded_worker(backlog):
+    args = {
+        **backlog["arguments"],
+        "approved_walltime": "01:00:00",
+        "workers_per_model": 1,
+        "maximum_total_gpu_hours": 4,
+        "model_slugs": ("qwen38",),
+    }
+    backlog["environment"].update(
+        GEODML_APPROVED_WALLTIME="01:00:00",
+        GEODML_MAXIMUM_TOTAL_GPU_HOURS="4",
+        GEODML_ALLOCATION_ESTIMATE=(
+            "One approved Qwen3.8 worker for one hour; one exclusive Booster node, "
+            "four GH200 GPUs, 32 CPUs, 512G RAM; cap 4 GPU-hours."
+        ),
+    )
+    result = module.submit_backlog(**args)
+    assert result["allocation_count"] == 1
+    assert result["workers_per_model"] == 1
+    assert result["maximum_total_gpu_hours"] == 4
+    assert set(result["models"]) == {"qwen38"}
+    assert len(backlog["calls"]) == 1
+    command, options = backlog["calls"][0]
+    assert {"--array=0-0%1", "--time=01:00:00", "--gres=gpu:4", "--exclusive"} <= set(command)
+    assert options["env"]["GEODML_MODEL_SLUG"] == "qwen38"
+    assert options["env"]["GEODML_MAXIMUM_TOTAL_GPU_HOURS"] == "4"
+    assert not (args["run_root"] / "models/llama4").exists()
+
+
 def test_resume_reuses_only_an_exact_prior_shared_claim_root(backlog):
     args = backlog["arguments"]
     prior = args["run_root"].parent / "prior"
