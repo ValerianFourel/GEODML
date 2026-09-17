@@ -210,9 +210,37 @@ def test_legacy_slurm_shared_zero_verifies_whole_node_exclusivity(monkeypatch):
     assert receipt["slurm_job_id"] == "1856708"
 
 
+def test_jupiter_slurm_full_node_record_verifies_whole_node_exclusivity(monkeypatch):
+    monkeypatch.delenv(network.MARKER, raising=False)
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setattr(network.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setenv("GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY", "1")
+    monkeypatch.setenv("SLURM_JOB_ID", "1856970")
+    monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "1856970")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
+    monkeypatch.setenv("SLURM_JOB_NUM_NODES", "1")
+    monkeypatch.setenv("SLURM_JOB_NODELIST", "jpbo-082-43")
+    monkeypatch.setenv("SLURM_CPUS_ON_NODE", "288")
+    output = (
+        "JobId=1856970 ArrayJobId=1856970 ArrayTaskId=0 JobState=RUNNING "
+        "NodeList=jpbo-082-43 NumNodes=1 NumCPUs=288 OverSubscribe=NO "
+        "AllocTRES=cpu=288,node=1,billing=288,gres/gpu=4,gres/gpu:gh200=4\n"
+    )
+    monkeypatch.setattr(
+        network.subprocess, "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, output, ""),
+    )
+    receipt = network.ensure_private_network_namespace(["python", "stage.py"])
+    assert receipt["exclusive_disposition"] == "NODE"
+    assert receipt["slurm_job_id"] == "1856970"
+
+
 @pytest.mark.parametrize("scontrol_output", [
     "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING Exclusive=NO NodeList=jpbo-108-47\n",
     "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING Shared=1 NodeList=jpbo-108-47\n",
+    "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING OverSubscribe=NO NumCPUs=32 AllocTRES=cpu=32,node=1 NodeList=jpbo-108-47\n",
+    "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING OverSubscribe=YES NumCPUs=288 AllocTRES=cpu=288,node=1 NodeList=jpbo-108-47\n",
+    "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING OverSubscribe=NO NumCPUs=288 AllocTRES=cpu=32,node=1 NodeList=jpbo-108-47\n",
     "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=PENDING Exclusive=NODE NodeList=(null)\n",
     "JobId=other JobState=RUNNING Exclusive=NODE NodeList=jpbo-108-47\n",
 ])
@@ -225,6 +253,7 @@ def test_unverified_slurm_exclusivity_fails_closed(monkeypatch, scontrol_output)
     monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
     monkeypatch.setenv("SLURM_JOB_NUM_NODES", "1")
     monkeypatch.setenv("SLURM_JOB_NODELIST", "jpbo-108-47")
+    monkeypatch.setenv("SLURM_CPUS_ON_NODE", "288")
     monkeypatch.setattr(network.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(
         network.subprocess, "run",

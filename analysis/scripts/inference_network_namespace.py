@@ -147,10 +147,27 @@ def _verify_exclusive_slurm_boundary() -> dict:
         item.split("=", 1) for item in completed.stdout.split()
         if "=" in item
     )
+    allocated_tres = dict(
+        item.split("=", 1) for item in fields.get("AllocTRES", "").split(",")
+        if "=" in item
+    )
     exclusive_disposition = fields.get("Exclusive")
+    cpus_on_node = os.environ.get("SLURM_CPUS_ON_NODE", "")
+    jupiter_full_node_allocation = (
+        exclusive_disposition is None
+        and "Shared" not in fields
+        and fields.get("OverSubscribe") == "NO"
+        and cpus_on_node.isdigit()
+        and int(cpus_on_node) > 0
+        and fields.get("NumNodes") == "1"
+        and fields.get("NumCPUs") == cpus_on_node
+        and allocated_tres.get("node") == "1"
+        and allocated_tres.get("cpu") == cpus_on_node
+    )
     whole_node_exclusive = (
         exclusive_disposition == "NODE"
         or (exclusive_disposition is None and fields.get("Shared") == "0")
+        or jupiter_full_node_allocation
     )
     if (
         completed.returncode != 0
