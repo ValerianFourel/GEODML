@@ -146,25 +146,48 @@ def prepare_pilot(
     manifest_path = root / "run_manifest.json"
     source_manifest_identity = _file_identity(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if (
-        manifest.get("status") != "complete"
-        or manifest.get("model_id") != GENERATOR_MODEL_ID
-        or manifest.get("remaining_count") != 0
-        or manifest.get("failed_cell_ids", [])
-        or type(manifest.get("prompt_shard_index")) is not int
-        or manifest["prompt_shard_index"] not in (0, 1, 2)
+    fixed_source = (
+        manifest.get("status") == "complete"
+        and manifest.get("remaining_count") == 0
+        and not manifest.get("failed_cell_ids", [])
+        and type(manifest.get("prompt_shard_index")) is int
+        and manifest["prompt_shard_index"] in (0, 1, 2)
+    )
+    throughput_source = (
+        all_available
+        and manifest.get("status") in {
+            "complete",
+            "complete_with_failures",
+            "checkpointed",
+            "interrupted_or_error",
+        }
+    )
+    if manifest.get("model_id") != GENERATOR_MODEL_ID or not (
+        fixed_source or throughput_source
     ):
         raise ValueError(
-            "pilot requires one complete Qwen source shard from shards 0-2"
+            "fixed pilot requires one complete Qwen source shard from shards 0-2; "
+            "all-available mode also accepts a checkpointed Qwen source"
         )
     if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("git_commit", ""))):
         raise ValueError("source shard lacks an immutable Git commit")
     result_paths = sorted((root / "results").glob("*.json"))
+    completed_count = manifest.get("completed_count")
+    cell_count = manifest.get("cell_count")
+    remaining_count = manifest.get("remaining_count")
+    valid_checkpoint_counts = (
+        all_available
+        and type(cell_count) is int
+        and type(completed_count) is int
+        and type(remaining_count) is int
+        and cell_count >= completed_count
+        and completed_count + remaining_count == cell_count
+    )
     if (
         not result_paths
-        or type(manifest.get("completed_count")) is not int
-        or manifest["completed_count"] != len(result_paths)
-        or manifest.get("cell_count") != len(result_paths)
+        or type(completed_count) is not int
+        or completed_count != len(result_paths)
+        or not (cell_count == len(result_paths) or valid_checkpoint_counts)
     ):
         raise ValueError("source manifest and result counts disagree")
 
@@ -203,9 +226,12 @@ def prepare_pilot(
                 f"source result has invalid or duplicate factorial cell: {cell_id}"
             )
         by_prompt[prompt_id][factor] = path
-    if any(set(cells) != FACTORS for cells in by_prompt.values()):
+    complete_prompt_ids = {
+        prompt_id for prompt_id, cells in by_prompt.items() if set(cells) == FACTORS
+    }
+    if not all_available and len(complete_prompt_ids) != len(by_prompt):
         raise ValueError("source shard has incomplete per-prompt factorial coverage")
-    if len(by_prompt) < (1 if all_available else prompt_count):
+    if len(complete_prompt_ids) < (1 if all_available else prompt_count):
         raise ValueError("source shard has too few completed prompts")
 
     def selection_key(prompt_id):
@@ -213,7 +239,10 @@ def prepare_pilot(
             f"{master_seed}:judge-pilot:{prompt_id}".encode()
         ).hexdigest()
 
-    ordered = sorted(by_prompt, key=lambda pid: (axis_bins[pid], selection_key(pid)))
+    ordered = sorted(
+        complete_prompt_ids,
+        key=lambda pid: (axis_bins[pid], selection_key(pid)),
+    )
     selected = ordered if all_available else [ordered[0]]
     if not all_available and prompt_count == 2:
         selected.append(ordered[-1])
@@ -271,6 +300,12 @@ def prepare_pilot(
         "source_generator_root": str(root),
         "source_git_commit": manifest["git_commit"],
         "source_completed_count": len(result_paths),
+        "skipped_incomplete_prompt_count": len(by_prompt) - len(complete_prompt_ids),
+        "skipped_incomplete_cell_count": sum(
+            len(cells)
+            for prompt_id, cells in by_prompt.items()
+            if prompt_id not in complete_prompt_ids
+        ),
         "scope": (
             "allocation-filling-throughput-not-scientific-validation" if all_available
             else "pipeline-plumbing-only-not-judge-quality-validation"

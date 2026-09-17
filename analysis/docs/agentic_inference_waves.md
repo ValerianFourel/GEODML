@@ -294,7 +294,9 @@ wave worker directories.
 
 For new throughput runs, use `prepare_agentic_judge_pilot.py --all-available`
 and `run_nemotron_judge_queue.sbatch`. The preparer freezes every complete prompt
-group in the selected completed source shard instead of selecting two prompts.
+group in the selected completed or checkpointed source instead of selecting two
+prompts. It records and skips partial prompt groups so factorial comparisons do
+not silently mix incomplete coverage into the queue.
 Repeat `--exclude-outcomes PATH` for existing compatible Nemotron journals.
 Exclusions validate the prior plan, seed, model revision, resume identity,
 requests and saved outputs; overlapping or conflicting coverage is rejected.
