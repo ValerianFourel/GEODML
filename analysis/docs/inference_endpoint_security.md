@@ -49,7 +49,9 @@ The generator backlog uses a whole-node Slurm boundary because JUPITER Booster
 nodes rejected unprivileged `unshare` with `ENOSPC` on 16 September 2026. Its
 submission command includes `--exclusive`. Before loading a model, the worker
 queries its own array element through `scontrol` and requires a running,
-single-node job with `Exclusive=NODE` on the allocated node. Missing or
+single-node job with `Exclusive=NODE`, or legacy Slurm's equivalent `Shared=0`,
+on the allocated node. If `Exclusive` is present it remains authoritative, so
+conflicting scheduler evidence is rejected. Missing or
 conflicting scheduler evidence stops the job. This path retains literal
 loopback binding, per-run native authentication, and loopback-only NCCL/Gloo
 transport. It does not claim that a private kernel network namespace exists.

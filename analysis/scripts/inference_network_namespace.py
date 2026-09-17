@@ -147,13 +147,18 @@ def _verify_exclusive_slurm_boundary() -> dict:
         item.split("=", 1) for item in completed.stdout.split()
         if "=" in item
     )
+    exclusive_disposition = fields.get("Exclusive")
+    whole_node_exclusive = (
+        exclusive_disposition == "NODE"
+        or (exclusive_disposition is None and fields.get("Shared") == "0")
+    )
     if (
         completed.returncode != 0
         or fields.get("JobId") != job_id
         or fields.get("ArrayJobId") != array_job_id
         or fields.get("ArrayTaskId") != array_task_id
         or fields.get("JobState") != "RUNNING"
-        or fields.get("Exclusive") != "NODE"
+        or not whole_node_exclusive
         or fields.get("NodeList") != node_list
     ):
         raise EndpointSecurityError("exclusive Slurm node could not be verified")

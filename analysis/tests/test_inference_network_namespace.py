@@ -187,8 +187,32 @@ def test_verified_exclusive_slurm_node_avoids_unavailable_user_namespace(monkeyp
     assert network.verify_private_network_namespace() == receipt
 
 
+def test_legacy_slurm_shared_zero_verifies_whole_node_exclusivity(monkeypatch):
+    monkeypatch.delenv(network.MARKER, raising=False)
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setattr(network.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setenv("GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY", "1")
+    monkeypatch.setenv("SLURM_JOB_ID", "1856708")
+    monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "1856708")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
+    monkeypatch.setenv("SLURM_JOB_NUM_NODES", "1")
+    monkeypatch.setenv("SLURM_JOB_NODELIST", "jpbo-003-33")
+    output = (
+        "JobId=1856708 ArrayJobId=1856708 ArrayTaskId=0 JobState=RUNNING "
+        "Shared=0 NodeList=jpbo-003-33\n"
+    )
+    monkeypatch.setattr(
+        network.subprocess, "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, output, ""),
+    )
+    receipt = network.ensure_private_network_namespace(["python", "stage.py"])
+    assert receipt["exclusive_disposition"] == "NODE"
+    assert receipt["slurm_job_id"] == "1856708"
+
+
 @pytest.mark.parametrize("scontrol_output", [
     "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING Exclusive=NO NodeList=jpbo-108-47\n",
+    "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=RUNNING Shared=1 NodeList=jpbo-108-47\n",
     "JobId=1845304 ArrayJobId=1845271 ArrayTaskId=0 JobState=PENDING Exclusive=NODE NodeList=(null)\n",
     "JobId=other JobState=RUNNING Exclusive=NODE NodeList=jpbo-108-47\n",
 ])
