@@ -115,8 +115,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--bulk-model-id", required=True)
     parser.add_argument("--bulk-model-revision", required=True)
-    parser.add_argument("--validation-model-id", required=True)
-    parser.add_argument("--validation-model-revision", required=True)
+    parser.add_argument("--validation-model-id")
+    parser.add_argument("--validation-model-revision")
+    parser.add_argument("--bulk-only", action="store_true", help="Prepare bulk tasks with validation explicitly not configured.")
     parser.add_argument("--validation-fraction", type=float, default=0.02)
     parser.add_argument("--master-seed", type=int, default=20260915)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -130,6 +131,11 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     arguments = _parser().parse_args()
     try:
+        if arguments.bulk_only:
+            if arguments.validation_model_id or arguments.validation_model_revision:
+                raise ValueError("--bulk-only cannot be combined with a validation model")
+        elif not arguments.validation_model_id or not arguments.validation_model_revision:
+            raise ValueError("provide both validation model arguments or explicitly use --bulk-only")
         results: list[Path] = []
         roots: dict[str, str] = {}
         generation_rows = _read_jsonl(arguments.generation_tasks.resolve())
@@ -166,12 +172,12 @@ def main() -> int:
                 model_id=arguments.bulk_model_id,
                 model_revision=arguments.bulk_model_revision,
             ),
-            validation_model=AgenticJudgeModel(
+            validation_model=None if arguments.bulk_only else AgenticJudgeModel(
                 role="validation",
                 model_id=arguments.validation_model_id,
                 model_revision=arguments.validation_model_revision,
             ),
-            validation_fraction=arguments.validation_fraction,
+            validation_fraction=0 if arguments.bulk_only else arguments.validation_fraction,
             master_seed=arguments.master_seed,
             recorded_conversation=arguments.recorded_conversation,
         )

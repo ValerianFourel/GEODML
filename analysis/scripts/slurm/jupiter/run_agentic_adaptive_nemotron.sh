@@ -29,7 +29,7 @@ assert p["serving"]["tensor_parallel_size"] == 4
 assert p["serving"]["data_parallel_size"] == 1
 assert p["serving"]["max_model_len"] == 73728
 assert p["serving"]["dtype"] == "bfloat16"
-assert p["features"]["enforce_eager"] is True
+assert "--enforce-eager" in p["server_argv"]
 print(p["profile_sha256"])
 PY
 )"

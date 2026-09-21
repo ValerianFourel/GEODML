@@ -28,6 +28,7 @@ from analysis.interpretability.pipeline.inference_wave import (
 from analysis.scripts.report_agentic_experiment_progress import (
     collect_progress,
 )
+from analysis.scripts.search_vllm_stage import load_profile
 
 FORMAT_VERSION = "agentic-adaptive-500-plan-v1"
 LLAMA_MODEL = {
@@ -330,14 +331,36 @@ def prepare(
         raise ValueError(
             "adaptive original generation requires one Llama serving profile"
         )
-    if nemotron_source_root and (
-        not nemotron_profiles
-        or len({_sha256(path) for path in nemotron_profiles}) != 1
-        or validation_model is None
-    ):
+    if nemotron_source_root and not nemotron_profiles:
         raise ValueError(
-            "Nemotron source must contain one unique serving profile and a pinned validation model"
+            f"Nemotron serving profile not found under {nemotron_source_root}; expected serving-profile.json or profiles/nemotron.json"
         )
+    if nemotron_source_root and len({_sha256(path) for path in nemotron_profiles}) != 1:
+        raise ValueError(
+            "Nemotron source contains conflicting serving profiles: "
+            + ", ".join(map(str, nemotron_profiles))
+        )
+    if nemotron_profiles:
+        profile = load_profile(nemotron_profiles[0])
+        expected_model = {
+            key: NEMOTRON_MODEL[key] for key in ("model_id", "model_revision")
+        }
+        if (
+            profile["model"] != expected_model
+            or any(
+                profile["serving"].get(key) != value
+                for key, value in {
+                    "tensor_parallel_size": 4,
+                    "data_parallel_size": 1,
+                    "max_model_len": 73728,
+                    "dtype": "bfloat16",
+                }.items()
+            )
+            or "--enforce-eager" not in profile["server_argv"]
+        ):
+            raise ValueError(
+                f"Nemotron profile differs from approved serving settings: {nemotron_profiles[0]}"
+            )
     run_root.mkdir(parents=True)
     _atomic_jsonl(task_path, tasks)
     plan = {
@@ -405,6 +428,9 @@ def prepare(
             "recorded_conversation": True,
             "bulk_model": NEMOTRON_MODEL,
             "validation_model": validation_model,
+            "validation_status": "configured"
+            if validation_model is not None
+            else "not_configured",
             "validation_model_source": validation_source,
             "serving_profile": str(nemotron_profiles[0]) if nemotron_profiles else None,
             "sweep": {

@@ -56,13 +56,17 @@ cross_revision="$(json_value "$plan" original_study cross_encoder_revision)"
 tasks="$(json_value "$plan" original_study generation_tasks path)"
 judge_root="$(json_value "$plan" judge plan_root)"
 nemotron_profile="$(json_value "$plan" judge serving_profile)"
-validation_model="$(json_value "$plan" judge validation_model model_id)"
-validation_revision="$(json_value "$plan" judge validation_model model_revision)"
+validation_args=(--bulk-only)
+if [[ -n "$(json_value "$plan" judge validation_model)" ]]; then
+  validation_args=(
+    --validation-model-id "$(json_value "$plan" judge validation_model model_id)"
+    --validation-model-revision "$(json_value "$plan" judge validation_model model_revision)"
+    --validation-fraction 0.02
+  )
+fi
 test -s "$llama_profile"
 test -s "$nemotron_profile"
 test -s "$tasks"
-test -n "$validation_model"
-test -n "$validation_revision"
 
 mkdir -p "$run_root/workers/worker-$(printf '%05d' "$worker_index")"
 worker_root="$run_root/workers/worker-$(printf '%05d' "$worker_index")"
@@ -85,9 +89,7 @@ materialize_and_plan_judge() {
       --generation-tasks "$tasks" \
       --bulk-model-id "$(json_value "$plan" judge bulk_model model_id)" \
       --bulk-model-revision "$(json_value "$plan" judge bulk_model model_revision)" \
-      --validation-model-id "$validation_model" \
-      --validation-model-revision "$validation_revision" \
-      --validation-fraction 0.02 \
+      "${validation_args[@]}" \
       --master-seed 20260915 \
       --output-dir "$judge_root" \
       --recorded-conversation

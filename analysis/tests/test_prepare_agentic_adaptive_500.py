@@ -8,6 +8,41 @@ import json
 import pytest
 
 from analysis.scripts import prepare_agentic_adaptive_500 as module
+from analysis.scripts.search_vllm_stage import build_profile
+
+
+def nemotron_source(tmp_path):
+    root = tmp_path / "nemotron-pilot"
+    attempt = root / "attempts/job1861355-worker0"
+    attempt.mkdir(parents=True)
+    profile = build_profile(
+        stage="nemotron-judge-pilot",
+        model_id=module.NEMOTRON_MODEL["model_id"],
+        model_revision=module.NEMOTRON_MODEL["model_revision"],
+        vllm_executable="/environment/bin/vllm",
+        vllm_version="0.28.0",
+        vllm_help="--enforce-eager",
+        visible_gpus=[
+            {"index": i, "uuid": f"GPU-{i}", "name": "GH200", "memory_total_mib": 96000}
+            for i in range(4)
+        ],
+        cuda_visible_devices="0,1,2,3",
+        expected_gpu_name_pattern="GH200",
+        max_model_len=73728,
+        enforce_eager=True,
+    )
+    (attempt / "serving-profile.json").write_text(json.dumps(profile))
+    # The actual pilot writer has a bulk model and no validation_model field.
+    (root / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "pilot_only": True,
+                "bulk_model": {"role": "bulk", **module.NEMOTRON_MODEL},
+                "summary": {"bulk_task_count": 696, "validation_task_count": 0},
+            }
+        )
+    )
+    return root
 
 
 def write_jsonl(path, rows):
@@ -153,15 +188,11 @@ def test_prepare_refuses_partial_unreviewed_llama_state(
         )
 
 
-def test_prepare_uses_qwen_backlog_profile_for_older_paired_run(
-    frozen_study, tmp_path
-):
+def test_prepare_uses_qwen_backlog_profile_for_older_paired_run(frozen_study, tmp_path):
     qwen, qwen_profile = write_backlog(
         tmp_path, "qwen38", module.QWEN_MODEL["model_id"]
     )
-    llama, _ = write_backlog(
-        tmp_path, "llama4", module.LLAMA_MODEL["model_id"]
-    )
+    llama, _ = write_backlog(tmp_path, "llama4", module.LLAMA_MODEL["model_id"])
     paired = tmp_path / "paired"
     write_jsonl(paired / "tasks.jsonl", [{"cell_id": "paired"}])
     paired_config = paired / "models/qwen38/outputs/worker-00000/config.json"
@@ -190,14 +221,10 @@ def test_prepare_uses_qwen_backlog_profile_for_older_paired_run(
         backlog_roots=(llama, qwen),
     )
 
-    assert plan["overflow"]["paired"]["serving_profile"] == str(
-        qwen_profile.resolve()
-    )
+    assert plan["overflow"]["paired"]["serving_profile"] == str(qwen_profile.resolve())
 
 
-def test_failed_paired_validation_does_not_create_partial_run(
-    frozen_study, tmp_path
-):
+def test_failed_paired_validation_does_not_create_partial_run(frozen_study, tmp_path):
     output = tmp_path / "adaptive"
     with pytest.raises(ValueError, match="lacks tasks or Qwen config"):
         module.prepare(
@@ -207,3 +234,28 @@ def test_failed_paired_validation_does_not_create_partial_run(
             paired_root=tmp_path / "missing-paired",
         )
     assert not output.exists()
+
+
+def test_bulk_only_nemotron_pilot_can_prepare_adaptive_plan(frozen_study, tmp_path):
+    plan = module.prepare(
+        study_root=frozen_study,
+        run_root=tmp_path / "adaptive",
+        source_git_commit="d" * 40,
+        nemotron_source_root=nemotron_source(tmp_path),
+    )
+    assert plan["judge"]["validation_model"] is None
+    assert plan["judge"]["validation_status"] == "not_configured"
+    assert plan["judge"]["serving_profile"].endswith(
+        "job1861355-worker0/serving-profile.json"
+    )
+
+
+def test_missing_nemotron_profile_reports_specific_error(frozen_study, tmp_path):
+    with pytest.raises(ValueError, match="Nemotron serving profile not found"):
+        module.prepare(
+            study_root=frozen_study,
+            run_root=tmp_path / "adaptive",
+            source_git_commit="d" * 40,
+            nemotron_source_root=tmp_path / "missing",
+        )
+    assert not (tmp_path / "adaptive").exists()

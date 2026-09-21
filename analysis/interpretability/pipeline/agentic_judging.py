@@ -172,7 +172,7 @@ class AgenticJudgePlan:
     master_seed: int
     validation_fraction: float
     bulk_model: AgenticJudgeModel
-    validation_model: AgenticJudgeModel
+    validation_model: AgenticJudgeModel | None
     bulk_tasks: tuple[AgenticJudgeTask, ...]
     validation_tasks: tuple[AgenticJudgeTask, ...]
     mappings: tuple[AgenticJudgeMapping, ...]
@@ -570,7 +570,7 @@ def build_agentic_judge_plan(
     prompt_rows: Sequence[Mapping[str, Any]],
     generator_model_by_root: Mapping[str, str],
     bulk_model: AgenticJudgeModel,
-    validation_model: AgenticJudgeModel,
+    validation_model: AgenticJudgeModel | None,
     validation_fraction: float = 0.02,
     master_seed: int = 20260915,
     recorded_conversation: bool = False,
@@ -579,9 +579,15 @@ def build_agentic_judge_plan(
 
     if not result_paths:
         raise ValueError("agentic result paths must not be empty")
-    if bulk_model.role != "bulk" or validation_model.role != "validation":
+    if bulk_model.role != "bulk" or (
+        validation_model is not None and validation_model.role != "validation"
+    ):
         raise ValueError("judge models have incorrect roles")
-    if not math.isfinite(validation_fraction) or not 0 < validation_fraction <= 1:
+    if validation_model is None and validation_fraction != 0:
+        raise ValueError("bulk-only judging requires validation_fraction=0")
+    if validation_model is not None and (
+        not math.isfinite(validation_fraction) or not 0 < validation_fraction <= 1
+    ):
         raise ValueError("validation fraction must be in (0, 1]")
     prompts = _load_prompts(prompt_rows)
     tasks: list[AgenticJudgeTask] = []
@@ -625,6 +631,8 @@ def build_agentic_judge_plan(
         ].append(mapping)
     validation_cases: set[str] = set()
     for stratum, rows in strata.items():
+        if validation_model is None:
+            continue
         count = max(1, math.ceil(len(rows) * validation_fraction))
         ordered = sorted(
             rows,
@@ -642,7 +650,7 @@ def build_agentic_judge_plan(
         "master_seed": master_seed,
         "validation_fraction": validation_fraction,
         "bulk_model": asdict(bulk_model),
-        "validation_model": asdict(validation_model),
+        "validation_model": asdict(validation_model) if validation_model is not None else None,
         "bulk_task_ids": sorted(task.judge_task_id for task in tasks),
         "validation_case_ids": sorted(validation_cases),
     }
@@ -972,9 +980,9 @@ def write_agentic_judge_plan(
             "master_seed": plan.master_seed,
             "validation_fraction": plan.validation_fraction,
             "bulk_model": asdict(plan.bulk_model),
-            "validation_model": asdict(plan.validation_model),
+            "validation_model": asdict(plan.validation_model) if plan.validation_model is not None else None,
             "blinding": judge_blinding(plan.format_version),
-            "validation_sampling": "generator-method-engine-condition-axis-bin-v1",
+            "validation_sampling": "generator-method-engine-condition-axis-bin-v1" if plan.validation_model is not None else "not_configured",
             "summary": dict(plan.summary),
             "artifacts": artifacts,
         },

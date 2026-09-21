@@ -48,7 +48,7 @@ def test_nemotron_profile_and_gpu_release_are_checked():
     assert 'test "$SLURM_STEP_NUM_NODES" = 1' in text
     assert 'assert p["serving"]["max_model_len"] == 73728' in text
     assert 'assert p["serving"]["dtype"] == "bfloat16"' in text
-    assert 'assert p["features"]["enforce_eager"] is True' in text
+    assert 'assert "--enforce-eager" in p["server_argv"]' in text
     assert "GPU process remained after Nemotron stage shutdown" in text
 
 

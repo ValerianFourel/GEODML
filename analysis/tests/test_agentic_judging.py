@@ -173,6 +173,31 @@ def test_builds_blinded_bulk_and_stratified_validation_tasks(tmp_path: Path) -> 
     assert len(artifacts.bulk_tasks_path.read_text().splitlines()) == 4
     assert len(artifacts.validation_tasks_path.read_text().splitlines()) == 2
 
+    bulk_only = build_agentic_judge_plan(
+        result_paths, prompt_rows=prompts,
+        generator_model_by_root={str(tmp_path / "qwen38"): "Qwen/Qwen3.8-27B"},
+        bulk_model=bulk, validation_model=None, validation_fraction=0, master_seed=17,
+    )
+    assert bulk_only.bulk_tasks == plan.bulk_tasks
+    assert bulk_only.validation_tasks == ()
+    bulk_artifacts = write_agentic_judge_plan(tmp_path / "bulk-only-plan", plan=bulk_only)
+    bulk_manifest = json.loads(bulk_artifacts.manifest_path.read_text())
+    assert bulk_manifest["validation_model"] is None
+    assert bulk_manifest["validation_sampling"] == "not_configured"
+    assert bulk_manifest["summary"]["validation_task_count"] == 0
+    from analysis.scripts.run_acl_arr_vllm import _agentic_judge_context
+    tasks, _, model, revision = _agentic_judge_context(
+        bulk_artifacts.manifest_path, bulk_artifacts.bulk_tasks_path, judge_role="bulk",
+    )
+    assert len(tasks) == 4
+    assert (model, revision) == (bulk.model_id, bulk.model_revision)
+    with pytest.raises(ValueError, match="validation_fraction=0"):
+        build_agentic_judge_plan(
+            result_paths, prompt_rows=prompts,
+            generator_model_by_root={str(tmp_path / "qwen38"): "Qwen/Qwen3.8-27B"},
+            bulk_model=bulk, validation_model=None,
+        )
+
 
 def test_rejects_tampered_trace(tmp_path: Path) -> None:
     prompt_id = "prompt-0"
@@ -403,6 +428,34 @@ def test_prepare_cli_requires_complete_shards_and_writes_plan(tmp_path: Path) ->
     assert "VALIDATION_TASKS=1" in complete.stdout
     assert result_path.is_file()
     assert (output / "run_manifest.json").is_file()
+
+    bulk_command = list(command)
+    for flag in ("--validation-model-id", "--validation-model-revision", "--validation-fraction"):
+        index = bulk_command.index(flag)
+        del bulk_command[index:index + 2]
+    bulk_output = tmp_path / "bulk-only-cli"
+    bulk_command[bulk_command.index("--output-dir") + 1] = str(bulk_output)
+    missing_model = subprocess.run(bulk_command, cwd=repository, text=True, capture_output=True, check=False)
+    assert missing_model.returncode != 0
+    assert "explicitly use --bulk-only" in missing_model.stderr
+    bulk_command.append("--bulk-only")
+    bulk_run = subprocess.run(bulk_command, cwd=repository, text=True, capture_output=True, check=False)
+    assert bulk_run.returncode == 0, bulk_run.stderr
+    bulk_manifest = json.loads((bulk_output / "run_manifest.json").read_text())
+    assert bulk_manifest["validation_model"] is None
+    assert bulk_manifest["summary"] == {**json.loads((output / "run_manifest.json").read_text())["summary"], "validation_task_count": 0}
+    fake_output = tmp_path / "bulk-only-fake"
+    fake_bulk = subprocess.run(
+        [sys.executable, "analysis/scripts/run_acl_arr_vllm.py", "agentic-judge",
+         "--tasks", str(bulk_output / "bulk_tasks.jsonl"),
+         "--judge-manifest", str(bulk_output / "run_manifest.json"),
+         "--judge-role", "bulk", "--output-dir", str(fake_output), "--fake"],
+        cwd=repository, text=True, capture_output=True, check=False,
+    )
+    assert fake_bulk.returncode == 0, fake_bulk.stderr
+    fake_manifest = json.loads((fake_output / "run_manifest.json").read_text())
+    assert fake_manifest["completed_count"] == 1
+    assert fake_manifest["scientific_result"] is False
 
     for role in ("bulk", "validation"):
         run_output = tmp_path / f"{role}-run"
