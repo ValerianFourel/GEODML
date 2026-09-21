@@ -232,18 +232,25 @@ def test_verified_exclusive_slurm_node_avoids_unavailable_user_namespace(monkeyp
     assert network.verify_private_network_namespace() == receipt
 
 
-@pytest.mark.parametrize("failure", [None, "multinode_step", "wrong_host", "partial_cpus", "wrong_step", "shared"])
-def test_exclusive_multinode_allocation_has_verified_single_node_step(monkeypatch, failure):
+@pytest.mark.parametrize("step_local_job_list", [False, True])
+@pytest.mark.parametrize("failure", [None, "multinode_step", "wrong_host", "partial_cpus", "wrong_step", "shared", "wrong_environment_node"])
+def test_exclusive_multinode_allocation_has_verified_single_node_step(monkeypatch, failure, step_local_job_list):
+    allocation_nodes = "jpbo-042-[10,16],jpbo-043-[35,40,44]"
+    names = ["jpbo-042-10", "jpbo-042-16", "jpbo-043-35", "jpbo-043-40", "jpbo-043-44"]
+    environment_nodes = names[0] if step_local_job_list else allocation_nodes
+    if failure == "wrong_environment_node":
+        environment_nodes = names[1]
     monkeypatch.delenv(network.MARKER, raising=False)
     monkeypatch.setattr(network.sys, "platform", "linux")
     monkeypatch.setattr(network.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(network.socket, "gethostname", lambda: "node0")
+    monkeypatch.setattr(network.socket, "gethostname", lambda: names[0] + ".jupiter.internal")
     for key in ("SLURM_ARRAY_JOB_ID", "SLURM_ARRAY_TASK_ID"):
         monkeypatch.delenv(key, raising=False)
     for key, value in {
         "GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY": "1", "SLURM_JOB_ID": "1927510",
-        "SLURM_JOB_NUM_NODES": "5", "SLURM_JOB_NODELIST": "node[0-4]",
-        "SLURM_STEP_ID": "10", "SLURM_STEP_NUM_NODES": "1",
+        "SLURM_JOB_NUM_NODES": "5", "SLURM_JOB_NODELIST": environment_nodes,
+        "SLURM_STEP_ID": "28", "SLURM_STEP_NUM_NODES": "1",
+        "SLURM_STEP_NODELIST": names[0], "SLURM_JOB_CPUS_PER_NODE": "288(x5)",
     }.items():
         monkeypatch.setenv(key, value)
 
@@ -251,15 +258,16 @@ def test_exclusive_multinode_allocation_has_verified_single_node_step(monkeypatc
         if command[2] == "job":
             cpus = 160 if failure == "partial_cpus" else 1440
             sharing = "YES" if failure == "shared" else "NO"
-            output = (f"JobId=1927510 JobState=RUNNING NodeList=node[0-4] NumNodes=5 "
+            output = (f"JobId=1927510 JobState=RUNNING NodeList={allocation_nodes} NumNodes=5 "
                       f"NumCPUs={cpus} OverSubscribe={sharing} AllocTRES=cpu={cpus},node=5")
         elif command[2] == "node":
-            output = "\n".join(f"NodeName=node{i} CPUTot=288" for i in range(5))
+            assert command[-1] == allocation_nodes
+            output = "\n".join(f"NodeName={name} CPUTot=288" for name in names)
         elif command[2] == "step":
-            nodes = "node[0-1]" if failure == "multinode_step" else "node0"
+            nodes = "jpbo-042-[10,16]" if failure == "multinode_step" else names[0]
             if failure == "wrong_host":
-                nodes = "node1"
-            identity = "1927510.11" if failure == "wrong_step" else "1927510.10"
+                nodes = names[1]
+            identity = "1927510.29" if failure == "wrong_step" else "1927510.28"
             output = f"StepId={identity} State=RUNNING Nodes={nodes}"
         else:
             pytest.fail(str(command))
@@ -276,15 +284,16 @@ def test_exclusive_multinode_allocation_has_verified_single_node_step(monkeypatc
             "multinode_step": "step_node", "wrong_host": "step_node",
             "partial_cpus": "whole_node_cpu_totals", "wrong_step": "step_id",
             "shared": "exclusivity_OverSubscribe",
+            "wrong_environment_node": "job_node_list",
         }[failure]
     else:
         receipt = network.ensure_private_network_namespace(["python", "stage.py"])
-        assert receipt["node_list"] == "node0"
+        assert receipt["node_list"] == names[0]
         assert receipt["slurm_job_id"] == "1927510"
         assert receipt["other_jobs_excluded"] is True
         report = network.diagnose_slurm_boundary()
         assert report["status"] == "PASS"
-        assert report["checks"][-1]["name"] == "step_node"
+        assert any(check["name"] == "step_node" and check["passed"] for check in report["checks"])
 
 
 def test_legacy_slurm_shared_zero_verifies_whole_node_exclusivity(monkeypatch):

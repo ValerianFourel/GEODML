@@ -243,13 +243,18 @@ def _verify_exclusive_slurm_boundary(checks=None) -> dict:
         ("array_job_id", array_job_id, fields.get("ArrayJobId")),
         ("array_task_id", array_task_id, fields.get("ArrayTaskId")),
         ("job_state", "RUNNING", fields.get("JobState")),
-        ("job_node_list", node_list, fields.get("NodeList")),
     ):
         _slurm_check(checks, name, expected == observed, expected, observed)
     if job_nodes != "1":
         _slurm_check(checks, "job_node_count", fields.get("NumNodes") == job_nodes, job_nodes, fields.get("NumNodes"))
-        node_list = _verify_multinode_step(executable, job_id, fields, checks)
+        verified_host = _verify_multinode_step(executable, job_id, fields, checks)
+        # JUPITER psslurm can expose the step-local host in SLURM_JOB_NODELIST.
+        # The controller remains authoritative for allocation membership and CPUs.
+        accepted_node_lists = (fields.get("NodeList"), verified_host)
+        _slurm_check(checks, "job_node_list", node_list in accepted_node_lists, accepted_node_lists, node_list)
+        node_list = verified_host
     else:
+        _slurm_check(checks, "job_node_list", node_list == fields.get("NodeList"), node_list, fields.get("NodeList"))
         _slurm_check(checks, "whole_node_exclusivity", whole_node_exclusive, "exclusive whole node", {
             "Exclusive": exclusive_disposition, "Shared": fields.get("Shared"),
             "OverSubscribe": fields.get("OverSubscribe"), "environment_cpus": cpus_on_node,
