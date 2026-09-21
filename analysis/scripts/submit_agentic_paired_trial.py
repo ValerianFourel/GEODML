@@ -20,6 +20,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from analysis.interpretability.pipeline.agentic_generation_tasks import (
+    _canonical,
+    build_cells,
+    load_calibration_prompts,
+)
 from analysis.interpretability.pipeline.inference_wave import (
     _atomic_json,
     _atomic_jsonl,
@@ -30,9 +35,6 @@ from analysis.scripts.prepare_agentic_new_cohort import prepare_new_cohort
 from analysis.scripts.run_agentic_search_integration_smoke import (
     FrozenSnapshotSearchAdapter,
     _build_target_urls,
-    _canonical,
-    _cells,
-    _load_calibration_prompts,
 )
 from analysis.scripts.search_vllm_stage import load_profile
 
@@ -199,11 +201,11 @@ def submit_trial(
             selection_root.resolve(), cohort, source_git_commit=env["GEODML_EXECUTION_COMMIT"],
             prompt_count=120, axis_bins=20, master_seed=COHORT_SEED,
         )
-        prompts = _load_calibration_prompts(
+        prompts = load_calibration_prompts(
             cohort / "pilot-prompts.jsonl", cohort / "selection-records.jsonl",
             prompt_count=120, seed=PROMPT_SELECTION_SEED,
         )
-        cells = _cells(prompts)
+        cells = build_cells(prompts)
         if len(prompts) != 120 or len(cells) != 1440:
             raise ValueError("paired cohort does not contain 120 prompts and 1440 cells")
         adapters = {

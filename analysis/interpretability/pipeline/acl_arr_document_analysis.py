@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import math
 import os
-from pathlib import Path
 import statistics
 import tempfile
+from dataclasses import dataclass
+from itertools import chain
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .acl_arr_document_experiment import (
-    AclArrExperimentPlan,
     CONDITIONS,
+    AclArrExperimentPlan,
     iter_experiment_tasks,
 )
-
 
 ANALYSIS_FORMAT_VERSION = "acl-arr-paired-analysis-v1"
 
@@ -48,19 +48,17 @@ def analyze_acl_arr_outcomes(
     if any(
         row.get("scientific_result") is False
         or row.get("eligible_for_analysis") is False
-        for row in (*rerank_outcomes, *answer_outcomes, *judge_outcomes)
+        for row in chain(rerank_outcomes, answer_outcomes, judge_outcomes)
     ):
         raise ValueError("pilot or non-scientific outputs are not eligible for analysis")
 
     expected_rerank = {
         task.task_id
-        for task in iter_experiment_tasks(plan)
-        if task.pipeline == "rerank"
+        for task in iter_experiment_tasks(plan, pipeline="rerank")
     }
     expected_answer = {
         task.task_id
-        for task in iter_experiment_tasks(plan)
-        if task.pipeline == "answer"
+        for task in iter_experiment_tasks(plan, pipeline="answer")
     }
     rerank_by_id = _unique_rows(rerank_outcomes, "task_id", "rerank")
     answer_by_id = _unique_rows(answer_outcomes, "task_id", "answer")
@@ -70,7 +68,7 @@ def analyze_acl_arr_outcomes(
         raise ValueError(_coverage_error("answer", expected_answer, set(answer_by_id)))
     if not allow_fake and any(
         row.get("fake_backend") is True
-        for row in (*rerank_outcomes, *answer_outcomes, *judge_outcomes)
+        for row in chain(rerank_outcomes, answer_outcomes, judge_outcomes)
     ):
         raise ValueError("fake outputs are not eligible for scientific analysis")
 
@@ -216,7 +214,7 @@ def analyze_acl_arr_outcomes(
     }
     fake = any(
         row.get("fake_backend") is True
-        for row in (*rerank_outcomes, *answer_outcomes, *judge_outcomes)
+        for row in chain(rerank_outcomes, answer_outcomes, judge_outcomes)
     )
     summary = {
         "format_version": ANALYSIS_FORMAT_VERSION,

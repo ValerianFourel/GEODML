@@ -1,7 +1,16 @@
-# GEODML Interpretability
+# GEODML analysis
 
-Three mechanistic-interpretability analyses that validate and extend the DML
-causal estimates from the GEODML paper (EMNLP 2026, deadline 2026-05-25).
+This directory contains the active experiment code and the historical
+interpretability workflows for the GEODML paper.
+
+Start with the repository's [active experiment overview](../README.md#active-experiments-and-historical-reproduction)
+for the ACL ARR document experiment, agentic search, and CPU test setup.
+Experiment definitions and validators live in `interpretability/pipeline/`.
+Preparation and execution commands live in `scripts/`.
+
+The instructions below describe the historical ablation, saliency, and probing
+workflows. They investigate model behavior alongside the paper's observational
+DML estimates. They do not make page-feature effects experimental.
 
 All input data lives in the HF dataset
 [`ValerianFourel/geodml-papersize`](https://huggingface.co/datasets/ValerianFourel/geodml-papersize)
@@ -10,7 +19,7 @@ committed.
 
 ---
 
-## Quick start
+## Historical interpretability setup
 
 ```bash
 # 1. Python env

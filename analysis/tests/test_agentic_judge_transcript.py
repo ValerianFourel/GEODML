@@ -15,6 +15,7 @@ import pytest
 from analysis.interpretability.pipeline.agentic_judging import (
     AgenticJudgeModel,
     AgenticJudgeTask,
+    _task_and_mapping,
     build_agentic_judge_plan,
     render_agentic_judge_prompt,
     write_agentic_judge_plan,
@@ -90,6 +91,52 @@ def _plan(root, path, prompt, *, recorded_conversation=False):
         validation_model=AgenticJudgeModel("validation", "validator", "b" * 40),
         recorded_conversation=recorded_conversation,
     )
+
+
+@pytest.mark.parametrize("recorded", [False, True])
+@pytest.mark.parametrize("method", [ParallelExpansionV1, ReactiveSnippetLoopV1])
+def test_bulk_plan_reads_each_result_once_and_matches_path_constructor(tmp_path, monkeypatch, recorded, method):
+    path, prompt, _ = _recorded_result(tmp_path, method)
+    original_open = Path.open
+    reads = []
+
+    def counted_open(source, *args, **kwargs):
+        if source == path:
+            reads.append(source)
+        return original_open(source, *args, **kwargs)
+
+    with monkeypatch.context() as context:
+        context.setattr(Path, "open", counted_open)
+        plan = _plan(tmp_path, path, prompt, recorded_conversation=recorded)
+    assert reads == [path]
+    task, mapping = _task_and_mapping(
+        path, prompt=prompt, generator_model_id="generator", master_seed=20260915,
+        recorded_conversation=recorded,
+    )
+    assert plan.bulk_tasks == (task,)
+    assert plan.mappings == (mapping,)
+
+
+@pytest.mark.parametrize("recorded", [False, True])
+def test_judge_source_identity_hashes_original_bytes(tmp_path, recorded):
+    path, prompt, _ = _recorded_result(tmp_path)
+    original_bytes = path.read_bytes()
+    original = _plan(tmp_path, path, prompt, recorded_conversation=recorded)
+    reformatted_bytes = (json.dumps(json.loads(original_bytes), indent=2) + "\n").encode()
+    path.write_bytes(reformatted_bytes)
+    reformatted = _plan(tmp_path, path, prompt, recorded_conversation=recorded)
+    assert original.mappings[0].source_result_sha256 == hashlib.sha256(original_bytes).hexdigest()
+    assert reformatted.mappings[0].source_result_sha256 == hashlib.sha256(reformatted_bytes).hexdigest()
+    assert original.bulk_tasks[0].blind_case_id != reformatted.bulk_tasks[0].blind_case_id
+    assert original.bulk_tasks[0].evidence == reformatted.bulk_tasks[0].evidence
+
+
+@pytest.mark.parametrize("value", [[], None, "not an object"])
+def test_bulk_plan_rejects_non_object_result(tmp_path, value):
+    path, prompt, _ = _recorded_result(tmp_path)
+    path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match="agentic result must be an object"):
+        _plan(tmp_path, path, prompt)
 
 
 @pytest.mark.parametrize("method", [ParallelExpansionV1, ReactiveSnippetLoopV1])

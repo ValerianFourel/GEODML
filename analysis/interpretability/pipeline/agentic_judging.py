@@ -423,6 +423,14 @@ def _conversation_from_trace(trace: Mapping[str, Any], method: str, evidence: Se
     }, [asdict(row) for row in evidence])
 
 
+def _load_result(result_path: Path) -> tuple[dict[str, Any], str]:
+    result_bytes = result_path.read_bytes()
+    result = json.loads(result_bytes)
+    if not isinstance(result, dict):
+        raise ValueError(f"agentic result must be an object: {result_path}")
+    return result, hashlib.sha256(result_bytes).hexdigest()
+
+
 def _task_and_mapping(
     result_path: Path,
     *,
@@ -431,10 +439,28 @@ def _task_and_mapping(
     master_seed: int,
     recorded_conversation: bool = False,
 ) -> tuple[AgenticJudgeTask, AgenticJudgeMapping]:
-    result_bytes = result_path.read_bytes()
-    result = json.loads(result_bytes)
-    if not isinstance(result, dict):
-        raise ValueError(f"agentic result must be an object: {result_path}")
+    result, source_result_sha256 = _load_result(result_path)
+    return _task_and_mapping_from_result(
+        result_path,
+        result=result,
+        source_result_sha256=source_result_sha256,
+        prompt=prompt,
+        generator_model_id=generator_model_id,
+        master_seed=master_seed,
+        recorded_conversation=recorded_conversation,
+    )
+
+
+def _task_and_mapping_from_result(
+    result_path: Path,
+    *,
+    result: Mapping[str, Any],
+    source_result_sha256: str,
+    prompt: Mapping[str, str],
+    generator_model_id: str,
+    master_seed: int,
+    recorded_conversation: bool = False,
+) -> tuple[AgenticJudgeTask, AgenticJudgeMapping]:
     cell_id = _required_text(result.get("cell_id"), "cell ID")
     method = _required_text(result.get("method"), "method")
     engine = _required_text(result.get("engine"), "engine")
@@ -482,7 +508,7 @@ def _task_and_mapping(
             {
                 "cell_id": cell_id,
                 "generator_model_id": generator_model_id,
-                "source_result_sha256": hashlib.sha256(result_bytes).hexdigest(),
+                "source_result_sha256": source_result_sha256,
                 **({
                     "format_version": format_version,
                     "recorded_conversation_sha256": _digest(conversation),
@@ -522,7 +548,7 @@ def _task_and_mapping(
         judge_task_id=judge_task_id,
         source_cell_id=cell_id,
         source_result_path=str(result_path.resolve()),
-        source_result_sha256=hashlib.sha256(result_bytes).hexdigest(),
+        source_result_sha256=source_result_sha256,
         source_trace_sha256=str(trace["trace_sha256"]),
         prompt_id=prompt_id,
         prompt_sha256=prompt["question_sha256"],
@@ -562,13 +588,15 @@ def build_agentic_judge_plan(
     mappings: list[AgenticJudgeMapping] = []
     seen_cells: set[tuple[str, str]] = set()
     for result_path in sorted((Path(path) for path in result_paths), key=str):
-        raw = json.loads(result_path.read_text(encoding="utf-8"))
+        raw, source_result_sha256 = _load_result(result_path)
         prompt_id = _required_text(raw.get("prompt_id"), "prompt ID")
         if prompt_id not in prompts:
             raise ValueError(f"result references unknown prompt: {prompt_id}")
         generator_model_id = _generator_for_result(result_path, generator_model_by_root)
-        task, mapping = _task_and_mapping(
+        task, mapping = _task_and_mapping_from_result(
             result_path,
+            result=raw,
+            source_result_sha256=source_result_sha256,
             prompt=prompts[prompt_id],
             generator_model_id=generator_model_id,
             master_seed=master_seed,

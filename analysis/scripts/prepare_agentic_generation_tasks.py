@@ -15,9 +15,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from analysis.scripts.run_agentic_search_integration_smoke import (  # noqa: E402
-    _cells,
-    _load_calibration_prompts,
+from analysis.interpretability.pipeline.agentic_generation_tasks import (  # noqa: E402
+    build_cells,
+    load_calibration_prompts,
 )
 
 
@@ -59,13 +59,13 @@ def main() -> int:
     try:
         prompts_path = arguments.prompts_jsonl.resolve()
         selection_path = arguments.selection_records_jsonl.resolve()
-        prompts = _load_calibration_prompts(
+        prompts = load_calibration_prompts(
             prompts_path,
             selection_path,
             prompt_count=arguments.prompt_count,
             seed=arguments.prompt_selection_seed,
         )
-        cells = _cells(prompts)
+        cells = build_cells(prompts)
         output.mkdir(parents=True)
         tasks_path = output / "tasks.jsonl"
         with tasks_path.open("x", encoding="utf-8", buffering=1) as stream:

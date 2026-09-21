@@ -5,18 +5,50 @@
 [![HF: reviewer pack](https://img.shields.io/badge/🤗%20Dataset-geodml--emnlp--2026--reviewer-yellow)](https://huggingface.co/datasets/ValerianFourel/geodml-emnlp-2026-reviewer)
 [![Paper](https://img.shields.io/badge/OpenReview-ARR%20%239568-8c1b13)](https://openreview.net/pdf?id=DjnTjAzZ8o)
 
-Causal analysis of LLM search re-rankers with Double Machine Learning (DML).
+Study of prompt-policy effects and page-feature associations in LLM search
+reranking, using Double Machine Learning (DML).
 Companion monorepo for the EMNLP 2026 submission
 **"What Drives LLM Re-Ranking"** (ACL Rolling Review #9568,
 [OpenReview `DjnTjAzZ8o`](https://openreview.net/pdf?id=DjnTjAzZ8o)).
 
-The study asks which page- and domain-level properties *causally* move a
-document up or down when a large language model re-ranks web search results —
-separating genuine treatment effects (content statistics, freshness,
-authority signals, llms.txt adoption, …) from confounding — across search
-engines, models, prompt framings, and evidence conditions.
+The study asks how page properties and prompt policy relate to document
+selection and ranking. Page-feature effects remain observational DML estimates
+unless page content itself is experimentally manipulated. Randomized prompt
+assignments identify effects of the assigned prompt policy. Prompt embeddings
+describe generated instructions; they do not define the assigned policy or
+act as confounders.
 
-**Experimental grid.** 2 search engines (DuckDuckGo, SearXNG) × 2 LLMs
+## Active experiments and historical reproduction
+
+Current development lives in `analysis/`. The ACL ARR document experiment
+uses frozen prompts, evidence, and model configurations to compare ranking,
+answering, and citation use under natural, ablated, and shuffled conditions.
+The separate agentic-search experiment records bounded retrieval and generation
+before preparing judge tasks. Its
+[retrieval protocol](analysis/docs/agentic_search_retrieval_protocol.md)
+defines the experimental contract.
+
+`analysis/interpretability/pipeline/` owns experiment definitions, validation,
+and analysis. `analysis/scripts/` provides preparation and execution commands.
+Generator queue definitions live in `agentic_generation_tasks.py`; the
+integration runner imports them alongside its execution and resume logic.
+
+The earlier first-party prompt-policy continuum has a separate
+[handoff](analysis/docs/prompt_continuum_project_handoff.md). The paper grid
+below, `pipeline/`, and dated result logs describe historical work. Preserve
+their prompts and artifacts when changing current code.
+
+Run CPU tests from the repository root after setting up the development
+environment with `bash .codex/setup.sh`:
+
+```bash
+.venv/bin/python -m pytest -q analysis/tests
+```
+
+Synthetic tests check software contracts. They do not establish scientific
+results or GPU throughput.
+
+**Historical paper grid.** 2 search engines (DuckDuckGo, SearXNG) × 2 LLMs
 (Llama-3.3-70B-Instruct, Qwen2.5-72B-Instruct, bf16) × 2 SERP pool depths
 (20, 50) × prompt variants (biased / neutral) × evidence conditions
 (SERP snippet vs. RAG over fetched page content), ~1,000 commercial-intent

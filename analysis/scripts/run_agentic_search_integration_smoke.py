@@ -5,36 +5,49 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections import Counter
-from contextlib import AsyncExitStack
-from dataclasses import dataclass
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import random
 import re
 import sys
 import tempfile
 import time
+from collections import Counter
+from contextlib import AsyncExitStack
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from analysis.interpretability.pipeline.agentic_generation_tasks import (  # noqa: E402
+    CONDITIONS as CONDITIONS,
+    ENGINES as ENGINES,
+    METHODS as METHODS,
+    CalibrationPrompt as CalibrationPrompt,
+    SmokeCell as SmokeCell,
+    _canonical as _canonical,
+    _read_jsonl_objects as _read_jsonl_objects,
+    _selection_key as _selection_key,
+    build_cells as _cells,
+    load_calibration_prompts as _load_calibration_prompts,
+    select_cells as _select_cells,
+    shard_prompts as _prompt_shard,
+)
 from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
+    FINAL_ANSWER_MAX_CHARACTERS,
+    SEARCH_RESULT_LIMIT,
     AgentExecutionError,
     ContextCompactor,
     ExperimentalCondition,
-    FINAL_ANSWER_MAX_CHARACTERS,
     LLMRequest,
     MemoizingSnippetScorer,
     ParallelExpansionV1,
     ReactiveSnippetLoopV1,
-    SEARCH_RESULT_LIMIT,
     SearchResponse,
     SentenceTransformersCrossEncoderScorer,
     Snippet,
@@ -50,10 +63,6 @@ from analysis.interpretability.pipeline.inference_claims import (
 )
 from analysis.scripts.run_acl_arr_vllm import VllmChatClient  # noqa: E402
 
-
-METHODS = (ParallelExpansionV1, ReactiveSnippetLoopV1)
-CONDITIONS = tuple(ExperimentalCondition)
-ENGINES = ("duckduckgo", "searxng")
 TOKEN_PATTERN = re.compile(r"[\w-]+", re.UNICODE)
 QUERY_PURPOSES = frozenset(("parallel_query_expansion",))
 ANSWER_PURPOSES = frozenset(
@@ -70,16 +79,6 @@ MALFORMED_PREFIX_V1_RESUME_COMMITS = (
     "f301dc549107a855127f5be67fb95b523f6dc024",
 )
 FAILED_CELL_RETRY_PASSES = 1
-
-
-def _canonical(value: Any) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
 
 
 def _sha256_file(path: Path) -> str:
@@ -525,205 +524,6 @@ class SmokeInputs:
         if self.cell_concurrency is None:
             return self.request_concurrency
         return self.cell_concurrency
-
-
-@dataclass(frozen=True, slots=True)
-class CalibrationPrompt:
-    prompt_id: str
-    prompt: str
-    question_sha256: str
-    axis_bin: int
-    keyword: str
-
-
-def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file() or path.stat().st_size == 0:
-        raise ValueError(f"missing JSONL input: {path}")
-    rows: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as stream:
-        for line_number, line in enumerate(stream, 1):
-            if not line.strip():
-                continue
-            value = json.loads(line)
-            if not isinstance(value, dict):
-                raise ValueError(f"expected object at {path}:{line_number}")
-            rows.append(value)
-    if not rows:
-        raise ValueError(f"JSONL input is empty: {path}")
-    return rows
-
-
-def _selection_key(seed: int, *values: str) -> tuple[str, ...]:
-    payload = "\0".join((str(seed), *values)).encode("utf-8")
-    return (hashlib.sha256(payload).hexdigest(), *values)
-
-
-def _load_calibration_prompts(
-    prompts_path: Path,
-    records_path: Path,
-    *,
-    prompt_count: int,
-    seed: int,
-) -> tuple[CalibrationPrompt, ...]:
-    """Select a deterministic axis-balanced subset from a frozen pilot."""
-    prompt_rows = _read_jsonl_objects(prompts_path)
-    record_rows = _read_jsonl_objects(records_path)
-    prompts_by_id: dict[str, Mapping[str, Any]] = {}
-    for row in prompt_rows:
-        prompt_id = str(row.get("candidate_id", ""))
-        if not prompt_id or prompt_id in prompts_by_id:
-            raise ValueError("prompt records have missing or duplicate candidate IDs")
-        prompts_by_id[prompt_id] = row
-    records_by_id: dict[str, Mapping[str, Any]] = {}
-    for row in record_rows:
-        prompt_id = str(row.get("candidate_id", ""))
-        if not prompt_id or prompt_id in records_by_id:
-            raise ValueError(
-                "selection records have missing or duplicate candidate IDs"
-            )
-        records_by_id[prompt_id] = row
-    if set(prompts_by_id) != set(records_by_id):
-        raise ValueError("prompt and selection-record candidate ID sets differ")
-    if prompt_count > len(prompts_by_id):
-        raise ValueError("prompt count exceeds the frozen pilot size")
-
-    by_bin: dict[int, list[CalibrationPrompt]] = {}
-    for prompt_id, row in prompts_by_id.items():
-        question = row.get("question")
-        if not isinstance(question, str) or not question.strip():
-            raise ValueError(f"prompt {prompt_id} has no question text")
-        actual_hash = hashlib.sha256(question.encode("utf-8")).hexdigest()
-        saved_hash = row.get("question_sha256")
-        if saved_hash is not None and saved_hash != actual_hash:
-            raise ValueError(f"prompt {prompt_id} question hash mismatch")
-        axis_bin = records_by_id[prompt_id].get("axis_bin")
-        if type(axis_bin) is not int or axis_bin < 0:
-            raise ValueError(f"prompt {prompt_id} has an invalid axis bin")
-        keyword = row.get("keyword")
-        if not isinstance(keyword, str) or not keyword.strip():
-            raise ValueError(f"prompt {prompt_id} has no keyword")
-        by_bin.setdefault(axis_bin, []).append(CalibrationPrompt(
-            prompt_id=prompt_id,
-            prompt=question,
-            question_sha256=actual_hash,
-            axis_bin=axis_bin,
-            keyword=keyword,
-        ))
-    bins = sorted(by_bin)
-    if prompt_count < len(bins):
-        raise ValueError(
-            "prompt count must be at least the number of observed axis bins"
-        )
-    base, remainder = divmod(prompt_count, len(bins))
-    extra_bins = set(sorted(
-        bins,
-        key=lambda axis_bin: _selection_key(seed, "axis-bin", str(axis_bin)),
-    )[:remainder])
-    selected: list[CalibrationPrompt] = []
-    for axis_bin in bins:
-        quota = base + int(axis_bin in extra_bins)
-        candidates = sorted(
-            by_bin[axis_bin],
-            key=lambda row: _selection_key(seed, "prompt", row.prompt_id),
-        )
-        if quota > len(candidates):
-            raise ValueError(f"axis bin {axis_bin} cannot satisfy its quota")
-        selected.extend(candidates[:quota])
-    selected.sort(key=lambda row: (row.axis_bin, row.prompt_id))
-    if len(selected) != prompt_count:
-        raise AssertionError("calibration prompt selection has the wrong size")
-    return tuple(selected)
-
-
-def _prompt_shard(
-    prompts: Sequence[CalibrationPrompt],
-    *,
-    shard_index: int,
-    shard_count: int,
-) -> tuple[CalibrationPrompt, ...]:
-    """Partition one frozen selection into disjoint, exhaustive stable shards."""
-    if shard_count < 1 or not 0 <= shard_index < shard_count:
-        raise ValueError("invalid prompt shard")
-    return tuple(prompts[shard_index::shard_count])
-
-
-@dataclass(frozen=True, slots=True)
-class SmokeCell:
-    cell_id: str
-    engine: str
-    condition: ExperimentalCondition
-    method_class: type[ParallelExpansionV1 | ReactiveSnippetLoopV1]
-    prompt_id: str | None = None
-    prompt: str | None = None
-    prompt_sha256: str | None = None
-
-    @property
-    def core(self) -> dict[str, str]:
-        core = {
-            "method": self.method_class.method_id,
-            "engine": self.engine,
-            "condition": self.condition.value,
-        }
-        if self.prompt_id is not None:
-            core["prompt_id"] = self.prompt_id
-            if self.prompt_sha256 is None:
-                raise AssertionError("calibration cell lacks its prompt hash")
-            core["prompt_sha256"] = self.prompt_sha256
-        return core
-
-
-def _cells(
-    prompts: Sequence[CalibrationPrompt] | None = None,
-) -> tuple[SmokeCell, ...]:
-    cells: list[SmokeCell] = []
-    prompt_values: Sequence[CalibrationPrompt | None] = prompts or (None,)
-    for prompt in prompt_values:
-        for engine in ENGINES:
-            for condition in CONDITIONS:
-                for method_class in METHODS:
-                    core = {
-                        "method": method_class.method_id,
-                        "engine": engine,
-                        "condition": condition.value,
-                    }
-                    if prompt is not None:
-                        core["prompt_id"] = prompt.prompt_id
-                        core["prompt_sha256"] = prompt.question_sha256
-                    cells.append(SmokeCell(
-                        cell_id=hashlib.sha256(_canonical(core)).hexdigest()[:20],
-                        engine=engine,
-                        condition=condition,
-                        method_class=method_class,
-                        prompt_id=None if prompt is None else prompt.prompt_id,
-                        prompt=None if prompt is None else prompt.prompt,
-                        prompt_sha256=(
-                            None if prompt is None else prompt.question_sha256
-                        ),
-                    ))
-    return tuple(cells)
-
-
-def _select_cells(
-    cells: Sequence[SmokeCell], cell_ids_jsonl: Path | None
-) -> tuple[SmokeCell, ...]:
-    """Select an exact, ordered subset from a frozen cell population."""
-
-    if cell_ids_jsonl is None:
-        return tuple(cells)
-    requested: list[str] = []
-    for row in _read_jsonl_objects(cell_ids_jsonl):
-        cell_id = row.get("cell_id")
-        if not isinstance(cell_id, str) or not cell_id:
-            raise ValueError("cell selection row lacks cell_id")
-        requested.append(cell_id)
-    if len(requested) != len(set(requested)):
-        raise ValueError("cell selection contains duplicate cell IDs")
-    indexed = {cell.cell_id: cell for cell in cells}
-    unknown = set(requested) - set(indexed)
-    if unknown:
-        raise ValueError("cell selection contains unknown cell IDs")
-    requested_set = set(requested)
-    return tuple(cell for cell in cells if cell.cell_id in requested_set)
 
 
 def _config(

@@ -20,6 +20,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from analysis.interpretability.pipeline.agentic_generation_tasks import (
+    _canonical,
+    build_cells,
+    load_calibration_prompts,
+)
 from analysis.interpretability.pipeline.inference_wave import (
     _atomic_json,
     _atomic_jsonl,
@@ -35,9 +40,6 @@ from analysis.scripts.prepare_agentic_new_cohort import (
 from analysis.scripts.run_agentic_search_integration_smoke import (
     FrozenSnapshotSearchAdapter,
     _build_target_urls,
-    _canonical,
-    _cells,
-    _load_calibration_prompts,
 )
 from analysis.scripts.search_vllm_stage import load_profile
 from analysis.scripts.submit_agentic_paired_trial import (
@@ -401,11 +403,11 @@ def submit_backlog(
         source_git_commit, submit=submit, schedule=schedule, model_slugs=model_slugs,
     )
     cohort, sources = _cohort_inputs(cohort_root)
-    source_prompts = _load_calibration_prompts(
+    source_prompts = load_calibration_prompts(
         cohort_root / "pilot-prompts.jsonl", cohort_root / "selection-records.jsonl",
         prompt_count=cohort["prompt_count"], seed=PROMPT_SELECTION_SEED,
     )
-    source_cells = _cells(source_prompts)
+    source_cells = build_cells(source_prompts)
     tasks = [{"cell_id": cell.cell_id, **cell.core} for cell in source_cells]
     if len(tasks) != cohort["expected_cells_per_model"]:
         raise ValueError("cohort cell count differs from its manifest")
@@ -482,11 +484,11 @@ def submit_backlog(
             try:
                 for relative, path in sources.items():
                     _copy_frozen(path, run_root / relative, source_files[relative]["sha256"])
-                prompts = _load_calibration_prompts(
+                prompts = load_calibration_prompts(
                     run_root / "cohort/pilot-prompts.jsonl", run_root / "cohort/selection-records.jsonl",
                     prompt_count=cohort["prompt_count"], seed=PROMPT_SELECTION_SEED,
                 )
-                cells = _cells(prompts)
+                cells = build_cells(prompts)
                 frozen_tasks = [{"cell_id": cell.cell_id, **cell.core} for cell in cells]
                 if frozen_tasks != tasks:
                     raise ValueError("copied cohort produced a different task queue")
