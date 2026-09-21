@@ -12,6 +12,7 @@ import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 def _seconds(value: str, name: str, *, positive: bool = False) -> float:
@@ -41,6 +42,7 @@ class AllocationBudget:
     admission_margin_seconds: float = 120
     cleanup_margin_seconds: float = 45
     _end_monotonic: float | None = field(default=None, repr=False)
+    admission_stop_file: Path | None = None
 
     @classmethod
     def from_environment(
@@ -52,13 +54,18 @@ class AllocationBudget:
         if admission < cleanup:
             raise ValueError("admission margin must be at least the cleanup margin")
         raw_end = env.get("SLURM_JOB_END_TIME", "")
+        raw_role_end = env.get("GEODML_ROLE_END_TIME", "")
         raw_approved = env.get("GEODML_APPROVED_WALLTIME", "")
         approved = _walltime(raw_approved) if raw_approved else None
+        stop_file = Path(env["GEODML_ADMISSION_STOP_FILE"]) if env.get("GEODML_ADMISSION_STOP_FILE") else None
         if not raw_end:
             if require:
                 raise ValueError("SLURM_JOB_END_TIME is required; do not reset a timer after model startup")
-            return cls(admission_margin_seconds=admission, cleanup_margin_seconds=cleanup)
+            return cls(admission_margin_seconds=admission, cleanup_margin_seconds=cleanup,
+                       admission_stop_file=stop_file)
         end = _seconds(raw_end, "SLURM_JOB_END_TIME", positive=True)
+        if raw_role_end:
+            end = min(end, _seconds(raw_role_end, "GEODML_ROLE_END_TIME", positive=True))
         raw_start = env.get("SLURM_JOB_START_TIME", "")
         if raw_start:
             start = _seconds(raw_start, "SLURM_JOB_START_TIME", positive=True)
@@ -70,12 +77,20 @@ class AllocationBudget:
             end_epoch=end, admission_margin_seconds=admission,
             cleanup_margin_seconds=cleanup,
             _end_monotonic=time.monotonic() + end - time.time(),
+            admission_stop_file=stop_file,
         )
 
     def can_start(self) -> bool:
-        return self._end_monotonic is None or (
-            time.monotonic() < self._end_monotonic - self.admission_margin_seconds
-        )
+        return self.admission_stop_reason() is None
+
+    def admission_stop_reason(self) -> str | None:
+        if self._end_monotonic is not None and (
+            time.monotonic() >= self._end_monotonic - self.admission_margin_seconds
+        ):
+            return "allocation_deadline"
+        if self.admission_stop_file is not None and self.admission_stop_file.exists():
+            return "priority_yield"
+        return None
 
     def work_seconds_left(self) -> float | None:
         if self._end_monotonic is None:

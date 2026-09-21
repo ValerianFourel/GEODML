@@ -33,6 +33,9 @@ class Budget:
     def can_start(self):
         return self.admit
 
+    def admission_stop_reason(self):
+        return None if self.admit else "allocation_deadline"
+
     def work_seconds_left(self):
         return self.seconds
 

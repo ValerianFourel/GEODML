@@ -464,6 +464,7 @@ class SmokeInputs:
     shared_claim_root: Path | None = None
     worker_index: int = 0
     worker_count: int = 1
+    import_only: bool = False
 
     def __post_init__(self) -> None:
         budgets = [
@@ -512,6 +513,8 @@ class SmokeInputs:
             raise ValueError("worker_index must be in [0, worker_count)")
         if self.shared_claim_root is None and (self.worker_index or self.worker_count != 1):
             raise ValueError("worker preferences require a shared claim root")
+        if self.import_only and self.shared_claim_root is None:
+            raise ValueError("import-only mode requires a shared claim root")
 
     @property
     def resolved_query_max_tokens(self) -> int:
@@ -1154,7 +1157,7 @@ def validate_manifest_artifacts(
         raise ValueError("generator manifest counts are inconsistent")
     if manifest.get("status") == "checkpointed":
         if remaining_count == 0 or manifest.get("stop_reason") not in {
-            "allocation_deadline", "shared_tasks_busy",
+            "allocation_deadline", "shared_tasks_busy", "priority_yield", "import_only",
         }:
             raise ValueError("generator checkpoint does not record a deadline stop")
     elif manifest.get("status") != "complete" or remaining_count != 0:
@@ -1206,13 +1209,8 @@ async def run_smoke(
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-async def _run_smoke(
-    inputs: SmokeInputs,
-    *,
-    client_context: Any | None = None,
-    compactor: ContextCompactor | None = None,
-) -> dict[str, Any]:
-    allocation_budget = AllocationBudget.from_environment()
+def describe_queue(inputs: SmokeInputs) -> dict[str, Any]:
+    """Resolve the exact scientific queue without writes or model inference."""
     if set(inputs.search_snapshots) != set(ENGINES):
         raise ValueError("both duckduckgo and searxng snapshots are required")
     adapters = {
@@ -1267,6 +1265,21 @@ async def _run_smoke(
         target_urls,
         target_url_selection_audit,
     )
+    return {"config": config, "cells": cells, "adapters": adapters,
+            "target_urls": target_urls, "legacy_prompt": legacy_prompt}
+
+
+async def _run_smoke(
+    inputs: SmokeInputs,
+    *,
+    client_context: Any | None = None,
+    compactor: ContextCompactor | None = None,
+) -> dict[str, Any]:
+    allocation_budget = AllocationBudget.from_environment()
+    description = describe_queue(inputs)
+    config, cells = description["config"], description["cells"]
+    adapters, target_urls = description["adapters"], description["target_urls"]
+    legacy_prompt = description["legacy_prompt"]
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
     inputs.output.mkdir(parents=True, exist_ok=True)
     config_path = inputs.output / "config.json"
@@ -1433,6 +1446,23 @@ async def _run_smoke(
         _write_json_atomic(manifest_path, finished)
         return finished
 
+    if inputs.import_only:
+        imported = {
+            **config, "config_sha256": config_hash, "status": "checkpointed",
+            "stop_reason": "import_only", "allocation_budget": allocation_budget.record(),
+            "completed_count": len(completed),
+            "remaining_count": config["cell_count"] - len(completed),
+            "failed_cell_ids": sorted(shared_failed),
+            "failed_cell_retry_passes_completed": 0,
+            "peak_active_cells_this_invocation": 0,
+            "compactor_cache_this_invocation": None,
+            "shared_backlog": {**shared_stats, "busy_cell_ids": sorted(shared_busy)},
+        }
+        if resume_migration is not None:
+            imported["resume_migration"] = resume_migration
+        _write_json_atomic(manifest_path, imported)
+        return imported
+
     pending_by_id = {cell.cell_id: cell for cell in pending}
     known_failed = {
         cell_id: pending_by_id[cell_id]
@@ -1471,7 +1501,7 @@ async def _run_smoke(
         return value
 
     if not allocation_budget.can_start():
-        return checkpoint(0, stop_reason="allocation_deadline")
+        return checkpoint(0, stop_reason=allocation_budget.admission_stop_reason())
 
     if compactor is None:
         scorer = MemoizingSnippetScorer(
@@ -1496,7 +1526,7 @@ async def _run_smoke(
             ),
         )
     if not allocation_budget.can_start():
-        return checkpoint(0, stop_reason="allocation_deadline")
+        return checkpoint(0, stop_reason=allocation_budget.admission_stop_reason())
     async with AsyncExitStack() as exit_stack:
         try:
             client = await asyncio.wait_for(
@@ -1765,7 +1795,7 @@ async def _run_smoke(
             else "complete"
         ),
         "stop_reason": (
-            "allocation_deadline" if stopped_at_deadline
+            (allocation_budget.admission_stop_reason() or "allocation_deadline") if stopped_at_deadline
             else "shared_tasks_busy" if stopped_busy
             else "bounded_failures" if known_failed
             else "queue_exhausted"
@@ -1826,6 +1856,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--shared-claim-root", type=Path)
     parser.add_argument("--worker-index", type=int, default=0)
     parser.add_argument("--worker-count", type=int, default=1)
+    parser.add_argument("--import-only", action="store_true")
     parser.add_argument("--prompt-count", type=int, default=1)
     parser.add_argument("--prompt-selection-seed", type=int, default=20260912)
     parser.add_argument("--prompt-shard-index", type=int, default=0)
@@ -1877,6 +1908,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         shared_claim_root=arguments.shared_claim_root,
         worker_index=arguments.worker_index,
         worker_count=arguments.worker_count,
+        import_only=arguments.import_only,
     )
     manifest = asyncio.run(run_smoke(inputs))
     print("AGENTIC_INTEGRATION_SMOKE=" + json.dumps({

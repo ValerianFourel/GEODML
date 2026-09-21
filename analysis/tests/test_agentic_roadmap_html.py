@@ -38,6 +38,12 @@ def _javascript(assertions: str) -> None:
 def test_scopes_do_not_silently_credit_pilot_artifacts_to_full_rollout():
     _javascript("""
 const snap = validateSnapshot(DEFAULT_SNAPSHOT);
+assert.equal(snap.scheduler_observation.active_jobs, 0);
+assert.equal(snap.scheduler_observation.latest_job_state, 'TIMEOUT');
+assert.equal(snap.paired_trial.completed, 2701);
+assert.equal(snap.backlogs.length, 2);
+assert.equal(snap.backlogs[0].models.find(model => model.model === 'qwen38').completed, 8166);
+assert.equal(snap.backlogs[1].models[0].terminal_failures, 2);
 const current = scopedProgress(snap, 500, false);
 assert.equal(current.completed, 6000);
 assert.equal(current.expected, 12000);
@@ -48,7 +54,8 @@ const reusable = scopedProgress(snap, 26009, true);
 assert.equal(reusable.completed, 6000);
 assert.equal(reusable.models[0].expected, 312108);
 assert.equal(reusable.models[1].completed, 0);
-assert.equal(snap.pilot.completed, 0);
+assert.equal(snap.pilot.completed, 24);
+assert.equal(snap.pilot.status, 'complete');
 assert.throws(() => scopedProgress(snap, 1, false));
 """)
 
@@ -83,6 +90,8 @@ assert.throws(() => trialCapacity(Infinity, 11, 5, rate));
     "snap.pilot.completed = 25",
     "snap.checked_at = 'yesterday'",
     "snap.models[0].expected = 312108",
+    "snap.scheduler_observation.active_jobs = -1",
+    "snap.scheduler_observation.checked_at = 'today'",
 ])
 def test_import_rejects_invalid_or_mismatched_counts(mutation):
     _javascript(
@@ -96,7 +105,8 @@ def test_real_collector_schema_imports_without_a_live_scheduler(tmp_path):
     _javascript(
         "const collected = validateSnapshot(" + json.dumps(snapshot) + ");\n"
         "assert.equal(scopedProgress(collected, 500, false).completed, 0);\n"
-        "assert.equal(collected.pilot.status, 'not_inspected');"
+        "assert.equal(collected.pilot.status, 'not_inspected');\n"
+        "assert.equal(collected.scheduler_observation, null);"
     )
 
 
@@ -126,3 +136,40 @@ def test_trial_import_stays_separate_from_original_study(tmp_path):
         "assert.throws(() => validateTrial({...trial, completed: 500}));\n"
         "assert.throws(() => validateTrial({...trial, models: [trial.models[0], trial.models[0]]}));"
     )
+
+
+def test_backlog_and_full_bundle_import_without_double_counting_attempts():
+    _javascript("""
+const backlog = {
+  format_version: 'agentic-generator-backlog-progress-v1',
+  label: 'Test registry',
+  checked_at: '2026-09-21T06:00:00Z',
+  prompt_count: 1200,
+  cells_per_model: 14400,
+  claim_root: '/runs/backlog/claims',
+  models: [
+    {model: 'qwen38', model_id: 'qwen/model', completed: 9000, expected: 14400, terminal_failures: 2},
+    {model: 'llama4', model_id: 'llama/model', completed: 12000, expected: 14400, terminal_failures: 0}
+  ],
+  attempts: [
+    {run_root: '/runs/first', status: 'submitted', jobs: 'qwen38:1,llama4:2'},
+    {run_root: '/runs/resume', status: 'submitted', jobs: 'qwen38:3'}
+  ]
+};
+const checked = validateBacklog(backlog);
+assert.equal(checked.models.reduce((sum, model) => sum + model.completed, 0), 21000);
+assert.equal(checked.attempts.length, 2);
+const bundle = validateBundle({
+  format_version: 'agentic-dashboard-bundle-v1',
+  original_study: DEFAULT_SNAPSHOT,
+  scheduler_observation: DEFAULT_SNAPSHOT.scheduler_observation,
+  jobs: DEFAULT_SNAPSHOT.jobs,
+  paired_trial: null,
+  backlogs: [backlog]
+});
+assert.equal(bundle.backlogs[0].models[0].completed, 9000);
+assert.equal(scopedProgress(bundle, 500, false).completed, 6000);
+assert.throws(() => validateBacklog({...backlog, cells_per_model: 1}));
+assert.throws(() => validateBacklog({...backlog, models: [backlog.models[0], backlog.models[0]]}));
+assert.throws(() => validateBacklogs([backlog, backlog]));
+""")

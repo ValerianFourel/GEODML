@@ -36,6 +36,13 @@ def test_approved_cap_can_shorten_but_not_extend_slurm_deadline():
     assert AllocationBudget.from_environment(env).record()["end_epoch"] == 3000
 
 
+def test_role_cap_can_shorten_but_not_extend_allocation():
+    env = {"SLURM_JOB_END_TIME": "5000", "GEODML_ROLE_END_TIME": "2000"}
+    assert AllocationBudget.from_environment(env).record()["end_epoch"] == 2000
+    env["GEODML_ROLE_END_TIME"] = "9000"
+    assert AllocationBudget.from_environment(env).record()["end_epoch"] == 5000
+
+
 def test_budget_requires_real_slurm_deadline_for_batch_preflight():
     with pytest.raises(ValueError, match="SLURM_JOB_END_TIME"):
         AllocationBudget.from_environment({"GEODML_APPROVED_WALLTIME": "01:00:00"}, require=True)
@@ -63,3 +70,13 @@ def test_clock_jumps_do_not_extend_budget(monkeypatch):
     monkeypatch.setattr("analysis.interpretability.pipeline.inference_budget.time.monotonic", lambda: 550)
     assert not budget.can_start()
     assert budget.work_seconds_left() == 5
+
+
+def test_priority_yield_stops_admission_without_shortening_drain(tmp_path):
+    marker = tmp_path / "stop"
+    budget = AllocationBudget.from_environment({"GEODML_ADMISSION_STOP_FILE": str(marker)})
+    assert budget.can_start()
+    marker.touch()
+    assert not budget.can_start()
+    assert budget.admission_stop_reason() == "priority_yield"
+    assert budget.work_seconds_left() is None

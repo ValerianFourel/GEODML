@@ -198,6 +198,43 @@ class InferenceClaimStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).resolve()
 
+    def inspect(
+        self, identity: ClaimIdentity | Mapping[str, str], *,
+        validate: Callable[[dict[str, Any]], None] | None = None,
+        validate_failure: Callable[[dict[str, Any]], None] | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Read a verified outcome or probe ownership without creating files.
+
+        A missing record is only a scheduling hint. Writers must still acquire
+        ``try_claim`` before inference. Existing lock files are never removed.
+        """
+        identity = _identity(identity)
+        fingerprint = _digest(asdict(identity))
+        path = self.root / fingerprint[:2] / f"{fingerprint}.json"
+        failure = path.with_suffix(".failed.json")
+        lock_path = path.with_suffix(".lock")
+        try:
+            descriptor = os.open(lock_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except FileNotFoundError:
+            descriptor = None
+        try:
+            if descriptor is not None:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return "busy", None
+            if path.exists() and failure.exists():
+                raise ValueError(f"both success and failure records exist: {path}")
+            if path.exists():
+                return "completed", self._read(path, identity, validate)
+            if failure.exists():
+                return "failed", self._read(failure, identity, validate_failure,
+                                             format_version=FAILURE_FORMAT_VERSION)
+            return "missing", None
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
     def _read(
         self, path: Path, identity: ClaimIdentity,
         validate: Callable[[dict[str, Any]], None] | None,

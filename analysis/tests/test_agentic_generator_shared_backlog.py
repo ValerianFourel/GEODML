@@ -76,6 +76,22 @@ def test_preexisting_completed_cells_export_without_touching_files(tmp_path):
     assert client.call_count == 0
 
 
+def test_import_only_exports_completed_cells_without_starting_inference(tmp_path):
+    original = _smoke_inputs(tmp_path)
+    asyncio.run(run(original, _FakeClientContext()))
+    # Remove one local result so the registry import is intentionally partial.
+    missing = next((original.output / "results").glob("*.json"))
+    missing.unlink()
+    shared = replace(original, shared_claim_root=tmp_path / "shared", import_only=True)
+    client = _FakeClientContext()
+    manifest = asyncio.run(run(shared, client))
+    assert manifest["status"] == "checkpointed"
+    assert manifest["stop_reason"] == "import_only"
+    assert manifest["completed_count"] == 11
+    assert manifest["shared_backlog"]["exported_count"] == 11
+    assert client.call_count == 0
+
+
 def test_shared_record_corruption_fails_before_inference(tmp_path):
     inputs = inputs_for(tmp_path)
     asyncio.run(run(inputs, _FakeClientContext()))

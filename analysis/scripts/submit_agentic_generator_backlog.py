@@ -357,7 +357,14 @@ def _resume_claims(
         for task in tasks
     ):
         raise ValueError("resume source task queue differs from the requested queue")
-    claim_root = root / "claims"
+    recorded_claim_root = manifest.get("claim_root")
+    if recorded_claim_root is None:
+        # Older manifests predate the explicit shared-registry field.
+        claim_root = root / "claims"
+    elif not isinstance(recorded_claim_root, str) or not Path(recorded_claim_root).is_absolute():
+        raise ValueError("resume source claim root must be an absolute path")
+    else:
+        claim_root = Path(recorded_claim_root)
     if claim_root.exists() and not claim_root.is_dir():
         raise ValueError("resume source claim root is not a directory")
     return {

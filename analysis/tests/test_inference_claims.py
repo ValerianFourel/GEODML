@@ -29,6 +29,36 @@ def _validate(outcome):
         raise ValueError("invalid answer")
 
 
+def test_read_only_inspection_distinguishes_missing_busy_success_and_failure(tmp_path):
+    store = InferenceClaimStore(tmp_path / "claims")
+    identity = _identity()
+    assert store.inspect(identity) == ("missing", None)
+    assert not store.root.exists()
+    with store.try_claim(identity) as claim:
+        assert store.inspect(identity) == ("busy", None)
+        claim.commit({"answer": "validated"})
+        assert store.inspect(identity) == ("busy", None)
+    before = {p: p.read_bytes() for p in store.root.rglob("*") if p.is_file()}
+    assert store.inspect(identity, validate=_validate) == ("completed", {"answer": "validated"})
+    assert before == {p: p.read_bytes() for p in before}
+    failed = replace(identity, task_id="failed")
+    with store.try_claim(failed) as claim:
+        claim.fail({"error": "bounded failure"})
+    assert store.inspect(failed) == ("failed", {"error": "bounded failure"})
+
+
+def test_read_only_inspection_does_not_trust_corrupted_outcome(tmp_path):
+    store = InferenceClaimStore(tmp_path)
+    with store.try_claim(_identity()) as claim:
+        claim.commit({"answer": "validated"})
+    path = next(tmp_path.glob("*/*.json"))
+    record = json.loads(path.read_text())
+    record["outcome"]["answer"] = "altered"
+    path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="envelope"):
+        store.inspect(_identity())
+
+
 def _worker(root, identity, messages, release, commit):
     store = InferenceClaimStore(root)
     with store.try_claim(identity, validate=_validate) as claim:

@@ -41,6 +41,12 @@
     .snapshot strong { display: block; margin-bottom: .35rem; }
     .snapshot time { display: block; font-variant-numeric: tabular-nums; }
     .snapshot p { margin: .35rem 0 0; }
+    .status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+    .status-card { padding: 18px; border: 1px solid var(--line); border-top: 3px solid var(--blue); border-radius: 5px; background: var(--paper); }
+    .status-card.attention { border-top-color: var(--amber); }
+    .status-card h3 { margin-bottom: .55rem; }
+    .status-value { font-size: 1.2rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .status-card p { margin: .45rem 0 0; color: var(--muted); font-size: .86rem; }
     .scope { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; border: 0; padding: 0; margin: 14px 0 0; }
     .scope legend { float: left; margin-right: 20px; font-weight: 600; }
     .scope label { display: flex; align-items: center; gap: .55rem; min-height: 44px; padding: .35rem .75rem; border: 1px solid var(--line); border-radius: 5px; }
@@ -125,6 +131,7 @@
       .calculator { grid-template-columns: 1fr; gap: 18px; }
       .trial { grid-template-columns: 1fr; gap: 20px; }
       .trial-budget { border-left: 0; border-top: 1px solid #becff7; padding-left: 0; padding-top: 16px; }
+      .status-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 560px) {
       .shell { padding-left: 16px; padding-right: 16px; }
@@ -155,20 +162,30 @@
     <header class="masthead">
       <div class="brand">GEODML / Inference roadmap</div>
       <nav aria-label="Page sections">
-        <a href="#progress">Progress</a><a href="#next">Next jobs</a><a href="#estimate">Estimates</a><a href="#refresh">Refresh snapshot</a>
+        <a href="#progress">Progress</a><a href="#next">Paired trial</a><a href="#backlog">Backlog</a><a href="#estimate">Estimates</a><a href="#refresh">Refresh snapshot</a>
       </nav>
     </header>
     <main>
       <section class="hero" aria-labelledby="page-title">
         <div>
           <h1 id="page-title">Qwen's 500-prompt generation is complete.</h1>
-          <p id="hero-description">The next proposed trial measures Qwen3.8 and Llama 4 on the same new prompts. Judging and the full rollout still have separate work to do.</p>
+          <p id="hero-description">The paired trial saved 2,701 of 2,880 cells. The 1,200-prompt work spans two separate claim registries that must not be added without a compatibility audit.</p>
         </div>
         <aside class="snapshot" aria-label="Data freshness">
-          <strong>Saved snapshot. Not a live cluster connection.</strong>
-          <time id="checked-at" datetime="2026-09-15T23:08:32Z">15 September 2026, 23:08:32 UTC</time>
-          <p id="freshness-note">Qwen completion and Nemotron startup come from pasted cluster output. Llama's zero count was reported earlier.</p>
+          <strong>Saved artifact snapshot. Not a live cluster connection.</strong>
+          <time id="checked-at" datetime="2026-09-21T06:24:47Z">21 September 2026, 06:24:47 UTC</time>
+          <p id="freshness-note">The saved dashboard bundle recounts the original study, paired trial, both backlog registries, and recent Slurm history.</p>
         </aside>
+      </section>
+
+      <section class="section" aria-labelledby="cluster-state-title">
+        <h2 id="cluster-state-title">Current cluster observation</h2>
+        <p class="section-intro">Scheduler state and artifact progress use separate timestamps. A finished allocation can leave a partial, complete, or failed artifact queue.</p>
+        <div class="status-grid">
+          <article class="status-card"><h3>Slurm queue</h3><div id="scheduler-state" class="status-value">Not recorded</div><p id="scheduler-note">Import or embed a scheduler observation.</p></article>
+          <article class="status-card attention"><h3>Cluster checkout</h3><div id="repository-state" class="status-value">Not recorded</div><p id="repository-note">The execution commit must match each run manifest.</p></article>
+          <article class="status-card attention"><h3>Artifact freshness</h3><div id="artifact-state" class="status-value">Snapshot pending</div><p id="artifact-note">Run the read-only collectors before using the counts.</p></article>
+        </div>
       </section>
 
       <fieldset class="scope">
@@ -206,10 +223,10 @@
       </section>
 
       <section class="section" id="next" aria-labelledby="next-title">
-        <h2 id="next-title">Next proposed experiment</h2>
-        <p class="section-intro">Two independent one-hour batch jobs, one per generator, on a proposed 120-prompt cohort outside the original 500. This is not a rerun of completed Qwen cells.</p>
+        <h2 id="next-title">Recent trial and remaining work</h2>
+        <p class="section-intro">The separate 120-prompt Qwen and Llama jobs ended on 16 September. The artifact report below was collected on 21 September.</p>
         <div class="trial">
-          <div><h3>Qwen3.8 + Llama 4</h3><p>Freeze the same 120 new prompt IDs and all 12 conditions for both models, 1,440 cells each. Save each completed cell, then rebuild a later queue from missing IDs only.</p><p class="state attention">Two one-hour allocations approved. Submission not yet verified.</p></div>
+          <div><h3>Qwen3.8 + Llama 4</h3><p>The frozen cohort contains 120 new prompt IDs and all 12 conditions for both models, 1,440 cells each. Qwen saved 1,261 cells before timeout. Llama saved all 1,440.</p><p class="state attention">2,701 of 2,880 cells saved.</p></div>
           <div class="trial-budget"><strong>8 GPU-hours maximum</strong><span>2 jobs × 1 hour × 4 GH200 GPUs</span><span>Per job: 1 node, 32 CPUs, 512 GB RAM</span><span>This page does not submit jobs.</span></div>
         </div>
         <div class="table-wrap" style="margin-top:20px"><table><thead><tr><th>New-cohort model</th><th>Saved cells</th><th>Remaining</th><th>Last job state</th></tr></thead><tbody id="trial-rows"></tbody></table></div>
@@ -218,11 +235,19 @@
           <li><div><h3>Preserve the completed Qwen study</h3><p id="preserve-copy">Keep all 6,000 current-study outputs. The six missing shard-3 cells were repaired. Include their recovery flags in later analysis.</p></div><span id="preserve-state" class="state good">Complete in snapshot</span></li>
           <li><div><h3>Inspect Nemotron's pilot outcome</h3><p>Check all 24 judgments, rankings, source mappings, output validity, and elapsed inference time. Two prompts test the pipeline, not judge accuracy.</p></div><span id="pilot-roadmap-state" class="state attention">New status needed</span></li>
           <li><div><h3>Freeze one disjoint new-prompt cohort</h3><p>Exclude the original 500 prompt IDs, preserve axis coverage, and use the same factorial cells for Qwen and Llama. Record stable IDs and source hashes.</p></div><span class="state attention">Not prepared</span></li>
-          <li><div><h3>Run the approved one-hour pair</h3><p>Measure startup, successful cells per minute, output tokens, retries, and GPU use separately. Completed cells are saved individually; a hard timeout can interrupt active calls.</p></div><span id="trial-submission-state" class="state attention">Not verified</span></li>
+          <li><div><h3>Audit the completed one-hour pair</h3><p>Measure startup, successful cells per minute, output tokens, retries, and GPU use separately. Completed cells were saved individually; the Qwen timeout may have interrupted active calls.</p></div><span id="trial-submission-state" class="state attention">Artifact report needed</span></li>
           <li><div><h3>Fill remaining generator and judge queues</h3><p>Use disjoint modulo workers on a frozen missing-cell list. Recompute the next wave from verified completed outputs when changing worker count.</p></div><span class="state">After trial audit</span></li>
           <li><div><h3>Validate judges, adjudicate, then analyze</h3><p>Compare blinded judgments on the frozen validation sample. Resolve cases selected by predefined rules before interpreting ranking effects.</p></div><span class="state">Protocol pending</span></li>
         </ol>
         <p class="note">Llama's unfinished work on the original 500 prompts remains a separate backlog. The proposed new-prompt pair will not fill those old cells. An axis-balanced planned cohort does not guarantee an axis-balanced completed subset: canonical axis ordering and time limits can change which cells finish. Audit coverage before comparing models.</p>
+      </section>
+
+      <section class="section" id="backlog" aria-labelledby="backlog-title">
+        <h2 id="backlog-title">Resumable 1,200-prompt backlog</h2>
+        <p class="section-intro">Shared claim records are the durable count across retries and worker layouts. The dashboard never adds copied worker outputs together.</p>
+        <div class="plan-line"><strong id="backlog-total">Artifact report not imported</strong><span id="backlog-percent">Run the full JUPITER collector below.</span></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Registry / model</th><th scope="col">Saved cells</th><th scope="col">Terminal failures</th><th scope="col">Remaining</th></tr></thead><tbody id="backlog-rows"></tbody></table></div>
+        <p class="note" id="backlog-freshness">Scheduler history alone cannot establish backlog completion.</p>
       </section>
 
       <section class="section" id="estimate" aria-labelledby="estimate-title">
@@ -260,12 +285,12 @@
         <p class="section-intro">Scheduler status below belongs to the saved snapshot. It is not a statement that a job is still running now.</p>
         <div class="table-wrap"><table><thead><tr><th scope="col">Job</th><th scope="col">Last reported state</th><th scope="col">Elapsed</th><th scope="col">Limit</th><th scope="col">Exit</th></tr></thead><tbody id="job-rows"></tbody></table></div>
         <p id="job-error" class="note error" hidden></p>
-        <p class="note">The one-hour Qwen repair finished in 11 minutes 2 seconds and released its batch resources early. The older interactive allocation expired separately. Shutdown messages after a successful controller exit do not by themselves invalidate saved results.</p>
+        <p class="note">These are scheduler outcomes, not artifact counts. Timeouts can retain checkpointed cells, and a completed allocation can still contain bounded task failures.</p>
       </section>
 
       <section class="section" id="refresh" aria-labelledby="refresh-title">
         <h2 id="refresh-title">Bring in a newer snapshot</h2>
-        <p class="section-intro">Paste JSON from either read-only status collector: the original-study snapshot or the new paired-trial report. The two studies keep separate counts and timestamps. Import changes this page only; it does not connect to the cluster or launch a job.</p>
+        <p class="section-intro">Paste the dashboard bundle from the full JUPITER collector. The page also accepts the original-study, paired-trial, and backlog reports separately. Import changes this page only; it does not connect to the cluster or launch a job.</p>
         <label for="snapshot-json">Status JSON</label>
         <textarea id="snapshot-json" spellcheck="false" placeholder='{"schema_version": 1, "checked_at": "…", "models": […], "pilot": {…}, "jobs": […]}'></textarea>
         <div class="actions"><button type="button" class="primary" id="import-snapshot">Import snapshot</button><button type="button" id="reset-snapshot">Reset to supplied snapshot</button><button type="button" id="copy-snapshot">Copy current snapshot JSON</button></div>
@@ -281,18 +306,89 @@
   "use strict";
   const DEFAULT_SNAPSHOT = {
     schema_version: 1,
-    checked_at: "2026-09-15T23:08:32Z",
+    checked_at: "2026-09-21T06:24:47Z",
     run_root: "agentic-production-500-interactive-32336cbe51c1-job1794418",
-    source_note: "User-supplied cluster output. Qwen shard 3 was confirmed complete at this timestamp; shards 0 to 2 and Llama's zero production count were reported earlier. No live cluster connection.",
+    source_note: "Read-only artifact recount from the saved dashboard bundle. Counts are saved files, not quality scores or scientific validation. No live cluster connection.",
+    scheduler_observation: {
+      checked_at: "2026-09-21T06:24:47Z",
+      active_jobs: 0,
+      repository_commit: "5ce2e190b9368717774edd0abcf347edebd40e7a",
+      repository_state: "detached HEAD",
+      latest_job_id: "1863174_0",
+      latest_job_name: "geodml-qwen38-backlog-4h",
+      latest_job_state: "TIMEOUT"
+    },
     models: [
       {model: "qwen38", expected: 6000, completed: 6000, shards: [0, 1, 2, 3].map(shard => ({shard, completed: 1500, expected: 1500, status: "complete"}))},
       {model: "llama4", expected: 6000, completed: 0, shards: [0, 1, 2, 3].map(shard => ({shard, completed: 0, expected: 1500, status: "not_started_last_report"}))}
     ],
-    pilot: {expected: 24, completed: 0, status: "server_startup_last_report"},
+    pilot: {expected: 24, completed: 24, status: "complete", inspected: true},
     jobs: [
+      {job_id: "1863174_0", state: "TIMEOUT", elapsed: "04:01:00", time_limit: "04:00:00", exit_code: "0:0", name: "Qwen3.8 backlog"},
+      {job_id: "1861355", state: "COMPLETED", elapsed: "00:34:39", time_limit: "01:00:00", exit_code: "0:0", name: "Nemotron conversation"},
+      {job_id: "1860995", state: "FAILED", elapsed: "00:02:10", time_limit: "01:00:00", exit_code: "1:0", name: "Nemotron conversation"},
+      {job_id: "1857275_0", state: "COMPLETED", elapsed: "00:59:04", time_limit: "01:00:00", exit_code: "0:0", name: "Qwen3.8 backlog"},
+      {job_id: "1821352_0", state: "TIMEOUT", elapsed: "01:00:57", time_limit: "01:00:00", exit_code: "0:0", name: "Qwen3.8 120-prompt trial"},
+      {job_id: "1821353_0", state: "COMPLETED", elapsed: "00:55:31", time_limit: "01:00:00", exit_code: "0:0", name: "Llama 4 120-prompt trial"},
       {job_id: "1821028", state: "COMPLETED", elapsed: "00:11:02", time_limit: "01:00:00", exit_code: "0:0", name: "Qwen shard-3 repair"},
-      {job_id: "1821158", state: "RUNNING", elapsed: "00:02:28", time_limit: "01:00:00", exit_code: "0:0", name: "Nemotron 24-case pilot"},
-      {job_id: "1818010", state: "TIMEOUT", elapsed: "04:00:58", time_limit: "04:00:00", exit_code: "0:0", name: "Older interactive allocation"}
+      {job_id: "1821158", state: "COMPLETED", elapsed: "00:07:54", time_limit: "01:00:00", exit_code: "0:0", name: "Nemotron 24-case pilot"}
+    ],
+    paired_trial: {
+      format_version: "agentic-paired-trial-progress-v1",
+      checked_at: "2026-09-21T06:23:16+00:00",
+      run_root: "/e/project1/scifi/fourel1/geodml/runs/acl-arr-search-experience/pilot-3-627ad348c2a0/agentic-paired-new120-1h-v1",
+      prompt_count: 120,
+      expected: 2880,
+      completed: 2701,
+      models: [
+        {model: "qwen38", expected: 1440, completed: 1261, saved_status: "checkpointed", job_id: "1821352"},
+        {model: "llama4", expected: 1440, completed: 1440, saved_status: "complete", job_id: "1821353"}
+      ],
+      jobs: [
+        {job_id: "1821352_0", state: "TIMEOUT"},
+        {job_id: "1821353_0", state: "COMPLETED"}
+      ],
+      job_error: null
+    },
+    backlogs: [
+      {
+        format_version: "agentic-generator-backlog-progress-v1",
+        label: "Original shared registry",
+        checked_at: "2026-09-21T06:24:31+00:00",
+        prompt_count: 1200,
+        cells_per_model: 14400,
+        claim_root: "/e/project1/scifi/fourel1/geodml/runs/acl-arr-search-experience/pilot-3-627ad348c2a0/agentic-generator-new1200-four3h-v1/claims",
+        models: [
+          {model: "qwen38", model_id: "Qwen/Qwen3.8-27B", completed: 8166, expected: 14400, terminal_failures: 0},
+          {model: "llama4", model_id: "meta-llama/Llama-4-Scout-17B-16E-Instruct", completed: 4504, expected: 14400, terminal_failures: 0}
+        ],
+        attempts: [
+          {run_root: "agentic-generator-new1200-four3h-v1", status: "submitted", jobs: "llama4:1836033,qwen38:1836032"},
+          {run_root: "agentic-generator-new1200-llama4-interactive-1857334-v1", status: "prepared", jobs: "llama4:-"},
+          {run_root: "agentic-generator-new1200-llama4-interactive-1857334-v2", status: "prepared", jobs: "llama4:-"},
+          {run_root: "agentic-generator-new1200-llama4-interactive-1857334-v3", status: "prepared", jobs: "llama4:-"},
+          {run_root: "agentic-generator-new1200-llama4-interactive-1857334-v4", status: "prepared", jobs: "llama4:-"},
+          {run_root: "agentic-generator-new1200-qwen-five8h-exclusive-v1", status: "submitted", jobs: "qwen38:1860334"},
+          {run_root: "agentic-generator-new1200-qwen-one1h-exclusive-v3", status: "submitted", jobs: "qwen38:1856708"},
+          {run_root: "agentic-generator-new1200-qwen-one1h-exclusive-v4", status: "submitted", jobs: "qwen38:1856970"},
+          {run_root: "agentic-generator-new1200-qwen-one1h-exclusive-v5", status: "submitted", jobs: "qwen38:1857275"},
+          {run_root: "agentic-generator-new1200-ten12h-v1", status: "submitted", jobs: "llama4:1845272,qwen38:1845271"}
+        ]
+      },
+      {
+        format_version: "agentic-generator-backlog-progress-v1",
+        label: "Retrieval-fix registry",
+        checked_at: "2026-09-21T06:24:44+00:00",
+        prompt_count: 1200,
+        cells_per_model: 14400,
+        claim_root: "/e/project1/scifi/fourel1/geodml/runs/acl-arr-search-experience/pilot-3-627ad348c2a0/agentic-generator-new1200-qwen-five8h-exclusive-v1/claims",
+        models: [
+          {model: "qwen38", model_id: "Qwen/Qwen3.8-27B", completed: 3690, expected: 14400, terminal_failures: 2}
+        ],
+        attempts: [
+          {run_root: "agentic-generator-new1200-qwen-resume-retrieval-fix-4h-v2", status: "submitted", jobs: "qwen38:1863174"}
+        ]
+      }
     ]
   };
   const MODEL_NAMES = {qwen38: "Qwen3.8", llama4: "Llama 4"};
@@ -308,6 +404,60 @@
   function string(value, label, maximum = 1000) {
     if (typeof value !== "string" || value.length > maximum) throw new Error(label + " must be text of at most " + maximum + " characters.");
     return value;
+  }
+  function validateScheduler(raw) {
+    if (raw === undefined || raw === null) return null;
+    object(raw, "Scheduler observation");
+    const checkedAt = string(raw.checked_at, "Scheduler timestamp", 60);
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(checkedAt) || !Number.isFinite(Date.parse(checkedAt))) throw new Error("Scheduler timestamp must include a timezone.");
+    const activeJobs = integer(raw.active_jobs, 100000, "Active jobs");
+    return {
+      checked_at: checkedAt,
+      active_jobs: activeJobs,
+      repository_commit: string(raw.repository_commit, "Repository commit", 100),
+      repository_state: string(raw.repository_state, "Repository state", 200),
+      latest_job_id: string(raw.latest_job_id, "Latest job ID", 100),
+      latest_job_name: string(raw.latest_job_name, "Latest job name", 300),
+      latest_job_state: string(raw.latest_job_state, "Latest job state", 200)
+    };
+  }
+  function validateBacklog(raw) {
+    object(raw, "Backlog report");
+    if (raw.format_version !== "agentic-generator-backlog-progress-v1" || raw.prompt_count !== 1200 || raw.cells_per_model !== 14400) throw new Error("Expected a 1,200-prompt generator backlog report.");
+    const checkedAt = string(raw.checked_at, "Backlog timestamp", 60);
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(checkedAt) || !Number.isFinite(Date.parse(checkedAt))) throw new Error("Backlog timestamp must include a timezone.");
+    if (!Array.isArray(raw.models) || raw.models.length < 1 || raw.models.length > 2) throw new Error("Backlog report must contain one or two supported models.");
+    const seen = new Set();
+    const models = raw.models.map(row => {
+      object(row, "Backlog model");
+      if (!Object.hasOwn(MODEL_NAMES, row.model) || seen.has(row.model)) throw new Error("Backlog models must be unique supported model slugs.");
+      seen.add(row.model);
+      if (row.expected !== 14400) throw new Error("Each backlog model must have 14,400 expected cells.");
+      return {
+        model: row.model,
+        model_id: string(row.model_id, "Backlog model ID", 500),
+        expected: 14400,
+        completed: integer(row.completed, 14400, "Backlog completed"),
+        terminal_failures: integer(row.terminal_failures, 14400, "Backlog terminal failures")
+      };
+    }).sort((left, right) => left.model === "qwen38" ? -1 : 1);
+    if (!Array.isArray(raw.attempts) || raw.attempts.length > 100) throw new Error("Backlog attempts must be a list of at most 100 entries.");
+    const attempts = raw.attempts.map(row => {
+      object(row, "Backlog attempt");
+      return {run_root: string(row.run_root, "Backlog run root", 4000), status: string(row.status, "Backlog attempt status", 200), jobs: string(row.jobs, "Backlog attempt jobs", 1000)};
+    });
+    return {format_version: raw.format_version, label: string(raw.label, "Backlog label", 300), checked_at: checkedAt, prompt_count: 1200, cells_per_model: 14400, claim_root: string(raw.claim_root, "Backlog claim root", 4000), models, attempts};
+  }
+  function validateBacklogs(raw) {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw) || raw.length > 10) throw new Error("Backlogs must be a list of at most ten registries.");
+    const roots = new Set();
+    return raw.map(value => {
+      const backlog = validateBacklog(value);
+      if (roots.has(backlog.claim_root)) throw new Error("Backlog claim roots cannot repeat.");
+      roots.add(backlog.claim_root);
+      return backlog;
+    });
   }
   function validateSnapshot(raw) {
     object(raw, "Snapshot");
@@ -351,9 +501,11 @@
     return {
       schema_version: 1, checked_at: checkedAt, run_root: string(raw.run_root, "run_root", 4000),
       source_note: raw.source_note === undefined ? "Imported read-only status snapshot. Saved counts are not scientific validation." : string(raw.source_note, "source_note", 4000),
+      scheduler_observation: validateScheduler(raw.scheduler_observation),
       models, pilot: {expected: 24, completed: integer(pilot.completed, 24, "Pilot completed"), status: string(pilot.status, "Pilot status", 300), inspected: pilot.inspected === undefined ? true : pilot.inspected}, jobs,
       job_error: raw.job_error === undefined ? "" : string(raw.job_error, "job_error", 4000),
-      paired_trial: raw.paired_trial ? validateTrial(raw.paired_trial) : null
+      paired_trial: raw.paired_trial ? validateTrial(raw.paired_trial) : null,
+      backlogs: validateBacklogs(raw.backlogs === undefined && raw.backlog ? [raw.backlog] : raw.backlogs)
     };
   }
   function validateTrial(raw) {
@@ -398,9 +550,21 @@
     if (!remaining) return {low: 0, high: 0};
     return rate ? {low: remaining / rate.high / 60, high: remaining / rate.low / 60} : null;
   }
+  function validateBundle(raw) {
+    object(raw, "Dashboard bundle");
+    if (raw.format_version !== "agentic-dashboard-bundle-v1") throw new Error("Expected an agentic dashboard bundle.");
+    object(raw.original_study, "Original-study snapshot");
+    return validateSnapshot({
+      ...raw.original_study,
+      scheduler_observation: raw.scheduler_observation,
+      jobs: raw.jobs,
+      paired_trial: raw.paired_trial,
+      backlogs: raw.backlogs === undefined && raw.backlog ? [raw.backlog] : raw.backlogs
+    });
+  }
   // Pure helpers are available for CPU-only verification without a browser.
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = {DEFAULT_SNAPSHOT, validateSnapshot, validateTrial, scopedProgress, rateRange, trialCapacity, remainingHours};
+    module.exports = {DEFAULT_SNAPSHOT, validateScheduler, validateBacklog, validateBacklogs, validateBundle, validateSnapshot, validateTrial, scopedProgress, rateRange, trialCapacity, remainingHours};
   }
   if (typeof document !== "undefined") {
     let snapshot = validateSnapshot(DEFAULT_SNAPSHOT);
@@ -419,6 +583,22 @@
       $("freshness-note").textContent = snapshot.source_note;
       $("source-note").textContent = snapshot.source_note;
       $("run-root").textContent = "Run root: " + snapshot.run_root;
+      const scheduler = snapshot.scheduler_observation;
+      if (scheduler) {
+        $("scheduler-state").textContent = scheduler.active_jobs === 0 ? "Idle" : fmt(scheduler.active_jobs) + " active jobs";
+        $("scheduler-note").textContent = "Checked " + scheduler.checked_at + ". Latest recorded job: " + scheduler.latest_job_id + " " + scheduler.latest_job_name + ", " + scheduler.latest_job_state + ".";
+        $("repository-state").textContent = scheduler.repository_state;
+        $("repository-note").textContent = "Cluster checkout " + scheduler.repository_commit + ". Compare this commit with each run manifest before analysis.";
+        $("artifact-state").textContent = "Mixed verified timestamps";
+        $("artifact-note").textContent = "The paired trial and backlog registries were counted on 21 September. The original 500-prompt study remains at its 15 September snapshot, and the judge pilot still needs an artifact recount.";
+      } else {
+        $("scheduler-state").textContent = "Not recorded";
+        $("scheduler-note").textContent = "No scheduler observation is embedded in this artifact snapshot.";
+        $("repository-state").textContent = "Not recorded";
+        $("repository-note").textContent = "The execution commit must match each run manifest.";
+        $("artifact-state").textContent = "Snapshot timestamp only";
+        $("artifact-note").textContent = "Run the read-only collectors before using the counts.";
+      }
       const qwen = snapshot.models.find(model => model.model === "qwen38");
       $("page-title").textContent = qwen.completed === 6000 ? "Qwen's 500-prompt generation is complete." : "Track the saved inference work.";
       $("generation-total").textContent = fmt(data.completed) + " / " + fmt(data.expected) + " cells";
@@ -461,20 +641,42 @@
       $("job-error").hidden = !snapshot.job_error;
       $("job-error").textContent = snapshot.job_error ? "Scheduler read issue: " + snapshot.job_error : "";
       renderTrial();
+      renderBacklog();
       renderEstimates();
     }
     function renderTrial() {
       $("trial-rows").replaceChildren();
       const trial = snapshot.paired_trial;
-      if (!trial) { $("trial-freshness").textContent = "No new-cohort snapshot imported. Submission is not verified."; $("trial-submission-state").textContent = "Not verified"; return; }
+      if (!trial) { $("trial-freshness").textContent = "Scheduler history shows that both 120-prompt jobs ended, but no paired-trial artifact report is embedded."; $("trial-submission-state").textContent = "Artifact report needed"; return; }
       for (const model of trial.models) {
         const job = trial.jobs.find(row => row.job_id === model.job_id || row.job_id === model.job_id + "_0");
         const row = el("tr");
         for (const text of [MODEL_NAMES[model.model], fmt(model.completed) + " / 1,440", fmt(1440 - model.completed), job ? job.state : "Unknown"]) row.append(el("td", text));
         $("trial-rows").append(row);
       }
-      $("trial-submission-state").textContent = trial.models.every(model => model.job_id) ? "Job IDs recorded" : "Partial / not submitted";
+      $("trial-submission-state").textContent = trial.completed === trial.expected ? "Artifact queue complete" : fmt(trial.expected - trial.completed) + " cells remain";
       $("trial-freshness").textContent = "Trial checked at " + trial.checked_at + ". " + fmt(trial.completed) + " / 2,880 saved cells. Root: " + trial.run_root + (trial.job_error ? ". Accounting: " + trial.job_error : "") + ". This does not change the original study totals.";
+    }
+    function renderBacklog() {
+      $("backlog-rows").replaceChildren();
+      const backlogs = snapshot.backlogs;
+      if (!backlogs.length) {
+        $("backlog-total").textContent = "Artifact report not imported";
+        $("backlog-percent").textContent = "Run the full JUPITER collector below.";
+        $("backlog-freshness").textContent = "Scheduler history alone cannot establish backlog completion.";
+        const row = el("tr"); const cell = el("td", "No shared-claim report imported."); cell.colSpan = 4; row.append(cell); $("backlog-rows").append(row);
+        return;
+      }
+      $("backlog-total").textContent = fmt(backlogs.length) + " separate claim registries";
+      $("backlog-percent").textContent = "Counts are not summed across registries";
+      for (const backlog of backlogs) {
+        for (const model of backlog.models) {
+          const row = el("tr");
+          for (const text of [backlog.label + " / " + MODEL_NAMES[model.model], fmt(model.completed) + " / " + fmt(model.expected) + " (" + pct(model.completed, model.expected) + ")", fmt(model.terminal_failures), fmt(model.expected - model.completed)]) row.append(el("td", text));
+          $("backlog-rows").append(row);
+        }
+      }
+      $("backlog-freshness").textContent = "Checked " + backlogs.map(backlog => backlog.checked_at).sort().at(-1) + ". Separate request fingerprints or claim roots can overlap in task IDs, so compatibility must be audited before any union.";
     }
     function renderEstimates() {
       try {
@@ -512,12 +714,21 @@
         const text = $("snapshot-json").value.trim();
         if (text.length > 2000000) throw new Error("Snapshot is too large. Use the compact roadmap status JSON, not full traces.");
         const raw = JSON.parse(text);
-        const next = raw.format_version === "agentic-paired-trial-progress-v1" ? {...snapshot, paired_trial: validateTrial(raw)} : validateSnapshot(raw);
+        let next;
+        if (raw.format_version === "agentic-dashboard-bundle-v1") next = validateBundle(raw);
+        else if (raw.format_version === "agentic-paired-trial-progress-v1") next = validateSnapshot({...snapshot, paired_trial: raw});
+        else if (raw.format_version === "agentic-generator-backlog-progress-v1") next = validateSnapshot({...snapshot, backlogs: [...snapshot.backlogs.filter(backlog => backlog.claim_root !== raw.claim_root), raw]});
+        else next = validateSnapshot({
+          ...raw,
+          scheduler_observation: raw.scheduler_observation === undefined ? snapshot.scheduler_observation : raw.scheduler_observation,
+          paired_trial: raw.paired_trial === undefined ? snapshot.paired_trial : raw.paired_trial,
+          backlogs: raw.backlogs === undefined && raw.backlog === undefined ? snapshot.backlogs : raw.backlogs
+        });
         snapshot = next; render();
         $("import-feedback").className = "note"; $("import-feedback").textContent = "Snapshot imported. Check its timestamp and any read errors. No cluster action was taken.";
       } catch (error) { $("import-feedback").className = "note error"; $("import-feedback").textContent = "Import rejected. Previous data kept. " + error.message; }
     });
-    $("reset-snapshot").addEventListener("click", () => { snapshot = validateSnapshot(DEFAULT_SNAPSHOT); $("snapshot-json").value = ""; render(); $("import-feedback").className = "note"; $("import-feedback").textContent = "Reset to the supplied 15 September snapshot. Calculator assumptions were kept."; });
+    $("reset-snapshot").addEventListener("click", () => { snapshot = validateSnapshot(DEFAULT_SNAPSHOT); $("snapshot-json").value = ""; render(); $("import-feedback").className = "note"; $("import-feedback").textContent = "Reset to the supplied artifact and scheduler observations. Calculator assumptions were kept."; });
     $("copy-snapshot").addEventListener("click", async () => {
       const text = JSON.stringify(snapshot, null, 2);
       try { await navigator.clipboard.writeText(text); $("import-feedback").className = "note"; $("import-feedback").textContent = "Current snapshot JSON copied."; }

@@ -1639,6 +1639,9 @@ class _FakeAllocationBudget:
     def record(self):
         return {"allocation": self.label}
 
+    def admission_stop_reason(self):
+        return None if self.can_start() else "allocation_deadline"
+
 
 class _FakeClientContext:
     def __init__(

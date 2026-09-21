@@ -1350,7 +1350,7 @@ async def _run_locked(args, ownership) -> int:
             raise
 
     stopped_for_deadline = (
-        bounded and (deadline_interrupted or not budget.can_start())
+        (deadline_interrupted or not budget.can_start())
         and len(completed) + failed < len(tasks)
     )
     manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed - busy
@@ -1361,7 +1361,7 @@ async def _run_locked(args, ownership) -> int:
             ),
             "stop_reason": (
                 "queue_exhausted" if len(completed) == len(tasks) else
-                "allocation_deadline" if stopped_for_deadline else
+                (budget.admission_stop_reason() or "allocation_deadline") if stopped_for_deadline else
                 "bounded_failures" if failed else
                 "shared_claims_busy" if busy else "task_limit"
             ),

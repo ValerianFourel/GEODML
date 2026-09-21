@@ -293,6 +293,17 @@ def test_resume_rejects_a_different_prior_queue_before_slurm_submission(backlog)
     assert not backlog["calls"]
 
 
+def test_resume_of_resume_preserves_original_claim_registry(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    first = args["run_root"].parent / "first"
+    second = args["run_root"].parent / "second"
+    module.submit_backlog(**{**args, "run_root": first})
+    module.submit_backlog(**{**args, "run_root": second, "resume_from_run_root": first})
+    result = module.submit_backlog(**{**args, "resume_from_run_root": second})
+    assert result["claim_root"] == str(first / "claims")
+    assert result["resume_from"]["claim_root"] == str(first / "claims")
+
+
 def test_prepare_only_can_be_rechecked_then_submitted_once(backlog, monkeypatch):
     monkeypatch.setattr(module.shutil, "which", lambda *args, **kwargs: None)
     args = {**backlog["arguments"], "submit": False}
