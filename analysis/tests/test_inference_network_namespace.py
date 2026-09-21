@@ -22,6 +22,51 @@ INSIDE = {"device": 4, "inode": 200}
 RECORD = {"parent_pid": 10, "parent_namespace": OUTSIDE, "outside_fd": 7}
 
 
+@pytest.mark.parametrize("failure,code", [
+    (None, None), ("nodes", "job_node_list"), ("identity", "job_id"),
+    ("query", "job_query_exit"), ("timeout", "job_query_exception"),
+    ("sharing", "whole_node_exclusivity"),
+])
+def test_slurm_diagnostic_reports_specific_failure_without_launching(monkeypatch, capsys, failure, code):
+    monkeypatch.setattr(network.sys, "platform", "linux")
+    monkeypatch.setattr(network.shutil, "which", lambda name: "/usr/bin/scontrol")
+    for key in ("SLURM_ARRAY_JOB_ID", "SLURM_ARRAY_TASK_ID"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in {
+        "SLURM_JOB_ID": "1927510", "SLURM_JOB_NUM_NODES": "1",
+        "SLURM_STEP_NUM_NODES": "1", "SLURM_JOB_NODELIST": "node0",
+        "HF_TOKEN": "fixture-secret", "SLURM_JWT": "fixture-secret",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    def run(command, **kwargs):
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 10, stderr="fixture-secret")
+        identity = "other" if failure == "identity" else "1927510"
+        node = "node1" if failure == "nodes" else "node0"
+        exclusive = "NO" if failure == "sharing" else "NODE"
+        output = (f"JobId={identity} JobState=RUNNING NodeList={node} "
+                  f"Exclusive={exclusive} Comment=fixture-secret")
+        return subprocess.CompletedProcess(command, int(failure == "query"), output, "fixture-secret")
+
+    monkeypatch.setattr(network.subprocess, "run", run)
+    monkeypatch.setattr(network.os, "execvp", lambda *a: pytest.fail("executed a workload"))
+    monkeypatch.setattr(network, "_enter_private_namespace", lambda *a: pytest.fail("entered namespace"))
+    monkeypatch.setattr(network.socket, "socket", lambda *a: pytest.fail("opened socket"))
+    assert network.main(["--diagnose-slurm"]) == (2 if failure else 0)
+    captured = capsys.readouterr()
+    assert "fixture-secret" not in captured.out + captured.err
+    report = json.loads(captured.out)
+    assert report["status"] == ("FAIL" if failure else "PASS")
+    assert report["format_version"] == "geodml-slurm-boundary-diagnostic-v1"
+    if failure:
+        assert report["failed_check"] == code
+        assert report["checks"][-1]["name"] == code
+        assert report["checks"][-1]["passed"] is False
+    else:
+        assert report["receipt"]["slurm_job_id"] == "1927510"
+
+
 @pytest.fixture
 def isolated(monkeypatch):
     monkeypatch.setattr(network.sys, "platform", "linux")
@@ -225,11 +270,21 @@ def test_exclusive_multinode_allocation_has_verified_single_node_step(monkeypatc
     if failure:
         with pytest.raises(EndpointSecurityError):
             network.ensure_private_network_namespace(["python", "stage.py"])
+        report = network.diagnose_slurm_boundary()
+        assert report["status"] == "FAIL"
+        assert report["failed_check"] == {
+            "multinode_step": "step_node", "wrong_host": "step_node",
+            "partial_cpus": "whole_node_cpu_totals", "wrong_step": "step_id",
+            "shared": "exclusivity_OverSubscribe",
+        }[failure]
     else:
         receipt = network.ensure_private_network_namespace(["python", "stage.py"])
         assert receipt["node_list"] == "node0"
         assert receipt["slurm_job_id"] == "1927510"
         assert receipt["other_jobs_excluded"] is True
+        report = network.diagnose_slurm_boundary()
+        assert report["status"] == "PASS"
+        assert report["checks"][-1]["name"] == "step_node"
 
 
 def test_legacy_slurm_shared_zero_verifies_whole_node_exclusivity(monkeypatch):

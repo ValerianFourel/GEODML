@@ -9,6 +9,48 @@ ALLOCATION = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_allocat
 WORKER = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_worker.sh"
 NEMOTRON = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_nemotron.sh"
 OVERFLOW = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_overflow.sh"
+DIAGNOSTIC = ROOT / "analysis/scripts/slurm/jupiter/diagnose_agentic_adaptive_allocation.sh"
+
+
+def test_diagnostic_uses_one_existing_worker_step_and_no_inference(tmp_path):
+    srun = tmp_path / "srun"
+    srun.write_text(r'''#!/bin/bash
+[[ -z "${SLURM_CPUS_PER_TASK+x}" && -z "${SLURM_STEP_ID+x}" ]] || exit 1
+[[ -z "${SRUN_CPUS_PER_TASK+x}" && -z "${CUDA_VISIBLE_DEVICES+x}" ]] || exit 1
+[[ "$SLURM_JOB_ID" == 1927510 && "$SLURM_JOB_NUM_NODES" == 5 ]] || exit 1
+printf '%s\n' "$@"
+exit 2
+''')
+    srun.chmod(0o755)
+    prelude = r'''
+scontrol() {
+  if [[ "$2" == job ]]; then
+    printf 'JobId=1927510 UserId=test(%s) JobState=%s NumNodes=5 NodeList=node[0-4]\n' "$(id -u)" "$TEST_JOB_STATE"
+  else
+    printf 'node0\nnode1\nnode2\nnode3\nnode4\n'
+  fi
+}
+export -f scontrol
+bash "$1" 1927510
+'''
+    environment = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+                   "SLURM_CPUS_PER_TASK": "1", "SLURM_STEP_ID": "7",
+                   "SRUN_CPUS_PER_TASK": "1", "CUDA_VISIBLE_DEVICES": "0"}
+    for state in ("RUNNING", "COMPLETED"):
+        result = subprocess.run(
+            ["bash", "-c", prelude, "test", str(DIAGNOSTIC)],
+            env={**environment, "TEST_JOB_STATE": state}, text=True, capture_output=True, check=False,
+        )
+        if state == "RUNNING":
+            assert result.returncode == 2, result.stderr
+            assert result.stdout.count("--jobid=1927510") == 1
+            for argument in ("--nodes=1", "--ntasks=1", "--nodelist=node0", "--gpus-per-node=4",
+                             "--cpus-per-task=32", "--mem=512G", "--immediate=15", "--diagnose-slurm"):
+                assert argument in result.stdout
+            assert "run_agentic_adaptive_worker" not in result.stdout
+        else:
+            assert result.returncode != 0
+            assert "--jobid" not in result.stdout
 
 
 def test_launcher_drops_inspection_step_resource_environment(tmp_path):
@@ -52,7 +94,7 @@ bash "$1" "$2"
 
 
 def test_shell_scripts_parse_and_never_submit_or_cancel_allocations():
-    for path in (ALLOCATION, WORKER, NEMOTRON, OVERFLOW):
+    for path in (ALLOCATION, WORKER, NEMOTRON, OVERFLOW, DIAGNOSTIC):
         subprocess.run(["bash", "-n", str(path)], check=True)
         text = path.read_text()
         assert "sbatch " not in text

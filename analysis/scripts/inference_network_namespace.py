@@ -124,26 +124,49 @@ def _slurm_job_identity() -> tuple[str, str | None, str | None, str]:
     return job_id, None, None, job_id
 
 
-def _verify_multinode_step(executable: str, job_id: str, fields: dict) -> str:
+def _slurm_check(checks, name, passed, expected, observed):
+    if checks is not None:
+        checks.append({"name": name, "passed": bool(passed), "expected": expected, "observed": observed})
+    if not passed:
+        detail = json.dumps({"expected": expected, "observed": observed}, sort_keys=True)
+        raise EndpointSecurityError(f"exclusive Slurm node could not be verified: {name} {detail}")
+
+
+def _slurm_query(executable, kind, reference, checks):
+    try:
+        result = subprocess.run(
+            [executable, "show", kind, "--oneliner", reference],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _slurm_check(checks, f"{kind}_query_exception", False, "successful query", type(error).__name__)
+    # Never include arbitrary stdout/stderr, comments, command lines, or credentials.
+    allowed = {
+        "JobId", "ArrayJobId", "ArrayTaskId", "JobState", "NodeList", "NumNodes",
+        "NumCPUs", "AllocTRES", "Exclusive", "Shared", "OverSubscribe",
+        "NodeName", "CPUTot", "StepId", "State", "Nodes",
+    }
+    records = [
+        {key: value for word in line.split() if "=" in word
+         for key, value in [word.split("=", 1)] if key in allowed}
+        for line in result.stdout.splitlines() if line.strip()
+    ]
+    _slurm_check(checks, f"{kind}_query_exit", result.returncode == 0, {"returncode": 0},
+                 {"returncode": result.returncode, "records": records})
+    return result
+
+
+def _verify_multinode_step(executable: str, job_id: str, fields: dict, checks=None) -> str:
     """Check controller evidence for a local step in a whole-node allocation."""
     step_id = os.environ.get("SLURM_STEP_ID") or os.environ.get("SLURM_STEPID", "")
-    if os.environ.get("SLURM_STEP_NUM_NODES") != "1" or not step_id.isdigit():
-        raise EndpointSecurityError("exclusive Slurm boundary requires a single-node step")
-    if (
-        fields.get("OverSubscribe") != "NO"
-        or fields.get("Exclusive") not in (None, "NODE")
-        or fields.get("Shared") not in (None, "0")
-    ):
-        raise EndpointSecurityError("exclusive Slurm node could not be verified")
+    _slurm_check(checks, "single_node_step", os.environ.get("SLURM_STEP_NUM_NODES") == "1",
+                 "1", os.environ.get("SLURM_STEP_NUM_NODES"))
+    _slurm_check(checks, "numeric_step_id", step_id.isdigit(), "numeric step ID", step_id)
+    for key, accepted in (("OverSubscribe", ("NO",)), ("Exclusive", (None, "NODE")), ("Shared", (None, "0"))):
+        _slurm_check(checks, f"exclusivity_{key}", fields.get(key) in accepted, accepted, fields.get(key))
     try:
-        nodes = subprocess.run(
-            [executable, "show", "node", "--oneliner", fields["NodeList"]],
-            capture_output=True, text=True, timeout=10, check=False,
-        )
-        step = subprocess.run(
-            [executable, "show", "step", "--oneliner", f"{job_id}.{step_id}"],
-            capture_output=True, text=True, timeout=10, check=False,
-        )
+        nodes = _slurm_query(executable, "node", fields["NodeList"], checks)
+        step = _slurm_query(executable, "step", f"{job_id}.{step_id}", checks)
         node_records = [dict(word.split("=", 1) for word in line.split() if "=" in word)
                         for line in nodes.stdout.splitlines() if line.strip()]
         step_fields = dict(word.split("=", 1) for word in step.stdout.split() if "=" in word)
@@ -152,25 +175,26 @@ def _verify_multinode_step(executable: str, job_id: str, fields: dict) -> str:
         tres = dict(word.split("=", 1) for word in fields.get("AllocTRES", "").split(",")
                     if "=" in word)
         host = socket.gethostname().split(".", 1)[0]
-        valid = (
-            nodes.returncode == step.returncode == 0
-            and len(names) == len(node_records) == int(fields["NumNodes"])
-            and all(int(node["CPUTot"]) > 0 for node in node_records)
-            and total_cpus == int(fields["NumCPUs"]) == int(tres["cpu"])
-            and int(tres["node"]) == len(names)
-            and host in names
-            and step_fields.get("StepId") == f"{job_id}.{step_id}"
-            and step_fields.get("State") == "RUNNING"
-            and step_fields.get("NodeList", step_fields.get("Nodes")) == host
-        )
-    except (OSError, subprocess.SubprocessError, KeyError, ValueError):
-        raise EndpointSecurityError("exclusive Slurm step could not be verified") from None
-    if not valid:
-        raise EndpointSecurityError("exclusive Slurm step could not be verified")
+        _slurm_check(checks, "node_record_count", len(names) == len(node_records) == int(fields["NumNodes"]),
+                     fields["NumNodes"], {"unique_nodes": len(names), "records": len(node_records)})
+        _slurm_check(checks, "positive_node_cpus", all(int(node["CPUTot"]) > 0 for node in node_records),
+                     "positive CPU counts", [node["CPUTot"] for node in node_records])
+        _slurm_check(checks, "whole_node_cpu_totals", total_cpus == int(fields["NumCPUs"]) == int(tres["cpu"]),
+                     total_cpus, {"NumCPUs": fields["NumCPUs"], "AllocTRES_cpu": tres["cpu"]})
+        _slurm_check(checks, "allocated_node_count", int(tres["node"]) == len(names), len(names), tres["node"])
+        _slurm_check(checks, "local_host_allocated", host in names, sorted(names), host)
+        for name, expected, observed in (
+            ("step_id", f"{job_id}.{step_id}", step_fields.get("StepId")),
+            ("step_state", "RUNNING", step_fields.get("State")),
+            ("step_node", host, step_fields.get("NodeList", step_fields.get("Nodes"))),
+        ):
+            _slurm_check(checks, name, expected == observed, expected, observed)
+    except (KeyError, ValueError) as error:
+        _slurm_check(checks, "step_record_parse", False, "complete numeric resource fields", type(error).__name__)
     return host
 
 
-def _verify_exclusive_slurm_boundary() -> dict:
+def _verify_exclusive_slurm_boundary(checks=None) -> dict:
     if sys.platform != "linux":
         raise EndpointSecurityError("exclusive Slurm node verification requires Linux")
     job_nodes = os.environ.get("SLURM_JOB_NUM_NODES", "")
@@ -185,13 +209,7 @@ def _verify_exclusive_slurm_boundary() -> dict:
     executable = shutil.which("scontrol")
     if executable is None:
         raise EndpointSecurityError("scontrol is required to verify the exclusive Slurm node")
-    try:
-        completed = subprocess.run(
-            [executable, "show", "job", "--oneliner", reference],
-            capture_output=True, text=True, timeout=10, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        raise EndpointSecurityError("exclusive Slurm node could not be verified") from None
+    completed = _slurm_query(executable, "job", reference, checks)
     fields = dict(
         item.split("=", 1) for item in completed.stdout.split()
         if "=" in item
@@ -220,20 +238,24 @@ def _verify_exclusive_slurm_boundary() -> dict:
         or (exclusive_disposition is None and fields.get("Shared") == "0")
         or jupiter_full_node_allocation
     )
-    if (
-        completed.returncode != 0
-        or fields.get("JobId") != job_id
-        or fields.get("ArrayJobId") != array_job_id
-        or fields.get("ArrayTaskId") != array_task_id
-        or fields.get("JobState") != "RUNNING"
-        or fields.get("NodeList") != node_list
-        or (job_nodes != "1" and fields.get("NumNodes") != job_nodes)
+    for name, expected, observed in (
+        ("job_id", job_id, fields.get("JobId")),
+        ("array_job_id", array_job_id, fields.get("ArrayJobId")),
+        ("array_task_id", array_task_id, fields.get("ArrayTaskId")),
+        ("job_state", "RUNNING", fields.get("JobState")),
+        ("job_node_list", node_list, fields.get("NodeList")),
     ):
-        raise EndpointSecurityError("exclusive Slurm node could not be verified")
+        _slurm_check(checks, name, expected == observed, expected, observed)
     if job_nodes != "1":
-        node_list = _verify_multinode_step(executable, job_id, fields)
-    elif not whole_node_exclusive:
-        raise EndpointSecurityError("exclusive Slurm node could not be verified")
+        _slurm_check(checks, "job_node_count", fields.get("NumNodes") == job_nodes, job_nodes, fields.get("NumNodes"))
+        node_list = _verify_multinode_step(executable, job_id, fields, checks)
+    else:
+        _slurm_check(checks, "whole_node_exclusivity", whole_node_exclusive, "exclusive whole node", {
+            "Exclusive": exclusive_disposition, "Shared": fields.get("Shared"),
+            "OverSubscribe": fields.get("OverSubscribe"), "environment_cpus": cpus_on_node,
+            "NumNodes": fields.get("NumNodes"), "NumCPUs": fields.get("NumCPUs"),
+            "AllocTRES": fields.get("AllocTRES"),
+        })
     os.environ.update(TRANSPORT_ENVIRONMENT)
     return validate_network_namespace_receipt({
         "format_version": "geodml-exclusive-slurm-boundary-v1",
@@ -393,6 +415,28 @@ def ensure_private_network_namespace(command: Sequence[str]) -> dict:
     raise EndpointSecurityError("private namespace entry unexpectedly returned")
 
 
+def diagnose_slurm_boundary() -> dict:
+    """Run the serving guard without models, sockets, namespaces, or output writes."""
+    keys = (
+        "SLURM_JOB_ID", "SLURM_ARRAY_JOB_ID", "SLURM_ARRAY_TASK_ID", "SLURM_JOB_NUM_NODES",
+        "SLURM_JOB_NODELIST", "SLURM_STEP_ID", "SLURM_STEPID", "SLURM_STEP_NUM_NODES",
+        "SLURM_STEP_NODELIST", "SLURM_JOB_CPUS_PER_NODE", "SLURM_CPUS_ON_NODE",
+        "SLURM_CPUS_PER_TASK", "SLURM_GPUS_ON_NODE", "SLURM_MEM_PER_NODE",
+    )
+    report = {
+        "format_version": "geodml-slurm-boundary-diagnostic-v1",
+        "hostname": socket.gethostname(),
+        "environment": {key: os.environ.get(key) for key in keys}, "checks": [],
+    }
+    try:
+        report["receipt"] = _verify_exclusive_slurm_boundary(report["checks"])
+        report.update(status="PASS", failed_check=None)
+    except EndpointSecurityError as error:
+        failed = [check["name"] for check in report["checks"] if not check["passed"]]
+        report.update(status="FAIL", failed_check=failed[-1] if failed else "prerequisite", error=str(error))
+    return report
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
@@ -402,8 +446,15 @@ def main(argv=None) -> int:
     parser.add_argument("--outside-fd", type=int, help=argparse.SUPPRESS)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--check", action="store_true", help="CPU-only isolation and private bind check")
+    action.add_argument("--diagnose-slurm", action="store_true", help="Report Slurm safety checks as JSON without loading models")
     action.add_argument("--exec", dest="command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if args.diagnose_slurm:
+        if args.inside:
+            parser.error("--diagnose-slurm cannot be combined with --inside")
+        report = diagnose_slurm_boundary()
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["status"] == "PASS" else 2
     try:
         if args.inside:
             record = _record({"parent_pid": args.parent_pid, "outside_fd": args.outside_fd, "parent_namespace": {
