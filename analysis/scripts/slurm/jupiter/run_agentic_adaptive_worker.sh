@@ -31,6 +31,7 @@ test -s "$plan"
 test -z "$(git status --porcelain --untracked-files=all)"
 export GEODML_EXECUTION_REPOSITORY="$repository"
 export GEODML_EXECUTION_COMMIT="$(git rev-parse HEAD)"
+export GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1
 export GEODML_APPROVED_WALLTIME=07:00:00
 export GEODML_START_MARGIN_SECONDS=120
 export GEODML_CLEANUP_MARGIN_SECONDS=45

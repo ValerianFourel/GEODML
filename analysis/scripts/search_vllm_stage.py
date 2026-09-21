@@ -1304,8 +1304,11 @@ def run_stage(
     job_id = os.environ.get("SLURM_JOB_ID", "")
     if not job_id:
         raise ValueError("SLURM_JOB_ID is required")
-    if os.environ.get("SLURM_JOB_NUM_NODES", "1") != "1":
-        raise ValueError("this loopback serving stage requires a single-node allocation")
+    execution_nodes = os.environ.get(
+        "SLURM_STEP_NUM_NODES", os.environ.get("SLURM_JOB_NUM_NODES", "1"),
+    )
+    if execution_nodes != "1":
+        raise ValueError("this loopback serving stage requires a single-node step or allocation")
     command = list(controller_command)
     if command and command[0] == "--":
         command = command[1:]

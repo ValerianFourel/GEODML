@@ -52,6 +52,35 @@ def profile(**overrides):
 
 
 class SearchVllmStageTests(unittest.TestCase):
+    def test_single_node_step_in_five_node_allocation_reaches_network_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "profile.json"
+            stage.create_or_verify_profile(path, profile())
+            with mock.patch.dict(stage.os.environ, {
+                "SLURM_JOB_ID": "1927510", "SLURM_JOB_NUM_NODES": "5",
+                "SLURM_STEP_NUM_NODES": "1", "SLURM_STEP_ID": "10",
+            }, clear=True), mock.patch.object(
+                stage, "ensure_private_network_namespace",
+                side_effect=RuntimeError("reached network gate"),
+            ), self.assertRaisesRegex(RuntimeError, "reached network gate"):
+                stage.run_stage(path, root / "server.log", ["true"],
+                                cache_base=root / "cache", startup_timeout_seconds=1)
+
+    def test_multinode_step_is_rejected_even_with_single_node_job_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "profile.json"
+            stage.create_or_verify_profile(path, profile())
+            with mock.patch.dict(stage.os.environ, {
+                "SLURM_JOB_ID": "1927510", "SLURM_JOB_NUM_NODES": "1",
+                "SLURM_STEP_NUM_NODES": "2", "SLURM_STEP_ID": "10",
+            }, clear=True), mock.patch.object(stage, "ensure_private_network_namespace") as gate:
+                with self.assertRaisesRegex(ValueError, "single-node"):
+                    stage.run_stage(path, root / "server.log", ["true"],
+                                    cache_base=root / "cache", startup_timeout_seconds=1)
+                gate.assert_not_called()
+
     def test_compatibility_defaults_keep_one_public_tp4_server(self):
         record = profile()
         serving = record["serving"]

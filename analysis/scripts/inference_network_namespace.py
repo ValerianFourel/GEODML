@@ -124,11 +124,60 @@ def _slurm_job_identity() -> tuple[str, str | None, str | None, str]:
     return job_id, None, None, job_id
 
 
+def _verify_multinode_step(executable: str, job_id: str, fields: dict) -> str:
+    """Check controller evidence for a local step in a whole-node allocation."""
+    step_id = os.environ.get("SLURM_STEP_ID") or os.environ.get("SLURM_STEPID", "")
+    if os.environ.get("SLURM_STEP_NUM_NODES") != "1" or not step_id.isdigit():
+        raise EndpointSecurityError("exclusive Slurm boundary requires a single-node step")
+    if (
+        fields.get("OverSubscribe") != "NO"
+        or fields.get("Exclusive") not in (None, "NODE")
+        or fields.get("Shared") not in (None, "0")
+    ):
+        raise EndpointSecurityError("exclusive Slurm node could not be verified")
+    try:
+        nodes = subprocess.run(
+            [executable, "show", "node", "--oneliner", fields["NodeList"]],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        step = subprocess.run(
+            [executable, "show", "step", "--oneliner", f"{job_id}.{step_id}"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        node_records = [dict(word.split("=", 1) for word in line.split() if "=" in word)
+                        for line in nodes.stdout.splitlines() if line.strip()]
+        step_fields = dict(word.split("=", 1) for word in step.stdout.split() if "=" in word)
+        total_cpus = sum(int(node["CPUTot"]) for node in node_records)
+        names = {node["NodeName"] for node in node_records}
+        tres = dict(word.split("=", 1) for word in fields.get("AllocTRES", "").split(",")
+                    if "=" in word)
+        host = socket.gethostname().split(".", 1)[0]
+        valid = (
+            nodes.returncode == step.returncode == 0
+            and len(names) == len(node_records) == int(fields["NumNodes"])
+            and all(int(node["CPUTot"]) > 0 for node in node_records)
+            and total_cpus == int(fields["NumCPUs"]) == int(tres["cpu"])
+            and int(tres["node"]) == len(names)
+            and host in names
+            and step_fields.get("StepId") == f"{job_id}.{step_id}"
+            and step_fields.get("State") == "RUNNING"
+            and step_fields.get("NodeList", step_fields.get("Nodes")) == host
+        )
+    except (OSError, subprocess.SubprocessError, KeyError, ValueError):
+        raise EndpointSecurityError("exclusive Slurm step could not be verified") from None
+    if not valid:
+        raise EndpointSecurityError("exclusive Slurm step could not be verified")
+    return host
+
+
 def _verify_exclusive_slurm_boundary() -> dict:
     if sys.platform != "linux":
         raise EndpointSecurityError("exclusive Slurm node verification requires Linux")
-    if os.environ.get("SLURM_JOB_NUM_NODES") != "1":
-        raise EndpointSecurityError("exclusive Slurm boundary requires one allocated node")
+    job_nodes = os.environ.get("SLURM_JOB_NUM_NODES", "")
+    if not job_nodes.isdigit() or int(job_nodes) < 1:
+        raise EndpointSecurityError("exclusive Slurm boundary requires an allocated node count")
+    if os.environ.get("SLURM_STEP_NUM_NODES", "1") != "1":
+        raise EndpointSecurityError("exclusive Slurm boundary requires a single-node step")
     node_list = os.environ.get("SLURM_JOB_NODELIST", "")
     if not node_list:
         raise EndpointSecurityError("exclusive Slurm boundary requires an allocated node")
@@ -177,9 +226,13 @@ def _verify_exclusive_slurm_boundary() -> dict:
         or fields.get("ArrayJobId") != array_job_id
         or fields.get("ArrayTaskId") != array_task_id
         or fields.get("JobState") != "RUNNING"
-        or not whole_node_exclusive
         or fields.get("NodeList") != node_list
+        or (job_nodes != "1" and fields.get("NumNodes") != job_nodes)
     ):
+        raise EndpointSecurityError("exclusive Slurm node could not be verified")
+    if job_nodes != "1":
+        node_list = _verify_multinode_step(executable, job_id, fields)
+    elif not whole_node_exclusive:
         raise EndpointSecurityError("exclusive Slurm node could not be verified")
     os.environ.update(TRANSPORT_ENVIRONMENT)
     return validate_network_namespace_receipt({
