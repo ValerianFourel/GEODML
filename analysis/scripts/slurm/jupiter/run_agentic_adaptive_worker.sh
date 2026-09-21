@@ -19,9 +19,14 @@ cd "$repository"
 test "${SLURM_JOB_ID:?}" = "${GEODML_EXPECTED_JOB_ID:?}"
 test "${SLURM_JOB_NUM_NODES:?}" = 5
 test "${SLURM_STEP_NUM_NODES:?}" = 1
-test "${SLURM_GPUS_ON_NODE:?}" = 4
-test "${SLURM_CPUS_PER_TASK:?}" = 32
-test "${SLURM_MEM_PER_NODE:?}" = 524288
+verified_gpu_count="$(python3 analysis/scripts/agentic_adaptive_gpu_resources.py)"
+export SLURM_GPUS_ON_NODE="$verified_gpu_count"
+printf 'ADAPTIVE_GPU_RESOURCE_GATE=PASS gpus=%s\n' "$SLURM_GPUS_ON_NODE"
+if [[ "${SLURM_CPUS_PER_TASK:-}" != 32 || "${SLURM_MEM_PER_NODE:-}" != 524288 ]]; then
+  printf 'ADAPTIVE_RESOURCE_GATE=FAIL expected_cpus=32 expected_memory_mib=524288 actual_cpus=%s actual_memory_mib=%s\n' \
+    "${SLURM_CPUS_PER_TASK:-unset}" "${SLURM_MEM_PER_NODE:-unset}" >&2
+  exit 1
+fi
 test -s "$plan"
 test -z "$(git status --porcelain --untracked-files=all)"
 export GEODML_EXECUTION_REPOSITORY="$repository"

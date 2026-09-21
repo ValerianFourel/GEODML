@@ -1,5 +1,6 @@
 """The approved allocation launcher keeps resource and scientific gates explicit."""
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -8,6 +9,46 @@ ALLOCATION = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_allocat
 WORKER = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_worker.sh"
 NEMOTRON = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_nemotron.sh"
 OVERFLOW = ROOT / "analysis/scripts/slurm/jupiter/run_agentic_adaptive_overflow.sh"
+
+
+def test_launcher_drops_inspection_step_resource_environment(tmp_path):
+    plan = tmp_path / "run_manifest.json"
+    plan.write_text("{}")
+    srun = tmp_path / "srun"
+    srun.write_text(r'''#!/bin/bash
+[[ -z "${SLURM_CPUS_PER_TASK+x}" ]] || exit 1
+[[ -z "${SLURM_JOB_CPUS_PER_NODE+x}" ]] || exit 1
+[[ -z "${SLURM_STEP_ID+x}" ]] || exit 1
+[[ -z "${SLURM_MEM_PER_NODE+x}" ]] || exit 1
+[[ -z "${SRUN_CPUS_PER_TASK+x}" ]] || exit 1
+[[ -z "${CUDA_VISIBLE_DEVICES+x}" ]] || exit 1
+[[ "$SLURM_JOB_ID" == 1927510 ]] || exit 1
+[[ -n "$SLURM_JOB_END_TIME" ]] || exit 1
+''')
+    srun.chmod(0o755)
+    prelude = r'''
+scontrol() {
+  if [[ "$2" == job ]]; then
+    echo 'StartTime=2026-09-21T00:00:00 EndTime=2026-09-21T07:00:00 NodeList=node[0-4] NumNodes=5'
+  else
+    printf 'node0\nnode1\nnode2\nnode3\nnode4\n'
+  fi
+}
+date() { echo 1790000000; }
+readarray() { IFS=$'\n' read -r -d '' -a nodes || true; }
+export -f scontrol date readarray
+bash "$1" "$2"
+'''
+    result = subprocess.run(
+        ["bash", "-c", prelude, "test", str(ALLOCATION), str(plan)],
+        env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+             "SLURM_JOB_ID": "1927510", "SLURM_JOB_NUM_NODES": "5",
+             "SLURM_CPUS_PER_TASK": "1", "SLURM_JOB_CPUS_PER_NODE": "1",
+             "SLURM_MEM_PER_NODE": "1024", "SLURM_STEP_ID": "7",
+             "SRUN_CPUS_PER_TASK": "1", "CUDA_VISIBLE_DEVICES": "0"},
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_shell_scripts_parse_and_never_submit_or_cancel_allocations():

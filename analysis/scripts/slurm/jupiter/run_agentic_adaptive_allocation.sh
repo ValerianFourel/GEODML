@@ -50,10 +50,22 @@ trap cleanup INT TERM
 for worker_index in 0 1 2 3 4; do
   stdout="$run_root/launcher-logs/worker-$(printf '%05d' "$worker_index").out"
   stderr="$run_root/launcher-logs/worker-$(printf '%05d' "$worker_index").err"
-  srun --jobid="$job_id" --nodes=1 --ntasks=1 --nodelist="${nodes[$worker_index]}" \
-    --exclusive --gpus-per-node=4 --cpus-per-task=32 --mem=512G \
-    bash "$repository/analysis/scripts/slurm/jupiter/run_agentic_adaptive_worker.sh" \
-      "$plan" "$worker_index" >"$stdout" 2>"$stderr" &
+  (
+    # A launcher may run inside a one-CPU inspection step. New steps must use
+    # the allocation and explicit requests below, not that step's environment.
+    for variable in "${!SLURM_@}" "${!SRUN_@}"; do
+      case "$variable" in
+        SLURM_JOB_ID|SLURM_JOB_NUM_NODES|SLURM_JOB_START_TIME|SLURM_JOB_END_TIME) ;;
+        SLURM_CONF|SLURM_CONF_SERVER|SLURM_JWT|SLURM_CLUSTER_NAME|SLURM_CLUSTERS) ;;
+        *) unset "$variable" ;;
+      esac
+    done
+    unset CUDA_VISIBLE_DEVICES
+    exec srun --jobid="$job_id" --nodes=1 --ntasks=1 --nodelist="${nodes[$worker_index]}" \
+      --exclusive --gpus-per-node=4 --cpus-per-task=32 --mem=512G \
+      bash "$repository/analysis/scripts/slurm/jupiter/run_agentic_adaptive_worker.sh" \
+        "$plan" "$worker_index"
+  ) >"$stdout" 2>"$stderr" &
   pids+=("$!")
 done
 
