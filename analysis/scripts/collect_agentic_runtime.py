@@ -497,6 +497,8 @@ def collect(args):
     query = command(["scontrol", "show", "job", "--oneliner", args.job_id])
     job = job_fields(query["stdout"], args.job_id, os.getuid())
     job["query_returncode"] = query["returncode"]
+    job["requested_job_id"] = args.job_id
+    job["live"] = job["live"] and query["returncode"] == 0
     write_json(args.output / "allocation.json", job)
     plan = read_json(args.run_root / "run_manifest.json")
     write_json(
@@ -619,7 +621,7 @@ def profile(args):
     allocation = read_json(args.output / "allocation.json")
     if (
         provenance["run_root"] != str(args.run_root)
-        or allocation["JobId"] != args.job_id
+        or allocation["requested_job_id"] != args.job_id
     ):
         raise ValueError("profile must match the baseline job and run")
     if (args.output / "profile-status.json").exists() or (

@@ -134,6 +134,8 @@ def test_offline_collection_writes_real_report_without_srun(tmp_path, monkeypatc
     assert saved["baseline_seconds"] == 0
     assert saved["roles"]["original-llama4"]["completed"] == 0
     assert all(argv[0] != "srun" for argv in commands)
+    runtime.profile(Namespace(output=output, run_root=root, job_id="12"))
+    assert json.loads((output / "profile-status.json").read_text())["status"] == "skipped"
 
 
 def test_profiler_absence_is_a_report_not_a_restart(tmp_path, monkeypatch):
