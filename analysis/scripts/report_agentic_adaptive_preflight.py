@@ -44,6 +44,7 @@ def run_record(root: Path) -> dict[str, Any]:
     for pattern in (
         "models/*/shard-*/config.json",
         "models/*/outputs/*/config.json",
+        "models/*/outputs/**/config.json",
         "models/*/config.json",
     ):
         configs.update(root.glob(pattern))
