@@ -146,15 +146,19 @@ def prepare(
             "the original prompt population did not produce 6000 cells"
         )
     tasks = [{"cell_id": cell.cell_id, **cell.core} for cell in cells]
-    run_root.mkdir(parents=True)
     task_path = run_root / "generation-tasks.jsonl"
-    _atomic_jsonl(task_path, tasks)
     claim_root = run_root / "claims/original-llama4"
     judge_root = run_root / "judge-plan"
     llama_profiles = [
         path.resolve()
         for root in backlog_roots
         for path in (root / "profiles/llama4.json",)
+        if path.is_file()
+    ]
+    qwen_profiles = [
+        path.resolve()
+        for root in backlog_roots
+        for path in (root / "profiles/qwen38.json",)
         if path.is_file()
     ]
     nemotron_profiles = (
@@ -204,14 +208,17 @@ def prepare(
         paired_tasks = paired_root / "tasks.jsonl"
         paired_output = paired_root / "models/qwen38/outputs/worker-00000"
         paired_config_path = paired_output / "config.json"
-        paired_profile = paired_root / "profiles/qwen38.json"
-        if not all(
-            path.is_file()
-            for path in (paired_tasks, paired_config_path, paired_profile)
-        ):
+        local_profile = paired_root / "profiles/qwen38.json"
+        paired_profiles = (
+            [local_profile.resolve()] if local_profile.is_file() else qwen_profiles
+        )
+        if not paired_tasks.is_file() or not paired_config_path.is_file():
+            raise ValueError("paired overflow run lacks tasks or Qwen config")
+        if len(paired_profiles) != 1:
             raise ValueError(
-                "paired overflow run lacks tasks, Qwen config or serving profile"
+                "paired overflow requires one colocated or backlog Qwen serving profile"
             )
+        paired_profile = paired_profiles[0]
         paired_config = json.loads(paired_config_path.read_text())
         if (
             paired_config.get("model_id"),
@@ -331,6 +338,8 @@ def prepare(
         raise ValueError(
             "Nemotron source must contain one unique serving profile and a pinned validation model"
         )
+    run_root.mkdir(parents=True)
+    _atomic_jsonl(task_path, tasks)
     plan = {
         "format_version": FORMAT_VERSION,
         "status": "prepared",

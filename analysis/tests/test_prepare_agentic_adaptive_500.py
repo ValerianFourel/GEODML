@@ -16,6 +16,36 @@ def write_jsonl(path, rows):
     return {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
+def write_backlog(tmp_path, slug, model_id):
+    root = tmp_path / f"backlog-{slug}"
+    claim_root = root / "claims"
+    claim_root.mkdir(parents=True)
+    (root / "run_manifest.json").write_text(
+        json.dumps({"claim_root": str(claim_root.resolve())})
+    )
+    write_jsonl(root / "tasks.jsonl", [{"cell_id": "one"}])
+    profile = root / f"profiles/{slug}.json"
+    profile.parent.mkdir(parents=True)
+    profile.write_text("{}")
+    config = root / f"models/{slug}/outputs/attempts/job1/config.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        json.dumps(
+            {
+                "model_id": model_id,
+                "prompt_count": 1200,
+                "cell_count": 14400,
+                "prompt_sources": {},
+                "search_snapshots": {},
+                "cross_encoder_snapshot": "cross",
+                "cross_encoder_revision": "c" * 40,
+                "prompt_selection_seed": 20260912,
+            }
+        )
+    )
+    return root, profile
+
+
 @pytest.fixture
 def frozen_study(tmp_path, monkeypatch):
     study = tmp_path / "study"
@@ -121,3 +151,59 @@ def test_prepare_refuses_partial_unreviewed_llama_state(
             run_root=tmp_path / "adaptive",
             source_git_commit="d" * 40,
         )
+
+
+def test_prepare_uses_qwen_backlog_profile_for_older_paired_run(
+    frozen_study, tmp_path
+):
+    qwen, qwen_profile = write_backlog(
+        tmp_path, "qwen38", module.QWEN_MODEL["model_id"]
+    )
+    llama, _ = write_backlog(
+        tmp_path, "llama4", module.LLAMA_MODEL["model_id"]
+    )
+    paired = tmp_path / "paired"
+    write_jsonl(paired / "tasks.jsonl", [{"cell_id": "paired"}])
+    paired_config = paired / "models/qwen38/outputs/worker-00000/config.json"
+    paired_config.parent.mkdir(parents=True)
+    paired_config.write_text(
+        json.dumps(
+            {
+                "model_id": module.QWEN_MODEL["model_id"],
+                "model_revision": module.QWEN_MODEL["model_revision"],
+                "prompt_count": 120,
+                "cell_count": 1440,
+                "prompt_sources": {},
+                "search_snapshots": {},
+                "cross_encoder_snapshot": "cross",
+                "cross_encoder_revision": "c" * 40,
+                "prompt_selection_seed": 20260912,
+            }
+        )
+    )
+
+    plan = module.prepare(
+        study_root=frozen_study,
+        run_root=tmp_path / "adaptive",
+        source_git_commit="d" * 40,
+        paired_root=paired,
+        backlog_roots=(llama, qwen),
+    )
+
+    assert plan["overflow"]["paired"]["serving_profile"] == str(
+        qwen_profile.resolve()
+    )
+
+
+def test_failed_paired_validation_does_not_create_partial_run(
+    frozen_study, tmp_path
+):
+    output = tmp_path / "adaptive"
+    with pytest.raises(ValueError, match="lacks tasks or Qwen config"):
+        module.prepare(
+            study_root=frozen_study,
+            run_root=output,
+            source_git_commit="d" * 40,
+            paired_root=tmp_path / "missing-paired",
+        )
+    assert not output.exists()
