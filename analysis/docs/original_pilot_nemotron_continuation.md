@@ -49,10 +49,10 @@ checkout, with Python >=3.10 and the existing JUPITER inference environment:
 
 ## Ownership and startup
 
-Both workers use the original adaptive plan's Nemotron claim root. Their stable
-SHA-256 task-ID partitions are disjoint, and retained outcomes are validated
-before reuse. Static ownership avoids concurrent attempts for the same task
-between these two workers. The earlier generator commit-collision root cause is
+All scheduled workers use the original adaptive plan's Nemotron claim root. For
+multi-worker schedules, their stable SHA-256 task-ID partitions are disjoint;
+retained outcomes are validated before reuse. Static ownership avoids concurrent
+attempts for the same task. The earlier generator commit-collision root cause is
 not claimed fixed. Do not run the old adaptive launcher alongside this job.
 
 The new wrapper checks the one-node allocation and four GPU UUIDs against the
