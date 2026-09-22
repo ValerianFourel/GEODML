@@ -231,12 +231,22 @@ def _exclusion_sources(
     cohort: Path, manifest: dict[str, Any], selected: dict[str, list[dict[str, Any]]],
     expected_prompt_count: int,
 ) -> dict[str, Path]:
-    """Recheck the approved original-500 plus previous-120 exclusion evidence."""
-    if any(manifest.get(key) != expected for key, expected in (
-        ("original_excluded_prompt_count", 500), ("additional_excluded_prompt_count", 120),
-        ("excluded_prompt_count", 620),
-    )) or len(manifest.get("additional_exclusions", [])) != 1:
-        raise ValueError("the approved cohort requires original-500 plus prior-120 exclusion provenance")
+    """Recheck the original-500 and every chained cohort exclusion."""
+    additional = manifest.get("additional_exclusions")
+    if manifest.get("original_excluded_prompt_count") != 500 or not isinstance(additional, list) or not additional:
+        raise ValueError("the approved cohort requires original-500 plus additional exclusion provenance")
+    additional_count = sum(
+        provenance.get("prompt_count", 0)
+        if type(provenance.get("prompt_count")) is int else 0
+        for provenance in additional
+    )
+    excluded_count = 500 + additional_count
+    if (
+        additional_count <= 0
+        or manifest.get("additional_excluded_prompt_count") != additional_count
+        or manifest.get("excluded_prompt_count") != excluded_count
+    ):
+        raise ValueError("the chained exclusion counts differ from their provenance")
     sources: dict[str, Path] = {}
     population = {}
     for key in ("prompts", "axis_map"):
@@ -254,10 +264,18 @@ def _exclusion_sources(
     }
     excluded_ids: set[str] = set()
     excluded_text: set[str] = set()
-    for label, provenance, expected_count, expected_format in (
-        ("original500", manifest["exclusion"], 500, "readiness-axis-balanced-pilot-v1"),
-        ("prior120", manifest["additional_exclusions"][0], 120, "agentic-new-prompt-cohort-v1"),
-    ):
+    exclusion_chain = [
+        ("original500", manifest["exclusion"], 500, "readiness-axis-balanced-pilot-v1", False),
+    ]
+    for index, provenance in enumerate(additional):
+        count = provenance.get("prompt_count")
+        if type(count) is not int or count <= 0:
+            raise ValueError("additional exclusion prompt count must be positive")
+        label = "prior120" if index == 0 and count == 120 else f"additional-{index:03d}"
+        exclusion_chain.append(
+            (label, provenance, count, "agentic-new-prompt-cohort-v1", True)
+        )
+    for label, provenance, expected_count, expected_format, require_declared_axis in exclusion_chain:
         entry = provenance["selection_manifest"]
         path = (cohort / entry["path"]).resolve()
         if _hash(path) != entry["sha256"]:
@@ -265,17 +283,15 @@ def _exclusion_sources(
         previous = json.loads(path.read_text())
         if previous["format_version"] != expected_format:
             raise ValueError(f"{label} exclusion manifest format differs")
-        if label == "prior120" and (
-            provenance.get("prompt_count") != 120 or previous.get("prompt_count") != 120
-        ):
-            raise ValueError("prior exclusion must contain exactly 120 prompts")
+        if require_declared_axis and previous.get("prompt_count") != expected_count:
+            raise ValueError(f"{label} exclusion prompt count differs")
         sources[f"provenance/{label}/selection-manifest.json"] = path
         rows_by_key = {}
         for key in ("prompts", "axis_map", "selection_records"):
             rows, verified = _verified_rows(path.parent, previous["artifacts"][key], f"{label} {key}")
             if len(rows) != expected_count:
                 raise ValueError(f"{label} exclusion artifact count differs")
-            if key != "axis_map" or label == "prior120":
+            if key != "axis_map" or require_declared_axis:
                 _, declared = _verified_rows(cohort, provenance[key], f"declared {label} {key}")
                 if declared != verified:
                     raise ValueError(f"{label} exclusion artifact provenance differs")
@@ -295,8 +311,13 @@ def _exclusion_sources(
                 raise ValueError(f"{label} exclusion rows differ from the frozen population")
         excluded_ids.update(ids)
         excluded_text.update(_question_key(row["question"]) for row in rows_by_key["prompts"])
-    if len(excluded_ids) != 620 or hashlib.sha256(_canonical(sorted(excluded_ids))).hexdigest() != manifest.get("excluded_prompt_ids_sha256"):
-        raise ValueError("excluded ID union or its hash differs from the approved 620 prompts")
+    if (
+        len(excluded_ids) != excluded_count
+        or len(excluded_text) != excluded_count
+        or hashlib.sha256(_canonical(sorted(excluded_ids))).hexdigest()
+        != manifest.get("excluded_prompt_ids_sha256")
+    ):
+        raise ValueError("excluded ID/text union or its hash differs from the approved chain")
     selected_ids = {row["candidate_id"] for row in selected["prompts"]}
     selected_text = {_question_key(row["question"]) for row in selected["prompts"]}
     if len(selected_ids) != expected_prompt_count or len(selected_text) != expected_prompt_count:

@@ -326,6 +326,73 @@ def test_prepare_accepts_profiles_frozen_under_model_slugs(backlog):
         assert (args["run_root"] / "profiles" / f"{slug}.json").is_file()
 
 
+def test_prepare_accepts_multiple_verified_additional_exclusion_cohorts(backlog):
+    cohort = backlog["arguments"]["cohort_root"]
+    manifest_path = cohort / "selection-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+
+    selected = {}
+    extra = {}
+    for key in ("prompts", "axis_map", "selection_records"):
+        entry = manifest["artifacts"][key]
+        path = cohort / entry["path"]
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        extra[key] = rows[:500]
+        selected[key] = rows[500:1000]
+        entry.update(_jsonl(path, selected[key]))
+        entry["path"] = path.name
+
+    extra_root = cohort.parent / "extra500"
+    extra_artifacts = {
+        key: _jsonl(extra_root / f"{key}.jsonl", rows)
+        for key, rows in extra.items()
+    }
+    extra_manifest = extra_root / "selection-manifest.json"
+    _json(extra_manifest, {
+        "format_version": "agentic-new-prompt-cohort-v1",
+        "prompt_count": 500,
+        "sources": manifest["sources"],
+        "artifacts": extra_artifacts,
+    })
+    extra_provenance = {
+        **extra_artifacts,
+        "selection_manifest": {
+            "path": str(extra_manifest),
+            "sha256": module._hash(extra_manifest),
+        },
+        "prompt_count": 500,
+    }
+    manifest["additional_exclusions"].append(extra_provenance)
+    manifest.update(
+        prompt_count=500,
+        expected_cells_per_model=6000,
+        additional_excluded_prompt_count=620,
+        excluded_prompt_count=1120,
+    )
+    excluded_ids = sorted(
+        [f"original500-{index:04d}" for index in range(500)]
+        + [f"prior120-{index:04d}" for index in range(120)]
+        + [row["candidate_id"] for row in extra["prompts"]]
+    )
+    manifest["excluded_prompt_ids_sha256"] = hashlib.sha256(
+        module._canonical(excluded_ids)
+    ).hexdigest()
+    _json(manifest_path, manifest)
+
+    result = module.submit_backlog(**{
+        **backlog["arguments"],
+        "expected_prompt_count": 500,
+        "submit": False,
+    })
+
+    assert result["status"] == "prepared"
+    assert result["cells_per_model"] == 6000
+    assert (
+        backlog["arguments"]["run_root"]
+        / "provenance/additional-001/selection-manifest.json"
+    ).is_file()
+
+
 def test_resume_reuses_only_an_exact_prior_shared_claim_root(backlog):
     args = backlog["arguments"]
     prior = args["run_root"].parent / "prior"
