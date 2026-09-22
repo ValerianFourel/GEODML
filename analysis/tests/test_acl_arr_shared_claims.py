@@ -72,6 +72,33 @@ def test_slot_formula_is_stable_and_covers_every_task_once():
         assert key in slots[expected]
 
 
+def test_two_production_partitions_resume_without_duplicate_calls(judge_run, monkeypatch):
+    tasks, arguments, _ = judge_run
+    original = runner._execute_one
+    calls = []
+
+    async def execute(item, **kwargs):
+        calls.append(item["base"]["judge_task_id"])
+        return await original(item, **kwargs)
+
+    monkeypatch.setattr(runner, "_execute_one", execute)
+
+    async def run_attempt(label):
+        workers = []
+        for index in (0, 1):
+            args = arguments(f"{label}-{index}", "--fake", "--worker-count", "2",
+                             "--worker-index", str(index), "--dispatch-mode", "partition")
+            args.pilot_only = False
+            workers.append(runner._run(args))
+        return await asyncio.gather(*workers)
+
+    assert asyncio.run(run_attempt("first")) == [0, 0]
+    assert sorted(calls) == sorted(t.judge_task_id for t in tasks)
+    calls.clear()
+    assert asyncio.run(run_attempt("new-allocation")) == [0, 0]
+    assert calls == []
+
+
 def test_committed_outcomes_reused_across_new_queue_and_slot_without_calls(judge_run, monkeypatch, tmp_path):
     tasks, arguments, queue = judge_run
     original = runner._execute_one

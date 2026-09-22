@@ -22,6 +22,13 @@ set -u
 : "${GEODML_APPROVED_WALLTIME:?}"
 : "${GEODML_ALLOCATION_ESTIMATE:?}"
 export GEODML_JUDGE_EXECUTION_MODE="${GEODML_JUDGE_EXECUTION_MODE:-fixed}"
+export GEODML_JUDGE_PILOT_ONLY="${GEODML_JUDGE_PILOT_ONLY:-1}"
+geodml_pilot_args=(--resume --disable-thinking)
+case "$GEODML_JUDGE_PILOT_ONLY" in
+  1) geodml_pilot_args+=(--pilot-only) ;;
+  0) test "$GEODML_JUDGE_EXECUTION_MODE" = throughput ;;
+  *) printf '%s\n' 'GEODML_JUDGE_PILOT_ONLY must be 0 or 1.' >&2; exit 2 ;;
+esac
 export GEODML_JUDGE_PLAN_ROOT="${GEODML_JUDGE_PLAN_ROOT:-$GEODML_JUDGE_PILOT_ROOT/plan}"
 export GEODML_JUDGE_WORKER_INDEX="${GEODML_JUDGE_WORKER_INDEX:-0}"
 export GEODML_JUDGE_WORKER_COUNT="${GEODML_JUDGE_WORKER_COUNT:-1}"
@@ -119,8 +126,9 @@ if mode == "throughput":
             or summary.get("bulk_task_count") != len(tasks)
             or summary.get("available_task_count") != len(tasks) + summary.get("excluded_task_count", -1)):
         raise ValueError("Throughput queue coverage counts disagree")
-if manifest.get("scientific_result") is not False or manifest.get("pilot_only") is not True:
-    raise ValueError("A judge pilot must not claim scientific results")
+if (manifest.get("scientific_result") is not False
+        or manifest.get("pilot_only") is not (env["GEODML_JUDGE_PILOT_ONLY"] == "1")):
+    raise ValueError("Judge plan scope mismatch or unsupported scientific-result claim")
 source_task_count = len(tasks)
 worker_index = int(env["GEODML_JUDGE_WORKER_INDEX"])
 worker_count = int(env["GEODML_JUDGE_WORKER_COUNT"])
@@ -352,7 +360,8 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --server-model-name "$GEODML_PILOT_MODEL_ID" \
     --server-model-revision "$GEODML_PILOT_MODEL_REVISION" \
     --max-concurrency 4 --max-output-tokens 2048 --max-attempts 3 \
-    --request-timeout 120 --scheduler rolling --pilot-only --resume --disable-thinking \
+    --request-timeout 120 --scheduler rolling \
+    "${geodml_pilot_args[@]}" \
     "${geodml_claim_args[@]}" &
 geodml_stage_pid=$!
 if wait "$geodml_stage_pid"; then

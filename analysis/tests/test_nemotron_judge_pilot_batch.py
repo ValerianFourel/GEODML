@@ -19,6 +19,26 @@ MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
 REVISION = "bf77c3174f68ad409e1c2aa60daeb46e32d1c606"
 
 
+def test_production_queue_preserves_non_pilot_claim_identity(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_PILOT_ONLY"] = "0"
+    path = Path(env["GEODML_JUDGE_PILOT_ROOT"]) / "plan/run_manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["pilot_only"] = False
+    path.write_text(json.dumps(manifest))
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    calls = [json.loads(line) for line in Path(env["TEST_CAPTURE"]).read_text().splitlines()]
+    assert "--pilot-only" not in calls[-1]
+
+
+def test_historical_fixed_pilot_cannot_disable_pilot_identity(tmp_path):
+    env = _environment(tmp_path)
+    env["GEODML_JUDGE_PILOT_ONLY"] = "0"
+    result = _run(env)
+    assert result.returncode != 0
+
+
 def _environment(root: Path, *, stage_status: int = 0) -> dict[str, str]:
     repository = root / "repository"
     scripts = repository / "analysis/scripts"
