@@ -114,6 +114,40 @@ def make(source):
     return manager.prepare(*source, "08:00:00", "a" * 40)
 
 
+def test_context_only_needs_no_allocation_approval_and_writes_nothing(
+    source, monkeypatch
+):
+    (source[2] / "config.json").write_text(
+        json.dumps(
+            {
+                "architectures": ["NemotronHForCausalLM"],
+                "max_position_embeddings": 131072,
+            }
+        )
+    )
+    monkeypatch.setattr(Tokenizer, "length", 79823)
+    before = {p: p.read_bytes() for p in source[0].parent.rglob("*") if p.is_file()}
+
+    def no_launch(*args, **kwargs):
+        pytest.fail("Context audit must not launch subprocesses")
+
+    monkeypatch.setattr(manager.subprocess, "run", no_launch)
+    report = manager.prepare(
+        *source, None, "a" * 40, max_model_len=None, context_only=True
+    )
+    assert report["status"] == "context_measured_not_launch_approved"
+    assert report["task_count"] == 24
+    assert report["max_required_tokens"] == 81871
+    assert report["max_model_len"] == 81920
+    assert report["requires_walltime_approval"] is True
+    assert not source[1].exists()
+    assert before == {
+        p: p.read_bytes() for p in source[0].parent.rglob("*") if p.is_file()
+    }
+    with pytest.raises(ValueError, match="approved"):
+        manager.prepare(*source, None, "a" * 40)
+
+
 def test_full_prepare_retains_validation_and_original_sources(source):
     before = {
         p: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -254,10 +288,29 @@ def test_approval_is_required_and_complete_queue_never_submits(source, monkeypat
     assert not (source[1] / "submission-intent.json").exists()
 
 
+@pytest.mark.parametrize("max_model_len", [73728, 90112])
 def test_worker_uses_controller_deadline_and_offline_partition_environment(
-    source, monkeypatch
+    source, monkeypatch, max_model_len
 ):
-    make(source)
+    (source[2] / "config.json").write_text(
+        json.dumps(
+            {
+                "architectures": ["NemotronHForCausalLM"],
+                "max_position_embeddings": 131072,
+            }
+        )
+    )
+    manager.prepare(*source, "08:00:00", "a" * 40, max_model_len=max_model_len)
+    if max_model_len != 73728:
+        (source[1] / "submission-intent.json").write_text(
+            json.dumps(
+                {
+                    "max_model_len": max_model_len,
+                    "approval": manager.APPROVAL,
+                    "estimate": "Synthetic test approval, not a production estimate",
+                }
+            )
+        )
     monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
     monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "101")
     monkeypatch.setenv("SLURM_JOB_ID", "102")
@@ -291,6 +344,9 @@ def test_worker_uses_controller_deadline_and_offline_partition_environment(
     assert env["GEODML_JUDGE_DISPATCH_MODE"] == "partition"
     assert env["GEODML_JUDGE_PILOT_ONLY"] == "0"
     assert env["GEODML_JUDGE_WORKER_COUNT"] == "2"
+    assert env["GEODML_JUDGE_MAX_MODEL_LEN"] == str(max_model_len)
+    if max_model_len != 73728:
+        assert env["GEODML_ALLOCATION_ESTIMATE"].startswith("Synthetic test")
     assert "GEODML_ROLE_END_TIME" not in env
     assert env["HF_HUB_OFFLINE"] == env["TRANSFORMERS_OFFLINE"] == "1"
     assert Path(env["HF_HUB_CACHE"]) == source[2].parents[2]
@@ -308,6 +364,86 @@ def test_slurm_spool_wrapper_uses_pinned_checkout():
         '"$GEODML_EXECUTION_REPOSITORY/analysis/scripts/manage_agentic_pilot_judging.py"'
         in text
     )
+
+
+def test_long_context_is_frozen_and_verified_without_truncation(source, monkeypatch):
+    config = source[2] / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "architectures": ["NemotronHForCausalLM"],
+                "max_position_embeddings": 131072,
+            }
+        )
+    )
+    monkeypatch.setattr(Tokenizer, "length", 79823)
+    receipt = manager.prepare(*source, "08:00:00", "a" * 40, max_model_len=90112)
+    assert receipt["max_model_len"] == 90112
+    assert receipt["requires_context_reapproval"] is True
+    context = json.loads((source[1] / "context-budget.json").read_text())
+    assert context["max_required_tokens"] == 81871
+    assert context["max_model_len"] == 90112
+    assert manager.verify(source[1]) == receipt
+    with pytest.raises(ValueError, match="context.*approval"):
+        manager.submit(source[1], "scifi", "08:00:00")
+    assert not (source[1] / "submission-intent.json").exists()
+
+
+@pytest.mark.parametrize("native", [None, 80000])
+def test_context_extension_requires_cached_native_capacity(source, native):
+    config = {"architectures": ["NemotronHForCausalLM"]}
+    if native is not None:
+        config["max_position_embeddings"] = native
+    (source[2] / "config.json").write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="context"):
+        manager.prepare(*source, "08:00:00", "a" * 40, max_model_len=90112)
+    assert not source[1].exists()
+
+
+def test_auto_context_measures_all_tasks_and_keeps_task_bytes(source, monkeypatch):
+    config = source[2] / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "architectures": ["NemotronHForCausalLM"],
+                "max_position_embeddings": 131072,
+            }
+        )
+    )
+    original = make(source)
+    task_bytes = (source[1] / "plan/bulk_tasks.jsonl").read_bytes()
+    calls = []
+
+    class VaryingTokenizer(Tokenizer):
+        def apply_chat_template(self, messages, **kwargs):
+            calls.append(messages)
+            self.length = 79823 if len(calls) < 24 else 97000
+            return super().apply_chat_template(messages, **kwargs)
+
+    monkeypatch.setattr(manager, "load_tokenizer", lambda _: VaryingTokenizer())
+    output = source[1].with_name("long-judge")
+    receipt = manager.prepare(
+        source[0], output, source[2], "08:00:00", "a" * 40, max_model_len=None
+    )
+    assert len(calls) == original["task_count"] == 24
+    assert receipt["max_model_len"] == 102400
+    assert (output / "plan/bulk_tasks.jsonl").read_bytes() == task_bytes
+
+
+def test_fixed_context_reports_full_queue_not_first_overflow(source, monkeypatch):
+    calls = []
+
+    class OversizedTokenizer(Tokenizer):
+        def apply_chat_template(self, messages, **kwargs):
+            calls.append(messages)
+            self.length = 79823
+            return super().apply_chat_template(messages, **kwargs)
+
+    monkeypatch.setattr(manager, "load_tokenizer", lambda _: OversizedTokenizer())
+    with pytest.raises(ValueError, match="Measured all 24.*maximum required=81871"):
+        make(source)
+    assert len(calls) == 24
+    assert not source[1].exists()
 
 
 def test_wrapper_executes_from_slurm_spool(tmp_path):

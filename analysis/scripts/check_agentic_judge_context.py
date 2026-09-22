@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from analysis.interpretability.pipeline.agentic_judging import (
@@ -19,6 +21,7 @@ def check_agentic_judge_context_budget(
     max_model_len: int,
     max_output_tokens: int = 2048,
     disable_thinking: bool = True,
+    raise_on_overflow: bool = True,
 ) -> dict[str, Any]:
     """Count the runner's one-user-message input and reserve its output budget.
 
@@ -26,11 +29,16 @@ def check_agentic_judge_context_budget(
     supply the same pinned tokenizer and context limit as the serving process.
     Oversized inputs fail before inference; no request or evidence is truncated.
     """
-    for name, value in (("max_model_len", max_model_len), ("max_output_tokens", max_output_tokens)):
+    for name, value in (
+        ("max_model_len", max_model_len),
+        ("max_output_tokens", max_output_tokens),
+    ):
         if type(value) is not int or value <= 0:
             raise ValueError(f"{name} must be a positive integer")
     if type(disable_thinking) is not bool:
         raise ValueError("disable_thinking must be a boolean")
+    if type(raise_on_overflow) is not bool:
+        raise ValueError("raise_on_overflow must be a boolean")
     if not tasks:
         raise ValueError("judge context preflight requires at least one task")
     template_kwargs = {"enable_thinking": False} if disable_thinking else {}
@@ -47,21 +55,23 @@ def check_agentic_judge_context_budget(
         )
         prompt_tokens = _input_token_count(encoded)
         required_tokens = prompt_tokens + max_output_tokens
-        rows.append({
-            "judge_task_id": task.judge_task_id,
-            "prompt_tokens": prompt_tokens,
-            "required_tokens": required_tokens,
-        })
+        rows.append(
+            {
+                "judge_task_id": task.judge_task_id,
+                "prompt_tokens": prompt_tokens,
+                "required_tokens": required_tokens,
+            }
+        )
         if required_tokens > max_model_len:
             overflow.append(f"{task.judge_task_id} requires {required_tokens} tokens")
-    if overflow:
+    if overflow and raise_on_overflow:
         raise ValueError(
             f"judge context exceeds max_model_len={max_model_len}, including "
             f"{max_output_tokens} reserved output tokens: " + "; ".join(overflow)
         )
     return {
         "format_version": "agentic-judge-context-budget-v1",
-        "status": "PASS",
+        "status": "FAIL" if overflow else "PASS",
         "scientific_result": False,
         "task_count": len(rows),
         "max_model_len": max_model_len,
@@ -71,3 +81,26 @@ def check_agentic_judge_context_budget(
         "max_required_tokens": max(row["required_tokens"] for row in rows),
         "tasks": rows,
     }
+
+
+def validate_judge_context_limit(snapshot: Path, max_model_len: int) -> None:
+    """Allow a larger serving window only within the pinned native config.
+
+    Historical snapshots without capacity metadata retain the already-used
+    73728 limit. Extensions fail closed; no RoPE/model configuration is changed.
+    """
+    if type(max_model_len) is not int or max_model_len <= 2048:
+        raise ValueError(
+            "judge context limit must leave room beyond 2048 output tokens"
+        )
+    config = json.loads((snapshot / "config.json").read_text())
+    native = config.get("max_position_embeddings")
+    if type(native) is not int or native <= 0:
+        if max_model_len != 73728:
+            raise ValueError(
+                "cached model config cannot verify extended context capacity"
+            )
+    elif max_model_len > native:
+        raise ValueError(
+            f"judge context limit {max_model_len} exceeds cached native capacity {native}"
+        )

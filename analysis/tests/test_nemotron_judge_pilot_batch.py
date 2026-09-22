@@ -442,6 +442,23 @@ def test_full_conversation_context_budget_is_recorded(tmp_path):
     assert record["context_budget"]["max_required_tokens"] == 3048
 
 
+def test_extended_queue_context_reaches_server_and_allocation_record(tmp_path):
+    env = _throughput_environment(tmp_path)
+    env["GEODML_JUDGE_MAX_MODEL_LEN"] = "90112"
+    snapshot = Path(env["HF_HUB_CACHE"]) / ("models--" + MODEL.replace("/", "--")) / "snapshots" / REVISION
+    (snapshot / "config.json").write_text(json.dumps({
+        "architectures": ["NemotronHForCausalLM"], "max_position_embeddings": 131072,
+    }))
+    _recorded_queue(tmp_path, env, prompt_tokens=79823)
+    result = _run(env, QUEUE_WRAPPER)
+    assert result.returncode == 0, result.stderr
+    prepare, _ = [json.loads(line) for line in (tmp_path / "capture").read_text().splitlines()]
+    assert prepare[prepare.index("--max-model-len") + 1] == "90112"
+    record = json.loads((tmp_path / "pilot/logs/allocation.json").read_text())
+    assert record["max_model_len"] == record["context_budget"]["max_model_len"] == 90112
+    assert record["context_budget"]["max_required_tokens"] == 81871
+
+
 def test_queue_uses_variable_approved_time_and_reports_checkpoint(tmp_path):
     env = _throughput_environment(tmp_path)
     env["TEST_RUNTIME_STATUS"] = "checkpointed"

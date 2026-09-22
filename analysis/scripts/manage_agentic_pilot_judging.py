@@ -33,6 +33,7 @@ from analysis.interpretability.pipeline.agentic_judging import (
 from analysis.interpretability.pipeline.inference_claims import InferenceClaimStore
 from analysis.scripts.check_agentic_judge_context import (
     check_agentic_judge_context_budget,
+    validate_judge_context_limit,
 )
 from analysis.scripts.prepare_agentic_judge_tasks import (
     _completed_results,
@@ -147,8 +148,17 @@ def load_tokenizer(snapshot):
     )
 
 
-def prepare(adaptive_path, output, snapshot, approved_walltime, commit):
-    if approved_walltime != APPROVAL["walltime"]:
+def prepare(
+    adaptive_path,
+    output,
+    snapshot,
+    approved_walltime,
+    commit,
+    *,
+    max_model_len=73728,
+    context_only=False,
+):
+    if not context_only and approved_walltime != APPROVAL["walltime"]:
         raise ValueError(
             "This preparation requires the explicitly approved 08:00:00 budget"
         )
@@ -228,6 +238,18 @@ def prepare(adaptive_path, output, snapshot, approved_walltime, commit):
     if len(plan.bulk_tasks) != 2 * EXPECTED_CELLS:
         raise ValueError("Judge coverage differs from both complete generators")
     cache = snapshot_files(snapshot)
+    if max_model_len is None:
+        # Auto measures the entire frozen queue against the native ceiling,
+        # then selects a serving window. It does not authorize a GPU launch.
+        native = json.loads((snapshot / "config.json").read_text()).get(
+            "max_position_embeddings"
+        )
+        if type(native) is not int or native <= 2048:
+            raise ValueError("auto context requires cached max_position_embeddings")
+        measurement_limit = native
+    else:
+        validate_judge_context_limit(snapshot, max_model_len)
+        measurement_limit = max_model_len
     tokenizer = load_tokenizer(snapshot)
     # Bounded batches give visible progress without changing any request.
     context = []
@@ -235,12 +257,41 @@ def prepare(adaptive_path, output, snapshot, approved_walltime, commit):
         batch = check_agentic_judge_context_budget(
             plan.bulk_tasks[start : start + 100],
             tokenizer=tokenizer,
-            max_model_len=73728,
+            max_model_len=measurement_limit,
             max_output_tokens=2048,
             disable_thinking=True,
+            raise_on_overflow=False,
         )
         context.extend(batch["tasks"])
-        print(f"CONTEXT_VERIFIED={len(context)}/{len(plan.bulk_tasks)}", flush=True)
+        print(f"CONTEXT_MEASURED={len(context)}/{len(plan.bulk_tasks)}", flush=True)
+    required = max(row["required_tokens"] for row in context)
+    if max_model_len is None:
+        max_model_len = min(
+            measurement_limit, max(73728, ((required + 4095) // 4096) * 4096)
+        )
+    overflow = [row for row in context if row["required_tokens"] > max_model_len]
+    if overflow:
+        worst = max(overflow, key=lambda row: row["required_tokens"])
+        raise ValueError(
+            f"Measured all {len(context)} judge tasks: {len(overflow)} exceed context "
+            f"limit {max_model_len}; maximum required={required}, task={worst['judge_task_id']}. "
+            "No tasks were truncated or written. Use --max-model-len auto to measure "
+            "a native-capacity-bounded window; GPU submission requires renewed approval."
+        )
+    validate_judge_context_limit(snapshot, max_model_len)
+    if context_only:
+        return {
+            "status": "context_measured_not_launch_approved",
+            "execution_commit": commit,
+            "task_count": len(context),
+            "validation_task_count": len(plan.validation_tasks),
+            "max_model_len": max_model_len,
+            "max_required_tokens": required,
+            "max_prompt_tokens": max(row["prompt_tokens"] for row in context),
+            "total_prompt_tokens": sum(row["prompt_tokens"] for row in context),
+            "max_output_tokens": 2048,
+            "requires_walltime_approval": True,
+        }
     import xgrammar
 
     from analysis.interpretability.pipeline.agentic_judging import agentic_judge_schema
@@ -265,7 +316,11 @@ def prepare(adaptive_path, output, snapshot, approved_walltime, commit):
         output / "context-budget.json",
         {
             "status": "PASS",
-            "max_model_len": 73728,
+            "max_model_len": max_model_len,
+            "max_required_tokens": required,
+            "max_prompt_tokens": max(row["prompt_tokens"] for row in context),
+            "total_prompt_tokens": sum(row["prompt_tokens"] for row in context),
+            "task_count": len(context),
             "max_output_tokens": 2048,
             "disable_thinking": True,
             "tasks": context,
@@ -276,9 +331,16 @@ def prepare(adaptive_path, output, snapshot, approved_walltime, commit):
         "status": "prepared",
         "scientific_result": False,
         "execution_commit": commit,
+        "max_model_len": max_model_len,
+        "requires_context_reapproval": max_model_len != 73728,
         "adaptive_source": _file_identity(adaptive_path),
         "approved_allocation": APPROVAL,
-        "estimate": ESTIMATE,
+        "estimate": ESTIMATE
+        if max_model_len == 73728
+        else (
+            "Context window changed; historical 5-7 hour estimate is not validated "
+            "for this queue. Fresh runtime estimate and explicit walltime approval required."
+        ),
         "snapshot": cache,
         "task_count": len(plan.bulk_tasks),
         "claim_root": judge["claim_root"],
@@ -321,6 +383,15 @@ def verify(root):
     cache = snapshot_files(Path(receipt["snapshot"]["path"]))
     if cache != receipt["snapshot"]:
         raise ValueError("Cached snapshot changed after preflight")
+    limit = receipt.get("max_model_len", 73728)
+    validate_judge_context_limit(Path(receipt["snapshot"]["path"]), limit)
+    context = json.loads((root / "context-budget.json").read_text())
+    if context["max_model_len"] != limit or context["max_output_tokens"] != 2048:
+        raise ValueError("Launch and context budget differ")
+    if context["status"] != "PASS" or any(
+        row["required_tokens"] > limit for row in context["tasks"]
+    ):
+        raise ValueError("Unverified judge context budget")
     return receipt
 
 
@@ -400,10 +471,25 @@ def submission_command(root, account):
     ]
 
 
-def submit(root, account, approved_walltime):
+def submit(
+    root,
+    account,
+    approved_walltime,
+    *,
+    approved_max_model_len=None,
+    revised_estimate=None,
+):
     if approved_walltime != APPROVAL["walltime"]:
         raise ValueError("Submission requires explicit approved walltime 08:00:00")
     receipt = verify(root)
+    if receipt.get("max_model_len", 73728) != 73728 and (
+        approved_max_model_len != receipt["max_model_len"]
+        or not isinstance(revised_estimate, str)
+        or not revised_estimate.strip()
+    ):
+        raise ValueError(
+            "Extended context requires fresh context/walltime approval and a revised runtime estimate"
+        )
     actual = subprocess.check_output(
         ["git", "-C", str(REPOSITORY), "rev-parse", "HEAD"], text=True
     ).strip()
@@ -435,7 +521,16 @@ def submit(root, account, approved_walltime):
     # Exclusive create, not a filesystem lock: an interrupted/uncertain sbatch
     # never permits blind automatic resubmission. Preserve the intent for audit.
     with (root / "submission-intent.json").open("x") as stream:
-        json.dump({"command": command, "approval": APPROVAL}, stream, indent=2)
+        json.dump(
+            {
+                "command": command,
+                "approval": APPROVAL,
+                "max_model_len": receipt.get("max_model_len", 73728),
+                "estimate": revised_estimate or ESTIMATE,
+            },
+            stream,
+            indent=2,
+        )
         stream.flush()
         os.fsync(stream.fileno())
     env = dict(os.environ, GEODML_EXECUTION_REPOSITORY=str(REPOSITORY))
@@ -459,6 +554,16 @@ def submit(root, account, approved_walltime):
 
 def worker(root):
     receipt = verify(root)
+    allocation_estimate = ESTIMATE
+    if receipt.get("max_model_len", 73728) != 73728:
+        intent = json.loads((root / "submission-intent.json").read_text())
+        if (
+            intent.get("max_model_len") != receipt["max_model_len"]
+            or intent.get("approval") != APPROVAL
+            or not intent.get("estimate")
+        ):
+            raise ValueError("Missing renewed context approval or runtime estimate")
+        allocation_estimate = intent["estimate"]
     index = int(os.environ["SLURM_ARRAY_TASK_ID"])
     if index not in (0, 1):
         raise ValueError("Unexpected worker slot")
@@ -511,11 +616,12 @@ def worker(root):
         GEODML_JUDGE_WORKER_INDEX=str(index),
         GEODML_JUDGE_WORKER_COUNT="2",
         GEODML_JUDGE_DISPATCH_MODE="partition",
+        GEODML_JUDGE_MAX_MODEL_LEN=str(receipt.get("max_model_len", 73728)),
         GEODML_JUDGE_PILOT_ONLY="0",
         GEODML_JUDGE_STDOUT=str(root / "logs" / f"slurm-{reference}.out"),
         GEODML_JUDGE_STDERR=str(root / "logs" / f"slurm-{reference}.err"),
         GEODML_APPROVED_WALLTIME=APPROVAL["walltime"],
-        GEODML_ALLOCATION_ESTIMATE=ESTIMATE,
+        GEODML_ALLOCATION_ESTIMATE=allocation_estimate,
         GEODML_START_MARGIN_SECONDS="120",
         GEODML_CLEANUP_MARGIN_SECONDS="45",
         HF_HUB_OFFLINE="1",
@@ -550,13 +656,25 @@ def main():
     create.add_argument("--adaptive-plan", type=Path, required=True)
     create.add_argument("--snapshot", type=Path, required=True)
     create.add_argument("--execution-commit", required=True)
-    create.add_argument("--approved-walltime", required=True)
+    create.add_argument("--approved-walltime")
+    create.add_argument(
+        "--context-only",
+        action="store_true",
+        help="Measure inputs without writing a queue or preparing an allocation.",
+    )
+    create.add_argument(
+        "--max-model-len",
+        default="73728",
+        help="Pinned serving context length, or auto to measure all tasks within native capacity.",
+    )
     for name in ("verify", "status", "submit", "worker"):
         sub = commands.add_parser(name)
         sub.add_argument("--run-root", type=Path, required=True)
         if name == "submit":
             sub.add_argument("--account", required=True)
             sub.add_argument("--approved-walltime", required=True)
+            sub.add_argument("--approved-max-model-len", type=int)
+            sub.add_argument("--revised-estimate")
     create.add_argument("--run-root", type=Path, required=True)
     args = parser.parse_args()
     root = args.run_root.resolve()
@@ -567,9 +685,19 @@ def main():
             args.snapshot.resolve(),
             args.approved_walltime,
             args.execution_commit,
+            max_model_len=None
+            if args.max_model_len == "auto"
+            else int(args.max_model_len),
+            context_only=args.context_only,
         )
     elif args.command == "submit":
-        submit(root, args.account, args.approved_walltime)
+        submit(
+            root,
+            args.account,
+            args.approved_walltime,
+            approved_max_model_len=args.approved_max_model_len,
+            revised_estimate=args.revised_estimate,
+        )
         return 0
     elif args.command == "worker":
         return worker(root)

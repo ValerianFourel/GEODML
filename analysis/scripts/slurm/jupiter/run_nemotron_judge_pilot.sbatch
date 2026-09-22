@@ -73,7 +73,7 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export GEODML_PILOT_MODEL_ID=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
 export GEODML_PILOT_MODEL_REVISION=bf77c3174f68ad409e1c2aa60daeb46e32d1c606
-export GEODML_JUDGE_MAX_MODEL_LEN=73728
+export GEODML_JUDGE_MAX_MODEL_LEN="${GEODML_JUDGE_MAX_MODEL_LEN:-73728}"
 export PYTHONUNBUFFERED=1
 
 python3 - <<'PY'
@@ -102,7 +102,7 @@ queue = plan_root / "bulk_tasks.jsonl"
 manifest = json.loads(manifest_path.read_text())
 mode = env["GEODML_JUDGE_EXECUTION_MODE"]
 max_model_len = int(env["GEODML_JUDGE_MAX_MODEL_LEN"])
-if max_model_len != 73728:
+if mode == "fixed" and max_model_len != 73728:
     raise ValueError("Nemotron judge max model length must remain pinned at 73728")
 budget = AllocationBudget.from_environment(require=mode == "throughput")
 if mode == "throughput" and not budget.can_start():
@@ -148,6 +148,8 @@ snapshot = Path(env["HF_HUB_CACHE"]) / (
     "models--nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/snapshots/" + revision
 )
 config = json.loads((snapshot / "config.json").read_text())
+from analysis.scripts.check_agentic_judge_context import validate_judge_context_limit
+validate_judge_context_limit(snapshot, max_model_len)
 if config.get("architectures") != ["NemotronHForCausalLM"]:
     raise ValueError("Unexpected cached Nemotron architecture")
 index = json.loads((snapshot / "model.safetensors.index.json").read_text())
