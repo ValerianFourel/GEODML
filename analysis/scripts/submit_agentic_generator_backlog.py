@@ -78,6 +78,14 @@ def _sync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _serving_profile(profile_root: Path, slug: str, filename: str) -> Path:
+    """Resolve an original profile name or this launcher's frozen slug alias."""
+    original = profile_root / filename
+    if original.is_file() and original.stat().st_size:
+        return original
+    return _file(profile_root / f"{slug}.json")
+
+
 def _durable_json(path: Path, value: object) -> None:
     _atomic_json(path, value)
     _sync_directory(path.parent)
@@ -185,7 +193,9 @@ def _preflight(
     models = {}
     for slug in model_slugs:
         specification = MODELS[slug]
-        profile_path = _file(profile_root / specification["profile"])
+        profile_path = _serving_profile(
+            profile_root, slug, specification["profile"],
+        )
         profile = load_profile(profile_path)
         expected = {key: specification[key] for key in ("model_id", "model_revision")}
         if profile["model"] != expected or any(

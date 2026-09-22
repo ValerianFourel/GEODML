@@ -272,6 +272,22 @@ def test_single_qwen_one_hour_schedule_submits_one_bounded_worker(backlog):
     assert not (args["run_root"] / "models/llama4").exists()
 
 
+def test_prepare_accepts_profiles_frozen_under_model_slugs(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    profile_root = args["profile_root"]
+    for slug, specification in module.MODELS.items():
+        original = profile_root / specification["profile"]
+        (profile_root / f"{slug}.json").write_bytes(original.read_bytes())
+        original.unlink()
+
+    result = module.submit_backlog(**args)
+
+    assert result["status"] == "prepared"
+    assert set(result["models"]) == set(module.MODELS)
+    for slug in module.MODELS:
+        assert (args["run_root"] / "profiles" / f"{slug}.json").is_file()
+
+
 def test_resume_reuses_only_an_exact_prior_shared_claim_root(backlog):
     args = backlog["arguments"]
     prior = args["run_root"].parent / "prior"
