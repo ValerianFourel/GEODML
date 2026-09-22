@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Resource and time approval is supplied by manage_agentic_pilot_judging.py.
-# One of two independent one-node jobs, not a five-node adaptive allocation.
+# One independently scheduled one-node worker, not a multi-node serving process.
 set +u
 set -eo pipefail
 test "$#" = 1

@@ -1,7 +1,7 @@
 """Prepare, submit once, and audit the original 500-prompt Nemotron queue.
 
-Preparation is CPU-only. Submission is explicit and requires the separately
-approved two one-node, eight-hour allocations. Existing generation is read-only.
+Preparation is CPU-only. Submission uses an explicitly approved schedule with
+one four-GPU node per worker. Existing generation is read-only.
 """
 
 from __future__ import annotations
@@ -74,6 +74,41 @@ ESTIMATE = (
     "32 CPUs, 512G per node; maximum 64 aggregate GPU-hours. No requeue, "
     "extension or replacement. Frozen original-500 judging only."
 )
+
+
+def allocation_schedule(walltime, worker_count, maximum_gpu_hours):
+    matched = re.fullmatch(
+        r"(?:(?P<days>[0-9]+)-)?(?P<hours>[0-9]{2,}):(?P<minutes>[0-5][0-9]):(?P<seconds>[0-5][0-9])",
+        str(walltime),
+    )
+    if matched is None:
+        raise ValueError("approved walltime must use [days-]HH:MM:SS")
+    if type(worker_count) is not int or worker_count <= 0:
+        raise ValueError("approved worker count must be a positive integer")
+    if type(maximum_gpu_hours) is not int or maximum_gpu_hours <= 0:
+        raise ValueError("approved maximum GPU-hours must be a positive integer")
+    seconds = (
+        int(matched.group("days") or 0) * 86400
+        + int(matched.group("hours")) * 3600
+        + int(matched.group("minutes")) * 60
+        + int(matched.group("seconds"))
+    )
+    expected_gpu_hours = worker_count * 4 * seconds / 3600
+    if seconds <= 0 or expected_gpu_hours != maximum_gpu_hours:
+        raise ValueError(
+            "approved maximum GPU-hours must equal workers x four GPUs x walltime"
+        )
+    return {
+        "allocation_count": worker_count,
+        "nodes_per_allocation": 1,
+        "gpus_per_node": 4,
+        "cpus_per_node": 32,
+        "memory_per_node": "512G",
+        "walltime": walltime,
+        "maximum_gpu_hours": maximum_gpu_hours,
+        "admission_margin_seconds": 120,
+        "cleanup_margin_seconds": 45,
+    }
 
 
 def digest(path):
@@ -157,11 +192,19 @@ def prepare(
     *,
     max_model_len=73728,
     context_only=False,
+    worker_count=2,
+    maximum_gpu_hours=64,
+    allocation_estimate=None,
 ):
-    if not context_only and approved_walltime != APPROVAL["walltime"]:
-        raise ValueError(
-            "This preparation requires the explicitly approved 08:00:00 budget"
+    approval = None
+    if not context_only:
+        approval = allocation_schedule(
+            approved_walltime, worker_count, maximum_gpu_hours
         )
+        if allocation_estimate is None and approval == APPROVAL:
+            allocation_estimate = ESTIMATE
+        if not isinstance(allocation_estimate, str) or not allocation_estimate.strip():
+            raise ValueError("an allocation estimate is required for the approved schedule")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Execution commit must be an immutable Git SHA")
     if output.exists():
@@ -334,8 +377,8 @@ def prepare(
         "max_model_len": max_model_len,
         "requires_context_reapproval": max_model_len != 73728,
         "adaptive_source": _file_identity(adaptive_path),
-        "approved_allocation": APPROVAL,
-        "estimate": ESTIMATE
+        "approved_allocation": approval,
+        "estimate": allocation_estimate
         if max_model_len == 73728
         else (
             "Context window changed; historical 5-7 hour estimate is not validated "
@@ -345,10 +388,13 @@ def prepare(
         "task_count": len(plan.bulk_tasks),
         "claim_root": judge["claim_root"],
         "dispatch_mode": "partition",
-        "worker_count": 2,
+        "worker_count": worker_count,
         "partition_counts": [
-            sum(task_in_worker(t.judge_task_id, i, 2) for t in plan.bulk_tasks)
-            for i in range(2)
+            sum(
+                task_in_worker(t.judge_task_id, i, worker_count)
+                for t in plan.bulk_tasks
+            )
+            for i in range(worker_count)
         ],
         "validation_model": None
         if plan.validation_model is None
@@ -371,11 +417,18 @@ def prepare(
 
 def verify(root):
     receipt = json.loads((root / "launch.json").read_text())
+    approval = receipt["approved_allocation"]
+    worker_count = receipt["worker_count"]
     if (
-        receipt["approved_allocation"] != APPROVAL
-        or receipt["worker_count"] != 2
+        allocation_schedule(
+            approval["walltime"], worker_count, approval["maximum_gpu_hours"]
+        )
+        != approval
+        or approval["allocation_count"] != worker_count
         or receipt["dispatch_mode"] != "partition"
         or receipt["task_count"] != 2 * EXPECTED_CELLS
+        or len(receipt["partition_counts"]) != worker_count
+        or sum(receipt["partition_counts"]) != receipt["task_count"]
     ):
         raise ValueError("Launch approval or task coverage mismatch")
     for entry in receipt["files"]:
@@ -412,7 +465,8 @@ def audit(root):
         request_timeout=120,
     )
     counts = Counter()
-    slots = [Counter(), Counter()]
+    worker_count = receipt["worker_count"]
+    slots = [Counter() for _ in range(worker_count)]
     for n, task in enumerate(tasks, 1):
         item = _prepare_agentic_judge(task, max_tokens=2048)
         identity = _shared_claim_identity(
@@ -428,7 +482,12 @@ def audit(root):
             ),
         )
         counts[state] += 1
-        slots[0 if task_in_worker(task.judge_task_id, 0, 2) else 1][state] += 1
+        slot = next(
+            index
+            for index in range(worker_count)
+            if task_in_worker(task.judge_task_id, index, worker_count)
+        )
+        slots[slot][state] += 1
         if n % 500 == 0:
             print(f"CLAIMS_CHECKED={n}/{len(tasks)}", flush=True)
     return {
@@ -444,21 +503,22 @@ def audit(root):
     }
 
 
-def submission_command(root, account):
+def submission_command(root, account, approval):
+    worker_count = approval["allocation_count"]
     return [
         "sbatch",
         "--parsable",
         "--export=ALL",
         f"--account={account}",
         "--partition=booster",
-        "--array=0-1%2",
+        f"--array=0-{worker_count - 1}%{worker_count}",
         "--nodes=1",
         "--ntasks=1",
         "--gpus-per-node=4",
         "--cpus-per-task=32",
         "--mem=512G",
         "--exclusive",
-        "--time=08:00:00",
+        f"--time={approval['walltime']}",
         "--no-requeue",
         "--job-name=geodml-pilot-nemotron",
         f"--output={root}/logs/slurm-%A_%a.out",
@@ -479,9 +539,10 @@ def submit(
     approved_max_model_len=None,
     revised_estimate=None,
 ):
-    if approved_walltime != APPROVAL["walltime"]:
-        raise ValueError("Submission requires explicit approved walltime 08:00:00")
     receipt = verify(root)
+    approval = receipt["approved_allocation"]
+    if approved_walltime != approval["walltime"]:
+        raise ValueError("submission walltime differs from the approved schedule")
     if receipt.get("max_model_len", 73728) != 73728 and (
         approved_max_model_len != receipt["max_model_len"]
         or not isinstance(revised_estimate, str)
@@ -517,16 +578,16 @@ def submit(
             "One partition has no eligible work; obtain a smaller resume budget"
         )
     (root / "logs").mkdir(exist_ok=True)
-    command = submission_command(root, account)
+    command = submission_command(root, account, approval)
     # Exclusive create, not a filesystem lock: an interrupted/uncertain sbatch
     # never permits blind automatic resubmission. Preserve the intent for audit.
     with (root / "submission-intent.json").open("x") as stream:
         json.dump(
             {
                 "command": command,
-                "approval": APPROVAL,
+                "approval": approval,
                 "max_model_len": receipt.get("max_model_len", 73728),
-                "estimate": revised_estimate or ESTIMATE,
+                "estimate": revised_estimate or receipt["estimate"],
             },
             stream,
             indent=2,
@@ -554,18 +615,20 @@ def submit(
 
 def worker(root):
     receipt = verify(root)
-    allocation_estimate = ESTIMATE
+    approval = receipt["approved_allocation"]
+    worker_count = receipt["worker_count"]
+    allocation_estimate = receipt["estimate"]
     if receipt.get("max_model_len", 73728) != 73728:
         intent = json.loads((root / "submission-intent.json").read_text())
         if (
             intent.get("max_model_len") != receipt["max_model_len"]
-            or intent.get("approval") != APPROVAL
+            or intent.get("approval") != approval
             or not intent.get("estimate")
         ):
             raise ValueError("Missing renewed context approval or runtime estimate")
         allocation_estimate = intent["estimate"]
     index = int(os.environ["SLURM_ARRAY_TASK_ID"])
-    if index not in (0, 1):
+    if not 0 <= index < worker_count:
         raise ValueError("Unexpected worker slot")
     job_id = os.environ["SLURM_JOB_ID"]
     reference = f"{os.environ['SLURM_ARRAY_JOB_ID']}_{index}"
@@ -577,7 +640,7 @@ def worker(root):
         fields.get("JobId") != job_id
         or fields.get("JobState") != "RUNNING"
         or fields.get("NumNodes") != "1"
-        or fields.get("TimeLimit") != APPROVAL["walltime"]
+        or fields.get("TimeLimit") != approval["walltime"]
         or fields.get("UserId", "").split("(")[0] != os.environ["USER"]
         or fields.get("OverSubscribe") != "NO"
         or fields.get("ArrayJobId") != os.environ["SLURM_ARRAY_JOB_ID"]
@@ -614,13 +677,13 @@ def worker(root):
         GEODML_JUDGE_PLAN_ROOT=str(root / "plan"),
         GEODML_JUDGE_CLAIM_ROOT=receipt["claim_root"],
         GEODML_JUDGE_WORKER_INDEX=str(index),
-        GEODML_JUDGE_WORKER_COUNT="2",
+        GEODML_JUDGE_WORKER_COUNT=str(worker_count),
         GEODML_JUDGE_DISPATCH_MODE="partition",
         GEODML_JUDGE_MAX_MODEL_LEN=str(receipt.get("max_model_len", 73728)),
         GEODML_JUDGE_PILOT_ONLY="0",
         GEODML_JUDGE_STDOUT=str(root / "logs" / f"slurm-{reference}.out"),
         GEODML_JUDGE_STDERR=str(root / "logs" / f"slurm-{reference}.err"),
-        GEODML_APPROVED_WALLTIME=APPROVAL["walltime"],
+        GEODML_APPROVED_WALLTIME=approval["walltime"],
         GEODML_ALLOCATION_ESTIMATE=allocation_estimate,
         GEODML_START_MARGIN_SECONDS="120",
         GEODML_CLEANUP_MARGIN_SECONDS="45",
@@ -657,6 +720,9 @@ def main():
     create.add_argument("--snapshot", type=Path, required=True)
     create.add_argument("--execution-commit", required=True)
     create.add_argument("--approved-walltime")
+    create.add_argument("--worker-count", type=int, default=2)
+    create.add_argument("--maximum-gpu-hours", type=int, default=64)
+    create.add_argument("--allocation-estimate")
     create.add_argument(
         "--context-only",
         action="store_true",
@@ -689,6 +755,9 @@ def main():
             if args.max_model_len == "auto"
             else int(args.max_model_len),
             context_only=args.context_only,
+            worker_count=args.worker_count,
+            maximum_gpu_hours=args.maximum_gpu_hours,
+            allocation_estimate=args.allocation_estimate,
         )
     elif args.command == "submit":
         submit(

@@ -114,6 +114,20 @@ def make(source):
     return manager.prepare(*source, "08:00:00", "a" * 40)
 
 
+def make_one_hour(source):
+    return manager.prepare(
+        *source,
+        "01:00:00",
+        "a" * 40,
+        worker_count=1,
+        maximum_gpu_hours=4,
+        allocation_estimate=(
+            "One original-500 Nemotron worker for one hour; four GH200 GPUs; "
+            "maximum 4 GPU-hours; checkpoint remaining work."
+        ),
+    )
+
+
 def test_context_only_needs_no_allocation_approval_and_writes_nothing(
     source, monkeypatch
 ):
@@ -244,6 +258,46 @@ def test_submission_is_two_one_node_jobs_and_never_automatically_repeated(
     assert len(calls) == 1
 
 
+def test_approved_one_hour_schedule_submits_one_original_pilot_worker(
+    source, monkeypatch
+):
+    receipt = make_one_hour(source)
+    assert receipt["approved_allocation"] == {
+        "allocation_count": 1,
+        "nodes_per_allocation": 1,
+        "gpus_per_node": 4,
+        "cpus_per_node": 32,
+        "memory_per_node": "512G",
+        "walltime": "01:00:00",
+        "maximum_gpu_hours": 4,
+        "admission_margin_seconds": 120,
+        "cleanup_margin_seconds": 45,
+    }
+    assert receipt["worker_count"] == 1
+    assert receipt["partition_counts"] == [24]
+    monkeypatch.setattr(
+        manager.subprocess,
+        "check_output",
+        lambda args, **kw: "" if "status" in args else "a" * 40 + "\n",
+    )
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(returncode=0, stdout="12345\n", stderr="")
+
+    monkeypatch.setattr(manager.subprocess, "run", run)
+    manager.submit(source[1], "scifi", "01:00:00")
+    command, _ = calls[0]
+    assert "--array=0-0%1" in command
+    assert "--time=01:00:00" in command
+    assert "--gpus-per-node=4" in command
+    assert "--no-requeue" in command
+    intent = json.loads((source[1] / "submission-intent.json").read_text())
+    assert intent["approval"] == receipt["approved_allocation"]
+    assert intent["estimate"] == receipt["estimate"]
+
+
 def test_failed_sbatch_preserves_intent_and_needs_manual_review(source, monkeypatch):
     make(source)
     monkeypatch.setattr(
@@ -351,6 +405,40 @@ def test_worker_uses_controller_deadline_and_offline_partition_environment(
     assert env["HF_HUB_OFFLINE"] == env["TRANSFORMERS_OFFLINE"] == "1"
     assert Path(env["HF_HUB_CACHE"]) == source[2].parents[2]
     assert calls[0]["pass_fds"]
+
+
+def test_one_hour_worker_validates_recorded_single_slot_schedule(source, monkeypatch):
+    make_one_hour(source)
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
+    monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "201")
+    monkeypatch.setenv("SLURM_JOB_ID", "202")
+    monkeypatch.delenv("SLURM_GPUS_ON_NODE", raising=False)
+    calls = []
+
+    def check(args, **kw):
+        if args[0] == "scontrol":
+            return (
+                f"JobId=202 JobState=RUNNING NumNodes=1 TimeLimit=01:00:00 "
+                f"UserId={os.environ['USER']}(123) OverSubscribe=NO "
+                "ArrayJobId=201 ArrayTaskId=0 "
+                "AllocTRES=cpu=32,node=1,gres/gpu=4 StartTime=start EndTime=end"
+            )
+        if args[0] == "date":
+            return "1000\n" if args[2] == "start" else "4600\n"
+        return "uuid0\nuuid1\nuuid2\nuuid3\n"
+
+    monkeypatch.setattr(manager.subprocess, "check_output", check)
+    monkeypatch.setattr(
+        manager.subprocess,
+        "run",
+        lambda args, **kw: calls.append(kw) or SimpleNamespace(returncode=0),
+    )
+    assert manager.worker(source[1]) == 0
+    env = calls[0]["env"]
+    assert env["GEODML_JUDGE_WORKER_INDEX"] == "0"
+    assert env["GEODML_JUDGE_WORKER_COUNT"] == "1"
+    assert env["GEODML_APPROVED_WALLTIME"] == "01:00:00"
+    assert env["GEODML_ALLOCATION_ESTIMATE"] == manager.verify(source[1])["estimate"]
 
 
 def test_slurm_spool_wrapper_uses_pinned_checkout():

@@ -7,21 +7,25 @@ seed 20260915, 2048 output tokens, disabled thinking, and four concurrent reques
 
 ## Approval and execution
 
-Valerian approved two nodes for eight hours on 2026-09-22: eight GPUs total,
-32 requested CPUs and 512G per node, maximum 64 GPU-hours. The estimate is
-5–7 hours based on 696 judgments completed in 34m39s on one node. Conversation
-lengths and startup can change the rate; completion is not promised.
+The manager records and enforces the explicitly approved schedule. The historical
+approval on 2026-09-22 was two independent eight-hour workers: eight GPUs total,
+32 requested CPUs and 512G per worker, maximum 64 GPU-hours. Its 5–7 hour
+estimate was based on 696 judgments completed in 34m39s on one node.
 
-The submission is a two-element Slurm array. Each element independently requests
-one exclusive node for eight hours and can start at a different time. There is
-no requeue, replacement, extension, cross-node serving, or new inference cohort.
-Another allocation requires a fresh estimate and approval.
+The later approved continuation is one independent one-hour worker: one node,
+four GH200 GPUs, 32 CPUs, 512G, and at most four GPU-hours. The observed pilot
+rate suggests roughly 700–1200 judgments could finish after startup, but context
+lengths can change the rate and completion is not promised. The remaining queue
+is checkpointed. There is no requeue, replacement, extension, cross-node serving,
+or new inference cohort. Another allocation requires a fresh estimate and
+approval.
 
 Use `analysis/scripts/manage_agentic_pilot_judging.py` from a clean pinned
 checkout, with Python >=3.10 and the existing JUPITER inference environment:
 
 - `prepare --adaptive-plan PATH --run-root PATH --snapshot PATH
-  --execution-commit SHA --approved-walltime 08:00:00` verifies the frozen
+  --execution-commit SHA --approved-walltime TIME --worker-count COUNT
+  --maximum-gpu-hours HOURS --allocation-estimate TEXT` verifies the frozen
   generation inputs and all 6000 cells for each model, verifies full traces,
   builds 12000 recorded-conversation tasks, and preserves the configured
   validation model and 2% sampling policy. Missing validation configuration stays
@@ -34,7 +38,7 @@ checkout, with Python >=3.10 and the existing JUPITER inference environment:
 - `verify --run-root PATH` rechecks frozen queue and snapshot metadata. Existing
   preparations are never overwritten. A preparation interrupted before
   `launch.json` is written requires inspection, not a blind overwrite.
-- `submit --run-root PATH --account ACCOUNT --approved-walltime 08:00:00`
+- `submit --run-root PATH --account ACCOUNT --approved-walltime TIME`
   validates remaining task claims, then submits exactly once. The exclusive
   `submission-intent.json` prevents a second paste from submitting duplicates.
   If submission is uncertain, inspect that receipt, `submission-result.json`, and
