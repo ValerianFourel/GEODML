@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from analysis.interpretability.pipeline import inference_claims
 from analysis.interpretability.pipeline.agentic_generation_tasks import (
     _canonical,
     build_cells,
@@ -337,42 +339,186 @@ def _command(
 
 
 def _resume_claims(
-    resume_from_run_root: Path | None, cohort_root: Path, tasks: list[dict[str, Any]],
-) -> dict[str, str] | None:
-    """Accept only an exact frozen queue as a durable shared-claim predecessor."""
+    resume_from_run_root: Path | tuple[Path, ...] | list[Path] | None,
+    cohort_root: Path,
+    tasks: list[dict[str, Any]],
+    destination_claim_root: Path,
+) -> dict[str, Any] | None:
+    """Accept one or more exact frozen queues as durable claim predecessors."""
     if resume_from_run_root is None:
         return None
-    root = resume_from_run_root.resolve()
-    manifest_path = _file(root / "run_manifest.json")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("format_version") not in {
-        "agentic-four-generator-backlog-v1", "agentic-generator-backlog-v2",
-    }:
-        raise ValueError("resume source is not a compatible generator backlog")
-    if manifest.get("request", {}).get("cohort_root") != str(cohort_root):
-        raise ValueError("resume source uses a different frozen cohort")
-    prior_tasks = _file(root / "tasks.jsonl")
-    if prior_tasks.read_bytes() != b"".join(
+    roots = (
+        (resume_from_run_root,)
+        if isinstance(resume_from_run_root, Path)
+        else tuple(resume_from_run_root)
+    )
+    if not roots:
+        raise ValueError("at least one resume source is required")
+    expected_tasks = b"".join(
         json.dumps(task, ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
         for task in tasks
-    ):
-        raise ValueError("resume source task queue differs from the requested queue")
-    recorded_claim_root = manifest.get("claim_root")
-    if recorded_claim_root is None:
-        # Older manifests predate the explicit shared-registry field.
-        claim_root = root / "claims"
-    elif not isinstance(recorded_claim_root, str) or not Path(recorded_claim_root).is_absolute():
-        raise ValueError("resume source claim root must be an absolute path")
-    else:
-        claim_root = Path(recorded_claim_root)
-    if claim_root.exists() and not claim_root.is_dir():
-        raise ValueError("resume source claim root is not a directory")
+    )
+    sources = []
+    seen_runs: set[Path] = set()
+    for supplied_root in roots:
+        root = supplied_root.resolve()
+        if root in seen_runs:
+            continue
+        seen_runs.add(root)
+        manifest_path = _file(root / "run_manifest.json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("format_version") not in {
+            "agentic-four-generator-backlog-v1", "agentic-generator-backlog-v2",
+        }:
+            raise ValueError("resume source is not a compatible generator backlog")
+        if manifest.get("request", {}).get("cohort_root") != str(cohort_root):
+            raise ValueError("resume source uses a different frozen cohort")
+        prior_tasks = _file(root / "tasks.jsonl")
+        if prior_tasks.read_bytes() != expected_tasks:
+            raise ValueError("resume source task queue differs from the requested queue")
+        recorded_claim_root = manifest.get("claim_root")
+        if recorded_claim_root is None:
+            # Older manifests predate the explicit shared-registry field.
+            claim_root = root / "claims"
+        elif not isinstance(recorded_claim_root, str) or not Path(recorded_claim_root).is_absolute():
+            raise ValueError("resume source claim root must be an absolute path")
+        else:
+            claim_root = Path(recorded_claim_root).resolve()
+        if claim_root.exists() and not claim_root.is_dir():
+            raise ValueError("resume source claim root is not a directory")
+        sources.append({
+            "run_root": str(root),
+            "run_manifest_sha256": _hash(manifest_path),
+            "tasks_sha256": _hash(prior_tasks),
+            "claim_root": str(claim_root),
+        })
+    if len(sources) == 1:
+        return sources[0]
     return {
-        "run_root": str(root),
-        "run_manifest_sha256": _hash(manifest_path),
-        "tasks_sha256": _hash(prior_tasks),
-        "claim_root": str(claim_root),
+        "sources": sources,
+        "tasks_sha256": hashlib.sha256(expected_tasks).hexdigest(),
+        "claim_root": str(destination_claim_root.resolve()),
+        "reconciliation": "validated-immutable-union-v1",
     }
+
+
+def _claim_record(path: Path, fingerprint: str, failed: bool) -> bytes:
+    """Read and validate one immutable terminal record while holding its lock."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"claim record is not a regular file: {path}")
+    lock_path = path.parent / f"{fingerprint}.lock"
+    descriptor = None
+    try:
+        if lock_path.exists():
+            descriptor = os.open(
+                lock_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise ValueError(f"resume source has an active claim: {lock_path}") from error
+        record = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=inference_claims._unique_object,
+        )
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"corrupt terminal claim record: {path}") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    expected_keys = {
+        "format_version", "identity", "identity_sha256", "outcome", "outcome_sha256",
+    }
+    identity = (
+        inference_claims._identity(record.get("identity", {}))
+        if isinstance(record, dict) else None
+    )
+    expected_format = (
+        inference_claims.FAILURE_FORMAT_VERSION
+        if failed else inference_claims.FORMAT_VERSION
+    )
+    if (
+        not isinstance(record, dict)
+        or set(record) != expected_keys
+        or record["format_version"] != expected_format
+        or record["identity_sha256"] != fingerprint
+        or inference_claims._digest(record["identity"]) != fingerprint
+        or record["outcome_sha256"] != inference_claims._digest(record["outcome"])
+        or identity is None
+    ):
+        raise ValueError(f"mismatched terminal claim envelope: {path}")
+    return _canonical(record) + b"\n"
+
+
+def _reconcile_claim_roots(
+    resume: Mapping[str, Any], destination: Path,
+) -> dict[str, Any]:
+    """Materialize a fail-closed union without modifying any source registry."""
+    if resume.get("reconciliation") != "validated-immutable-union-v1":
+        raise ValueError("claim reconciliation requires multiple validated sources")
+    source_roots = sorted({
+        Path(source["claim_root"]).resolve() for source in resume["sources"]
+    })
+    destination = destination.resolve()
+    if destination.exists():
+        raise FileExistsError(f"reconciled claim root already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=".claims-reconcile-", dir=destination.parent))
+    records: dict[str, tuple[bytes, bool, Path]] = {}
+    source_counts: dict[str, int] = {}
+    try:
+        for root in source_roots:
+            count = 0
+            if root.is_dir():
+                for directory in sorted(root.iterdir()):
+                    if not directory.is_dir() or re.fullmatch(r"[0-9a-f]{2}", directory.name) is None:
+                        continue
+                    for path in sorted(directory.iterdir()):
+                        matched = re.fullmatch(r"([0-9a-f]{64})(\.failed)?\.json", path.name)
+                        if matched is None:
+                            continue
+                        fingerprint, failure_marker = matched.groups()
+                        if directory.name != fingerprint[:2]:
+                            raise ValueError(f"claim record is in the wrong shard: {path}")
+                        failed = failure_marker is not None
+                        payload = _claim_record(path, fingerprint, failed)
+                        previous = records.get(fingerprint)
+                        if previous is not None and (previous[0] != payload or previous[1] != failed):
+                            raise ValueError(
+                                f"conflicting terminal claim {fingerprint}: {previous[2]} and {path}"
+                            )
+                        records[fingerprint] = (payload, failed, path)
+                        count += 1
+            source_counts[str(root)] = count
+        for fingerprint, (payload, failed, _) in sorted(records.items()):
+            directory = temporary / fingerprint[:2]
+            directory.mkdir(exist_ok=True)
+            suffix = ".failed.json" if failed else ".json"
+            with (directory / f"{fingerprint}{suffix}").open("xb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        for directory in temporary.iterdir():
+            if directory.is_dir():
+                _sync_directory(directory)
+        receipt = {
+            "format_version": "geodml-claim-reconciliation-v1",
+            "created_at_utc": _now(),
+            "mode": "validated-immutable-union",
+            "source_claim_roots": [str(root) for root in source_roots],
+            "source_terminal_record_counts": source_counts,
+            "terminal_record_count": len(records),
+            "conflict_count": 0,
+            "source_registries_modified": False,
+        }
+        _durable_json(temporary / "reconciliation.json", receipt)
+        _sync_directory(temporary)
+        os.replace(temporary, destination)
+        _sync_directory(destination.parent)
+        return receipt
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
 
 
 def submit_backlog(
@@ -382,7 +528,7 @@ def submit_backlog(
     approved_walltime: str = APPROVED_WALLTIME,
     workers_per_model: int = WORKERS_PER_MODEL,
     maximum_total_gpu_hours: int = MAXIMUM_GPU_HOURS,
-    resume_from_run_root: Path | None = None,
+    resume_from_run_root: Path | tuple[Path, ...] | list[Path] | None = None,
     model_slugs: tuple[str, ...] = tuple(MODELS),
 ) -> dict[str, Any]:
     """Prepare once; submit the selected model arrays with no automatic recovery."""
@@ -418,7 +564,9 @@ def submit_backlog(
     tasks = [{"cell_id": cell.cell_id, **cell.core} for cell in source_cells]
     if len(tasks) != cohort["expected_cells_per_model"]:
         raise ValueError("cohort cell count differs from its manifest")
-    resume = _resume_claims(resume_from_run_root, cohort_root, tasks)
+    resume = _resume_claims(
+        resume_from_run_root, cohort_root, tasks, run_root / "claims",
+    )
     for slug, model in models.items():
         sources[f"profiles/{slug}.json"] = Path(model["profile"])
     search_paths = {}
@@ -467,6 +615,9 @@ def submit_backlog(
         else:
             if any(path.name != ".submission.lock" for path in run_root.iterdir()):
                 raise FileExistsError("run root contains unrecognized or incomplete preparation")
+            claim_reconciliation = None
+            if resume is not None and "sources" in resume:
+                claim_reconciliation = _reconcile_claim_roots(resume, Path(resume["claim_root"]))
             manifest = {
                 "format_version": "agentic-generator-backlog-v2", "status": "preparing",
                 "scientific_result": False, "created_at_utc": _now(), "request": request,
@@ -482,6 +633,7 @@ def submit_backlog(
                 "prompt_selection_seed": PROMPT_SELECTION_SEED, "wave_seed": WAVE_SEED,
                 "claim_root": resume["claim_root"] if resume else str(run_root / "claims"),
                 "resume_from": resume,
+                "claim_reconciliation": claim_reconciliation,
                 "claim_identity": "agentic-generator-shared-v1: cell, model, revision, request hash",
                 "cutoff_policy": "actual Slurm end; 120s admission margin; 45s cleanup margin",
                 "automatic_resubmission": False,
@@ -535,7 +687,11 @@ def submit_backlog(
                 manifest["frozen_files"] = {
                     str(path.relative_to(run_root)): _hash(path)
                     for path in run_root.rglob("*")
-                    if path.is_file() and path not in {manifest_path, run_root / ".submission.lock"}
+                    if (
+                        path.is_file()
+                        and path not in {manifest_path, run_root / ".submission.lock"}
+                        and not path.is_relative_to(run_root / "claims")
+                    )
                 }
                 manifest["status"] = "prepared"
                 _durable_json(manifest_path, manifest)
@@ -619,8 +775,11 @@ def main() -> int:
     parser.add_argument("--workers-per-model", type=int, default=WORKERS_PER_MODEL)
     parser.add_argument("--maximum-total-gpu-hours", type=int, default=MAXIMUM_GPU_HOURS)
     parser.add_argument(
-        "--resume-from-run-root", type=Path,
-        help="Reuse only the matching prior run's durable shared claims.",
+        "--resume-from-run-root", type=Path, action="append",
+        help=(
+            "Reuse a matching prior run's durable shared claims; repeat to create a "
+            "validated immutable union before submission."
+        ),
     )
     parser.add_argument(
         "--model", dest="model_slugs", action="append", choices=tuple(MODELS),

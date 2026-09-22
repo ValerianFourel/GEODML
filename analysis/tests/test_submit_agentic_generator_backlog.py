@@ -10,6 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from analysis.interpretability.pipeline.inference_claims import (
+    ClaimIdentity,
+    InferenceClaimStore,
+)
 from analysis.scripts import submit_agentic_generator_backlog as module
 
 
@@ -302,6 +306,64 @@ def test_resume_of_resume_preserves_original_claim_registry(backlog):
     result = module.submit_backlog(**{**args, "resume_from_run_root": second})
     assert result["claim_root"] == str(first / "claims")
     assert result["resume_from"]["claim_root"] == str(first / "claims")
+
+
+def _claim(root: Path, task_id: str, answer: str) -> None:
+    identity = ClaimIdentity(
+        task_id=task_id,
+        model_id="Qwen/Qwen3.8-27B",
+        model_revision="a" * 40,
+        protocol="agentic-generator-shared-v1",
+        request_sha256=hashlib.sha256(task_id.encode()).hexdigest(),
+    )
+    with InferenceClaimStore(root).try_claim(identity) as claim:
+        claim.commit({"answer": answer})
+
+
+def test_multiple_exact_resume_sources_are_reconciled_without_overwriting(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    first = args["run_root"].parent / "first"
+    second = args["run_root"].parent / "second"
+    module.submit_backlog(**{**args, "run_root": first})
+    module.submit_backlog(**{**args, "run_root": second})
+    _claim(first / "claims", "cell-a", "first")
+    _claim(second / "claims", "cell-b", "second")
+    source_bytes = {
+        path: path.read_bytes()
+        for root in (first, second)
+        for path in (root / "claims").rglob("*.json")
+    }
+
+    result = module.submit_backlog(**{
+        **args,
+        "resume_from_run_root": (first, second),
+    })
+
+    assert result["claim_root"] == str(args["run_root"] / "claims")
+    assert len(result["resume_from"]["sources"]) == 2
+    assert result["claim_reconciliation"]["terminal_record_count"] == 2
+    assert len([
+        path for path in (args["run_root"] / "claims").rglob("*.json")
+        if path.parent.name != "claims"
+    ]) == 2
+    assert source_bytes == {path: path.read_bytes() for path in source_bytes}
+
+
+def test_multiple_resume_sources_reject_conflicting_terminal_outcomes(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    first = args["run_root"].parent / "first"
+    second = args["run_root"].parent / "second"
+    module.submit_backlog(**{**args, "run_root": first})
+    module.submit_backlog(**{**args, "run_root": second})
+    _claim(first / "claims", "cell-a", "first")
+    _claim(second / "claims", "cell-a", "different")
+
+    with pytest.raises(ValueError, match="conflicting terminal claim"):
+        module.submit_backlog(**{
+            **args,
+            "resume_from_run_root": (first, second),
+        })
+    assert not backlog["calls"]
 
 
 def test_prepare_only_can_be_rechecked_then_submitted_once(backlog, monkeypatch):
