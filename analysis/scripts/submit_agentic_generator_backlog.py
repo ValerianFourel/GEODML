@@ -452,6 +452,36 @@ def _claim_record(
     return _canonical(record) + b"\n", record
 
 
+def _portable_generator_trace(
+    result: Mapping[str, Any], trace: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return scientific output without derived hashes or absolute paths."""
+    portable_result = json.loads(_canonical(result))
+    portable_trace = json.loads(_canonical(trace))
+    portable_result.pop("trace_sha256", None)
+    portable_trace.pop("trace_sha256", None)
+    events = portable_trace.get("events")
+    if not isinstance(events, list):
+        return None
+    for event in events:
+        if not isinstance(event, dict):
+            return None
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        raw_payload = payload.get("raw_payload")
+        if not isinstance(raw_payload, dict):
+            continue
+        if raw_payload.get("format_version") != "frozen-search-snapshot-response-v1":
+            continue
+        snapshot_sha256 = raw_payload.get("snapshot_sha256")
+        if re.fullmatch(r"[0-9a-f]{64}", str(snapshot_sha256)) is None:
+            return None
+        if "snapshot" in raw_payload:
+            raw_payload["snapshot"] = f"sha256:{snapshot_sha256}"
+    return {"result": portable_result, "trace": portable_trace}
+
+
 def _generator_scientific_outcome(record: Mapping[str, Any]) -> bytes | None:
     """Return the generator payload covered by scientific task identity.
 
@@ -468,7 +498,11 @@ def _generator_scientific_outcome(record: Mapping[str, Any]) -> bytes | None:
         or set(outcome) != {"result", "trace", "diagnostics", "producer"}
     ):
         return None
-    return _canonical({"result": outcome["result"], "trace": outcome["trace"]})
+    result, trace = outcome["result"], outcome["trace"]
+    if not isinstance(result, Mapping) or not isinstance(trace, Mapping):
+        return None
+    portable = _portable_generator_trace(result, trace)
+    return None if portable is None else _canonical(portable)
 
 
 def _claim_preference(record: Mapping[str, Any], path: Path) -> tuple[bool, str, str]:

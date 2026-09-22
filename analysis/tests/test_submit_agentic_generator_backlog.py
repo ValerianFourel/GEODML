@@ -345,6 +345,51 @@ def _generator_claim(
         })
 
 
+def _generator_snapshot_claim(
+    root: Path, task_id: str, *, snapshot_path: str, snapshot_sha256: str,
+    producer: str,
+) -> None:
+    identity = ClaimIdentity(
+        task_id=task_id,
+        model_id="Qwen/Qwen3.8-27B",
+        model_revision="a" * 40,
+        protocol="agentic-generator-shared-v1",
+        request_sha256=hashlib.sha256(task_id.encode()).hexdigest(),
+    )
+    trace_core = {
+        "events": [{
+            "event": "search",
+            "payload": {
+                "raw_payload": {
+                    "format_version": "frozen-search-snapshot-response-v1",
+                    "snapshot": snapshot_path,
+                    "snapshot_sha256": snapshot_sha256,
+                    "rows": [{"url": "https://example.test/result"}],
+                },
+            },
+        }],
+    }
+    trace_sha256 = hashlib.sha256(
+        json.dumps(
+            trace_core, sort_keys=True, separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    with InferenceClaimStore(root).try_claim(identity) as claim:
+        claim.commit({
+            "result": {
+                "answer": "same", "ranking": ["a", "b"],
+                "trace_sha256": trace_sha256,
+            },
+            "trace": {**trace_core, "trace_sha256": trace_sha256},
+            "diagnostics": {"elapsed_seconds": 1.0},
+            "producer": {
+                "git_commit": producer,
+                "slurm_job_id": producer,
+                "source_config_sha256": "c" * 64,
+            },
+        })
+
+
 def test_multiple_exact_resume_sources_are_reconciled_without_overwriting(backlog):
     args = {**backlog["arguments"], "submit": False}
     first = args["run_root"].parent / "first"
@@ -423,6 +468,56 @@ def test_multiple_resume_sources_reconcile_only_non_scientific_metadata(backlog)
     ]
     record = json.loads(record_path.read_text())
     assert record["outcome"]["producer"]["git_commit"] == "direct"
+
+
+def test_multiple_resume_sources_normalize_frozen_snapshot_paths(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    first = args["run_root"].parent / "first"
+    second = args["run_root"].parent / "second"
+    module.submit_backlog(**{**args, "run_root": first})
+    module.submit_backlog(**{**args, "run_root": second})
+    snapshot_sha256 = "d" * 64
+    _generator_snapshot_claim(
+        first / "claims", "cell-a",
+        snapshot_path="/runs/first/search/duckduckgo.parquet",
+        snapshot_sha256=snapshot_sha256, producer="one",
+    )
+    _generator_snapshot_claim(
+        second / "claims", "cell-a",
+        snapshot_path="/runs/resumed/search/duckduckgo.parquet",
+        snapshot_sha256=snapshot_sha256, producer="two",
+    )
+
+    result = module.submit_backlog(**{
+        **args,
+        "resume_from_run_root": (first, second),
+    })
+
+    assert result["claim_reconciliation"]["scientific_duplicate_count"] == 1
+    assert result["claim_reconciliation"]["metadata_variant_count"] == 1
+
+
+def test_multiple_resume_sources_reject_different_frozen_snapshot_content(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    first = args["run_root"].parent / "first"
+    second = args["run_root"].parent / "second"
+    module.submit_backlog(**{**args, "run_root": first})
+    module.submit_backlog(**{**args, "run_root": second})
+    _generator_snapshot_claim(
+        first / "claims", "cell-a", snapshot_path="/runs/first/snapshot.parquet",
+        snapshot_sha256="d" * 64, producer="one",
+    )
+    _generator_snapshot_claim(
+        second / "claims", "cell-a", snapshot_path="/runs/second/snapshot.parquet",
+        snapshot_sha256="e" * 64, producer="two",
+    )
+
+    with pytest.raises(ValueError, match="conflicting scientific outcome"):
+        module.submit_backlog(**{
+            **args,
+            "resume_from_run_root": (first, second),
+        })
+    assert not backlog["calls"]
 
 
 def test_multiple_resume_sources_reject_different_generator_science(backlog):
