@@ -191,3 +191,29 @@ def test_report_rejects_an_incomplete_factorial_plan():
         assert "factorial" in str(error)
     else:
         raise AssertionError("an incomplete prompt factorial must be rejected")
+
+
+def test_full_pilot_denominators_and_1298_judgment_percentage():
+    cells = [
+        {**cell, "cell_id": f"{index}-{cell['cell_id']}", "prompt_id": f"prompt-{index}"}
+        for index in range(500)
+        for cell in frozen_cells()[:12]
+    ]
+    mappings = judge_mappings(cells)
+    all_cells = {cell["cell_id"] for cell in cells}
+    report = build_report(
+        generation_tasks=cells,
+        generator_completed={alias: all_cells for alias in MODELS},
+        generator_failed={alias: set() for alias in MODELS},
+        judge_mappings=mappings,
+        judge_states={row["judge_task_id"]: "completed" for row in mappings[:1298]},
+    )
+    assert report["generation"]["overall"]["completed"] == 12000
+    assert report["generation"]["paired"]["prompts_complete_for_all_models"] == 500
+    assert report["nemotron"]["overall"]["missing"] == 10702
+    assert report["nemotron"]["overall"]["percent_completed"] == 10.8167
+    assert "NEMOTRON 1298/12000 (10.82%)" in render_text(report)
+    for group in ("by_method", "by_engine", "by_condition"):
+        assert sum(row["expected"] for row in report["nemotron"][group].values()) == 12000
+        assert sum(row["completed"] for row in report["nemotron"][group].values()) == 1298
+    assert report["nemotron"]["prompts"] == {"complete": 0, "partial": 109, "untouched": 391}

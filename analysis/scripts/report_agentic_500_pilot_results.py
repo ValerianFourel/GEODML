@@ -433,6 +433,10 @@ def collect_report(
 ) -> dict[str, Any]:
     adaptive_path = adaptive_plan.resolve()
     judge_root = judge_run.resolve()
+    launch = _read_json(judge_root / "launch.json")
+    frozen_adaptive = _checked_file(launch.get("adaptive_source"), label="adaptive source")
+    if adaptive_path != frozen_adaptive:
+        raise ValueError("explicit adaptive source differs from the frozen judge launch")
     adaptive = _read_json(adaptive_path)
     study = adaptive.get("original_study")
     if not isinstance(study, Mapping):

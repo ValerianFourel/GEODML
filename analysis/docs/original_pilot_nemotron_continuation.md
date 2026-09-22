@@ -1,79 +1,99 @@
 # Original 500-prompt Nemotron continuation
 
-This is a generation-read-only continuation of the original 500-prompt study.
-It does not rerun Llama or Qwen, judge overflow cohorts, or perform a concurrency
-sweep. It preserves recorded-conversation judging, the pinned Nemotron model,
-seed 20260915, 2048 output tokens, disabled thinking, and four concurrent requests.
+This workflow resumes missing bulk Nemotron judgments for the frozen original
+500-prompt Experiment V2 queue. It does not rerun generation, include overflow
+cohorts, change the evidence, or alter the judging protocol.
 
-## Approval and execution
+## Current checkpoint
 
-The manager records and enforces the explicitly approved schedule. The historical
-approval on 2026-09-22 was two independent eight-hour workers: eight GPUs total,
-32 requested CPUs and 512G per worker, maximum 64 GPU-hours. Its 5–7 hour
-estimate was based on 696 judgments completed in 34m39s on one node.
+The allocation recorded under Slurm job 1950617 completed 1,298 of 12,000 tasks
+without a written failure. It checkpointed at the allocation deadline with
+10,702 tasks remaining. The worker ran for 47m56.8s, or about 1,624 judgments per
+hour. The complete 58m37s allocation also included environment validation, server
+startup, model loading, warmup, drain, and cleanup.
 
-The later approved continuation is one independent one-hour worker: one node,
-four GH200 GPUs, 32 CPUs, 512G, and at most four GPU-hours. The observed pilot
-rate suggests roughly 700–1200 judgments could finish after startup, but context
-lengths can change the rate and completion is not promised. The remaining queue
-is checkpointed. There is no requeue, replacement, extension, cross-node serving,
-or new inference cohort. Another allocation requires a fresh estimate and
-approval.
+This is a valid operational checkpoint, not a scientific result. Analysis stays
+disabled until all expected claims are present and validated.
 
-Use `analysis/scripts/manage_agentic_pilot_judging.py` from a clean pinned
-checkout, with Python >=3.10 and the existing JUPITER inference environment:
+## Frozen contract
 
-- `prepare --adaptive-plan PATH --run-root PATH --snapshot PATH
-  --execution-commit SHA --approved-walltime TIME --worker-count COUNT
-  --maximum-gpu-hours HOURS --allocation-estimate TEXT` verifies the frozen
-  generation inputs and all 6000 cells for each model, verifies full traces,
-  builds 12000 recorded-conversation tasks, and preserves the configured
-  validation model and 2% sampling policy. Missing validation configuration stays
-  explicitly unconfigured, never silently replaced by Nemotron.
-- Preparation checks every context with the local tokenizer at 73728 tokens,
-  reserving 2048 output tokens, and compiles every output schema. Oversized inputs
-  fail without truncation or exclusion. Weight shard presence, nonzero sizes,
-  pinned revision, and tokenizer/configuration hashes are checked; this is not
-  a full weight-file checksum or a GPU model-startup test.
-- `verify --run-root PATH` rechecks frozen queue and snapshot metadata. Existing
-  preparations are never overwritten. A preparation interrupted before
-  `launch.json` is written requires inspection, not a blind overwrite.
-- `submit --run-root PATH --account ACCOUNT --approved-walltime TIME`
-  validates remaining task claims, then submits exactly once. The exclusive
-  `submission-intent.json` prevents a second paste from submitting duplicates.
-  If submission is uncertain, inspect that receipt, `submission-result.json`, and
-  Slurm before any retry. Do not delete the receipt to bypass this protection.
-- `status --run-root PATH` validates expected claims and reports completed,
-  missing, busy, and terminal-failed tasks. It does not add up worker-local copies
-  or equate successful HTTP calls with completed judgments.
+Every continuation must preserve:
 
-## Ownership and startup
+- the original adaptive plan and its 12,000 task bytes;
+- the original generation artifacts and recorded conversations;
+- the shared Nemotron claim root;
+- `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` at revision
+  `bf77c3174f68ad409e1c2aa60daeb46e32d1c606`;
+- bulk judging with thinking disabled;
+- 2,048 maximum output tokens, three attempts, and four concurrent requests;
+- `request_timeout=120.0` as a floating-point identity value;
+- the measured 81,920-token serving window and structured output schema.
 
-All scheduled workers use the original adaptive plan's Nemotron claim root. For
-multi-worker schedules, their stable SHA-256 task-ID partitions are disjoint;
-retained outcomes are validated before reuse. Static ownership avoids concurrent
-attempts for the same task. The earlier generator commit-collision root cause is
-not claimed fixed. Do not run the old adaptive launcher alongside this job.
+The manager hashes and verifies the source manifest, task file, launch receipt,
+context budget, model metadata, and continuation lineage. It rejects scientific
+drift, a changed shared claim root, duplicate task identities, or a continuation
+whose predecessor is not exactly one terminal allocation.
 
-The new wrapper checks the one-node allocation and four GPU UUIDs against the
-controller, handles JUPITER's missing `SLURM_GPUS_ON_NODE`, and reads actual
-start/end times. Deadlines include startup with 120-second admission and
-45-second cleanup margins. Each node stops when its partition is exhausted;
-it does not steal tasks or manufacture work to keep busy.
+## Lifecycle and receipts
 
-The existing standalone server has explicit HF/Transformers offline mode and
-authenticated loopback serving on a controller-verified exclusive node. A
-fully cached model is required. Real offline startup is confirmed only by
-the cluster server log and completed judgments, not CPU test doubles.
+`prepare_continuation` reads its predecessor without changing it. It verifies
+Slurm accounting, audits claims, and creates a fresh run root that links to the
+frozen plan and context budget. The launch receipt records the exact approved
+wall time, resource ceiling, estimate, execution commit, and predecessor
+identity.
 
-The historical smoke-pilot launcher remains pilot-only by default. This new
-queue sets `GEODML_JUDGE_PILOT_ONLY=0` in throughput mode to preserve the previous
-adaptive bulk request/claim identity. Fixed smoke mode cannot disable this flag.
+`submit` checks the clean pinned checkout again immediately before scheduling.
+It writes these durable, exclusive receipts:
 
-## Completion and remaining work
+- `continuation-successor.json` in the predecessor;
+- `submission-intent.json` in the new continuation;
+- `submission-result.json` after the scheduler call returns.
 
-`bulk_complete=true` means all 12000 expected claims contain validated successful
-Nemotron judgments. Terminal failures and missing tasks are not successes.
-Validation and adjudication are separate: this command reports the frozen
-validation task count but does not declare it executed or scientifically valid.
-Generation results and all historical queues remain unchanged.
+An existing intent or result receipt blocks another automated submission. This
+includes failed, interrupted, and orphaned receipts. Inspect Slurm and the stored
+command manually; never delete a receipt to force a retry.
+
+The worker validates the scheduler job identifier, allocation shape, four GPU
+UUIDs, launch identity, predecessor link, and original ownership root. It admits
+only missing eligible tasks until the controller-derived deadline. Completed
+claims are reused and never repeated. Deadline checkpoints remain distinct from
+terminal task failures.
+
+## Status interpretation
+
+The manager reports preparation and submission evidence separately:
+
+- `preparation_status=prepared`: a frozen launch exists;
+- `submission_status=accepted`: `sbatch` returned a parseable job identifier;
+- `submission_status=failed`: `sbatch` returned a nonzero status;
+- `submission_status=uncertain`: the durable receipts do not prove one outcome;
+- `submission_status=not_submitted`: submission did not begin.
+
+The status command does not query or guess live scheduler state. Use exact Slurm
+accounting for that question. A completed allocation can still leave a
+checkpointed queue. Queue completion requires all 12,000 expected successful
+claim envelopes, not merely an empty failure file or successful HTTP traffic.
+
+## Runtime budget for the next allocation
+
+At the observed rate, the 10,702 remaining tasks need about 6h35m of serving
+time. The prior allocation needed about 10m10s before worker inference. Including
+admission, drain, cleanup, and task-length uncertainty gives a realistic range of
+6h48m to 8h.
+
+The recommended one-allocation request is one node, four GH200 GPUs, 32 CPUs,
+512 GiB memory, and eight hours, for at most 32 GPU-hours. A four-hour staged run
+uses at most 16 GPU-hours and should finish roughly 6,100 tasks after startup. A
+two-hour run uses at most 8 GPU-hours and should finish roughly 2,900. These are
+estimates, not guarantees.
+
+No continuation may be prepared or submitted until Valerian approves the wall
+time for that allocation. If work remains afterward, recompute the estimate from
+the new checkpoint and obtain fresh approval.
+
+## Scope after bulk completion
+
+Bulk completion does not perform validation, adjudication, or scientific
+analysis. Those remain separate, explicitly approved milestones. The final bulk
+report should show exact counts and all experimental strata, then preserve the
+frozen artifacts and receipts for reproducibility.

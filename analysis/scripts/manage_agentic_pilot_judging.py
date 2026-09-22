@@ -415,17 +415,51 @@ def prepare(
     return receipt
 
 
-def verify(root):
+def _serialized(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _write_once_json(path, value):
+    with path.open("x") as stream:
+        json.dump(value, stream, indent=2, allow_nan=False)
+        stream.flush()
+        os.fsync(stream.fileno())
+    descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def scientific_contract(receipt):
+    return {
+        "model_id": MODEL,
+        "model_revision": REVISION,
+        "request_settings": vars(judge_claim_arguments()),
+        "max_output_tokens": 2048,
+        "max_model_len": receipt.get("max_model_len", 73728),
+        "claim_root": receipt["claim_root"],
+        "adaptive_source": receipt["adaptive_source"],
+        "files": receipt["files"],
+    }
+
+
+def verify(root, *, _ancestors=frozenset()):
+    root = Path(root).resolve()
+    if root in _ancestors:
+        raise ValueError("Cyclic continuation lineage")
     receipt = json.loads((root / "launch.json").read_text())
+    continuation = receipt.get("continuation_source")
     approval = receipt["approved_allocation"]
     worker_count = receipt["worker_count"]
     if (
-        allocation_schedule(
+        _serialized(allocation_schedule(
             approval["walltime"], worker_count, approval["maximum_gpu_hours"]
-        )
-        != approval
+        )) != _serialized(approval)
+        or receipt["format_version"] != "agentic-original-pilot-judging-v1"
         or approval["allocation_count"] != worker_count
-        or receipt["dispatch_mode"] != "partition"
+        or receipt["dispatch_mode"] != ("backlog" if continuation else "partition")
+        or (continuation and worker_count != 1)
         or receipt["task_count"] != 2 * EXPECTED_CELLS
         or len(receipt["partition_counts"]) != worker_count
         or sum(receipt["partition_counts"]) != receipt["task_count"]
@@ -433,6 +467,29 @@ def verify(root):
         raise ValueError("Launch approval or task coverage mismatch")
     for entry in receipt["files"]:
         checked_file(entry)
+    consumed = [root / name for name in (
+        "plan/run_manifest.json", "plan/bulk_tasks.jsonl",
+        "plan/validation_tasks.jsonl", "plan/private_mapping.jsonl", "context-budget.json",
+    )]
+    if _serialized([_file_identity(path) for path in consumed]) != _serialized(receipt["files"]):
+        raise ValueError("Frozen files differ from the actual worker inputs")
+    adaptive = json.loads(checked_file(receipt["adaptive_source"]).read_text())
+    judge = adaptive["judge"]
+    if (
+        receipt["claim_root"] != judge["claim_root"]
+        or not Path(receipt["claim_root"]).is_absolute()
+        or judge["bulk_model"]["model_id"] != MODEL
+        or judge["bulk_model"]["model_revision"] != REVISION
+    ):
+        raise ValueError("Launch claim root or model differs from the adaptive plan")
+    tasks, _, model, revision = _agentic_judge_context(
+        root / "plan/run_manifest.json", root / "plan/bulk_tasks.jsonl", judge_role="bulk",
+    )
+    if (model, revision) != (MODEL, REVISION) or (
+        len(tasks) != receipt["task_count"]
+        or len({task.judge_task_id for task in tasks}) != len(tasks)
+    ):
+        raise ValueError("Frozen judge model or task identities changed")
     cache = snapshot_files(Path(receipt["snapshot"]["path"]))
     if cache != receipt["snapshot"]:
         raise ValueError("Cached snapshot changed after preflight")
@@ -445,6 +502,22 @@ def verify(root):
         row["required_tokens"] > limit for row in context["tasks"]
     ):
         raise ValueError("Unverified judge context budget")
+    if continuation:
+        previous_path = checked_file(continuation["launch"])
+        previous_root = previous_path.parent.resolve()
+        previous = verify(previous_root, _ancestors=_ancestors | {root})
+        for name in ("submission-intent", "submission-result"):
+            path = checked_file(continuation[name])
+            if path.resolve() != previous_root / f"{name}.json":
+                raise ValueError("Continuation submission receipt belongs to a different queue")
+        expected = scientific_contract(previous)
+        if (
+            _serialized(receipt["scientific_contract"]) != _serialized(expected)
+            or _serialized(scientific_contract(receipt)) != _serialized(expected)
+            or receipt["ownership_root"] != previous.get("ownership_root", str(previous_root))
+            or previous["worker_count"] != 1
+        ):
+            raise ValueError("Continuation scientific contract or ownership changed")
     return receipt
 
 
@@ -508,6 +581,134 @@ def audit(root):
     }
 
 
+def submission_status(root):
+    """Describe persisted receipts without equating preparation with Slurm state."""
+    root = Path(root).resolve()
+    receipt = json.loads((root / "launch.json").read_text())
+    intent_path, result_path = root / "submission-intent.json", root / "submission-result.json"
+    result = json.loads(result_path.read_text()) if result_path.exists() else None
+    job = None
+    if result is not None and result.get("returncode") == 0:
+        match = re.fullmatch(r"([0-9]+)(?:;[^\s;]+)?", str(result.get("stdout", "")).strip())
+        if match is None:
+            raise ValueError("Successful sbatch receipt has no unambiguous job ID")
+        job = match.group(1)
+    return {
+        "preparation_status": receipt["status"],
+        "submission_status": (
+            "accepted" if job else "failed" if result is not None else
+            "uncertain" if intent_path.exists() else "not_submitted"
+        ),
+        "slurm_state": "not_queried",
+        "job_id": job,
+        "execution_commit": receipt["execution_commit"],
+        "run_root": str(root),
+        "claim_root": receipt["claim_root"],
+        "submission_intent": str(intent_path),
+        "submission_result": str(result_path),
+        "workers": [
+            {
+                "slot": index,
+                "job_reference": f"{job}_{index}" if job else None,
+                "stdout": str(root / "logs" / f"slurm-{job}_{index}.out") if job else None,
+                "stderr": str(root / "logs" / f"slurm-{job}_{index}.err") if job else None,
+                "attempts_root": str(root / "attempts"),
+            }
+            for index in range(receipt["worker_count"])
+        ],
+    }
+
+
+def predecessor_terminal(root, receipt):
+    status = submission_status(root)
+    if status["submission_status"] != "accepted":
+        raise ValueError("Continuation requires an accepted predecessor sbatch receipt")
+    intent = json.loads((root / "submission-intent.json").read_text())
+    if _serialized(intent.get("approval")) != _serialized(receipt["approved_allocation"]):
+        raise ValueError("Predecessor submission approval differs from its frozen allocation")
+    command = intent.get("command", [])
+    if "--no-requeue" not in command or "--array=0-0%1" not in command:
+        raise ValueError("Continuation requires one non-requeue predecessor worker")
+    accounts = [arg.removeprefix("--account=") for arg in command if arg.startswith("--account=")]
+    expected = submission_command(root, accounts[0], receipt["approved_allocation"]) if len(accounts) == 1 else []
+    if (
+        len(command) != len(expected) or command[:-2] != expected[:-2]
+        or command[-1] != str(root)
+        or not Path(command[-2]).is_absolute()
+        or Path(command[-2]).name != "run_agentic_pilot_judging.sbatch"
+    ):
+        raise ValueError("Predecessor sbatch command differs from its allocation approval")
+    if receipt["dispatch_mode"] == "partition":
+        for path in (root / "attempts").glob("*/nemotron/failures.jsonl"):
+            if path.read_text().strip():
+                raise ValueError("Legacy terminal failures need reviewed recovery, not automatic retry")
+    job = status["job_id"]
+    command = [
+        "sacct", "--allocations", "--array", "--noheader", "--parsable2",
+        f"--jobs={job}", "--format=JobID%64,State%32,ExitCode,Elapsed,End",
+    ]
+    output = subprocess.check_output(command, text=True)
+    records = []
+    terminal = {"COMPLETED", "CANCELLED", "FAILED", "TIMEOUT", "NODE_FAIL", "OUT_OF_MEMORY", "BOOT_FAIL", "DEADLINE"}
+    for line in output.splitlines():
+        fields = line.rstrip("|").split("|")
+        if len(fields) != 5:
+            raise ValueError("Malformed predecessor allocation accounting")
+        job_id, state, exit_code, elapsed, end = (field.strip() for field in fields)
+        if job_id not in {job, f"{job}_0"}:
+            raise ValueError("Unexpected predecessor allocation accounting identity")
+        if state.split(" ", 1)[0] not in terminal or end in {"", "Unknown", "None"}:
+            raise ValueError("Predecessor allocation is not terminal; no continuation permitted")
+        records.append({"job_id": job_id, "state": state, "exit_code": exit_code, "elapsed": elapsed, "end": end})
+    if len(records) != 1:
+        raise ValueError("Expected exactly one terminal predecessor allocation row")
+    return {"command": command, "allocations": records}
+
+
+def prepare_continuation(
+    source_root, output, approved_walltime, commit, *, maximum_gpu_hours, allocation_estimate,
+):
+    """Freeze a new allocation receipt without rebuilding the scientific queue."""
+    source_root, output = Path(source_root).resolve(), Path(output).resolve()
+    approval = allocation_schedule(approved_walltime, 1, maximum_gpu_hours)
+    if not isinstance(allocation_estimate, str) or not allocation_estimate.strip():
+        raise ValueError("A fresh allocation estimate is required for continuation")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Execution commit must be an immutable Git SHA")
+    if output.exists():
+        raise FileExistsError(f"Refusing to overwrite continuation: {output}")
+    source = verify(source_root)
+    if source["worker_count"] != 1:
+        raise ValueError("This continuation requires a single-worker predecessor")
+    accounting = predecessor_terminal(source_root, source)
+    report = audit(source_root)
+    if report["claims"].get("busy", 0) or not report["claims"].get("missing", 0):
+        raise ValueError("Continuation requires missing eligible work and no active claims")
+    receipt = {
+        **source,
+        "status": "prepared",
+        "execution_commit": commit,
+        "approved_allocation": approval,
+        "estimate": allocation_estimate,
+        "dispatch_mode": "backlog",
+        "ownership_root": source.get("ownership_root", str(source_root)),
+        "scientific_contract": scientific_contract(source),
+        "continuation_source": {
+            "launch": _file_identity(source_root / "launch.json"),
+            "submission-intent": _file_identity(source_root / "submission-intent.json"),
+            "submission-result": _file_identity(source_root / "submission-result.json"),
+        },
+        "predecessor_accounting": accounting,
+        "preparation_audit": report,
+    }
+    output.mkdir(parents=True)
+    (output / "plan").symlink_to((source_root / "plan").resolve(), target_is_directory=True)
+    (output / "context-budget.json").symlink_to((source_root / "context-budget.json").resolve())
+    _atomic_json(output / "launch.json", receipt)
+    verify(output)
+    return receipt
+
+
 def submission_command(root, account, approval):
     worker_count = approval["allocation_count"]
     return [
@@ -546,6 +747,13 @@ def submit(
 ):
     receipt = verify(root)
     approval = receipt["approved_allocation"]
+    if any(
+        (root / name).exists()
+        for name in ("submission-intent.json", "submission-result.json")
+    ):
+        raise FileExistsError(
+            "Submission receipt already exists; inspect it and never resubmit"
+        )
     if approved_walltime != approval["walltime"]:
         raise ValueError("submission walltime differs from the approved schedule")
     if receipt.get("max_model_len", 73728) != 73728 and (
@@ -572,6 +780,11 @@ def submit(
     ).strip()
     if actual != receipt["execution_commit"] or dirty:
         raise ValueError("Use the clean pinned execution checkout")
+    continuation = receipt.get("continuation_source")
+    accounting = None
+    if continuation:
+        source_root = Path(continuation["launch"]["path"]).parent
+        accounting = predecessor_terminal(source_root, verify(source_root))
     report = audit(root)
     if report["bulk_complete"]:
         print("QUEUE_ALREADY_COMPLETE: no allocation submitted", flush=True)
@@ -584,26 +797,22 @@ def submit(
         )
     (root / "logs").mkdir(exist_ok=True)
     command = submission_command(root, account, approval)
-    # Exclusive create, not a filesystem lock: an interrupted/uncertain sbatch
-    # never permits blind automatic resubmission. Preserve the intent for audit.
-    with (root / "submission-intent.json").open("x") as stream:
-        json.dump(
-            {
-                "command": command,
-                "approval": approval,
-                "max_model_len": receipt.get("max_model_len", 73728),
-                "estimate": revised_estimate or receipt["estimate"],
-            },
-            stream,
-            indent=2,
-        )
-        stream.flush()
-        os.fsync(stream.fileno())
+    launch_identity = _file_identity(root / "launch.json")
+    if continuation:
+        _write_once_json(source_root / "continuation-successor.json", launch_identity)
+    _write_once_json(root / "submission-intent.json", {
+        "command": command,
+        "approval": approval,
+        "max_model_len": receipt.get("max_model_len", 73728),
+        "estimate": revised_estimate or receipt["estimate"],
+        "launch": launch_identity,
+        "predecessor_accounting": accounting,
+    })
     env = dict(os.environ, GEODML_EXECUTION_REPOSITORY=str(REPOSITORY))
     result = subprocess.run(
         command, env=env, text=True, capture_output=True, check=False
     )
-    _atomic_json(
+    _write_once_json(
         root / "submission-result.json",
         {
             "returncode": result.returncode,
@@ -623,6 +832,21 @@ def worker(root):
     approval = receipt["approved_allocation"]
     worker_count = receipt["worker_count"]
     allocation_estimate = receipt["estimate"]
+    continuation = receipt.get("continuation_source")
+    if continuation:
+        intent = json.loads((root / "submission-intent.json").read_text())
+        source_root = Path(continuation["launch"]["path"]).parent
+        successor = json.loads((source_root / "continuation-successor.json").read_text())
+        if (
+            _serialized(intent.get("launch")) != _serialized(_file_identity(root / "launch.json"))
+            or _serialized(successor) != _serialized(intent["launch"])
+            or _serialized(intent.get("approval")) != _serialized(approval)
+        ):
+            raise ValueError("Worker continuation intent or successor differs from the frozen launch")
+        if (root / "submission-result.json").exists():
+            submitted = submission_status(root)
+            if submitted["job_id"] != os.environ["SLURM_ARRAY_JOB_ID"]:
+                raise ValueError("Worker does not belong to the recorded sbatch receipt")
     if receipt.get("max_model_len", 73728) != 73728:
         intent = json.loads((root / "submission-intent.json").read_text())
         if (
@@ -683,7 +907,7 @@ def worker(root):
         GEODML_JUDGE_CLAIM_ROOT=receipt["claim_root"],
         GEODML_JUDGE_WORKER_INDEX=str(index),
         GEODML_JUDGE_WORKER_COUNT=str(worker_count),
-        GEODML_JUDGE_DISPATCH_MODE="partition",
+        GEODML_JUDGE_DISPATCH_MODE=receipt["dispatch_mode"],
         GEODML_JUDGE_MAX_MODEL_LEN=str(receipt.get("max_model_len", 73728)),
         GEODML_JUDGE_PILOT_ONLY="0",
         GEODML_JUDGE_STDOUT=str(root / "logs" / f"slurm-{reference}.out"),
@@ -699,7 +923,8 @@ def worker(root):
     )
     # A second attempt for the same partition must not run alongside the first.
     # A failed lock check stops this step; no existing lock or outcome is deleted.
-    with (root / f"worker-{index}.lock").open("a") as lock:
+    ownership_root = Path(receipt.get("ownership_root", root))
+    with (ownership_root / f"worker-{index}.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         result = subprocess.run(
             [
@@ -747,6 +972,13 @@ def main():
             sub.add_argument("--approved-max-model-len", type=int)
             sub.add_argument("--revised-estimate")
     create.add_argument("--run-root", type=Path, required=True)
+    continuation = commands.add_parser("continue", help="Prepare only after fresh wall-time approval")
+    continuation.add_argument("--source-run-root", type=Path, required=True)
+    continuation.add_argument("--run-root", type=Path, required=True)
+    continuation.add_argument("--approved-walltime", required=True)
+    continuation.add_argument("--maximum-gpu-hours", type=int, required=True)
+    continuation.add_argument("--allocation-estimate", required=True)
+    continuation.add_argument("--execution-commit", required=True)
     args = parser.parse_args()
     root = args.run_root.resolve()
     if args.command == "prepare":
@@ -764,6 +996,12 @@ def main():
             maximum_gpu_hours=args.maximum_gpu_hours,
             allocation_estimate=args.allocation_estimate,
         )
+    elif args.command == "continue":
+        result = prepare_continuation(
+            args.source_run_root, root, args.approved_walltime, args.execution_commit,
+            maximum_gpu_hours=args.maximum_gpu_hours,
+            allocation_estimate=args.allocation_estimate,
+        )
     elif args.command == "submit":
         submit(
             root,
@@ -777,6 +1015,8 @@ def main():
         return worker(root)
     else:
         result = audit(root) if args.command == "status" else verify(root)
+        if args.command == "status":
+            result["submission"] = submission_status(root)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

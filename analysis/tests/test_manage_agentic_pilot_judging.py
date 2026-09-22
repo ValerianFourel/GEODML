@@ -321,6 +321,29 @@ def test_failed_sbatch_preserves_intent_and_needs_manual_review(source, monkeypa
     )
 
 
+def test_orphaned_submission_result_is_never_overwritten(source, monkeypatch):
+    make(source)
+    result = source[1] / "submission-result.json"
+    sentinel = b'{"returncode":0,"stdout":"existing-job\\n","stderr":""}\n'
+    result.write_bytes(sentinel)
+
+    monkeypatch.setattr(
+        manager.subprocess,
+        "check_output",
+        lambda args, **kw: "" if "status" in args else "a" * 40,
+    )
+    monkeypatch.setattr(
+        manager.subprocess,
+        "run",
+        lambda *a, **kw: pytest.fail("orphaned result permitted submission"),
+    )
+
+    with pytest.raises(FileExistsError, match="receipt"):
+        manager.submit(source[1], "scifi", "08:00:00")
+    assert result.read_bytes() == sentinel
+    assert not (source[1] / "submission-intent.json").exists()
+
+
 def test_approval_is_required_and_complete_queue_never_submits(source, monkeypatch):
     with pytest.raises(ValueError, match="approved"):
         manager.prepare(*source, "07:00:00", "a" * 40)
@@ -579,3 +602,267 @@ def test_wrapper_executes_from_slurm_spool(tmp_path):
         "--run-root",
         "/frozen/queue",
     ]
+
+
+@pytest.fixture
+def completed_allocation(source, monkeypatch):
+    receipt = make_one_hour(source)
+    root = source[1]
+    (root / "submission-intent.json").write_text(json.dumps({
+        "command": manager.submission_command(root, "scifi", receipt["approved_allocation"]),
+        "approval": receipt["approved_allocation"],
+        "max_model_len": receipt["max_model_len"], "estimate": receipt["estimate"],
+    }))
+    (root / "submission-result.json").write_text(json.dumps({
+        "returncode": 0, "stdout": "1950617\n", "stderr": "",
+    }))
+    calls = []
+
+    def check(command, **kwargs):
+        calls.append(command)
+        if command[0] == "sacct":
+            return "1950617_0|COMPLETED|0:0|00:58:37|2026-09-19T12:00:00\n"
+        if command[0] == "git":
+            return "" if "status" in command else "b" * 40 + "\n"
+        raise AssertionError(command)
+
+    monkeypatch.setattr(manager.subprocess, "check_output", check)
+    monkeypatch.setattr(manager.subprocess, "run", lambda *a, **k: pytest.fail("preparation submitted"))
+    return root, calls
+
+
+def continue_one_hour(root, output):
+    return manager.prepare_continuation(
+        root, output, "01:00:00", "b" * 40, maximum_gpu_hours=4,
+        allocation_estimate="Synthetic continuation estimate with explicit test approval",
+    )
+
+
+def test_continuation_preserves_frozen_artifacts_and_previous_receipts(completed_allocation):
+    root, calls = completed_allocation
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    output = root.with_name("continuation")
+    receipt = continue_one_hour(root, output)
+    assert receipt["dispatch_mode"] == "backlog"
+    assert receipt["worker_count"] == 1
+    assert receipt["claim_root"] == manager.verify(root)["claim_root"]
+    assert receipt["ownership_root"] == str(root)
+    assert receipt["execution_commit"] == "b" * 40
+    assert type(receipt["scientific_contract"]["request_settings"]["request_timeout"]) is float
+    assert (output / "plan").resolve() == (root / "plan").resolve()
+    assert (output / "context-budget.json").read_bytes() == before[root / "context-budget.json"]
+    assert manager.verify(output) == receipt
+    assert all(p.read_bytes() == value for p, value in before.items())
+    assert [call[0] for call in calls] == ["sacct"]
+    with pytest.raises(FileExistsError):
+        continue_one_hour(root, output)
+
+
+@pytest.mark.parametrize("accounting", [
+    "", "1950617_0|RUNNING|0:0|00:58:37|Unknown\n",
+    "1950618_0|COMPLETED|0:0|00:58:37|2026-09-19T12:00:00\n",
+    "1950617_0.batch|COMPLETED|0:0|00:58:37|2026-09-19T12:00:00\n",
+])
+def test_continuation_requires_exact_terminal_predecessor(completed_allocation, monkeypatch, accounting):
+    root, _ = completed_allocation
+    monkeypatch.setattr(manager.subprocess, "check_output", lambda *a, **k: accounting)
+    output = root.with_name("continuation")
+    with pytest.raises(ValueError, match="terminal|accounting"):
+        continue_one_hour(root, output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("damage", ["timeout_type", "claim_root", "source_receipt", "model", "queue_link"])
+def test_continuation_rejects_scientific_drift(completed_allocation, damage):
+    root, _ = completed_allocation
+    output = root.with_name("continuation")
+    continue_one_hour(root, output)
+    path = output / "launch.json"
+    receipt = json.loads(path.read_text())
+    if damage == "timeout_type":
+        receipt["scientific_contract"]["request_settings"]["request_timeout"] = 120
+    elif damage == "claim_root":
+        receipt["claim_root"] = str(root / "new-claims")
+    elif damage == "source_receipt":
+        (root / "submission-result.json").write_text('{"returncode": 0, "stdout": "999"}')
+    elif damage == "model":
+        receipt["scientific_contract"]["model_revision"] = "c" * 40
+    else:
+        (output / "plan").unlink()
+        shutil.copytree(root / "plan", output / "plan")
+        queue = output / "plan/bulk_tasks.jsonl"
+        queue.write_bytes(queue.read_bytes() + b"\n")
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError):
+        manager.verify(output)
+
+
+def test_verify_rejects_claim_root_not_owned_by_adaptive_plan(source):
+    make_one_hour(source)
+    path = source[1] / "launch.json"
+    receipt = json.loads(path.read_text())
+    receipt["claim_root"] = str(source[1] / "wrong-claims")
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="claim|adaptive"):
+        manager.verify(source[1])
+
+
+def test_continuation_submission_reserves_one_successor_and_never_resubmits(completed_allocation, monkeypatch):
+    root, _ = completed_allocation
+    first, sibling = root.with_name("continue-first"), root.with_name("continue-sibling")
+    continue_one_hour(root, first)
+    continue_one_hour(root, sibling)
+    calls = []
+    monkeypatch.setattr(manager.subprocess, "run", lambda command, **kwargs: (
+        calls.append(command) or SimpleNamespace(returncode=0, stdout="2000000\n", stderr="")
+    ))
+    manager.submit(first, "scifi", "01:00:00")
+    before = (first / "submission-result.json").read_bytes()
+    with pytest.raises(FileExistsError):
+        manager.submit(first, "scifi", "01:00:00")
+    with pytest.raises(FileExistsError):
+        manager.submit(sibling, "scifi", "01:00:00")
+    assert len(calls) == 1
+    assert (first / "submission-result.json").read_bytes() == before
+    assert json.loads((root / "submission-result.json").read_text())["stdout"].strip() == "1950617"
+    assert (root / "continuation-successor.json").is_file()
+
+
+def test_continuation_submit_rechecks_predecessor_after_prepare(completed_allocation, monkeypatch):
+    root, _ = completed_allocation
+    output = root.with_name("continuation")
+    continue_one_hour(root, output)
+    previous = manager.subprocess.check_output
+    monkeypatch.setattr(manager.subprocess, "check_output", lambda command, **kwargs:
+        "1950617_0|RUNNING|0:0|00:58:37|Unknown\n" if command[0] == "sacct" else previous(command, **kwargs))
+    with pytest.raises(ValueError, match="terminal"):
+        manager.submit(output, "scifi", "01:00:00")
+    assert not (output / "submission-intent.json").exists()
+
+
+def test_continuation_worker_preserves_original_lock_and_rejects_duplicate(completed_allocation, monkeypatch):
+    import fcntl
+
+    root, _ = completed_allocation
+    output = root.with_name("continuation")
+    continue_one_hour(root, output)
+    monkeypatch.setattr(manager.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="2000000\n", stderr=""))
+    manager.submit(output, "scifi", "01:00:00")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
+    monkeypatch.setenv("SLURM_ARRAY_JOB_ID", "2000000")
+    monkeypatch.setenv("SLURM_JOB_ID", "2000000")
+    previous = manager.subprocess.check_output
+    def check(command, **kwargs):
+        if command[0] == "scontrol":
+            return (
+                f"JobId=2000000 JobState=RUNNING NumNodes=1 TimeLimit=01:00:00 "
+                f"UserId={os.environ['USER']}(123) OverSubscribe=NO ArrayJobId=2000000 ArrayTaskId=0 "
+                "AllocTRES=cpu=32,node=1,gres/gpu=4 StartTime=start EndTime=end"
+            )
+        if command[0] == "date":
+            return "1000" if command[2] == "start" else "4600"
+        if command[0] == "nvidia-smi":
+            return "uuid0\nuuid1\nuuid2\nuuid3\n"
+        return previous(command, **kwargs)
+    monkeypatch.setattr(manager.subprocess, "check_output", check)
+    calls = []
+    monkeypatch.setattr(manager.subprocess, "run", lambda command, **kwargs: calls.append(kwargs) or SimpleNamespace(returncode=0))
+    with (root / "worker-0.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(BlockingIOError):
+            manager.worker(output)
+    assert calls == []
+    assert manager.worker(output) == 0
+    assert calls[0]["env"]["GEODML_JUDGE_DISPATCH_MODE"] == "backlog"
+    assert calls[0]["env"]["GEODML_JUDGE_CLAIM_ROOT"] == manager.verify(root)["claim_root"]
+    assert not (output / "worker-0.lock").exists()
+
+
+@pytest.mark.parametrize("damage", ["absent", "failed", "ambiguous", "legacy_failure", "command_approval"])
+def test_continuation_does_not_guess_uncertain_or_legacy_failed_work(completed_allocation, damage):
+    root, _ = completed_allocation
+    path = root / "submission-result.json"
+    if damage == "absent":
+        path.unlink()
+    elif damage == "failed":
+        path.write_text(json.dumps({"returncode": 1, "stdout": "", "stderr": "unavailable"}))
+    elif damage == "ambiguous":
+        path.write_text(json.dumps({"returncode": 0, "stdout": "1950617\n1950618\n", "stderr": ""}))
+    elif damage == "legacy_failure":
+        journal = root / "attempts/job1950617-worker0/nemotron/failures.jsonl"
+        journal.parent.mkdir(parents=True)
+        journal.write_text('{"judge_task_id":"legacy-failed"}\n')
+    else:
+        intent_path = root / "submission-intent.json"
+        intent = json.loads(intent_path.read_text())
+        intent["command"].insert(1, "--time=02:00:00")
+        intent_path.write_text(json.dumps(intent))
+    with pytest.raises((ValueError, FileNotFoundError)):
+        continue_one_hour(root, root.with_name("continuation"))
+
+
+def test_further_continuation_keeps_the_first_allocation_ownership_root(completed_allocation, monkeypatch):
+    root, _ = completed_allocation
+    first, second = root.with_name("continuation"), root.with_name("later")
+    continue_one_hour(root, first)
+    monkeypatch.setattr(manager.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="2000000\n", stderr=""))
+    manager.submit(first, "scifi", "01:00:00")
+    previous = manager.subprocess.check_output
+    def check(command, **kwargs):
+        if command[0] == "sacct":
+            assert "--jobs=2000000" in command
+            return "2000000_0|COMPLETED|0:0|00:58:37|2026-09-19T13:00:00\n"
+        return previous(command, **kwargs)
+    monkeypatch.setattr(manager.subprocess, "check_output", check)
+    receipt = continue_one_hour(first, second)
+    assert receipt["ownership_root"] == str(root)
+    assert (second / "plan").resolve() == (root / "plan").resolve()
+    assert manager.verify(second) == receipt
+
+
+def test_continuation_preserves_uncertain_submission_without_retry(completed_allocation, monkeypatch):
+    root, _ = completed_allocation
+    output = root.with_name("continuation")
+    continue_one_hour(root, output)
+    calls = []
+    def unavailable(command, **kwargs):
+        calls.append(command)
+        raise OSError("submission transport lost after possible scheduler acceptance")
+    monkeypatch.setattr(manager.subprocess, "run", unavailable)
+    with pytest.raises(OSError, match="transport lost"):
+        manager.submit(output, "scifi", "01:00:00")
+    with pytest.raises(FileExistsError):
+        manager.submit(output, "scifi", "01:00:00")
+    assert len(calls) == 1
+    assert (root / "continuation-successor.json").exists()
+    assert (output / "submission-intent.json").exists()
+    assert manager.submission_status(output)["submission_status"] == "uncertain"
+
+
+def test_submission_status_distinguishes_prepared_from_scheduler_state(completed_allocation):
+    root, _ = completed_allocation
+    status = manager.submission_status(root)
+    assert status["preparation_status"] == "prepared"
+    assert status["submission_status"] == "accepted"
+    assert status["slurm_state"] == "not_queried"
+    assert status["job_id"] == "1950617"
+    assert status["workers"][0]["stdout"] == str(root / "logs/slurm-1950617_0.out")
+
+
+def test_continuation_reservations_are_durable_before_sbatch(completed_allocation, monkeypatch):
+    import stat
+
+    root, _ = completed_allocation
+    output = root.with_name("continuation")
+    continue_one_hour(root, output)
+    original = manager.os.fsync
+    events = []
+    def sync(descriptor):
+        events.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
+        original(descriptor)
+    def submit(command, **kwargs):
+        assert events == ["file", "directory", "file", "directory"]
+        return SimpleNamespace(returncode=0, stdout="2000000\n", stderr="")
+    monkeypatch.setattr(manager.os, "fsync", sync)
+    monkeypatch.setattr(manager.subprocess, "run", submit)
+    manager.submit(output, "scifi", "01:00:00")
