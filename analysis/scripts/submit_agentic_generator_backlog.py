@@ -229,6 +229,7 @@ def _preflight(
 
 def _exclusion_sources(
     cohort: Path, manifest: dict[str, Any], selected: dict[str, list[dict[str, Any]]],
+    expected_prompt_count: int,
 ) -> dict[str, Path]:
     """Recheck the approved original-500 plus previous-120 exclusion evidence."""
     if any(manifest.get(key) != expected for key, expected in (
@@ -298,7 +299,7 @@ def _exclusion_sources(
         raise ValueError("excluded ID union or its hash differs from the approved 620 prompts")
     selected_ids = {row["candidate_id"] for row in selected["prompts"]}
     selected_text = {_question_key(row["question"]) for row in selected["prompts"]}
-    if len(selected_ids) != APPROVED_PROMPT_COUNT or len(selected_text) != APPROVED_PROMPT_COUNT:
+    if len(selected_ids) != expected_prompt_count or len(selected_text) != expected_prompt_count:
         raise ValueError("selected prompt IDs or normalized question text are duplicated")
     if selected_ids & excluded_ids or selected_text & excluded_text:
         raise ValueError("selected prompts overlap excluded IDs or normalized question text")
@@ -309,14 +310,29 @@ def _exclusion_sources(
     return sources
 
 
-def _cohort_inputs(cohort: Path) -> tuple[dict[str, Any], dict[str, Path]]:
+def _cohort_inputs(
+    cohort: Path, expected_prompt_count: int = APPROVED_PROMPT_COUNT,
+) -> tuple[dict[str, Any], dict[str, Path]]:
+    if (
+        type(expected_prompt_count) is not int
+        or expected_prompt_count < 20
+        or expected_prompt_count % 20 != 0
+    ):
+        raise ValueError("expected prompt count must be a positive multiple of 20")
     manifest_path = _file(cohort / "selection-manifest.json")
     manifest = json.loads(manifest_path.read_text())
     if manifest["format_version"] != "agentic-new-prompt-cohort-v1":
         raise ValueError("a frozen new-prompt cohort is required")
     count = manifest["prompt_count"]
-    if type(count) is not int or count != APPROVED_PROMPT_COUNT or manifest["expected_cells_per_model"] != 12 * count:
-        raise ValueError("this approval requires exactly 1200 prompts and 14400 cells per model")
+    if (
+        type(count) is not int
+        or count != expected_prompt_count
+        or manifest["expected_cells_per_model"] != 12 * count
+    ):
+        raise ValueError(
+            f"this approval requires exactly {expected_prompt_count} prompts and "
+            f"{12 * expected_prompt_count} cells per model"
+        )
     sources = {"cohort/selection-manifest.json": manifest_path}
     selected = {}
     for key, filename in (
@@ -329,7 +345,7 @@ def _cohort_inputs(cohort: Path) -> tuple[dict[str, Any], dict[str, Path]]:
             raise ValueError("cohort artifact count or canonical filename differs")
         sources["cohort/" + filename] = path
         selected[key] = rows
-    sources.update(_exclusion_sources(cohort, manifest, selected))
+    sources.update(_exclusion_sources(cohort, manifest, selected, expected_prompt_count))
     return manifest, sources
 
 
@@ -656,6 +672,7 @@ def submit_backlog(
     approved_walltime: str = APPROVED_WALLTIME,
     workers_per_model: int = WORKERS_PER_MODEL,
     maximum_total_gpu_hours: int = MAXIMUM_GPU_HOURS,
+    expected_prompt_count: int = APPROVED_PROMPT_COUNT,
     resume_from_run_root: Path | tuple[Path, ...] | list[Path] | None = None,
     model_slugs: tuple[str, ...] = tuple(MODELS),
 ) -> dict[str, Any]:
@@ -683,7 +700,7 @@ def submit_backlog(
         dict(os.environ if environment is None else environment), profile_root,
         source_git_commit, submit=submit, schedule=schedule, model_slugs=model_slugs,
     )
-    cohort, sources = _cohort_inputs(cohort_root)
+    cohort, sources = _cohort_inputs(cohort_root, expected_prompt_count)
     source_prompts = load_calibration_prompts(
         cohort_root / "pilot-prompts.jsonl", cohort_root / "selection-records.jsonl",
         prompt_count=cohort["prompt_count"], seed=PROMPT_SELECTION_SEED,
@@ -902,6 +919,10 @@ def main() -> int:
     parser.add_argument("--approved-walltime", default=APPROVED_WALLTIME)
     parser.add_argument("--workers-per-model", type=int, default=WORKERS_PER_MODEL)
     parser.add_argument("--maximum-total-gpu-hours", type=int, default=MAXIMUM_GPU_HOURS)
+    parser.add_argument(
+        "--expected-prompt-count", type=int, default=APPROVED_PROMPT_COUNT,
+        help="Require this exact frozen cohort size; defaults to the 1200-prompt backlog.",
+    )
     parser.add_argument(
         "--resume-from-run-root", type=Path, action="append",
         help=(

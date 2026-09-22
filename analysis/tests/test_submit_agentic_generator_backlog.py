@@ -272,6 +272,44 @@ def test_single_qwen_one_hour_schedule_submits_one_bounded_worker(backlog):
     assert not (args["run_root"] / "models/llama4").exists()
 
 
+def test_two_one_hour_allocations_accept_explicit_exact_500_cohort(backlog):
+    cohort = backlog["arguments"]["cohort_root"]
+    manifest_path = cohort / "selection-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for entry in manifest["artifacts"].values():
+        path = cohort / entry["path"]
+        rows = [json.loads(line) for line in path.read_text().splitlines()][:500]
+        entry.update(_jsonl(path, rows))
+    manifest.update(prompt_count=500, expected_cells_per_model=6000)
+    _json(manifest_path, manifest)
+    args = {
+        **backlog["arguments"],
+        "approved_walltime": "01:00:00",
+        "workers_per_model": 1,
+        "maximum_total_gpu_hours": 8,
+        "expected_prompt_count": 500,
+    }
+    backlog["environment"].update(
+        GEODML_APPROVED_WALLTIME="01:00:00",
+        GEODML_MAXIMUM_TOTAL_GPU_HOURS="8",
+        GEODML_ALLOCATION_ESTIMATE=(
+            "Two approved one-hour generator workers; each uses one exclusive "
+            "Booster node, four GH200 GPUs, 32 CPUs, and 512G RAM; cap 8 GPU-hours."
+        ),
+    )
+
+    result = module.submit_backlog(**args)
+
+    assert result["allocation_count"] == 2
+    assert result["prompt_count"] == 500
+    assert result["cells_per_model"] == 6000
+    assert len(backlog["calls"]) == 2
+    assert len((args["run_root"] / "tasks.jsonl").read_text().splitlines()) == 6000
+    for command, options in backlog["calls"]:
+        assert {"--array=0-0%1", "--time=01:00:00", "--gres=gpu:4"} <= set(command)
+        assert options["env"]["SEARCH_AGENTIC_PROMPT_COUNT"] == "500"
+
+
 def test_prepare_accepts_profiles_frozen_under_model_slugs(backlog):
     args = {**backlog["arguments"], "submit": False}
     profile_root = args["profile_root"]
