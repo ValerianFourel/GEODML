@@ -1,4 +1,9 @@
-from analysis.scripts.report_agentic_500_pilot_results import build_report, render_text
+from analysis.scripts.report_agentic_500_pilot_results import (
+    _judge_claim_arguments,
+    build_report,
+    render_text,
+)
+from analysis.scripts.run_acl_arr_vllm import _parser as inference_parser
 
 METHODS = ("Parallel-Expansion-v1", "Reactive-Snippet-Loop-v1")
 ENGINES = ("duckduckgo", "searxng")
@@ -7,6 +12,39 @@ MODELS = {
     "qwen38": "Qwen/Qwen3.8-27B",
     "llama4": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
 }
+
+
+def test_report_reconstructs_the_exact_worker_claim_contract():
+    worker = inference_parser().parse_args(
+        [
+            "agentic-judge",
+            "--tasks",
+            "tasks.jsonl",
+            "--output-dir",
+            "output",
+            "--judge-manifest",
+            "run_manifest.json",
+            "--judge-role",
+            "bulk",
+            "--disable-thinking",
+            "--max-attempts",
+            "3",
+            "--request-timeout",
+            "120",
+        ]
+    )
+    report = _judge_claim_arguments()
+
+    for field in (
+        "judge_role",
+        "disable_thinking",
+        "fake",
+        "pilot_only",
+        "max_attempts",
+        "request_timeout",
+    ):
+        assert getattr(report, field) == getattr(worker, field)
+        assert type(getattr(report, field)) is type(getattr(worker, field))
 
 
 def frozen_cells():

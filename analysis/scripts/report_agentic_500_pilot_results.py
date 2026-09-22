@@ -16,7 +16,6 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -377,6 +376,10 @@ def _generator_artifacts(
     return completed_by_model, failed_by_model
 
 
+def _judge_claim_arguments():
+    return judge_manager.judge_claim_arguments()
+
+
 def _judge_artifacts(judge_run: Path) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any]]:
     receipt = judge_manager.verify(judge_run)
     tasks, _, model_id, revision = _agentic_judge_context(
@@ -386,14 +389,7 @@ def _judge_artifacts(judge_run: Path) -> tuple[list[dict[str, Any]], dict[str, s
     )
     mappings = _read_jsonl(judge_run / "plan/private_mapping.jsonl")
     store = InferenceClaimStore(receipt["claim_root"])
-    args = SimpleNamespace(
-        judge_role="bulk",
-        disable_thinking=True,
-        fake=False,
-        pilot_only=False,
-        max_attempts=3,
-        request_timeout=120,
-    )
+    args = _judge_claim_arguments()
     states: dict[str, str] = {}
     for number, task in enumerate(tasks, 1):
         item = _prepare_agentic_judge(task, max_tokens=2048)

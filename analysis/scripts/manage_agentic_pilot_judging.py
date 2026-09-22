@@ -448,6 +448,18 @@ def verify(root):
     return receipt
 
 
+def judge_claim_arguments():
+    """Return the scientific request settings used by the approved worker."""
+    return SimpleNamespace(
+        judge_role="bulk",
+        disable_thinking=True,
+        fake=False,
+        pilot_only=False,
+        max_attempts=3,
+        request_timeout=120.0,
+    )
+
+
 def audit(root):
     receipt = verify(root)
     tasks, _, model, revision = _agentic_judge_context(
@@ -456,14 +468,7 @@ def audit(root):
         judge_role="bulk",
     )
     store = InferenceClaimStore(receipt["claim_root"])
-    args = SimpleNamespace(
-        judge_role="bulk",
-        disable_thinking=True,
-        fake=False,
-        pilot_only=False,
-        max_attempts=3,
-        request_timeout=120,
-    )
+    args = judge_claim_arguments()
     counts = Counter()
     worker_count = receipt["worker_count"]
     slots = [Counter() for _ in range(worker_count)]
