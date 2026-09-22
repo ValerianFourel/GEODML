@@ -402,7 +402,9 @@ def _resume_claims(
     }
 
 
-def _claim_record(path: Path, fingerprint: str, failed: bool) -> bytes:
+def _claim_record(
+    path: Path, fingerprint: str, failed: bool,
+) -> tuple[bytes, dict[str, Any]]:
     """Read and validate one immutable terminal record while holding its lock."""
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"claim record is not a regular file: {path}")
@@ -447,7 +449,34 @@ def _claim_record(path: Path, fingerprint: str, failed: bool) -> bytes:
         or identity is None
     ):
         raise ValueError(f"mismatched terminal claim envelope: {path}")
-    return _canonical(record) + b"\n"
+    return _canonical(record) + b"\n", record
+
+
+def _generator_scientific_outcome(record: Mapping[str, Any]) -> bytes | None:
+    """Return the generator payload covered by scientific task identity.
+
+    Runtime diagnostics and producer provenance are intentionally excluded.
+    They remain auditable in the source records and reconciliation receipt.
+    """
+    identity = record.get("identity")
+    outcome = record.get("outcome")
+    if (
+        record.get("format_version") != inference_claims.FORMAT_VERSION
+        or not isinstance(identity, Mapping)
+        or identity.get("protocol") != "agentic-generator-shared-v1"
+        or not isinstance(outcome, Mapping)
+        or set(outcome) != {"result", "trace", "diagnostics", "producer"}
+    ):
+        return None
+    return _canonical({"result": outcome["result"], "trace": outcome["trace"]})
+
+
+def _claim_preference(record: Mapping[str, Any], path: Path) -> tuple[bool, str, str]:
+    """Prefer directly committed provenance, then a stable content/path order."""
+    outcome = record["outcome"]
+    producer = outcome.get("producer") if isinstance(outcome, Mapping) else None
+    imported = isinstance(producer, Mapping) and producer.get("imported_legacy_artifact") is True
+    return imported, record["outcome_sha256"], str(path)
 
 
 def _reconcile_claim_roots(
@@ -464,7 +493,8 @@ def _reconcile_claim_roots(
         raise FileExistsError(f"reconciled claim root already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".claims-reconcile-", dir=destination.parent))
-    records: dict[str, tuple[bytes, bool, Path]] = {}
+    records: dict[str, dict[str, Any]] = {}
+    resolutions: dict[str, dict[str, Any]] = {}
     source_counts: dict[str, int] = {}
     try:
         for root in source_roots:
@@ -481,26 +511,70 @@ def _reconcile_claim_roots(
                         if directory.name != fingerprint[:2]:
                             raise ValueError(f"claim record is in the wrong shard: {path}")
                         failed = failure_marker is not None
-                        payload = _claim_record(path, fingerprint, failed)
+                        payload, record = _claim_record(path, fingerprint, failed)
                         previous = records.get(fingerprint)
-                        if previous is not None and (previous[0] != payload or previous[1] != failed):
-                            raise ValueError(
-                                f"conflicting terminal claim {fingerprint}: {previous[2]} and {path}"
-                            )
-                        records[fingerprint] = (payload, failed, path)
+                        if previous is None:
+                            records[fingerprint] = {
+                                "payload": payload, "record": record,
+                                "failed": failed, "path": path,
+                            }
+                        elif previous["payload"] != payload or previous["failed"] != failed:
+                            if previous["failed"] != failed:
+                                raise ValueError(
+                                    f"conflicting terminal claim {fingerprint}: "
+                                    f"{previous['path']} and {path}"
+                                )
+                            prior_science = _generator_scientific_outcome(previous["record"])
+                            current_science = _generator_scientific_outcome(record)
+                            if prior_science is None or current_science is None or prior_science != current_science:
+                                raise ValueError(
+                                    f"conflicting scientific outcome {fingerprint}: "
+                                    f"{previous['path']} and {path}"
+                                )
+                            resolution = resolutions.setdefault(fingerprint, {
+                                "identity_sha256": fingerprint,
+                                "scientific_outcome_sha256": hashlib.sha256(prior_science).hexdigest(),
+                                "candidates": {},
+                            })
+                            for candidate_record, candidate_path in (
+                                (previous["record"], previous["path"]), (record, path),
+                            ):
+                                resolution["candidates"].setdefault(
+                                    candidate_record["outcome_sha256"], [],
+                                ).append(str(candidate_path))
+                            if _claim_preference(record, path) < _claim_preference(
+                                previous["record"], previous["path"],
+                            ):
+                                records[fingerprint] = {
+                                    "payload": payload, "record": record,
+                                    "failed": failed, "path": path,
+                                }
                         count += 1
             source_counts[str(root)] = count
-        for fingerprint, (payload, failed, _) in sorted(records.items()):
+        for fingerprint, selected in sorted(records.items()):
             directory = temporary / fingerprint[:2]
             directory.mkdir(exist_ok=True)
-            suffix = ".failed.json" if failed else ".json"
+            suffix = ".failed.json" if selected["failed"] else ".json"
             with (directory / f"{fingerprint}{suffix}").open("xb") as stream:
-                stream.write(payload)
+                stream.write(selected["payload"])
                 stream.flush()
                 os.fsync(stream.fileno())
         for directory in temporary.iterdir():
             if directory.is_dir():
                 _sync_directory(directory)
+        resolution_path = temporary / "reconciliation-resolutions.jsonl"
+        with resolution_path.open("xb") as stream:
+            for fingerprint, resolution in sorted(resolutions.items()):
+                resolution["candidates"] = {
+                    digest: sorted(set(paths))
+                    for digest, paths in sorted(resolution["candidates"].items())
+                }
+                resolution["selected_outcome_sha256"] = records[fingerprint][
+                    "record"
+                ]["outcome_sha256"]
+                stream.write(_canonical(resolution) + b"\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         receipt = {
             "format_version": "geodml-claim-reconciliation-v1",
             "created_at_utc": _now(),
@@ -509,6 +583,16 @@ def _reconcile_claim_roots(
             "source_terminal_record_counts": source_counts,
             "terminal_record_count": len(records),
             "conflict_count": 0,
+            "scientific_duplicate_count": len(resolutions),
+            "metadata_variant_count": sum(
+                max(0, len(resolution["candidates"]) - 1)
+                for resolution in resolutions.values()
+            ),
+            "resolution_file": {
+                "path": "reconciliation-resolutions.jsonl",
+                "sha256": _hash(resolution_path),
+                "rows": len(resolutions),
+            },
             "source_registries_modified": False,
         }
         _durable_json(temporary / "reconciliation.json", receipt)

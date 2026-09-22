@@ -320,6 +320,31 @@ def _claim(root: Path, task_id: str, answer: str) -> None:
         claim.commit({"answer": answer})
 
 
+def _generator_claim(
+    root: Path, task_id: str, *, answer: str, elapsed: float,
+    producer: str, imported: bool = False,
+) -> None:
+    identity = ClaimIdentity(
+        task_id=task_id,
+        model_id="Qwen/Qwen3.8-27B",
+        model_revision="a" * 40,
+        protocol="agentic-generator-shared-v1",
+        request_sha256=hashlib.sha256(task_id.encode()).hexdigest(),
+    )
+    with InferenceClaimStore(root).try_claim(identity) as claim:
+        claim.commit({
+            "result": {"answer": answer, "ranking": ["a", "b"]},
+            "trace": {"trace_sha256": "b" * 64, "events": []},
+            "diagnostics": {"elapsed_seconds": elapsed},
+            "producer": {
+                "git_commit": producer,
+                "slurm_job_id": producer,
+                "source_config_sha256": "c" * 64,
+                **({"imported_legacy_artifact": True} if imported else {}),
+            },
+        })
+
+
 def test_multiple_exact_resume_sources_are_reconciled_without_overwriting(backlog):
     args = {**backlog["arguments"], "submit": False}
     first = args["run_root"].parent / "first"
@@ -358,7 +383,58 @@ def test_multiple_resume_sources_reject_conflicting_terminal_outcomes(backlog):
     _claim(first / "claims", "cell-a", "first")
     _claim(second / "claims", "cell-a", "different")
 
-    with pytest.raises(ValueError, match="conflicting terminal claim"):
+    with pytest.raises(ValueError, match="conflicting scientific outcome"):
+        module.submit_backlog(**{
+            **args,
+            "resume_from_run_root": (first, second),
+        })
+    assert not backlog["calls"]
+
+
+def test_multiple_resume_sources_reconcile_only_non_scientific_metadata(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    first = args["run_root"].parent / "first"
+    second = args["run_root"].parent / "second"
+    module.submit_backlog(**{**args, "run_root": first})
+    module.submit_backlog(**{**args, "run_root": second})
+    _generator_claim(
+        first / "claims", "cell-a", answer="same", elapsed=9.0,
+        producer="legacy", imported=True,
+    )
+    _generator_claim(
+        second / "claims", "cell-a", answer="same", elapsed=3.0,
+        producer="direct",
+    )
+
+    result = module.submit_backlog(**{
+        **args,
+        "resume_from_run_root": (first, second),
+    })
+
+    receipt = result["claim_reconciliation"]
+    assert receipt["scientific_duplicate_count"] == 1
+    assert receipt["metadata_variant_count"] == 1
+    resolutions = (
+        args["run_root"] / "claims/reconciliation-resolutions.jsonl"
+    ).read_text().splitlines()
+    assert len(resolutions) == 1
+    record_path, = [
+        path for path in (args["run_root"] / "claims").glob("[0-9a-f][0-9a-f]/*.json")
+    ]
+    record = json.loads(record_path.read_text())
+    assert record["outcome"]["producer"]["git_commit"] == "direct"
+
+
+def test_multiple_resume_sources_reject_different_generator_science(backlog):
+    args = {**backlog["arguments"], "submit": False}
+    first = args["run_root"].parent / "first"
+    second = args["run_root"].parent / "second"
+    module.submit_backlog(**{**args, "run_root": first})
+    module.submit_backlog(**{**args, "run_root": second})
+    _generator_claim(first / "claims", "cell-a", answer="first", elapsed=1.0, producer="one")
+    _generator_claim(second / "claims", "cell-a", answer="different", elapsed=1.0, producer="two")
+
+    with pytest.raises(ValueError, match="conflicting scientific outcome"):
         module.submit_backlog(**{
             **args,
             "resume_from_run_root": (first, second),
