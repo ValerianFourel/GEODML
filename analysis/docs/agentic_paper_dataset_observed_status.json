@@ -1,0 +1,86 @@
+{
+  "schema_version": "geodml-paper-v2-observed-status-v1",
+  "evidence_origin": "user-supplied JUPITER terminal output",
+  "remote_audit_directory": "/e/fscratch/scifi/fourel1/geodml/audits/experiment-v2-4hgXoQc3",
+  "capture_time_utc": null,
+  "original500": {
+    "audit_status": "validated_by_reported_pinned_reporter",
+    "prompt_count": 500,
+    "stages": {
+      "qwen38_generation": {
+        "target": 6000,
+        "completed": 6000,
+        "missing": 0,
+        "percent_completed": 100.0
+      },
+      "llama4_generation": {
+        "target": 6000,
+        "completed": 6000,
+        "missing": 0,
+        "percent_completed": 100.0
+      },
+      "nemotron_judging": {
+        "target": 12000,
+        "completed": 4594,
+        "missing": 7406,
+        "percent_completed": 38.2833
+      }
+    },
+    "fully_judged_prompts": 0,
+    "partially_judged_prompts": 500,
+    "experiment_complete": false
+  },
+  "full_population": {
+    "audit_status": "not_yet_audited",
+    "reported_prompt_count": 26009,
+    "population_hashes_independently_verified_locally": false,
+    "stages": {
+      "qwen38_generation": {
+        "target": 312108,
+        "completed": null,
+        "missing": null,
+        "percent_completed": null
+      },
+      "llama4_generation": {
+        "target": 312108,
+        "completed": null,
+        "missing": null,
+        "percent_completed": null
+      },
+      "nemotron_judging": {
+        "target": 624216,
+        "completed": null,
+        "missing": null,
+        "percent_completed": null
+      }
+    },
+    "physical_model_calls": null,
+    "call_observability": "not_yet_audited"
+  },
+  "latest_failure": {
+    "jobs": [
+      "1961234_0",
+      "1961235_0",
+      "1961236_0",
+      "1961353_0",
+      "1961354_0",
+      "1961355_0"
+    ],
+    "errno": 28,
+    "filesystem_path_prefix": "/e/project1",
+    "failure_end_interval": [
+      "2026-09-23T00:12:19+02:00",
+      "2026-09-23T00:12:25+02:00"
+    ],
+    "elapsed_range_seconds": [
+      4072,
+      5559
+    ],
+    "underlying_storage_constraint": "unresolved"
+  },
+  "upload": {
+    "status": "not_started",
+    "repo_id": null,
+    "commit": null
+  }
+}
