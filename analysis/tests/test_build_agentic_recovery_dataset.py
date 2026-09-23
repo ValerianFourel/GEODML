@@ -170,3 +170,28 @@ def test_judge_binds_request_answer_and_trace_to_recovered_generation(source, tm
     assert summary['stages'][2]['recovered_slots'] == 1
     judgment = read_table(output, 'judgments')[0]
     assert judgment['generation_id'] == read_table(output, 'generations')[0]['generation_id']
+
+
+def test_private_upload_uses_content_addressed_snapshot_and_receipt(source, tmp_path, monkeypatch):
+    _, output = run(source, tmp_path)
+    uploads = []
+    class API:
+        def __init__(self):
+            self.files = []
+        def create_repo(self, **kwargs):
+            assert kwargs['private'] is True
+        def repo_info(self, **kwargs):
+            return SimpleNamespace(private=True)
+        def list_repo_files(self, **kwargs):
+            return self.files
+        def upload_folder(self, **kwargs):
+            uploads.append(kwargs)
+            self.files = [kwargs['path_in_repo'] + '/' + str(p.relative_to(output)) for p in output.rglob('*') if p.is_file()]
+            return 'https://example.invalid/commit/123'
+    import huggingface_hub
+    monkeypatch.setattr(huggingface_hub, 'HfApi', API)
+    dataset.publish(output, 'example/private')
+    receipt = json.loads((output.parent / 'upload-receipt.json').read_text())
+    assert receipt['path'].startswith('snapshots/recovery-')
+    assert uploads[0]['folder_path'] == str(output)
+    assert 'local-forensics' not in uploads[0]['folder_path']

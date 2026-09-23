@@ -357,7 +357,7 @@ def publish(output, repo):
     api.create_repo(repo_id=repo, repo_type='dataset', private=True, exist_ok=True)
     if api.repo_info(repo_id=repo, repo_type='dataset').private is not True:
         raise ValueError('destination is not private; no files transferred')
-    prefix = 'snapshots/' + output.parent.name
+    prefix = 'snapshots/recovery-' + capture.sha_file(output / 'publication-manifest.json')[:24]
     remote_files = set(api.list_repo_files(repo_id=repo, repo_type='dataset'))
     marker = prefix + '/publication-manifest.json'
     if marker in remote_files:
