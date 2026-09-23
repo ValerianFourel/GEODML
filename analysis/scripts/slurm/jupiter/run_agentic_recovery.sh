@@ -6,6 +6,8 @@ project=${2:?project root}
 control=${3:?control directory}
 expected_commit=${4:?pinned commit}
 environment_file=${5:?environment file}
+approved_walltime=${6:-01:00:00}
+resume_snapshot=${7:-}
 source "$environment_file"
 if ! type module >/dev/null 2>&1; then source /etc/profile; fi
 module load Stages/2026 GCC Python CUDA git
@@ -25,7 +27,17 @@ printf '%s\n' "$expected_commit" > "$control/provenance/source-commit.txt"
 date -Is > "$control/provenance/started-at.txt"
 hostname > "$control/provenance/host.txt"
 scontrol show job "${SLURM_JOB_ID:?}" > "$control/provenance/allocation.txt"
-printf 'approved_walltime=01:00:00\nnodes=1\ngpus=4\nmaximum_gpu_hours=4\nestimate=20-60 minutes or longer with filesystem stalls; based on prior 437078 files/24G pilot and 89G total project runs\nno_inference=true\nautomatic_resubmission=false\n' > "$control/provenance/budget.txt"
+python3 - "$approved_walltime" "$resume_snapshot" > "$control/provenance/budget.txt" <<'PY_BUDGET'
+import sys
+hours, minutes, seconds = map(int, sys.argv[1].split(':'))
+assert hours >= 0 and 0 <= minutes < 60 and 0 <= seconds < 60
+print('approved_walltime=' + sys.argv[1])
+print('nodes=1\ngpus=4\nrequested_cpus=32\nmemory=all_node_memory')
+print('maximum_gpu_hours=' + str(4 * (hours + minutes / 60 + seconds / 3600)))
+print('resume_snapshot=' + sys.argv[2])
+print('estimate=resume: provisional 2-4 hours; prior run reached 294000 files within roughly 55 minutes; total remaining unknown')
+print('no_inference=true\nautomatic_resubmission=false')
+PY_BUDGET
 git -C "$repo" archive --format=tar HEAD > "$control/provenance/source.tar"
 python3 -m pip freeze > "$control/provenance/python-packages.txt"
 (df -h "$project" "$control"; df -i "$project" "$control") > "$control/provenance/storage.txt"
@@ -45,9 +57,14 @@ p = Path(sys.argv[1])
 print((p.parent / json.loads(p.read_text())['sources']['prompts']['path']).resolve().parent)
 PY
 )
+resume_args=()
+if [ -n "$resume_snapshot" ]; then
+  test -s "$resume_snapshot/inventory.sqlite"
+  resume_args=(--resume-from "$resume_snapshot")
+fi
 timeout --signal=TERM --kill-after=30s "${seconds_left}s" \
   python3 "$repo/analysis/scripts/build_agentic_recovery_dataset.py" build \
   --root "$project/runs" --root "$project/exports" --root "$project/manifests" \
   --root "$population_root" --root "$control/provenance" \
-  --selection-manifest "$selection" --output "$control/dataset"
+  --selection-manifest "$selection" --output "$control/dataset" "${resume_args[@]}"
 printf 'DATASET_READY=%s\n' "$control/dataset/hub"

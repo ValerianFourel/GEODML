@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import tarfile
@@ -97,7 +98,7 @@ class Packs:
         self.output, self.limit = output, limit
         self.stream = None
         self.size = 0
-        self.index = 0
+        self.index = max((int(p.stem.split('-')[1]) for p in output.glob('artifacts-*.tar')), default=0)
 
     def add(self, path, digest):
         size = path.stat().st_size
@@ -105,7 +106,7 @@ class Packs:
             self.close()
             self.index += 1
             self.name = f'artifacts-{self.index:05d}.tar'
-            self.stream = tarfile.open(self.output / self.name, 'w')  # noqa: SIM115 -- rotated and closed in finally
+            self.stream = tarfile.open(self.output / self.name, 'x')  # noqa: SIM115 -- rotated and closed in finally
             self.size = 0
         info = tarfile.TarInfo(digest)
         info.size, info.mode, info.mtime = size, 0o600, 0
@@ -221,7 +222,58 @@ def inspect_artifact(path, population):
     return 'preserved_uninterpreted', None
 
 
-def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=()):
+def import_checkpoint(previous, output):
+    """Copy the index and link closed packs; never write to the previous snapshot."""
+    old = read_json(previous / 'snapshot.json')
+    if old.get('format_version') != 'geodml-forensic-snapshot-v1':
+        raise ValueError('unsupported resume snapshot')
+    if (previous / 'inventory.sqlite-wal').exists():
+        raise ValueError('WAL snapshot needs a coordinated SQLite backup before resume')
+    for name in ('inventory.sqlite', 'inventory.sqlite-journal'):
+        source = previous / name
+        if source.exists():
+            shutil.copy2(source, output / name)
+    db = sqlite3.connect(output / 'inventory.sqlite')
+    try:
+        if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+            raise ValueError('resume index integrity check failed')
+        paths = sorted(previous.glob('artifacts-*.tar'))
+        linked = []
+        # Only the last pack can have been open when an interrupted collector died.
+        # Conservatively recapture it even if a footer happened to be flushed.
+        for path in paths[:-1] if old.get('status') == 'collecting' else paths:
+            with path.open('rb') as stream:
+                stream.seek(0, 2)
+                size = stream.tell()
+                if size < 1024 or size % 512:
+                    continue
+                stream.seek(-1024, 2)
+                if stream.read() != bytes(1024):
+                    continue
+            try:
+                os.link(path, output / path.name)
+            except OSError:
+                shutil.copy2(path, output / path.name)
+            linked.append(path.name)
+        available = set(linked)
+        for (pack,) in db.execute('SELECT DISTINCT pack FROM artifacts WHERE pack IS NOT NULL').fetchall():
+            if pack not in available:
+                db.execute('DELETE FROM outcomes WHERE path IN (SELECT path FROM artifacts WHERE pack=?)', (pack,))
+                db.execute('DELETE FROM artifacts WHERE pack=?', (pack,))
+                db.execute('DELETE FROM contents WHERE pack=?', (pack,))
+        # Exclusions and failed reads must be observed again in the new traversal.
+        db.execute("DELETE FROM outcomes WHERE path IN (SELECT path FROM artifacts WHERE pack IS NULL OR tier IN ('unreadable','unreadable_or_changed'))")
+        db.execute("DELETE FROM artifacts WHERE pack IS NULL OR tier IN ('unreadable','unreadable_or_changed')")
+        db.execute('DELETE FROM external_references WHERE source NOT IN (SELECT path FROM artifacts)')
+        db.commit()
+        retained = db.execute('SELECT count(*) FROM artifacts').fetchone()[0]
+        return {'previous_snapshot': str(previous), 'linked_packs': len(linked), 'retained_artifacts': retained,
+                'previous_snapshot_sha256': sha_file(previous / 'snapshot.json')}
+    finally:
+        db.close()
+
+
+def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=(), resume_from=None):
     roots = sorted({Path(root).resolve() for root in roots})
     roots = [p for p in roots if not any(p != q and p.is_relative_to(q) for q in roots)]
     selection, output = Path(selection).resolve(), Path(output).resolve()
@@ -232,24 +284,30 @@ def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=())
     population = load_population(selection)
     output.mkdir(parents=True, exist_ok=False)
     os.chmod(output, 0o700)
+    resumed = import_checkpoint(Path(resume_from).resolve(), output) if resume_from else None
     db = sqlite3.connect(output / 'inventory.sqlite')
     db.executescript('''
-      CREATE TABLE artifacts(path TEXT PRIMARY KEY, sha256 TEXT, bytes INTEGER,
+      CREATE TABLE IF NOT EXISTS artifacts(path TEXT PRIMARY KEY, sha256 TEXT, bytes INTEGER,
         pack TEXT, member TEXT, tier TEXT, error TEXT);
-      CREATE TABLE contents(sha256 TEXT PRIMARY KEY, pack TEXT, member TEXT);
-      CREATE TABLE outcomes(identity TEXT, state TEXT, model TEXT, protocol TEXT,
+      CREATE TABLE IF NOT EXISTS contents(sha256 TEXT PRIMARY KEY, pack TEXT, member TEXT);
+      CREATE TABLE IF NOT EXISTS outcomes(identity TEXT, state TEXT, model TEXT, protocol TEXT,
         task TEXT, payload_sha256 TEXT, path TEXT PRIMARY KEY);
-      CREATE TABLE external_references(source TEXT, target TEXT, PRIMARY KEY(source,target));
+      CREATE TABLE IF NOT EXISTS external_references(source TEXT, target TEXT, PRIMARY KEY(source,target));
+      CREATE TABLE IF NOT EXISTS visited(path TEXT PRIMARY KEY);
+      DELETE FROM visited;
     ''')
     started = now()
     receipt = {'format_version': 'geodml-forensic-snapshot-v1', 'started_at': started,
                'status': 'collecting', 'roots': [str(p) for p in roots],
                'selection_manifest': str(selection), 'population_prompts': len(population),
-               'collector_sha256': sha_file(Path(__file__)),
+               'collector_sha256': sha_file(Path(__file__)), 'resume': resumed,
+               'population_sources': read_json(selection)['sources'],
                'population_scope': 'prompt file hash and row identities verified; axis map requires separate audit'}
     (output / 'snapshot.json').write_text(json.dumps(receipt, indent=2) + '\n')
     packs = Packs(output, pack_bytes)
     count = 0
+    reused = 0
+    print('PHASE=collection ' + json.dumps(resumed or {}), file=sys.stderr, flush=True)
     try:
         def walk_error(error):
             db.execute('INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?,?,?,?)',
@@ -264,14 +322,31 @@ def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=())
                     path = parent / name
                     if name in EXCLUDED_DIRS or path.is_symlink():
                         dirs.remove(name)
-                        db.execute('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?)',
+                        db.execute('INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?,?,?,?)',
                                    (str(path), None, None, None, None, 'excluded_directory', 'cache, restricted scope, or symlink'))
                 for name in sorted(names):
                     path = parent / name
                     if path.is_symlink() or not path.is_file() or name.startswith('.env') or path.suffix in EXCLUDED_SUFFIXES or name.endswith('.lock'):
-                        db.execute('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?)',
+                        db.execute('INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?,?,?,?)',
                                    (str(path), None, None, None, None, 'excluded_file', 'symlink, special file, lock, model binary, or credentials'))
                         continue
+                    db.execute('INSERT OR IGNORE INTO visited VALUES(?)', (str(path),))
+                    cached = db.execute('SELECT sha256,tier FROM artifacts WHERE path=? AND pack IS NOT NULL', (str(path),)).fetchone()
+                    if cached:
+                        try:
+                            before = file_state(path)
+                            unchanged = sha_file(path) == cached[0] and before == file_state(path)
+                        except OSError:
+                            unchanged = False
+                        if unchanged and cached[1] not in {'source_missing_on_resume', 'unverified_or_invalid'}:
+                            reused += 1
+                            if reused % 1000 == 0:
+                                db.commit()
+                                print(f'REUSED_FILES={reused}', file=sys.stderr, flush=True)
+                            continue
+                        db.execute('DELETE FROM outcomes WHERE path=?', (str(path),))
+                        db.execute('DELETE FROM external_references WHERE source=?', (str(path),))
+                        db.execute('DELETE FROM artifacts WHERE path=?', (str(path),))
                     digest = pack = member = size = None
                     tier, error, outcome = 'unreadable', None, None
                     try:
@@ -280,7 +355,7 @@ def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=())
                         digest = sha_file(path)
                         known = db.execute('SELECT pack,member FROM contents WHERE sha256=?', (digest,)).fetchone()
                         pack, member = known if known else packs.add(path, digest)
-                        if before != file_state(path) or (not known and sha_file(path) != digest):
+                        if before != file_state(path):
                             raise ValueError('source changed during capture; snapshot is incomplete')
                         if not known:
                             db.execute('INSERT INTO contents VALUES(?,?,?)', (digest, pack, member))
@@ -297,7 +372,7 @@ def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=())
                             raise ValueError('source changed during validation; snapshot is incomplete')
                     except (OSError, ValueError, tarfile.TarError) as exc:
                         tier, error, outcome = 'unreadable_or_changed', str(exc), None
-                    db.execute('INSERT INTO artifacts VALUES(?,?,?,?,?,?,?)',
+                    db.execute('INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?,?,?,?)',
                                (str(path), digest, size, pack, member, tier, error))
                     if outcome:
                         db.execute('INSERT INTO outcomes VALUES(?,?,?,?,?,?,?)', (*outcome, str(path)))
@@ -306,9 +381,14 @@ def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=())
                         db.commit()
                         print(f'CAPTURED_FILES={count}', file=sys.stderr, flush=True)
         packs.close()
+        # Previously captured paths no longer present remain preserved, but cannot
+        # silently retain a scientific validation tier in the refreshed audit.
+        db.execute("UPDATE artifacts SET tier='source_missing_on_resume', error='preserved historical bytes; source not visited on resume' WHERE pack IS NOT NULL AND path NOT IN (SELECT path FROM visited)")
+        db.execute("DELETE FROM outcomes WHERE path IN (SELECT path FROM artifacts WHERE tier='source_missing_on_resume' OR pack IS NULL)")
         db.commit()
         archive_errors = []
         for pack in sorted(output.glob('artifacts-*.tar')):
+            print(f'PHASE=verify_archive PACK={pack.name}', file=sys.stderr, flush=True)
             try:
                 with tarfile.open(pack) as stream:
                     for member in stream:
@@ -323,7 +403,7 @@ def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=())
         conflicts = db.execute('SELECT count(*) FROM (SELECT identity FROM outcomes GROUP BY identity HAVING count(DISTINCT state || payload_sha256)>1)').fetchone()[0]
         claims = [dict(zip(('model','protocol','state','distinct_identities'), row)) for row in db.execute(
             'SELECT model,protocol,state,count(DISTINCT identity) FROM outcomes GROUP BY model,protocol,state')]
-        receipt.update(ended_at=now(), status='captured_with_findings', files=count,
+        receipt.update(ended_at=now(), status='captured_with_findings', files=count + reused, new_files=count, reused_files=reused,
                        unique_contents=db.execute('SELECT count(*) FROM contents').fetchone()[0],
                        validation_tiers=tiers, conflicting_identities=conflicts,
                        identity_counts=claims, full_population_completion_percent=None,
@@ -333,6 +413,7 @@ def collect(roots, selection, output, *, pack_bytes=512 * 1024 * 1024, files=())
                        coverage_status='pending protocol acceptance, legacy/native reconciliation and judge-to-generation validation',
                        snapshot_consistency='sequential capture with per-file change checks; not a filesystem transaction')
         (output / 'snapshot.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        print('PHASE=archive_checksums', file=sys.stderr, flush=True)
         with (output / 'checksums.sha256').open('w') as stream:
             for path in sorted(output.iterdir()):
                 if path.name != 'checksums.sha256' and path.is_file():

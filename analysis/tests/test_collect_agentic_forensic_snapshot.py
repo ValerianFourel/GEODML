@@ -195,3 +195,74 @@ def test_nested_duplicate_roots_are_traversed_once(source, tmp_path):
     receipt = audit.collect([root, root / 'failed-job', root], selection, tmp_path / 'snapshot')
     assert receipt['validation_tiers']['generator_payload_valid'] == 1
     assert receipt['roots'] == [str(root)]
+
+
+def test_resume_reuses_closed_packs_and_preserves_old_snapshot(source, tmp_path):
+    root, selection, *_ = source
+    old = tmp_path / 'old'
+    audit.collect([root], selection, old, pack_bytes=128)
+    state = json.loads((old / 'snapshot.json').read_text())
+    state['status'] = 'collecting'
+    put(old / 'snapshot.json', state)
+    before = {p.name: p.read_bytes() for p in old.iterdir() if p.is_file()}
+    last = max(old.glob('artifacts-*.tar')).name
+    new = tmp_path / 'new'
+    receipt = audit.collect([root], selection, new, pack_bytes=128, resume_from=old)
+    assert receipt['reused_files'] > 0
+    assert receipt['new_files'] > 0
+    assert receipt['archive_errors'] == []
+    assert receipt['identity_counts'][0]['distinct_identities'] == 1
+    assert {p.name: p.read_bytes() for p in old.iterdir() if p.is_file()} == before
+    assert (new / last).read_bytes()  # New pack may reuse dropped number, never old bytes.
+
+
+def test_resume_changed_source_is_recaptured(source, tmp_path):
+    root, selection, *_ = source
+    note = root / 'note.txt'
+    note.write_text('before')
+    old = tmp_path / 'old'
+    audit.collect([root], selection, old)
+    note.write_text('after')
+    new = tmp_path / 'new'
+    receipt = audit.collect([root], selection, new, resume_from=old)
+    assert receipt['new_files'] == 1
+    db = sqlite3.connect(new / 'inventory.sqlite')
+    assert db.execute('SELECT sha256 FROM artifacts WHERE path=?', (str(note),)).fetchone()[0] == audit.sha_file(note)
+    db.close()
+
+
+def test_resume_missing_source_does_not_keep_validated_outcome(source, tmp_path):
+    root, selection, *_ = source
+    old = tmp_path / 'old'
+    audit.collect([root], selection, old)
+    next((root / 'failed-job/claims').glob('*/*.json')).unlink()
+    receipt = audit.collect([root], selection, tmp_path / 'new', resume_from=old)
+    assert receipt['identity_counts'] == []
+    assert receipt['validation_tiers']['source_missing_on_resume'] == 1
+
+
+def test_resume_truncated_last_pack_recaptures_its_sources(source, tmp_path):
+    root, selection, *_ = source
+    old = tmp_path / 'old'
+    audit.collect([root], selection, old, pack_bytes=128)
+    last = max(old.glob('artifacts-*.tar'))
+    last.write_bytes(last.read_bytes()[:600])
+    state = json.loads((old / 'snapshot.json').read_text())
+    state['status'] = 'collecting'
+    put(old / 'snapshot.json', state)
+    receipt = audit.collect([root], selection, tmp_path / 'new', pack_bytes=128, resume_from=old)
+    assert receipt['archive_errors'] == []
+    assert receipt['identity_counts'][0]['distinct_identities'] == 1
+
+
+def test_resume_source_replaced_by_symlink_drops_outcome(source, tmp_path):
+    root, selection, *_ = source
+    old = tmp_path / 'old'
+    audit.collect([root], selection, old)
+    claim = next((root / 'failed-job/claims').glob('*/*.json'))
+    target = tmp_path / 'moved-claim.json'
+    claim.rename(target)
+    claim.symlink_to(target)
+    receipt = audit.collect([root], selection, tmp_path / 'new', resume_from=old)
+    assert receipt['identity_counts'] == []
+    assert receipt['validation_tiers']['excluded_file'] >= 1

@@ -195,3 +195,35 @@ def test_private_upload_uses_content_addressed_snapshot_and_receipt(source, tmp_
     assert receipt['path'].startswith('snapshots/recovery-')
     assert uploads[0]['folder_path'] == str(output)
     assert 'local-forensics' not in uploads[0]['folder_path']
+
+
+def test_build_cli_resumes_capture_into_new_dataset(source, tmp_path, monkeypatch):
+    import sys
+    root, selection = prepare(source, tmp_path)
+    previous = tmp_path / 'previous'
+    capture.collect([root], selection, previous, pack_bytes=128)
+    receipt = json.loads((previous / 'snapshot.json').read_text())
+    receipt['status'] = 'collecting'
+    put(previous / 'snapshot.json', receipt)
+    output = tmp_path / 'resumed-dataset'
+    monkeypatch.setattr(sys, 'argv', ['build_agentic_recovery_dataset.py', 'build', '--root', str(root),
+        '--selection-manifest', str(selection), '--output', str(output), '--resume-from', str(previous)])
+    dataset.main()
+    summary = json.loads((output / 'hub/summary.json').read_text())
+    assert summary['stages'][0]['recovered_slots'] == 1
+    assert summary['capture']['reused_files'] > 0
+    assert summary['capture']['new_files'] > 0
+    dataset.verify_publication(output / 'hub')
+
+
+def test_archive_uses_indexed_member_lookup(source, tmp_path, monkeypatch):
+    import tarfile
+    root, selection = prepare(source, tmp_path)
+    previous = tmp_path / 'previous'
+    capture.collect([root], selection, previous)
+    def no_linear_lookup(*args, **kwargs):
+        raise AssertionError('member names must use the cached index')
+    monkeypatch.setattr(tarfile.TarFile, 'getmember', no_linear_lookup)
+    archive = dataset.Archive(previous)
+    assert archive.read(root / 'population.jsonl') == (root / 'population.jsonl').read_bytes()
+    archive.close()

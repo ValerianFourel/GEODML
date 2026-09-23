@@ -76,9 +76,11 @@ class Archive:
             raise ValueError(f'artifact not captured: {path}')
         if row['pack'] not in self.packs:
             if len(self.packs) >= 8:
-                self.packs.pop(next(iter(self.packs))).close()
-            self.packs[row['pack']] = tarfile.open(self.root / row['pack'])  # noqa: SIM115 -- closed by Archive.close
-        stream = self.packs[row['pack']].extractfile(row['member'])
+                self.packs.pop(next(iter(self.packs)))[0].close()
+            handle = tarfile.open(self.root / row['pack'])  # noqa: SIM115 -- closed by Archive.close
+            self.packs[row['pack']] = handle, {member.name: member for member in handle.getmembers()}
+        handle, members = self.packs[row['pack']]
+        stream = handle.extractfile(members[row['member']])
         data = stream.read()
         if hashlib.sha256(data).hexdigest() != row['sha256']:
             raise ValueError(f'archive checksum mismatch: {path}')
@@ -88,7 +90,7 @@ class Archive:
         return json.loads(self.read(path), object_pairs_hook=capture._unique_object)
 
     def close(self):
-        for stream in self.packs.values():
+        for stream, _ in self.packs.values():
             stream.close()
         self.db.close()
 
@@ -112,6 +114,7 @@ def verified_inputs(selection):
 
 
 def export(snapshot, selection, output, *, population_files, population_rows):
+    print('PHASE=export_population', flush=True)
     archive = Archive(snapshot)
     receipt = capture.read_json(snapshot / 'snapshot.json')
     if receipt['archive_errors'] or any(receipt['validation_tiers'].get(k) for k in ('unreadable', 'unreadable_or_changed')):
@@ -157,6 +160,7 @@ def export(snapshot, selection, output, *, population_files, population_rows):
                 'git_commit': value.get('git_commit', value.get('source_git_commit')),
                 'prompt_count': value.get('prompt_count'), 'cells_per_model': value.get('cells_per_model'),
                 'claim_root': value.get('claim_root'), 'models': value.get('models')})
+    print('PHASE=export_generations', flush=True)
     slots = defaultdict(set)
     outcomes = {}
     trace_links = defaultdict(set)
@@ -193,6 +197,7 @@ def export(snapshot, selection, output, *, population_files, population_rows):
             tables.write('generation_aliases', {'generation_id': gid, 'identity': row['identity'], 'native_identity': native,
                 'protocol': row['protocol'], 'source_artifact_sha256': archive.db.execute('SELECT sha256 FROM artifacts WHERE path=?', (row['path'],)).fetchone()[0]})
     # Reconstruct judge requests from archived task banks, not job completion flags.
+    print('PHASE=export_judgments', flush=True)
     task_by_id = {}
     for row in archive.db.execute("SELECT path FROM artifacts WHERE path LIKE '%tasks.jsonl' AND pack IS NOT NULL"):
         for number, line in enumerate(archive.read(row['path']).splitlines(), 1):
@@ -278,6 +283,7 @@ def export(snapshot, selection, output, *, population_files, population_rows):
                         'source_artifact_sha256': artifact['sha256'], 'line': number, 'record': record})
             except (ValueError, KeyError, TypeError, AttributeError):
                 findings['unparsed_or_invalid_journal_record'] += 1
+    print('PHASE=export_coverage', flush=True)
     counts = Counter()
     per_prompt = defaultdict(Counter)
     for pid, prompt in population.items():
@@ -300,6 +306,7 @@ def export(snapshot, selection, output, *, population_files, population_rows):
                         'method': cell.core['method'], 'engine': cell.engine, 'condition': cell.condition.value,
                         'generation_recovery': state, 'judgment_recovery': judge_state,
                         'generation_ids': sorted(matches), 'scientific_completion': 'unverified'})
+    print('PHASE=export_artifact_index', flush=True)
     for row in archive.db.execute('SELECT * FROM artifacts ORDER BY path'):
         tables.write('artifacts', dict(row))
     for row in archive.db.execute('SELECT * FROM external_references ORDER BY target'):
@@ -332,6 +339,7 @@ def export(snapshot, selection, output, *, population_files, population_rows):
     (output / 'summary.txt').write_text('\n'.join(lines) + '\n')
     (output / 'README.md').write_text('# GEODML Experiment V2 recovery snapshot\n\n' + '\n'.join(summary['limitations']) + '\n\nEach data/*.jsonl.gz is a separate table. Generations contain original result and trace structures; judgments link to generation IDs. generation_aliases retains native identities and duplicate artifact references. coverage contains every export-eligible factorial slot. artifacts indexes the complete local content-addressed archive. This is a recovery snapshot, not a completed scientific dataset.\n')
     archive.close()
+    print('PHASE=publication_checksums', flush=True)
     files = {str(p.relative_to(output)): capture.sha_file(p) for p in sorted(output.rglob('*')) if p.is_file()}
     dump(output / 'publication-manifest.json', {'format_version': 'geodml-recovery-publication-v1', 'files': files,
         'state': 'validated_recovery_snapshot', 'git_commit': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()})
@@ -382,6 +390,7 @@ def main():
     collect_parser.add_argument('--selection-manifest', type=Path, required=True)
     collect_parser.add_argument('--output', type=Path, required=True)
     collect_parser.add_argument('--file', type=Path, action='append', default=[])
+    collect_parser.add_argument('--resume-from', type=Path, help='Prior local-forensics directory; reuse closed packs in a fresh output')
     publish_parser = sub.add_parser('publish')
     publish_parser.add_argument('--output', type=Path, required=True)
     publish_parser.add_argument('--repo-id', required=True)
@@ -391,7 +400,13 @@ def main():
         return
     args.output.mkdir(parents=True, exist_ok=False)
     files, rows = verified_inputs(args.selection_manifest)
-    capture.collect(args.root, args.selection_manifest, args.output / 'local-forensics', files=[*files.values(), *args.file])
+    roots = args.root
+    if args.resume_from:
+        previous = capture.read_json(args.resume_from / 'snapshot.json')
+        if Path(previous['selection_manifest']).resolve() != args.selection_manifest.resolve():
+            raise ValueError('resume selection manifest path differs')
+        roots = [*roots, *map(Path, previous['roots'])]
+    capture.collect(roots, args.selection_manifest, args.output / 'local-forensics', files=[*files.values(), *args.file], resume_from=args.resume_from)
     export(args.output / 'local-forensics', args.selection_manifest, args.output / 'hub', population_files=files, population_rows=rows)
     verify_publication(args.output / 'hub')
     print((args.output / 'hub/summary.txt').read_text())

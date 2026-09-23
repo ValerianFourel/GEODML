@@ -1,12 +1,26 @@
-# One-hour recovery audit
+# Recovery audit and interrupted-run continuation
 
-The approved allocation is one full JUPITER booster node, four GPUs, 32 CPUs
-requested for the process, all node memory, and 01:00:00 wall-time. Maximum
-allocated capacity is four GPU-hours. This job runs no inference. Estimate:
-20–60 minutes or longer under filesystem stalls, based on the previously
-reported 24 GiB / 437,078 pilot files and 89 GiB of project runs. This is not a
-measured collector benchmark. The launcher reserves five minutes before the
-actual allocation end and never resubmits or extends the allocation.
+The initial one-hour allocation reached 294,000 captured files within roughly
+55 minutes and expired before a verified export was reported. Valerian approved
+a fresh four-hour interactive allocation: one full JUPITER booster node, four
+GPUs, 32 requested CPUs, all node memory; maximum 16 GPU-hours. The provisional
+remaining estimate is 2–4 hours, including verification and export, with unknown
+remaining file count. Four hours provides one hour over a three-hour working
+estimate; it is not a completion guarantee. No inference runs during this audit.
+The launcher reserves five minutes before the actual allocation end and never
+resubmits or extends the allocation.
+
+Use `salloc` for the allocation-owning shell, then `srun --pty` inside that
+allocation to enter the compute node. Keep both shells open. Supply the runner's
+sixth argument as `04:00:00` and seventh argument as the previous
+`dataset/local-forensics` directory. The output control directory must be new.
+
+Resume copies the SQLite index and links closed packs into the new snapshot.
+It conservatively recaptures the last pack of an interrupted collection. Sources
+are rechecked by content hash; changed files are recaptured. Missing sources
+remain historical artifacts and lose their validated outcome status. The old
+snapshot remains untouched. All packs are verified before publication. Logs
+identify collection, archive verification, export and checksum stages.
 
 `run_agentic_recovery.sh` captures all project run directories, exports,
 manifests, the frozen population's final-audit directory, and its own static
@@ -59,8 +73,8 @@ verifies that the destination is private, and uploads to an immutable snapshot
 path. An existing snapshot with a different manifest is rejected. After upload,
 it checks the remote file inventory and saves the commit receipt locally.
 Upload runs on the login node after the allocation, so network time does not
-consume the one-hour GPU allocation. An incomplete build has no publication
-manifest and cannot be uploaded. Partial archives remain for recovery; restarting
-collection requires a new output directory and a separately approved allocation.
+consume the GPU allocation. An incomplete build has no publication
+manifest and cannot be uploaded. Partial archives remain for recovery; use `build --resume-from` with a new
+output directory and a separately approved allocation.
 
 A successful local test is not a claim that the JUPITER job or HF upload ran.
