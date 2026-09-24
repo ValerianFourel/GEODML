@@ -18,6 +18,45 @@ from analysis.tests.test_register_agentic_dataset_tasks import (
 )
 
 
+def test_pending_legacy_job_can_publish_tracker_without_reconciliation(tmp_path, monkeypatch, capsys):
+    from analysis.tests.test_agentic_hours import MemoryHub
+    root, _, _ = fixture(tmp_path)
+    hub = MemoryHub()
+    jobs = [{'job_id': '1995245', 'state': 'PENDING'}]
+    monkeypatch.setattr(bootstrap, 'capture', lambda **kw: {
+        'complete': True, 'jobs': jobs, 'captured_at_epoch': time.time()})
+    monkeypatch.setattr(bootstrap, 'HubStore', lambda *a: hub)
+    def forbidden(*a, **kw):
+        pytest.fail('tracker must not reconcile, stage inputs or plan work')
+    for name in ('reconcile', 'stage', 'replan'):
+        monkeypatch.setattr(bootstrap, name, forbidden)
+    args = ['--source', str(root), '--output', str(tmp_path / 'out'),
+            '--since', '2026-09-01', '--stripes', '4', '--publish-tracker']
+    for _ in range(2):
+        assert bootstrap.main(args) == 0
+        assert json.loads(capsys.readouterr().out)['runnable_hours'] == 0
+        report = json.loads(hub.read('coordination/progress.json', hub.head()))
+        assert report['cells'] == {'awaiting_reconciliation': 48}
+        assert report['scheduler_snapshot']['jobs'] == jobs
+        assert report['runnable'] is False
+        state = json.loads(hub.read('coordination/hours.json', hub.head()))
+        assert state['hours'] == {} and state['current_plan'] is None
+    hub.commit(hub.head(), {'coordination/hours.json': json.dumps({**state, 'current_plan': 'existing'}).encode()}, 'plan')
+    with pytest.raises(ValueError, match='already in use'):
+        bootstrap.main(args)
+
+
+def test_tracker_rejects_incomplete_or_stale_scheduler(tmp_path):
+    from analysis.interpretability.pipeline.agentic_hour_sync import Exchange
+    from analysis.tests.test_agentic_hours import MemoryHub
+    hub = MemoryHub()
+    for snapshot in ({'cluster': 'jupiter', 'complete': False, 'captured_at_epoch': time.time()},
+                     {'cluster': 'jupiter', 'complete': True, 'captured_at_epoch': 0}):
+        with pytest.raises(ValueError, match='fresh complete'):
+            bootstrap.publish_tracker(tmp_path, Exchange(hub, tmp_path / 'journal'), snapshot)
+    assert hub.head() == '0'
+
+
 def fixture(tmp_path):
     root = tmp_path / 'source'
     initialize_dataset(root, population_id='population', acceptance_policy_id='v2')

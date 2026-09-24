@@ -348,3 +348,16 @@ command generation verify the actual reservation's account/user, partition,
 active state and remaining validity using Slurm. Null leaves reservation selection
 unset. Neither reservation membership nor `--exclusive` replaces compute-node
 execution-boundary verification.
+# Tracker setup while legacy jobs are queued
+
+`bootstrap_shared_hours.py --publish-tracker` publishes `coordination/hours.json`
+with no assignments and `coordination/progress.json` / `progress.md` with current
+keyword/bin observations. It accepts pending legacy jobs and records their
+scheduler snapshot. Unfinished cells await reconciliation; locally verified
+completions await sync. These observations are not a frozen, runnable plan.
+
+This mode neither reconciles the source nor uploads input bundles, creates hour
+packages, or submits allocations. It requires fresh complete scheduler evidence
+and refuses to overwrite a registry already in use. Concurrent publication is
+protected by the HF parent revision. Repeating it refreshes the observations.
+Normal bootstrap publication still requires legacy jobs to have stopped.

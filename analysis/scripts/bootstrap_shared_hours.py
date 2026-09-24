@@ -6,27 +6,60 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.interpretability.pipeline.agentic_hour_sync import (
+    REGISTRY_PATH,
     Exchange,
     HubStore,
     atomic,
     checkpoint_files,
 )
 from analysis.interpretability.pipeline.agentic_hour_updates import (
+    markdown,
     progress,
     publish_progress,
     replan,
 )
-from analysis.interpretability.pipeline.agentic_hours import canonical, inventory
+from analysis.interpretability.pipeline.agentic_hours import (
+    canonical,
+    empty_registry,
+    inventory,
+)
 from analysis.scripts.capture_agentic_scheduler_snapshot import capture
 from analysis.scripts.prepare_agentic_qwen_inputs import scheduler_gate
 from analysis.scripts.prepare_horeka_qwen import immutable_json
 from analysis.scripts.prepare_shared_hour_inputs import stage
 from analysis.scripts.publish_agentic_dataset import build_manifest
 from analysis.scripts.reconcile_agentic_dataset import reconcile
+
+
+def publish_tracker(source, exchange, snapshot, *, stripes=256):
+    """Publish observations only; pending legacy jobs never become shared claims."""
+    if (snapshot.get('cluster') != 'jupiter' or snapshot.get('complete') is not True
+            or not 0 <= time.time() - snapshot.get('captured_at_epoch', 0) <= 120):
+        raise ValueError('tracker requires a fresh complete JUPITER scheduler snapshot')
+    revision, state = exchange.snapshot()
+    if state != empty_registry():
+        raise ValueError('shared registry already in use; use the saved site update workflow')
+    tasks, _, _ = inventory(source, stripes=stripes)
+    report = progress(source, state, revision=revision, stripes=stripes,
+                      deferred={t['fingerprint']: 'awaiting_reconciliation' for t in tasks})
+    report.update(tracker_only=True, runnable=False, observed_at_epoch=time.time(),
+                  scheduler_snapshot=snapshot,
+                  note='Observational counts only. No hour assignments. Reconcile legacy jobs, '
+                       'publish frozen inputs and calibrate before planning runnable hours.')
+    notice = ('# Tracker setup: no runnable hours\n\n' + report['note'] + '\n\n'
+              + 'Legacy jobs at scheduler capture: ' + json.dumps(snapshot.get('jobs', [])) + '\n\n')
+    result = exchange.store.commit(revision, {
+        REGISTRY_PATH: canonical(state),
+        'coordination/progress.json': canonical(report),
+        'coordination/progress.md': notice.encode() + markdown(report),
+    }, 'Initialize observational shared-hour tracker without runnable assignments')
+    return {'tracker_revision': result, 'cells': report['cells'], 'task_count': report['task_count'],
+            'legacy_jobs': snapshot.get('jobs', []), 'runnable_hours': 0, 'allocation_submitted': False}
 
 
 def main(argv=None):
@@ -40,7 +73,10 @@ def main(argv=None):
     parser.add_argument('--include-job-id', action='append', default=[])
     parser.add_argument('--calibration', type=Path)
     parser.add_argument('--stripes', type=int, default=256)
-    parser.add_argument('--publish', action='store_true')
+    publication = parser.add_mutually_exclusive_group()
+    publication.add_argument('--publish', action='store_true')
+    publication.add_argument('--publish-tracker', action='store_true',
+                             help='publish observations and an empty registry, even while legacy jobs are pending')
     parser.add_argument('--repo-id', default='ValerianFourel/geodml-experiment-v2-paper-private')
     args = parser.parse_args(argv)
     def scheduler():
@@ -48,6 +84,11 @@ def main(argv=None):
                         include_job_ids=args.include_job_id)
         return {**value, 'cluster': 'jupiter'}
     snapshot = scheduler()
+    if args.publish_tracker:
+        result = publish_tracker(args.source, Exchange(HubStore(args.repo_id), args.output / 'journal'),
+                                 snapshot, stripes=args.stripes)
+        print(json.dumps(result, indent=2))
+        return 0
     scheduler_gate(snapshot)
     review = reconcile(args.source, scheduler_snapshot=snapshot, stripe_count=args.stripes, apply=False)
     tasks, done, blocked = inventory(args.source, stripes=args.stripes)
