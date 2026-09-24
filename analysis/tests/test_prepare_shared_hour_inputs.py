@@ -167,3 +167,27 @@ def test_shared_inputs_support_pinned_qwen_environment_preparation(tmp_path):
     Path(report['files']['SEARCH_AGENTIC_DDG_SNAPSHOT']).write_text('changed search')
     with pytest.raises(ValueError, match='checksum/path'):
         verify_inputs(target, manifest, model='qwen38')
+
+
+def test_full_dispatch_publication_is_metadata_only_and_idempotent(tmp_path, monkeypatch):
+    import gzip
+
+    from analysis.interpretability.pipeline.agentic_hour_sync import Exchange
+    from analysis.tests.test_agentic_hours import MemoryHub
+    root, _, _ = fixture(tmp_path)
+    hub = MemoryHub()
+    snapshot = {'cluster': 'jupiter', 'complete': True, 'jobs': [], 'owners': [],
+                'captured_at_epoch': time.time()}
+    monkeypatch.setattr(bootstrap, 'reconcile', lambda *a, **kw: {'actions': [], 'blocked': []})
+    exchange = Exchange(hub, tmp_path / 'journal')
+    result = bootstrap.publish_dispatch(root, exchange, snapshot, stripes=4)
+    doc = json.loads(gzip.decompress(hub.read(result['inventory_path'], hub.head())))
+    assert len(doc['tasks']) == 48
+    assert len({t['fingerprint'] for t in doc['tasks']}) == 48
+    assert doc['runnable'] is False and doc['hour_packages'] is None
+    assert all(t['preferred_cluster'] == ('horeka' if t['model'] == 'qwen38' else 'jupiter') for t in doc['tasks'])
+    assert all('axis_bin' in t for t in doc['tasks'])
+    assert all(p.startswith('coordination/dispatch') for p in hub.versions[-1])
+    assert bootstrap.publish_dispatch(root, exchange, snapshot, stripes=4)['published_revision'] == result['published_revision']
+    with pytest.raises(ValueError, match='legacy allocations'):
+        bootstrap.publish_dispatch(root, exchange, {**snapshot, 'jobs': [{'job_id': '1'}]}, stripes=4)

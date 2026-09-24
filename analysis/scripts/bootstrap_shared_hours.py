@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import subprocess
 import sys
@@ -18,6 +19,8 @@ from analysis.interpretability.pipeline.agentic_hour_sync import (
     checkpoint_files,
 )
 from analysis.interpretability.pipeline.agentic_hour_updates import (
+    ALLOWED_MODELS,
+    PREFERRED_CLUSTER,
     markdown,
     progress,
     publish_progress,
@@ -25,6 +28,7 @@ from analysis.interpretability.pipeline.agentic_hour_updates import (
 )
 from analysis.interpretability.pipeline.agentic_hours import (
     canonical,
+    digest,
     empty_registry,
     inventory,
 )
@@ -34,6 +38,48 @@ from analysis.scripts.prepare_horeka_qwen import immutable_json
 from analysis.scripts.prepare_shared_hour_inputs import stage
 from analysis.scripts.publish_agentic_dataset import build_manifest
 from analysis.scripts.reconcile_agentic_dataset import reconcile
+
+
+def publish_dispatch(source, exchange, snapshot, *, stripes=256):
+    """Publish the complete audited inventory without copying input payloads."""
+    scheduler_gate(snapshot)
+    revision, state = exchange.snapshot()
+    if state != empty_registry():
+        raise ValueError('shared registry already in use; use the saved site update workflow')
+    review = reconcile(source, scheduler_snapshot=snapshot, stripe_count=stripes, apply=False)
+    if review['actions'] or review['blocked']:
+        raise ValueError('dispatch requires reconciled legacy work')
+    tasks, done, blocked = inventory(source, stripes=stripes)
+    from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
+    bins = {p['prompt_id']: p.get('axis_bin') for p in iter_sealed_rows(source, 'prompts')}
+    rows = []
+    for task in sorted(tasks, key=lambda t: (t['model'], t['priority_rank'], t['keyword_id'], t['prompt_id'], t['fingerprint'])):
+        fp = task['fingerprint']
+        status = 'verified_completed' if fp in done else 'blocked' if fp in blocked else 'awaiting_calibration_and_inputs'
+        rows.append({**task, 'axis_bin': bins.get(task['prompt_id']), 'dispatch_status': status,
+                     'preferred_cluster': PREFERRED_CLUSTER[task['model']],
+                     'allowed_clusters': sorted(c for c, models in ALLOWED_MODELS.items() if task['model'] in models)})
+    document = {'format_version': 'geodml-dispatch-inventory-v1', 'runnable': False,
+                'allocation_approved': False, 'hour_packages': None,
+                'reference_hour': {'cluster': 'jupiter', 'nodes': 1, 'gpus': 4, 'gpu_type': 'GH200', 'seconds': 3600},
+                'ordering': {'batch': 'keyword_priority_forward', 'interactive': 'keyword_priority_reverse',
+                             'within_keyword': 'finish_remaining_prompt_cells'},
+                'registered_tasks': len(tasks), 'verified_completed': len(done), 'blocked': len(blocked),
+                'missing_models': sorted(set(PREFERRED_CLUSTER) - {t['model'] for t in tasks}),
+                'tasks': rows}
+    plan_id = digest(document)
+    path = f'coordination/dispatch/{plan_id}.json.gz'
+    summary = {k: v for k, v in document.items() if k != 'tasks'}
+    summary.update(dispatch_id=plan_id, inventory_path=path, scheduler_snapshot=snapshot,
+                   note='Full task dispatch inventory. Hour sizing and frozen input publication remain required. '
+                        'Verified completions are observations, not transferred result payloads.')
+    if exchange.store.read(path, revision) is None:
+        result = exchange.store.commit(revision, {path: gzip.compress(canonical(document), mtime=0),
+                                       'coordination/dispatch.json': canonical(summary)},
+                                       'Publish audited keyword/bin dispatch inventory')
+    else:
+        result = revision
+    return {**summary, 'published_revision': result, 'allocation_submitted': False}
 
 
 def publish_tracker(source, exchange, snapshot, *, stripes=256):
@@ -75,6 +121,7 @@ def main(argv=None):
     parser.add_argument('--stripes', type=int, default=256)
     publication = parser.add_mutually_exclusive_group()
     publication.add_argument('--publish', action='store_true')
+    publication.add_argument('--publish-dispatch', action='store_true', help='publish the full audited task inventory without input payloads')
     publication.add_argument('--publish-tracker', action='store_true',
                              help='publish observations and an empty registry, even while legacy jobs are pending')
     parser.add_argument('--repo-id', default='ValerianFourel/geodml-experiment-v2-paper-private')
@@ -84,6 +131,11 @@ def main(argv=None):
                         include_job_ids=args.include_job_id)
         return {**value, 'cluster': 'jupiter'}
     snapshot = scheduler()
+    if args.publish_dispatch:
+        result = publish_dispatch(args.source, Exchange(HubStore(args.repo_id), args.output / 'journal'),
+                                  snapshot, stripes=args.stripes)
+        print(json.dumps(result, indent=2))
+        return 0
     if args.publish_tracker:
         result = publish_tracker(args.source, Exchange(HubStore(args.repo_id), args.output / 'journal'),
                                  snapshot, stripes=args.stripes)

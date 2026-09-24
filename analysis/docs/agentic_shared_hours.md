@@ -350,6 +350,17 @@ unset. Neither reservation membership nor `--exclusive` replaces compute-node
 execution-boundary verification.
 # Tracker setup while legacy jobs are queued
 
+After legacy jobs stop, `bootstrap_shared_hours.py --publish-dispatch` audits
+the source without repairing it and publishes a complete, compressed task
+inventory under `coordination/dispatch/<sha256>.json.gz`, with a summary at
+`coordination/dispatch.json`. Each task retains its scientific identity,
+keyword, prompt, axis bin, configuration, observed completion state and cluster
+routing. This metadata-only step needs no bulk-transfer quota evidence. It
+refuses unresolved reconciliation actions and an already active registry.
+It leaves hour packages unset until timing and frozen inputs are available;
+it neither transfers result payloads nor creates runnable claims. Identical
+inventory publication is idempotent. Only currently registered models appear.
+
 `bootstrap_shared_hours.py --publish-tracker` publishes `coordination/hours.json`
 with no assignments and `coordination/progress.json` / `progress.md` with current
 keyword/bin observations. It accepts pending legacy jobs and records their
