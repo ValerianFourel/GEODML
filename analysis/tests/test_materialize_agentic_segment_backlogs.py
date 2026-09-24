@@ -104,6 +104,45 @@ def test_materializer_orders_batch_forward_and_interactive_reverse(tmp_path):
     assert all(wave["backlog"]["task_count"] == 1 for wave in result["waves"])
 
 
+def test_batch_only_wave_keeps_ordered_spillover_keywords(tmp_path):
+    root = tmp_path / "dataset"
+    initialize_dataset(root, population_id="population", acceptance_policy_id="v2")
+    writer = FinalDatasetWriter(root, writer_id="bootstrap")
+    identities = {}
+    for rank, keyword in enumerate(("alpha", "beta")):
+        prompt_id = f"p-{keyword}"
+        writer.append("keyword_memberships", {
+            "prompt_id": prompt_id, "primary_keyword_id": keyword,
+            "keyword_ids": [keyword], "primary_priority_rank": rank,
+        }, transaction_id=prompt_id)
+        identity = _identity(keyword)
+        identities[keyword] = identity
+        writer.append("task_definitions", {
+            "task_id": keyword, "prompt_id": prompt_id, "model": "qwen38",
+            "stage": "generation", "claim_identity": asdict(identity),
+            "runnable_task": {"cell_id": keyword},
+        }, transaction_id=keyword)
+    writer.seal()
+    rows = [{
+        "keyword_id": keyword, "priority_rank": rank, "completed": 0,
+        "active": 0, "blocked": 0, "eligible_remaining": 1,
+        "estimated_remaining_seconds": 10, "task_set_ref": f"{keyword}-tasks",
+    } for rank, keyword in enumerate(("alpha", "beta"))]
+    plan = build_segment_plan(
+        audit_id="audit", ledger_sequence=0, acceptance_policy_id="v2",
+        model="qwen38", keyword_rows=rows, segment_count=2,
+        approval_status="approved",
+    ).to_dict()
+    result = materialize(
+        dataset_root=root, plan=plan, output=tmp_path / "queues", stripe_count=8
+    )
+    for wave in result["waves"]:
+        with open(wave["backlog"]["path"]) as stream:
+            assert [json.loads(line)["cell_id"] for line in stream] == [
+                "alpha", "beta"
+            ]
+
+
 def test_materializer_gives_meeting_keyword_to_batch_workers(tmp_path):
     root = tmp_path / "dataset"
     initialize_dataset(root, population_id="population", acceptance_policy_id="v2")

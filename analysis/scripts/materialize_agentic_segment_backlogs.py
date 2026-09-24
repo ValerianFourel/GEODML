@@ -165,6 +165,23 @@ def materialize(
     has_batch_segments = any(
         segment.get("mode") == "batch" for segment in plan["segments"]
     )
+    has_interactive_segments = any(
+        segment.get("mode") == "interactive" for segment in plan["segments"]
+    )
+    ranked_keywords = [
+        row["keyword_id"]
+        for row in sorted(
+            plan["keyword_priority"], key=lambda item: item["priority_rank"]
+        )
+        if any(task["primary_keyword_id"] == row["keyword_id"] for task in eligible)
+    ]
+    split = (len(ranked_keywords) + 1) // 2
+    batch_owned = set(
+        ranked_keywords[:split] if has_interactive_segments else ranked_keywords
+    )
+    interactive_owned = set(
+        ranked_keywords[split:] if has_batch_segments else ranked_keywords
+    )
     batch_keyword_id: str | None = None
     for segment in plan["segments"]:
         keyword_ids = segment.get("keyword_ids")
@@ -194,13 +211,26 @@ def materialize(
                 primary_keyword_id = None
         else:
             raise ValueError("segment mode must be batch or interactive")
+        # Freeze the whole approved eligible backlog in traversal order.  The
+        # durable ledger makes concurrent workers divide the front keyword and
+        # then continue to later keywords if it finishes during the allocation.
+        # Interactive traversal omits the batch-owned front keyword so opposite
+        # directions cannot collide before a post-audit replan.
         selected = sorted(
             (
                 row
                 for row in eligible
-                if row["primary_keyword_id"] == primary_keyword_id
+                if row["primary_keyword_id"] in (
+                    batch_owned
+                    if segment.get("mode") == "batch"
+                    else interactive_owned
+                )
             ),
-            key=lambda row: (row["task_id"], row["fingerprint"]),
+            key=lambda row: (
+                order[row["primary_keyword_id"]],
+                row["task_id"],
+                row["fingerprint"],
+            ),
         )
         wave_root = output / "segments" / segment["segment_id"] / "wave"
         backlog_path = wave_root / "backlog.jsonl"
