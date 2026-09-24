@@ -59,8 +59,10 @@ def select_hours(state, *, model, cluster=None, mode="batch", count=1, first=Non
             "allocation_approved": False, "hour_ids": [r["hour_id"] for r in rows[:count]]}
 
 
-def progress(root, state, *, revision, deferred=None, prior_completed=(), stripes=256):
-    tasks, local_done, local_blocked = inventory(root, stripes=stripes, reuse_verified=True)
+def progress(root, state, *, revision, deferred=None, prior_completed=(), stripes=256,
+             local_inventory=None):
+    tasks, local_done, local_blocked = (inventory(root, stripes=stripes, reuse_verified=True)
+                                       if local_inventory is None else local_inventory)
     prompts = {r["prompt_id"]: r for r in iter_sealed_rows(root, "prompts")}
     done, failed, owned, assignments = set(prior_completed), set(), {}, {}
     for hour in state["hours"].values():
@@ -140,6 +142,23 @@ def publish_progress(exchange, report):
                                     "coordination/progress.md": markdown(report)}, "GEODML progress view")
 
 
+def shared_status(exchange, *, revision=None, state=None):
+    """Read the shared handoff document; never rebuild it on a status request."""
+    if revision is None or state is None:
+        revision, state = exchange.snapshot()
+    raw = exchange.store.read("coordination/progress.json", revision)
+    result = {"document": "coordination/progress.json", "registry_revision": revision,
+              "current_plan": state["current_plan"], "local_audit_performed": False,
+              "scope": "published_shared_state"}
+    if raw is None:
+        return {**result, "status": "progress_not_published"}
+    report = json.loads(raw)
+    if report.get("format_version") != "geodml-hour-progress-v1":
+        raise ValueError("unsupported shared progress document")
+    return {**result, "status": "current" if report["registry_sha256"] == digest(state) else "stale",
+            "progress": report}
+
+
 def bundles_for(exchange, state, revision, model=None):
     plan_ids = {h["plan_id"] for h in state["hours"].values()
                 if h["status"] != "superseded" and (model is None or h["model"] == model)}
@@ -194,11 +213,12 @@ def pull(exchange, site, *, model=None):
     return state, plans, revision
 
 
-def replan(exchange, site, state, plans):
+def replan(exchange, site, state, plans, *, local_inventory=None):
     if site["cluster"] != "jupiter":
         raise ValueError("only JUPITER may publish replacement plans")
     root = Path(site["dataset_root"])
-    tasks, done, blocked = inventory(root, stripes=site.get("stripes", 256))
+    tasks, done, blocked = (inventory(root, stripes=site.get("stripes", 256), reuse_verified=True)
+                            if local_inventory is None else local_inventory)
     previous = plans.get(state["current_plan"])
     bundle = site.get("input_bundle") or (previous or {}).get("input_bundle")
     published_done = {fp for hour in state["hours"].values() for fp in hour["completed"]}
@@ -236,6 +256,8 @@ def run(exchange, args):
     site = read(args.site)
     if site.get("cluster") not in ALLOWED_MODELS:
         raise ValueError("site must specify jupiter or horeka")
+    if args.command == "status" and not getattr(args, "audit_local", False):
+        return shared_status(exchange)
     if args.command == "select":
         _, state = exchange.snapshot()
         return select_hours(state, model=args.model, cluster=args.cluster,
@@ -268,10 +290,14 @@ def run(exchange, args):
     else:
         state, plans, revision = pull(exchange, site, model=getattr(args, "model", None))
     result = {"sync": synced}
+    if args.command == "update" and scope in {"plan", "both"} and any(s.get("status") == "blocked" for s in synced):
+        raise ValueError("local reconciliation is blocked; refusing to replan")
+    local_inventory = None
+    if args.command == "update":
+        local_inventory = inventory(Path(site["dataset_root"]),
+                                    stripes=site.get("stripes", 256), reuse_verified=True)
     if args.command == "update" and scope in {"plan", "both"}:
-        if any(s.get("status") == "blocked" for s in synced):
-            raise ValueError("local reconciliation is blocked; refusing to replan")
-        result["plan"] = replan(exchange, site, state, plans)
+        result["plan"] = replan(exchange, site, state, plans, local_inventory=local_inventory)
         revision, state = exchange.snapshot()
         plans[state["current_plan"]] = load_plan(exchange, state["current_plan"], revision)
     current_plan = plans.get(state["current_plan"], {})
@@ -279,15 +305,21 @@ def run(exchange, args):
         bundle = exchange.manifest(current_plan['input_bundle'], revision)
         result['input_manifests'] = [str(Path(site['dataset_root']) / name) for name in bundle['files']
                                      if name.startswith('artifacts/shared-preparations/')]
+    if args.command == "pull":
+        result.update(shared_status(exchange, revision=revision, state=state))
+        if "progress" in result:
+            atomic(Path(site["plan_dir"]) / "progress.json", canonical(result["progress"]))
+            atomic(Path(site["plan_dir"]) / "progress.md", markdown(result["progress"]))
+            result["local_progress"] = str(Path(site["plan_dir"]) / "progress.json")
+        return result
     deferred = current_plan.get("deferred", {})
     if args.command == "update":
-        local_tasks = {t["fingerprint"] for t in inventory(Path(site["dataset_root"]),
-                                                         stripes=site.get("stripes", 256), reuse_verified=True)[0]}
+        local_tasks = {t["fingerprint"] for t in local_inventory[0]}
         if {fp for h in state["hours"].values() for fp in h["task_fingerprints"]} - local_tasks:
             raise ValueError("local mirror is incomplete; cannot replace global progress")
     report = progress(Path(site["dataset_root"]), state, revision=revision,
                       deferred=deferred, prior_completed=current_plan.get("completed_before_plan", []),
-                      stripes=site.get("stripes", 256))
+                      stripes=site.get("stripes", 256), local_inventory=local_inventory)
     if args.command == "update":
         publish_progress(exchange, report)
     if args.command != "status":

@@ -1,5 +1,29 @@
 # First Llama allocation on JUPITER
 
+## One shared handoff document
+
+`coordination/progress.json` in the private Hugging Face dataset is the normal
+cross-cluster progress document. It reports cells by model, keyword and axis bin,
+completion/synchronization state, hour assignments and cluster ownership.
+`manage_agentic_hours.py status` reads this document without scanning the local
+dataset or loading the full plan. It marks the view stale if ownership state has
+changed since publication. This is published progress, not a live Slurm query or
+a claim that unsynchronized local results are already available elsewhere.
+
+Use `status --audit-local` only when local reconstruction is needed. Normal
+updates reuse one inventory snapshot for planning and reporting, and reuse
+verification receipts for unchanged payloads. Pull verifies transferred files
+and then reads the shared document; it does not repeat a population audit.
+The Markdown progress file is a compatibility view of the same report.
+Internal claims, result payloads and manifests remain necessary for safe resume;
+they are not additional documents operators need to maintain manually.
+
+Initial registration and exact legacy-result acceptance happen once for a new
+model/population. They are not prerequisites repeated for every allocation.
+An already-running pinned preparation continues with its original code.
+
+## Prepare and launch
+
 Use `analysis/scripts/prepare_jupiter_llama.py` from a clean committed checkout.
 This is one dataset-backed production allocation to obtain Llama throughput for
 the frozen population. It does not invent GH200 timings or shared hour packages.

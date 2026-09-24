@@ -1,5 +1,6 @@
 """Public update commands against isolated Hub and cluster fixtures."""
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -82,6 +83,101 @@ def test_progress_bins_are_not_double_counted_and_snapshot_races_fail(tmp_path):
         cluster='horeka', attempt_id='hk', supported_models=['qwen38']))
     with pytest.raises(ConflictError, match='registry changed'):
         updates.publish_progress(exchange, report)
+
+
+def test_status_reads_shared_document_without_local_dataset_or_audit(tmp_path, monkeypatch):
+    root, _, exchange, site, _ = setup(tmp_path)
+    revision, state = exchange.snapshot()
+    report = updates.progress(root, state, revision=revision, stripes=4)
+    updates.publish_progress(exchange, report)
+    site['dataset_root'] = str(tmp_path / 'not-downloaded')
+    path = tmp_path / 'site.json'
+    path.write_bytes(canonical(site))
+    def forbidden(*args, **kwargs):
+        pytest.fail('status must not audit or download plans')
+    monkeypatch.setattr(updates, 'inventory', forbidden)
+    monkeypatch.setattr(updates, 'load_plan', forbidden)
+    result = updates.run(exchange, SimpleNamespace(command='status', site=path))
+    assert result['progress']['cells'] == {'eligible': 4}
+    assert result['status'] == 'current'
+    assert result['local_audit_performed'] is False
+    exchange.transact('change-after-report', {}, lambda s: {**s, 'admission': {'jupiter': {}}})
+    result = updates.run(exchange, SimpleNamespace(command='status', site=path))
+    assert result['status'] == 'stale'
+    assert result['progress']['cells'] == {'eligible': 4}
+
+
+def test_missing_shared_document_does_not_trigger_an_implicit_audit(tmp_path, monkeypatch):
+    _, _, exchange, site, _ = setup(tmp_path)
+    path = tmp_path / 'site.json'
+    path.write_bytes(canonical(site))
+    monkeypatch.setattr(updates, 'inventory', lambda *a, **k: pytest.fail('unexpected audit'))
+    result = updates.run(exchange, SimpleNamespace(command='status', site=path))
+    assert result['status'] == 'progress_not_published'
+    assert result['local_audit_performed'] is False
+
+
+def test_normal_update_reads_inventory_once(tmp_path, monkeypatch):
+    _, _, exchange, site, _ = setup(tmp_path)
+    site['cluster'] = 'horeka'
+    path = tmp_path / 'site.json'
+    path.write_bytes(canonical(site))
+    original, calls = updates.inventory, []
+    def once(*args, **kwargs):
+        calls.append(kwargs)
+        assert len(calls) == 1, 'update repeated the population inventory'
+        return original(*args, **kwargs)
+    monkeypatch.setattr(updates, 'inventory', once)
+    result = updates.run(exchange, SimpleNamespace(command='update', scope='results', site=path))
+    assert result['progress']['task_count'] == 4
+    assert calls[0]['reuse_verified'] is True
+
+
+def test_pull_does_not_repeat_inventory_after_verified_download(tmp_path, monkeypatch):
+    root, _, exchange, site, _ = setup(tmp_path)
+    revision, state = exchange.snapshot()
+    updates.publish_progress(exchange, updates.progress(root, state, revision=revision, stripes=4))
+    site['cluster'] = 'horeka'
+    path = tmp_path / 'site.json'
+    path.write_bytes(canonical(site))
+    monkeypatch.setattr(updates, 'inventory', lambda *a, **k: pytest.fail('redundant post-download audit'))
+    result = updates.run(exchange, SimpleNamespace(command='pull', model='qwen38', site=path))
+    assert result['progress']['task_count'] == 4
+    assert result['scope'] == 'published_shared_state'
+
+
+def test_local_audit_is_explicit_and_still_available(tmp_path, monkeypatch):
+    _, _, exchange, site, _ = setup(tmp_path)
+    path = tmp_path / 'site.json'
+    path.write_bytes(canonical(site))
+    original, calls = updates.inventory, []
+    def record(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(updates, 'inventory', record)
+    args = cli.parser().parse_args(['status', '--site', str(path), '--audit-local'])
+    result = updates.run(exchange, args)
+    assert result['progress']['task_count'] == 4
+    assert calls == [True]
+
+
+def test_replanning_reuses_the_updates_inventory_snapshot(tmp_path, monkeypatch):
+    _, _, exchange, site, first = setup(tmp_path)
+    path = tmp_path / 'site.json'
+    path.write_bytes(canonical(site))
+    revision, state = exchange.snapshot()
+    plans = {first['plan_id']: updates.load_plan(exchange, first['plan_id'], revision)}
+    monkeypatch.setattr(updates, 'pull', lambda *a, **k: (state, plans, revision))
+    original, calls = updates.inventory, []
+    def once(*args, **kwargs):
+        calls.append(True)
+        assert len(calls) == 1, 'replanning repeated the already-read inventory'
+        return original(*args, **kwargs)
+    monkeypatch.setattr(updates, 'inventory', once)
+    result = updates.run(exchange, SimpleNamespace(command='update', scope='both', site=path))
+    assert result['plan']['status'] == 'unchanged'
+    assert result['progress']['task_count'] == 4
+    assert calls == [True]
 
 
 def test_results_update_keeps_plan_and_no_new_payload_transfer(tmp_path, monkeypatch):

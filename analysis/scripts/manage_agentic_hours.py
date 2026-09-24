@@ -272,6 +272,9 @@ def parser() -> argparse.ArgumentParser:
         command = commands.add_parser(name)
         command.add_argument("--site", type=Path, required=True)
         command.add_argument("--details", action="store_true")
+        if name == "status":
+            command.add_argument("--audit-local", action="store_true",
+                                 help="Explicitly rebuild local progress instead of reading the shared document")
         if name == "update":
             command.add_argument("--scope", choices=("results", "plan", "both"), default="results")
         if name in {"pull", "select"}:
