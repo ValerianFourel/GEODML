@@ -113,6 +113,10 @@ def load_calibration_prompts(
             keyword=keyword,
         ))
     bins = sorted(by_bin)
+    if prompt_count == len(prompts_by_id):
+        selected = [prompt for rows in by_bin.values() for prompt in rows]
+        selected.sort(key=lambda row: (row.axis_bin, row.prompt_id))
+        return tuple(selected)
     if prompt_count < len(bins):
         raise ValueError(
             "prompt count must be at least the number of observed axis bins"

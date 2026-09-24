@@ -73,3 +73,29 @@ def test_prompt_selection_rejects_duplicate_ids(tmp_path):
     path.write_text((json.dumps(row) + "\n") * 2)
     with pytest.raises(ValueError, match="duplicate candidate IDs"):
         tasks.load_calibration_prompts(path, path, prompt_count=1, seed=7)
+
+
+def test_full_population_selection_preserves_imbalanced_frozen_population(tmp_path):
+    prompt_rows = [
+        {"candidate_id": "p0", "question": "Question 0?", "keyword": "topic-0"},
+        {"candidate_id": "p1", "question": "Question 1?", "keyword": "topic-1"},
+        {"candidate_id": "p2", "question": "Question 2?", "keyword": "topic-1"},
+    ]
+    record_rows = [
+        {"candidate_id": "p0", "axis_bin": 0},
+        {"candidate_id": "p1", "axis_bin": 1},
+        {"candidate_id": "p2", "axis_bin": 1},
+    ]
+    prompts = tmp_path / "prompts.jsonl"
+    records = tmp_path / "records.jsonl"
+    prompts.write_text("".join(json.dumps(row) + "\n" for row in prompt_rows))
+    records.write_text("".join(json.dumps(row) + "\n" for row in record_rows))
+
+    selected = tasks.load_calibration_prompts(
+        prompts,
+        records,
+        prompt_count=3,
+        seed=7,
+    )
+
+    assert [row.prompt_id for row in selected] == ["p0", "p1", "p2"]
