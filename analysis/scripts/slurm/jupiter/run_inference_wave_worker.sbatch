@@ -70,8 +70,17 @@ if manifest["format_version"] == "geodml-inference-wave-v2":
         raise ValueError("Version 2 inference waves require backlog dispatch")
     mode = "backlog"
     claim_root = env.get("GEODML_INFERENCE_CLAIM_ROOT", "")
-    if not claim_root or not Path(claim_root).is_absolute():
-        raise ValueError("Backlog workers require one absolute shared GEODML_INFERENCE_CLAIM_ROOT")
+    dataset_root = env.get("GEODML_DATASET_ROOT", "")
+    if bool(claim_root) == bool(dataset_root):
+        raise ValueError(
+            "Backlog workers require exactly one durable state root: "
+            "GEODML_INFERENCE_CLAIM_ROOT or GEODML_DATASET_ROOT"
+        )
+    durable_root = claim_root or dataset_root
+    if not Path(durable_root).is_absolute():
+        raise ValueError("Backlog durable state root must be absolute")
+    if dataset_root and not (Path(dataset_root) / "contract.json").is_file():
+        raise ValueError("GEODML_DATASET_ROOT is not an initialized dataset")
     explicit = ("GEODML_WORKER_INDEX" in env, "GEODML_WORKER_COUNT" in env)
     if any(explicit) and not all(explicit):
         raise ValueError("Set both worker index and count, or neither")
@@ -184,6 +193,7 @@ row = {
     "preferred_worker_index": int(env["GEODML_WORKER_INDEX"]),
     "preferred_worker_count": int(env["GEODML_WORKER_COUNT"]),
     "claim_root": env.get("GEODML_INFERENCE_CLAIM_ROOT") if env["GEODML_DISPATCH_MODE"] == "backlog" else None,
+    "dataset_root": env.get("GEODML_DATASET_ROOT") if env["GEODML_DISPATCH_MODE"] == "backlog" else None,
     "git_commit": env["GEODML_EXECUTION_COMMIT"],
     "repository": env["GEODML_EXECUTION_REPOSITORY"],
     "launcher": env["GEODML_WORKER_LAUNCHER"],

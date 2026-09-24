@@ -28,9 +28,24 @@ geodml_prompt_args=()
 geodml_cell_concurrency_args=()
 geodml_cell_selection_args=()
 geodml_shared_claim_args=()
+geodml_dataset_args=()
 if [[ -n "${SEARCH_AGENTIC_SHARED_CLAIM_ROOT:-}" ]]; then
   geodml_shared_claim_args=(
     --shared-claim-root "$SEARCH_AGENTIC_SHARED_CLAIM_ROOT"
+    --worker-index "${SEARCH_AGENTIC_WORKER_INDEX:-0}"
+    --worker-count "${SEARCH_AGENTIC_WORKER_COUNT:-1}"
+  )
+fi
+if [[ -n "${SEARCH_AGENTIC_DATASET_ROOT:-}" ]]; then
+  : "${SEARCH_AGENTIC_DATASET_WRITER_ID:?}"
+  [[ -z "${SEARCH_AGENTIC_SHARED_CLAIM_ROOT:-}" ]] || {
+    printf '%s\n' 'Direct dataset mode and legacy shared claims are exclusive.' >&2
+    exit 2
+  }
+  geodml_dataset_args=(
+    --dataset-root "$SEARCH_AGENTIC_DATASET_ROOT"
+    --dataset-writer-id "$SEARCH_AGENTIC_DATASET_WRITER_ID"
+    --dataset-ledger-stripes "${SEARCH_AGENTIC_DATASET_LEDGER_STRIPES:-256}"
     --worker-index "${SEARCH_AGENTIC_WORKER_INDEX:-0}"
     --worker-count "${SEARCH_AGENTIC_WORKER_COUNT:-1}"
   )
@@ -132,6 +147,7 @@ python3 analysis/scripts/search_vllm_stage.py run \
     --disable-thinking \
     "${geodml_cell_selection_args[@]}" \
     "${geodml_shared_claim_args[@]}" \
+    "${geodml_dataset_args[@]}" \
     "${geodml_prompt_args[@]}"
 
 python3 - "$SEARCH_AGENTIC_OUTPUT/run_manifest.json" "$geodml_expected_cells" <<'PY'

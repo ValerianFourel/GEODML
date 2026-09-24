@@ -5,21 +5,37 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import aclosing, contextmanager, ExitStack
-from contextvars import ContextVar
-from datetime import datetime, timezone
 import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import sys
 import tempfile
 import time
 import uuid
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from contextlib import ExitStack, aclosing, contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
-_TASK_CONTEXT = ContextVar("acl_arr_task_context", default={})
+_TASK_CONTEXT: ContextVar[Mapping[str, Any] | None] = ContextVar(
+    "acl_arr_task_context", default=None
+)
+
+
+@contextmanager
+def inference_task_context(value: Mapping[str, Any]):
+    """Attach stable task metadata to every transport-attempt audit event."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError("inference task context must be a mapping")
+    token = _TASK_CONTEXT.set(dict(value))
+    try:
+        yield
+    finally:
+        _TASK_CONTEXT.reset(token)
 
 
 class AuditWriteError(RuntimeError):
@@ -31,13 +47,13 @@ REPOSITORY_ROOT = ANALYSIS_ROOT.parent
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from analysis.interpretability.pipeline.acl_arr_document_experiment import (  # noqa: E402
+from analysis.interpretability.pipeline.acl_arr_document_experiment import (
+    FORMAT_VERSION,
+    JUDGE_FORMAT_VERSION,
     BlindedJudgeTask,
     ExperimentTask,
-    FORMAT_VERSION,
     FrozenDocument,
     FrozenDocumentSet,
-    JUDGE_FORMAT_VERSION,
     load_plan_from_artifacts,
     render_judge_prompt,
     render_primary_prompt,
@@ -45,12 +61,21 @@ from analysis.interpretability.pipeline.acl_arr_document_experiment import (  # 
     validate_judge_output,
     validate_rerank_output,
 )
-from analysis.interpretability.pipeline.agentic_judging import (  # noqa: E402
-    AgenticJudgeTask,
+from analysis.interpretability.pipeline.agentic_dataset import (
+    FinalDatasetWriter,
+)
+from analysis.interpretability.pipeline.agentic_judging import (
     SUPPORTED_FORMAT_VERSIONS as AGENTIC_JUDGE_FORMAT_VERSIONS,
+)
+from analysis.interpretability.pipeline.agentic_judging import (
+    AgenticJudgeTask,
     agentic_judge_schema,
     render_agentic_judge_prompt,
     validate_agentic_judgment,
+)
+from analysis.interpretability.pipeline.agentic_task_ledger import (
+    LedgerClaim,
+    StripedTaskLedger,
 )
 from analysis.interpretability.pipeline.inference_budget import AllocationBudget
 from analysis.interpretability.pipeline.inference_claims import (
@@ -80,7 +105,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
                 continue
             value = json.loads(line)
             if not isinstance(value, dict):
-                raise ValueError(f"expected an object at {path}:{line_number}")
+                raise TypeError(f"expected an object at {path}:{line_number}")
             rows.append(value)
     if not rows:
         raise ValueError(f"task file is empty: {path}")
@@ -108,7 +133,7 @@ def _verify_primary_task_file(manifest: Mapping[str, Any], tasks_path: Path) -> 
     artifacts = manifest.get("artifacts")
     tasks = artifacts.get("tasks") if isinstance(artifacts, dict) else None
     if not isinstance(tasks, dict):
-        raise ValueError("plan manifest lacks task artifacts")
+        raise TypeError("plan manifest lacks task artifacts")
     digest = _sha256(tasks_path)
     identities = [value for value in tasks.values() if isinstance(value, dict)]
     if not any(identity.get("sha256") == digest for identity in identities):
@@ -145,7 +170,7 @@ def _judge_context(manifest_path: Path, tasks_path: Path):
         raise ValueError("unsupported judge plan format")
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
-        raise ValueError("judge manifest lacks artifacts")
+        raise TypeError("judge manifest lacks artifacts")
     task_identity = artifacts.get("judge_tasks")
     document_identity = artifacts.get("frozen_document_sets")
     if not isinstance(task_identity, dict) or task_identity.get("sha256") != _sha256(
@@ -153,7 +178,7 @@ def _judge_context(manifest_path: Path, tasks_path: Path):
     ):
         raise ValueError("judge task file does not match the manifest SHA-256")
     if not isinstance(document_identity, dict):
-        raise ValueError("judge manifest lacks frozen document sets")
+        raise TypeError("judge manifest lacks frozen document sets")
     documents_path = Path(str(document_identity["path"]))
     if _sha256(documents_path) != document_identity.get("sha256"):
         raise ValueError("judge document sets do not match the manifest SHA-256")
@@ -196,16 +221,16 @@ def _agentic_judge_context(
         raise ValueError("unsupported agentic judge plan format")
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
-        raise ValueError("agentic judge manifest lacks artifacts")
+        raise TypeError("agentic judge manifest lacks artifacts")
     queue_identity = artifacts.get("bulk_tasks")
     if not isinstance(queue_identity, dict):
-        raise ValueError("agentic judge manifest lacks the canonical task queue")
+        raise TypeError("agentic judge manifest lacks the canonical task queue")
     canonical_path = Path(str(queue_identity.get("path", "")))
     if _sha256(canonical_path) != queue_identity.get("sha256"):
         raise ValueError("canonical agentic judge task queue hash mismatch")
     model = manifest.get(f"{judge_role}_model")
     if not isinstance(model, dict):
-        raise ValueError(
+        raise TypeError(
             f"agentic judge manifest lacks {judge_role} model identity"
         )
     tasks = [AgenticJudgeTask.from_dict(row) for row in _read_jsonl(tasks_path)]
@@ -325,7 +350,9 @@ class VllmChatClient:
     def _audit(self, event):
         if self.audit_callback is not None:
             try:
-                self.audit_callback({"task_context": dict(_TASK_CONTEXT.get()), **event})
+                self.audit_callback(
+                    {"task_context": dict(_TASK_CONTEXT.get() or {}), **event}
+                )
             except Exception as exc:
                 raise AuditWriteError(str(exc)) from exc
 
@@ -440,10 +467,10 @@ class VllmChatClient:
                         raise RuntimeError("vLLM response exposed its credential")
                 content = value["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
-                    raise RuntimeError("vLLM response content is not text")
+                    raise TypeError("vLLM response content is not text")
                 usage = value.get("usage", {})
                 usage = usage if isinstance(usage, dict) else {}
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - record any request failure
                 last_error = exc
                 error = f"{type(exc).__name__}: {exc}"
                 if self.api_key and self.api_key in error:
@@ -508,46 +535,57 @@ async def _execute_one(item, *, client, fake):
         raise ValueError("maximum validation attempts must be a positive integer")
     if maximum_validation_attempts > 1 and feedback_contract != "search-experience-validation-feedback-v1":
         raise ValueError("unknown validation feedback contract")
-    token = _TASK_CONTEXT.set(item["base"])
-    try:
-        prompt = str(item["prompt"])
-        rejected_hashes = []
-        for validation_attempt in range(1, maximum_validation_attempts + 1):
-            retry_task_id = item["base"].get("task_id") or item["base"].get(
-                "judge_task_id"
-            )
-            if not isinstance(retry_task_id, str):
-                raise ValueError("inference item lacks a stable task ID")
-            seed = (int(item["seed"]) if validation_attempt == 1 else
-                    _validation_retry_seed(int(item["seed"]), retry_task_id, validation_attempt))
-            if fake:
-                raw, usage = str(item["fake_output"]), {}
-            else:
-                raw, usage = await client.complete(
-                    prompt=prompt, schema_name=str(item["schema_name"]),
-                    schema=item["schema"], temperature=float(item["temperature"]),
-                    max_tokens=int(item["max_tokens"]), seed=seed,
+    with inference_task_context(item["base"]):
+        try:
+            prompt = str(item["prompt"])
+            rejected_hashes = []
+            for validation_attempt in range(1, maximum_validation_attempts + 1):
+                retry_task_id = item["base"].get("task_id") or item["base"].get(
+                    "judge_task_id"
                 )
-            result.update(raw_output=raw, usage=dict(usage),
-                          validation_attempt_count=validation_attempt,
-                          rejected_output_sha256=list(rejected_hashes))
-            try:
-                parsed = item["validator"](raw)
-            except Exception as exc:
-                rejected_hashes.append(hashlib.sha256(raw.encode()).hexdigest())
-                result["rejected_output_sha256"] = list(rejected_hashes)
-                if validation_attempt == maximum_validation_attempts:
-                    raise
-                prompt = _validation_feedback_prompt(str(item["prompt"]), exc, validation_attempt)
-                continue
-            result.update(parsed_output=parsed, ok=True)
-            break
-    except AuditWriteError:
-        raise
-    except Exception as exc:
-        result.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-    finally:
-        _TASK_CONTEXT.reset(token)
+                if not isinstance(retry_task_id, str):
+                    raise TypeError("inference item lacks a stable task ID")
+                seed = (
+                    int(item["seed"])
+                    if validation_attempt == 1
+                    else _validation_retry_seed(
+                        int(item["seed"]), retry_task_id, validation_attempt
+                    )
+                )
+                if fake:
+                    raw, usage = str(item["fake_output"]), {}
+                else:
+                    raw, usage = await client.complete(
+                        prompt=prompt,
+                        schema_name=str(item["schema_name"]),
+                        schema=item["schema"],
+                        temperature=float(item["temperature"]),
+                        max_tokens=int(item["max_tokens"]),
+                        seed=seed,
+                    )
+                result.update(
+                    raw_output=raw,
+                    usage=dict(usage),
+                    validation_attempt_count=validation_attempt,
+                    rejected_output_sha256=list(rejected_hashes),
+                )
+                try:
+                    parsed = item["validator"](raw)
+                except Exception as exc:
+                    rejected_hashes.append(hashlib.sha256(raw.encode()).hexdigest())
+                    result["rejected_output_sha256"] = list(rejected_hashes)
+                    if validation_attempt == maximum_validation_attempts:
+                        raise
+                    prompt = _validation_feedback_prompt(
+                        str(item["prompt"]), exc, validation_attempt
+                    )
+                    continue
+                result.update(parsed_output=parsed, ok=True)
+                break
+        except AuditWriteError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - task failures are durable outcomes
+            result.update(ok=False, error=f"{type(exc).__name__}: {exc}")
     result.update(finished_at=_now(), duration_seconds=time.monotonic() - started)
     return result
 
@@ -766,7 +804,7 @@ def _journal_rows(path):
             except (ValueError, UnicodeError) as exc:
                 raise ValueError(f"corrupt journal at {path}:{number}") from exc
             if not isinstance(row, dict):
-                raise ValueError(f"non-object journal at {path}:{number}")
+                raise TypeError(f"non-object journal at {path}:{number}")
             yield row
 
 
@@ -855,16 +893,29 @@ def task_in_worker(task_id: str, worker_index: int, worker_count: int) -> bool:
     return int(hashlib.sha256(task_id.encode("utf-8")).hexdigest(), 16) % worker_count == worker_index
 
 
-def _shared_claim_identity(item, *, args, model_id, model_revision):
+def agentic_judge_claim_identity(
+    item,
+    *,
+    judge_role,
+    disable_thinking,
+    fake_backend,
+    pilot_only,
+    maximum_attempts,
+    request_timeout,
+    model_id,
+    model_revision,
+):
+    """Return the durable identity shared by registration and execution."""
+
     # This contract excludes queue hashes, local journals and worker layout.
     # Altering any actual inference setting must select a different claim.
     contract = {
-        "judge_role": args.judge_role,
-        "disable_thinking": args.disable_thinking,
-        "fake_backend": args.fake,
-        "pilot_only": args.pilot_only,
-        "maximum_attempts": args.max_attempts,
-        "request_timeout": args.request_timeout,
+        "judge_role": judge_role,
+        "disable_thinking": disable_thinking,
+        "fake_backend": fake_backend,
+        "pilot_only": pilot_only,
+        "maximum_attempts": maximum_attempts,
+        "request_timeout": request_timeout,
         "maximum_validation_attempts": item.get("maximum_validation_attempts", 1),
         "validation_feedback_contract": item.get("validation_feedback_contract"),
     }
@@ -875,6 +926,20 @@ def _shared_claim_identity(item, *, args, model_id, model_revision):
         task_id=item["base"]["judge_task_id"], model_id=model_id,
         model_revision=model_revision, protocol=f"agentic-judge-shared-v1:{digest}",
         request_sha256=_request_sha256(item),
+    )
+
+
+def _shared_claim_identity(item, *, args, model_id, model_revision):
+    return agentic_judge_claim_identity(
+        item,
+        judge_role=args.judge_role,
+        disable_thinking=args.disable_thinking,
+        fake_backend=args.fake,
+        pilot_only=args.pilot_only,
+        maximum_attempts=args.max_attempts,
+        request_timeout=args.request_timeout,
+        model_id=model_id,
+        model_revision=model_revision,
     )
 
 
@@ -949,12 +1014,27 @@ async def _run_locked(args, ownership) -> int:
     budget = AllocationBudget.from_environment()
     bounded = budget.work_seconds_left() is not None
     claim_root = getattr(args, "claim_root", None)
+    dataset_root_value = getattr(args, "dataset_root", None)
+    dataset_root = Path(dataset_root_value).resolve() if dataset_root_value else None
+    dataset_writer_id = getattr(args, "dataset_writer_id", None)
     worker_index = getattr(args, "worker_index", 0)
     worker_count = getattr(args, "worker_count", 1)
     dispatch_mode = getattr(args, "dispatch_mode", "partition")
     task_in_worker("validate-slot", worker_index, worker_count)
-    if (worker_count > 1 or dispatch_mode == "backlog") and not claim_root:
-        raise ValueError("multiple workers and backlog dispatch require --claim-root on shared storage")
+    if dataset_root is not None and args.command != "agentic-judge":
+        raise ValueError("direct dataset mode is supported only for agentic judging")
+    if dataset_root is not None and claim_root:
+        raise ValueError("direct dataset mode and legacy shared claims are exclusive")
+    if (dataset_root is None) != (dataset_writer_id is None):
+        raise ValueError("dataset root and writer ID must be configured together")
+    if dataset_root is not None and not (dataset_root / "contract.json").is_file():
+        raise ValueError("dataset root is not an initialized final dataset")
+    durable_root = claim_root or dataset_root
+    if (worker_count > 1 or dispatch_mode == "backlog") and not durable_root:
+        raise ValueError(
+            "multiple workers and backlog dispatch require --claim-root or "
+            "--dataset-root shared durable task state"
+        )
     dispatch = {
         "worker_index": worker_index, "worker_count": worker_count,
         "assignment": "sha256-task-id-modulo-v1",
@@ -962,7 +1042,18 @@ async def _run_locked(args, ownership) -> int:
     if dispatch_mode == "backlog":
         dispatch.update(mode="backlog", assignment="sha256-task-id-preferred-slot-then-backlog-v1")
     store = InferenceClaimStore(claim_root) if claim_root else None
-    scheduler = "rolling" if bounded or store is not None else args.scheduler
+    task_ledger = (
+        StripedTaskLedger(
+            dataset_root / "control" / "task-ledger",
+            stripe_count=getattr(args, "dataset_ledger_stripes", 256),
+        )
+        if dataset_root is not None
+        else None
+    )
+    scheduler = (
+        "rolling" if bounded or store is not None or task_ledger is not None
+        else args.scheduler
+    )
     tasks_path = Path(args.tasks).resolve()
     output = Path(args.output_dir).resolve()
     outcomes_path = output / "outcomes.jsonl"
@@ -1046,8 +1137,42 @@ async def _run_locked(args, ownership) -> int:
         )
     if args.resume:
         _validate_worker_resume(run_manifest_path, dispatch)
-    completed = _validate_resume(output, identity, tasks, prepare, id_field) if args.resume else set()
-    pending = [task for task in tasks if getattr(task, id_field) not in completed]
+    dataset_identities = (
+        {
+            getattr(task, id_field): _shared_claim_identity(
+                prepare(task),
+                args=args,
+                model_id=model_id,
+                model_revision=model_revision,
+            )
+            for task in tasks
+        }
+        if task_ledger is not None
+        else {}
+    )
+    dataset_terminal_failed: set[str] = set()
+    if task_ledger is not None:
+        completed = set()
+        for task_id, task_identity in dataset_identities.items():
+            latest = task_ledger.inspect(task_identity)
+            if latest is None:
+                continue
+            if latest.get("state") == "completed":
+                completed.add(task_id)
+            elif latest.get("state") == "terminal_failed":
+                dataset_terminal_failed.add(task_id)
+    else:
+        completed = (
+            _validate_resume(output, identity, tasks, prepare, id_field)
+            if args.resume
+            else set()
+        )
+    pending = [
+        task
+        for task in tasks
+        if getattr(task, id_field) not in completed
+        and getattr(task, id_field) not in dataset_terminal_failed
+    ]
     if args.max_tasks:
         pending = pending[: args.max_tasks]
     server_model_name = args.server_model_name or model_id
@@ -1109,6 +1234,15 @@ async def _run_locked(args, ownership) -> int:
             )
         },
     }
+    if task_ledger is not None:
+        manifest["direct_dataset"] = {
+            "root": str(dataset_root),
+            "writer_id": dataset_writer_id,
+            "ledger_stripes": task_ledger.stripe_count,
+            "reused_count": len(completed),
+            "terminal_failed_count": len(dataset_terminal_failed),
+            "committed_count": 0,
+        }
     if args.command == "agentic-judge":
         manifest.update(
             judge_role=args.judge_role,
@@ -1121,7 +1255,7 @@ async def _run_locked(args, ownership) -> int:
         "inference_tasks_this_invocation": 0,
         "busy_this_invocation": 0,
     }
-    if store is not None:
+    if store is not None or task_ledger is not None:
         from analysis.scripts.prepare_acl_arr_experiment import _git_commit
 
         producer = {
@@ -1133,16 +1267,27 @@ async def _run_locked(args, ownership) -> int:
             )},
         }
         manifest["execution_git_commit"] = producer["execution_git_commit"]
-        manifest["shared_claims"] = {"root": str(store.root), **claim_counts}
-        claim_counts = manifest["shared_claims"]
+        if store is not None:
+            manifest["shared_claims"] = {"root": str(store.root), **claim_counts}
+            claim_counts = manifest["shared_claims"]
     output.mkdir(parents=True, exist_ok=True)
     ownership.enter_context(_writer_lock(output))
     if args.resume:
         _validate_worker_resume(run_manifest_path, dispatch)
-        if _validate_resume(output, identity, tasks, prepare, id_field) != completed:
+        if (
+            task_ledger is None
+            and _validate_resume(output, identity, tasks, prepare, id_field) != completed
+        ):
             raise ValueError("resume changed while acquiring writer ownership; retry")
     elif any(path.exists() for path in (outcomes_path, failures_path, attempts_path, run_manifest_path)):
         raise ValueError("output exists; use --resume or a new output directory")
+    dataset_writer = (
+        FinalDatasetWriter(dataset_root, writer_id=dataset_writer_id)
+        if dataset_root is not None and dataset_writer_id is not None
+        else None
+    )
+    if dataset_writer is not None:
+        ownership.callback(dataset_writer.seal)
     _atomic_json(run_manifest_path, manifest)
 
     api_key = args.api_key or os.getenv("VLLM_API_KEY")
@@ -1155,6 +1300,9 @@ async def _run_locked(args, ownership) -> int:
             timeout_seconds=args.request_timeout,
             maximum_attempts=args.max_attempts,
             chat_template_kwargs=chat_template_kwargs,
+            audit_callback=(
+                dataset_writer.audit_callback if dataset_writer is not None else None
+            ),
         )
 
     succeeded = 0
@@ -1163,17 +1311,38 @@ async def _run_locked(args, ownership) -> int:
     admitted = 0
     deadline_interrupted = False
     chunk_size = max(args.max_concurrency, args.max_concurrency * 4)
-    with (
-        outcomes_path.open("a", encoding="utf-8", buffering=1) as outcomes,
-        failures_path.open("a", encoding="utf-8", buffering=1) as failures,
-        attempts_path.open("a", encoding="utf-8", buffering=1) as attempts,
-    ):
+    task_by_id = {getattr(task, id_field): task for task in tasks}
+    with ExitStack() as journal_stack:
+        outcomes = (
+            journal_stack.enter_context(
+                outcomes_path.open("a", encoding="utf-8", buffering=1)
+            )
+            if dataset_writer is None
+            else None
+        )
+        failures = (
+            journal_stack.enter_context(
+                failures_path.open("a", encoding="utf-8", buffering=1)
+            )
+            if dataset_writer is None
+            else None
+        )
+        attempts = (
+            journal_stack.enter_context(
+                attempts_path.open("a", encoding="utf-8", buffering=1)
+            )
+            if dataset_writer is None
+            else None
+        )
+
         def persist(stream, row):
+            if stream is None:
+                raise AssertionError("local journal is disabled in direct dataset mode")
             _append(stream, row)
             stream.flush()
             os.fsync(stream.fileno())
 
-        if client_context is not None:
+        if client_context is not None and dataset_writer is None:
             client_context.audit_callback = lambda event: persist(attempts, {
                 **event, "run_id": run_id, "invocation_id": manifest["invocation_id"]})
 
@@ -1189,6 +1358,147 @@ async def _run_locked(args, ownership) -> int:
             claim_identity = _shared_claim_identity(
                 item, args=args, model_id=model_id, model_revision=model_revision,
             )
+            if task_ledger is not None and dataset_writer is not None:
+                task_id = item["base"][id_field]
+                if claim_identity != dataset_identities[task_id]:
+                    raise ValueError("dataset task identity changed after planning")
+                ownership_result = task_ledger.claim(
+                    claim_identity,
+                    owner_id=dataset_writer_id or "dataset-writer",
+                )
+                if ownership_result.status == "busy":
+                    return {"base": item["base"], "claim_busy": True}
+                if ownership_result.status == "completed":
+                    claim_counts["reused_this_invocation"] += 1
+                    return {
+                        "base": item["base"],
+                        "ok": True,
+                        "dataset_reused": True,
+                        "dataset_record_references": ownership_result.latest_event.get(
+                            "record_references", []
+                        ),
+                    }
+                if ownership_result.status == "terminal_failed":
+                    claim_counts["failed_reused_this_invocation"] += 1
+                    return {
+                        "base": item["base"],
+                        "ok": False,
+                        "dataset_reused": True,
+                        "dataset_terminal_failed": True,
+                        "error": "durable terminal failure",
+                    }
+                dataset_claim: LedgerClaim | None = ownership_result.claim
+                if dataset_claim is None:
+                    raise AssertionError("owned dataset judgment lacks a claim")
+                if not budget.can_start():
+                    task_ledger.transition(dataset_claim, state="checkpointed")
+                    return {"base": item["base"], "claim_busy": True}
+                task_ledger.transition(dataset_claim, state="running")
+                transaction_id = (
+                    f"{dataset_claim.fingerprint}-g{dataset_claim.generation}"
+                )
+                direct_item = {
+                    **item,
+                    "base": {**item["base"], "transaction_id": transaction_id},
+                }
+                claim_counts["inference_tasks_this_invocation"] += 1
+                result = await _execute_one(direct_item, client=client, fake=fake)
+                task = task_by_id[task_id]
+                input_reference = dataset_writer.append(
+                    "judge_inputs",
+                    {
+                        "judge_role": args.judge_role,
+                        "task": task.to_dict(),
+                        "rendered_prompt": direct_item["prompt"],
+                        "request_sha256": result["request_sha256"],
+                    },
+                    transaction_id=transaction_id,
+                    record_id=f"judge-input-{transaction_id}",
+                )
+                producer_reference = dataset_writer.append(
+                    "provenance",
+                    {
+                        "judge_task_id": task_id,
+                        "run_id": run_id,
+                        "invocation_id": manifest["invocation_id"],
+                        "producer": producer,
+                        "source_manifest": source_manifest,
+                        "tasks_sha256": identity["tasks_sha256"],
+                    },
+                    transaction_id=transaction_id,
+                    record_id=f"judge-provenance-{transaction_id}",
+                )
+                references = [input_reference, producer_reference]
+                raw = result.get("raw_output")
+                if result["ok"]:
+                    judgment_reference = dataset_writer.append(
+                        "judgments",
+                        {
+                            "judge_task_id": task_id,
+                            "blind_case_id": task.blind_case_id,
+                            "judge_role": args.judge_role,
+                            "input_record_id": input_reference["record_id"],
+                            "raw_output": raw,
+                            "raw_output_sha256": (
+                                hashlib.sha256(raw.encode()).hexdigest()
+                                if isinstance(raw, str)
+                                else None
+                            ),
+                            "parsed_output": result["parsed_output"],
+                            "usage": result["usage"],
+                            "started_at": result["started_at"],
+                            "finished_at": result["finished_at"],
+                            "duration_seconds": result["duration_seconds"],
+                            "request_sha256": result["request_sha256"],
+                            "fake_backend": fake,
+                            "pilot_only": args.pilot_only,
+                        },
+                        transaction_id=transaction_id,
+                        record_id=f"judgment-{transaction_id}",
+                    )
+                    references.append(judgment_reference)
+                    task_ledger.transition(
+                        dataset_claim,
+                        state="result_saved",
+                        record_references=references,
+                    )
+                    task_ledger.transition(
+                        dataset_claim,
+                        state="completed",
+                        record_references=references,
+                    )
+                    manifest["direct_dataset"]["committed_count"] += 1
+                else:
+                    failure_reference = dataset_writer.append(
+                        "failed_attempts",
+                        {
+                            "judge_task_id": task_id,
+                            "judge_role": args.judge_role,
+                            "input_record_id": input_reference["record_id"],
+                            "error": result["error"],
+                            "raw_output": raw,
+                            "usage": result["usage"],
+                            "started_at": result["started_at"],
+                            "finished_at": result["finished_at"],
+                            "duration_seconds": result["duration_seconds"],
+                            "request_sha256": result["request_sha256"],
+                        },
+                        transaction_id=transaction_id,
+                        record_id=f"judge-failure-{transaction_id}",
+                    )
+                    references.append(failure_reference)
+                    task_ledger.transition(
+                        dataset_claim,
+                        state="terminal_failed",
+                        record_references=references,
+                        detail={"error": result["error"]},
+                    )
+                return {
+                    **result,
+                    "base": item["base"],
+                    "dataset_reused": False,
+                    "dataset_record_references": references,
+                }
             validate = lambda result: _validate_shared_outcome(
                 result, item=item, fake=fake, pilot_only=args.pilot_only,
             )
@@ -1241,7 +1551,11 @@ async def _run_locked(args, ownership) -> int:
                     async with aclosing(_iter_execute(prepared_pending(batch),
                             client=client, maximum_concurrency=args.max_concurrency,
                             fake=args.fake, budget=budget,
-                            execute_one=execute_claimed if store is not None else None)) as stream:
+                            execute_one=(
+                                execute_claimed
+                                if store is not None or task_ledger is not None
+                                else None
+                            ))) as stream:
                         async for result in stream:
                             if result.get("claim_busy"):
                                 busy_ids.add(result["base"][id_field])
@@ -1283,41 +1597,43 @@ async def _run_locked(args, ownership) -> int:
                             producer=result["producer"],
                         )
                     if result["ok"]:
-                        raw = str(result["raw_output"])
-                        persist(
-                            outcomes,
-                            {
-                                **base,
-                                "run_id": run_id,
-                                "raw_output": raw,
-                                "raw_output_sha256": hashlib.sha256(
-                                    raw.encode()
-                                ).hexdigest(),
-                                "parsed_output": result["parsed_output"],
-                                "usage": result["usage"],
-                                "started_at": result["started_at"],
-                                "finished_at": result["finished_at"],
-                                "duration_seconds": result["duration_seconds"],
-                                "request_sha256": result["request_sha256"],
-                            },
-                        )
+                        if dataset_writer is None:
+                            raw = str(result["raw_output"])
+                            persist(
+                                outcomes,
+                                {
+                                    **base,
+                                    "run_id": run_id,
+                                    "raw_output": raw,
+                                    "raw_output_sha256": hashlib.sha256(
+                                        raw.encode()
+                                    ).hexdigest(),
+                                    "parsed_output": result["parsed_output"],
+                                    "usage": result["usage"],
+                                    "started_at": result["started_at"],
+                                    "finished_at": result["finished_at"],
+                                    "duration_seconds": result["duration_seconds"],
+                                    "request_sha256": result["request_sha256"],
+                                },
+                            )
                         succeeded += 1
                         completed.add(base[id_field])
                     else:
-                        persist(
-                            failures,
-                            {
-                                **base,
-                                "run_id": run_id,
-                                "error": result["error"],
-                                "raw_output": result["raw_output"],
-                                "usage": result["usage"],
-                                "duration_seconds": result["duration_seconds"],
-                                "request_sha256": result["request_sha256"],
-                                "started_at": result["started_at"],
-                                "finished_at": result["finished_at"],
-                            },
-                        )
+                        if dataset_writer is None:
+                            persist(
+                                failures,
+                                {
+                                    **base,
+                                    "run_id": run_id,
+                                    "error": result["error"],
+                                    "raw_output": result["raw_output"],
+                                    "usage": result["usage"],
+                                    "duration_seconds": result["duration_seconds"],
+                                    "request_sha256": result["request_sha256"],
+                                    "started_at": result["started_at"],
+                                    "finished_at": result["finished_at"],
+                                },
+                            )
                         failed += 1
                     manifest.update(completed_count=len(completed), remaining_count=len(tasks) - len(completed))
                     _atomic_json(run_manifest_path, manifest)
@@ -1354,15 +1670,19 @@ async def _run_locked(args, ownership) -> int:
         and len(completed) + failed < len(tasks)
     )
     manifest["tasks"]["interrupted_this_invocation"] = admitted - succeeded - failed - busy
+    dataset_manifests = dataset_writer.seal() if dataset_writer is not None else []
     manifest.update(
         {
             "status": "complete" if len(completed) == len(tasks) else (
-                "checkpointed" if stopped_for_deadline else "complete_with_failures" if failed else "checkpointed"
+                "checkpointed" if stopped_for_deadline
+                else "complete_with_failures"
+                if failed or dataset_terminal_failed
+                else "checkpointed"
             ),
             "stop_reason": (
                 "queue_exhausted" if len(completed) == len(tasks) else
                 (budget.admission_stop_reason() or "allocation_deadline") if stopped_for_deadline else
-                "bounded_failures" if failed else
+                "bounded_failures" if failed or dataset_terminal_failed else
                 "shared_claims_busy" if busy else "task_limit"
             ),
             "scientific_result": not args.fake and not args.pilot_only and len(completed) == len(tasks),
@@ -1371,11 +1691,22 @@ async def _run_locked(args, ownership) -> int:
             "finished_at": _now(),
             "outcomes_written_this_invocation": succeeded,
             "failures_written_this_invocation": failed,
-            "outcomes_sha256": _sha256(outcomes_path),
-            "failures_sha256": _sha256(failures_path),
-            "attempts_sha256": _sha256(attempts_path),
+            "outcomes_sha256": (
+                None if dataset_writer is not None else _sha256(outcomes_path)
+            ),
+            "failures_sha256": (
+                None if dataset_writer is not None else _sha256(failures_path)
+            ),
+            "attempts_sha256": (
+                None if dataset_writer is not None else _sha256(attempts_path)
+            ),
         }
     )
+    if dataset_writer is not None:
+        manifest["direct_dataset"].update(
+            sealed_manifests=dataset_manifests,
+            terminal_failed_count=len(dataset_terminal_failed) + failed,
+        )
     _atomic_json(run_manifest_path, manifest)
     print(f"RUN_ID={run_id}")
     print(f"OUTCOMES={succeeded}")
@@ -1425,6 +1756,15 @@ def _parser() -> argparse.ArgumentParser:
     agentic.add_argument("--max-output-tokens", type=int, default=512)
     agentic.add_argument("--disable-thinking", action="store_true")
     agentic.add_argument("--claim-root", help="Shared durable task ownership and completed outcomes.")
+    agentic.add_argument(
+        "--dataset-root",
+        help="Initialized final dataset root used instead of legacy shared claims.",
+    )
+    agentic.add_argument(
+        "--dataset-writer-id",
+        help="Stable allocation/worker writer ID for immutable final shards.",
+    )
+    agentic.add_argument("--dataset-ledger-stripes", type=int, default=256)
     agentic.add_argument("--worker-index", type=int, default=0)
     agentic.add_argument("--worker-count", type=int, default=1)
     agentic.add_argument("--dispatch-mode", choices=("partition", "backlog"), default="partition",
@@ -1442,6 +1782,8 @@ def main() -> int:
         raise SystemExit("--max-tasks must be non-negative")
     if args.command == "agentic-judge" and args.max_output_tokens <= 0:
         raise SystemExit("--max-output-tokens must be positive")
+    if args.command == "agentic-judge" and not 1 <= args.dataset_ledger_stripes <= 4096:
+        raise SystemExit("--dataset-ledger-stripes must be between 1 and 4096")
     try:
         return asyncio.run(_run(args))
     except (FileNotFoundError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:

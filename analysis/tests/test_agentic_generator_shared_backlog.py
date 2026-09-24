@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from analysis.interpretability.pipeline.agentic_dataset import initialize_dataset
 from analysis.interpretability.pipeline.agentic_search import (
     AgenticResult,
     ContextCompactor,
@@ -278,3 +279,39 @@ def test_new_paths_and_worker_layout_reuse_but_changed_model_revision_does_not(t
     changed = replace(moved, output=tmp_path / "different-model", model_revision="b" * 40)
     assert asyncio.run(run(changed, client))["completed_count"] == 12
     assert client.call_count == 24
+
+
+def test_direct_dataset_mode_commits_final_shards_and_ledger_without_legacy_results(tmp_path):
+    dataset = tmp_path / "dataset"
+    initialize_dataset(
+        dataset,
+        population_id="smoke-population",
+        acceptance_policy_id="experiment-v2",
+    )
+    inputs = replace(
+        _smoke_inputs(tmp_path),
+        dataset_root=dataset,
+        dataset_writer_id="job-1-worker-0",
+        dataset_ledger_stripes=8,
+    )
+    first = _FakeClientContext()
+    manifest = asyncio.run(run(inputs, first))
+    assert manifest["completed_count"] == 12
+    assert manifest["direct_dataset"]["committed_count"] == 12
+    assert first.call_count == 24
+    assert not list((inputs.output / "results").glob("*.json"))
+    assert len(list((dataset / "data/generations").glob("*.jsonl"))) == 1
+    assert len(list((dataset / "data/traces").glob("*.jsonl"))) == 1
+
+    second = _FakeClientContext()
+    resumed = asyncio.run(run(
+        replace(
+            inputs,
+            output=tmp_path / "resumed-output",
+            dataset_writer_id="job-2-worker-0",
+        ),
+        second,
+    ))
+    assert resumed["completed_count"] == 12
+    assert resumed["direct_dataset"]["reused_count"] == 12
+    assert second.call_count == 0

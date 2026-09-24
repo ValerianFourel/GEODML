@@ -15,30 +15,40 @@ import sys
 import tempfile
 import time
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from analysis.interpretability.pipeline.agentic_generation_tasks import (  # noqa: E402
-    CONDITIONS as CONDITIONS,
-    ENGINES as ENGINES,
-    METHODS as METHODS,
-    CalibrationPrompt as CalibrationPrompt,
-    SmokeCell as SmokeCell,
-    _canonical as _canonical,
-    _read_jsonl_objects as _read_jsonl_objects,
-    _selection_key as _selection_key,
+from analysis.interpretability.pipeline.agentic_dataset import FinalDatasetWriter
+from analysis.interpretability.pipeline.agentic_generation_tasks import (
+    CONDITIONS,
+    ENGINES,
+    METHODS,
+    CalibrationPrompt,
+    SmokeCell,
+    _canonical,
+    _read_jsonl_objects,
+    _selection_key,
+)
+from analysis.interpretability.pipeline.agentic_generation_tasks import (
     build_cells as _cells,
+)
+from analysis.interpretability.pipeline.agentic_generation_tasks import (
     load_calibration_prompts as _load_calibration_prompts,
+)
+from analysis.interpretability.pipeline.agentic_generation_tasks import (
     select_cells as _select_cells,
+)
+from analysis.interpretability.pipeline.agentic_generation_tasks import (
     shard_prompts as _prompt_shard,
 )
-from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
+from analysis.interpretability.pipeline.agentic_search import (
     FINAL_ANSWER_MAX_CHARACTERS,
     SEARCH_RESULT_LIMIT,
     AgentExecutionError,
@@ -53,7 +63,11 @@ from analysis.interpretability.pipeline.agentic_search import (  # noqa: E402
     Snippet,
     write_trace_atomic,
 )
-from analysis.interpretability.pipeline.inference_budget import (  # noqa: E402
+from analysis.interpretability.pipeline.agentic_task_ledger import (
+    LedgerClaim,
+    StripedTaskLedger,
+)
+from analysis.interpretability.pipeline.inference_budget import (
     AllocationBudget,
 )
 from analysis.interpretability.pipeline.inference_claims import (
@@ -61,7 +75,10 @@ from analysis.interpretability.pipeline.inference_claims import (
     InferenceClaimStore,
     TaskClaim,
 )
-from analysis.scripts.run_acl_arr_vllm import VllmChatClient  # noqa: E402
+from analysis.scripts.run_acl_arr_vllm import (
+    VllmChatClient,
+    inference_task_context,
+)
 
 TOKEN_PATTERN = re.compile(r"[\w-]+", re.UNICODE)
 QUERY_PURPOSES = frozenset(("parallel_query_expansion",))
@@ -115,7 +132,7 @@ def _read_snapshot(path: Path) -> list[dict[str, Any]]:
         raise ValueError(f"missing search snapshot: {path}")
     if path.suffix.casefold() == ".parquet":
         try:
-            import pyarrow.parquet as parquet
+            from pyarrow import parquet
         except ImportError as error:
             raise RuntimeError("pyarrow is required for Parquet snapshots") from error
         rows = parquet.read_table(
@@ -141,9 +158,7 @@ def _normalize_usable_row(
         return None, "invalid_position"
     if isinstance(raw_position, int):
         position = raw_position
-    elif isinstance(raw_position, float) and raw_position.is_integer():
-        position = int(raw_position)
-    elif isinstance(raw_position, str) and re.fullmatch(r"[0-9]+", raw_position):
+    elif isinstance(raw_position, float) and raw_position.is_integer() or isinstance(raw_position, str) and re.fullmatch(r"[0-9]+", raw_position):
         position = int(raw_position)
     else:
         return None, "invalid_position"
@@ -462,6 +477,9 @@ class SmokeInputs:
     prompt_shard_count: int = 1
     production_conditions: bool = False
     shared_claim_root: Path | None = None
+    dataset_root: Path | None = None
+    dataset_writer_id: str | None = None
+    dataset_ledger_stripes: int = 256
     worker_index: int = 0
     worker_count: int = 1
     import_only: bool = False
@@ -511,10 +529,23 @@ class SmokeInputs:
             raise ValueError("worker_count must be a positive integer")
         if type(self.worker_index) is not int or not 0 <= self.worker_index < self.worker_count:
             raise ValueError("worker_index must be in [0, worker_count)")
-        if self.shared_claim_root is None and (self.worker_index or self.worker_count != 1):
-            raise ValueError("worker preferences require a shared claim root")
+        if (
+            self.shared_claim_root is None
+            and (self.worker_index or self.worker_count != 1)
+            and self.dataset_root is None
+        ):
+            raise ValueError("worker preferences require shared durable task state")
         if self.import_only and self.shared_claim_root is None:
             raise ValueError("import-only mode requires a shared claim root")
+        if (self.dataset_root is None) != (self.dataset_writer_id is None):
+            raise ValueError("dataset root and writer ID must be configured together")
+        if self.dataset_root is not None and self.shared_claim_root is not None:
+            raise ValueError("direct dataset mode and legacy shared claims are exclusive")
+        if (
+            type(self.dataset_ledger_stripes) is not int
+            or not 1 <= self.dataset_ledger_stripes <= 4096
+        ):
+            raise ValueError("dataset ledger stripes must be between 1 and 4096")
 
     @property
     def resolved_query_max_tokens(self) -> int:
@@ -1164,6 +1195,21 @@ def validate_manifest_artifacts(
         raise ValueError("generator queue did not complete or checkpoint at its deadline")
 
     output = manifest_path.parent
+    direct = manifest.get("direct_dataset")
+    if direct is not None:
+        if (
+            not isinstance(direct, dict)
+            or direct.get("committed_count", 0) + direct.get("reused_count", 0)
+            != completed_count
+            or not isinstance(direct.get("root"), str)
+            or not Path(direct["root"], "contract.json").is_file()
+        ):
+            raise ValueError("direct dataset accounting differs from completed cells")
+        if direct.get("committed_count", 0) and not list(
+            Path(direct["root"], "data", "generations").glob("*.manifest.json")
+        ):
+            raise ValueError("direct dataset has no sealed generation manifest")
+        return manifest
     result_paths = sorted((output / "results").glob("*.json"))
     result_ids = {path.stem for path in result_paths}
     trace_ids = {path.stem for path in (output / "traces").glob("*.json")}
@@ -1193,7 +1239,12 @@ async def run_smoke(
     client_context: Any | None = None,
     compactor: ContextCompactor | None = None,
 ) -> dict[str, Any]:
-    if inputs.shared_claim_root is None:
+    dataset_writer = (
+        FinalDatasetWriter(inputs.dataset_root, writer_id=inputs.dataset_writer_id)
+        if inputs.dataset_root is not None and inputs.dataset_writer_id is not None
+        else None
+    )
+    if inputs.shared_claim_root is None and dataset_writer is None:
         return await _run_smoke(inputs, client_context=client_context, compactor=compactor)
     # Cell locks protect shared inference; a separate permanent output lock
     # protects this output's config, manifest and local materialized files.
@@ -1204,8 +1255,15 @@ async def run_smoke(
         except BlockingIOError as error:
             raise RuntimeError("generator output already has an active writer") from error
         try:
-            return await _run_smoke(inputs, client_context=client_context, compactor=compactor)
+            return await _run_smoke(
+                inputs,
+                client_context=client_context,
+                compactor=compactor,
+                dataset_writer=dataset_writer,
+            )
         finally:
+            if dataset_writer is not None:
+                dataset_writer.seal()
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
@@ -1220,7 +1278,7 @@ def describe_queue(inputs: SmokeInputs) -> dict[str, Any]:
     shared_keywords = set.intersection(*(adapter.keywords for adapter in adapters.values()))
     if not shared_keywords:
         raise ValueError("search snapshots have no shared keyword")
-    keyword = sorted(shared_keywords, key=lambda value: (value.casefold(), value))[0]
+    keyword = min(shared_keywords, key=lambda value: (value.casefold(), value))
     prompt_population = (
         _load_calibration_prompts(
             inputs.prompts_jsonl,
@@ -1257,6 +1315,12 @@ def describe_queue(inputs: SmokeInputs) -> dict[str, Any]:
         "For the reactive method, perform at least one search before finishing."
     )
     cells = _select_cells(_cells(prompts), inputs.cell_ids_jsonl)
+    if inputs.cell_ids_jsonl is not None:
+        requested = [
+            row["cell_id"] for row in _read_jsonl_objects(inputs.cell_ids_jsonl)
+        ]
+        selected = {cell.cell_id: cell for cell in cells}
+        cells = tuple(selected[cell_id] for cell_id in requested)
     config = _config(
         inputs,
         keyword,
@@ -1274,10 +1338,12 @@ async def _run_smoke(
     *,
     client_context: Any | None = None,
     compactor: ContextCompactor | None = None,
+    dataset_writer: FinalDatasetWriter | None = None,
 ) -> dict[str, Any]:
     allocation_budget = AllocationBudget.from_environment()
     description = describe_queue(inputs)
     config, cells = description["config"], description["cells"]
+    queue_position = {cell.cell_id: position for position, cell in enumerate(cells)}
     adapters, target_urls = description["adapters"], description["target_urls"]
     legacy_prompt = description["legacy_prompt"]
     config_hash = hashlib.sha256(_canonical(config)).hexdigest()
@@ -1288,7 +1354,7 @@ async def _run_smoke(
         config_path,
         config,
         config_hash,
-        shared_mode=inputs.shared_claim_root is not None,
+        shared_mode=(inputs.shared_claim_root is not None or dataset_writer is not None),
     )
 
     completed, pending = _load_completed_cells(inputs.output, cells)
@@ -1341,6 +1407,14 @@ async def _run_smoke(
                 "resume_migration"
             ]
     claim_store = InferenceClaimStore(inputs.shared_claim_root) if inputs.shared_claim_root else None
+    task_ledger = (
+        StripedTaskLedger(
+            inputs.dataset_root / "control" / "task-ledger",
+            stripe_count=inputs.dataset_ledger_stripes,
+        )
+        if inputs.dataset_root is not None
+        else None
+    )
     shared_identities = {}
     shared_failed: set[str] = set()
     shared_busy: set[str] = set()
@@ -1350,13 +1424,20 @@ async def _run_smoke(
         "dispatch_policy": "stable-slot-preference-then-steal-v1",
         "reused_count": 0, "exported_count": 0, "committed_count": 0,
     }
+    dataset_stats = {
+        "root": str(inputs.dataset_root.resolve()) if inputs.dataset_root else None,
+        "writer_id": inputs.dataset_writer_id,
+        "ledger_stripes": inputs.dataset_ledger_stripes,
+        "reused_count": 0,
+        "committed_count": 0,
+    }
 
     def validate_bundle(cell: SmokeCell, value: dict[str, Any], *, failed: bool = False) -> None:
         _validate_shared_generator_bundle(
             cell, cell.prompt if cell.prompt is not None else legacy_prompt, value, failed=failed,
         )
 
-    if claim_store is not None:
+    if claim_store is not None or task_ledger is not None:
         method_source_sha256 = _sha256_file(
             REPOSITORY_ROOT / "analysis/interpretability/pipeline/agentic_search.py"
         )
@@ -1366,6 +1447,30 @@ async def _run_smoke(
                 method_source_sha256=method_source_sha256,
             )
             shared_identities[cell.cell_id] = identity
+    if task_ledger is not None:
+        for cell in cells:
+            latest = task_ledger.inspect(shared_identities[cell.cell_id])
+            if latest is None:
+                continue
+            if latest.get("state") == "completed":
+                completed[cell.cell_id] = {
+                    "cell_id": cell.cell_id,
+                    **cell.core,
+                    "dataset_record_references": latest.get("record_references", []),
+                }
+                dataset_stats["reused_count"] += 1
+            elif latest.get("state") == "terminal_failed":
+                shared_failed.add(cell.cell_id)
+        pending = [cell for cell in cells if cell.cell_id not in completed]
+        pending.sort(key=lambda cell: (
+            int(hashlib.sha256(cell.cell_id.encode()).hexdigest(), 16)
+            % inputs.worker_count
+            != inputs.worker_index,
+            queue_position[cell.cell_id],
+        ))
+    if claim_store is not None:
+        for cell in cells:
+            identity = shared_identities[cell.cell_id]
             with claim_store.try_claim(
                 identity, validate=lambda value, cell=cell: validate_bundle(cell, value),
                 validate_failure=lambda value, cell=cell: validate_bundle(cell, value, failed=True),
@@ -1411,7 +1516,7 @@ async def _run_smoke(
         pending = [cell for cell in cells if cell.cell_id not in completed]
         pending.sort(key=lambda cell: (
             int(hashlib.sha256(cell.cell_id.encode()).hexdigest(), 16) % inputs.worker_count != inputs.worker_index,
-            cell.cell_id,
+            queue_position[cell.cell_id],
         ))
     if not pending:
         if existing_manifest is not None and claim_store is None:
@@ -1443,6 +1548,8 @@ async def _run_smoke(
             finished["resume_migration"] = resume_migration
         if claim_store is not None:
             finished["shared_backlog"] = shared_stats
+        if task_ledger is not None:
+            finished["direct_dataset"] = dataset_stats
         _write_json_atomic(manifest_path, finished)
         return finished
 
@@ -1497,6 +1604,11 @@ async def _run_smoke(
             value["resume_migration"] = resume_migration
         if claim_store is not None:
             value["shared_backlog"] = {**shared_stats, "busy_cell_ids": sorted(shared_busy)}
+        if task_ledger is not None:
+            value["direct_dataset"] = {
+                **dataset_stats,
+                "busy_cell_ids": sorted(shared_busy),
+            }
         _write_json_atomic(manifest_path, value)
         return value
 
@@ -1524,7 +1636,14 @@ async def _run_smoke(
             chat_template_kwargs=(
                 {"enable_thinking": False} if inputs.disable_thinking else None
             ),
+            audit_callback=(
+                dataset_writer.audit_callback if dataset_writer is not None else None
+            ),
         )
+    elif dataset_writer is not None and hasattr(client_context, "audit_callback"):
+        if client_context.audit_callback not in {None, dataset_writer.audit_callback}:
+            raise ValueError("client already has a different transport audit callback")
+        client_context.audit_callback = dataset_writer.audit_callback
     if not allocation_budget.can_start():
         return checkpoint(0, stop_reason=allocation_budget.admission_stop_reason())
     async with AsyncExitStack() as exit_stack:
@@ -1540,7 +1659,9 @@ async def _run_smoke(
         request_semaphore = asyncio.Semaphore(inputs.request_concurrency)
 
         async def execute_once(
-            cell: SmokeCell, claim: TaskClaim | None = None,
+            cell: SmokeCell,
+            claim: TaskClaim | None = None,
+            dataset_claim: LedgerClaim | None = None,
         ) -> tuple[str, dict[str, Any]]:
             cell_started = time.perf_counter()
             trace_path = inputs.output / "traces" / f"{cell.cell_id}.json"
@@ -1569,11 +1690,25 @@ async def _run_smoke(
                 compactor=compactor,
                 condition_hook=condition_hook,
             )
+            transaction_id = (
+                f"{dataset_claim.fingerprint}-g{dataset_claim.generation}"
+                if dataset_claim is not None
+                else cell.cell_id
+            )
+            task_context = {
+                "transaction_id": transaction_id,
+                "task_id": cell.cell_id,
+                "prompt_id": cell.prompt_id,
+                "model_id": inputs.model_id,
+                "model_revision": inputs.model_revision,
+                "protocol": "agentic-generator-shared-v1",
+            }
             try:
-                result = await method.run(
-                    cell.prompt if cell.prompt is not None else legacy_prompt,
-                    cell.condition,
-                )
+                with inference_task_context(task_context):
+                    result = await method.run(
+                        cell.prompt if cell.prompt is not None else legacy_prompt,
+                        cell.condition,
+                    )
                 search_count = sum(
                     event.event_type == "search" for event in result.trace.events
                 )
@@ -1593,19 +1728,36 @@ async def _run_smoke(
                     )
             except AgentExecutionError as error:
                 failure_hash = error.trace.to_dict()["trace_sha256"]
-                failure_path = (
-                    inputs.output / "failed_traces" / cell.cell_id
-                    / f"{failure_hash}.json"
-                )
-                if not failure_path.exists():
-                    write_trace_atomic(failure_path, error.trace)
-                _write_json_atomic(diagnostics_path, {
+                failure_diagnostic = {
                     "cell_id": cell.cell_id,
                     **cell.core,
                     "status": "failed",
                     "elapsed_seconds": time.perf_counter() - cell_started,
                     "llm_calls": generator.diagnostics,
-                })
+                }
+                if dataset_writer is not None:
+                    dataset_writer.append(
+                        "failed_attempts",
+                        {
+                            "cell_id": cell.cell_id,
+                            "trace": error.trace.to_dict(),
+                            "diagnostics": failure_diagnostic,
+                            "error": str(error),
+                        },
+                        transaction_id=transaction_id,
+                        record_id=(
+                            f"failed-{transaction_id}-{len(generator.diagnostics)}-"
+                            f"{failure_hash}"
+                        ),
+                    )
+                else:
+                    failure_path = (
+                        inputs.output / "failed_traces" / cell.cell_id
+                        / f"{failure_hash}.json"
+                    )
+                    if not failure_path.exists():
+                        write_trace_atomic(failure_path, error.trace)
+                    _write_json_atomic(diagnostics_path, failure_diagnostic)
                 raise
             trace_value = result.trace.to_dict()
             trace_hash = trace_value["trace_sha256"]
@@ -1639,6 +1791,63 @@ async def _run_smoke(
                 "elapsed_seconds": time.perf_counter() - cell_started,
                 "llm_calls": generator.diagnostics,
             }
+            if dataset_writer is not None:
+                trace_reference = dataset_writer.append(
+                    "traces",
+                    trace_value,
+                    transaction_id=transaction_id,
+                    record_id=f"trace-{transaction_id}",
+                )
+                generation_reference = dataset_writer.append(
+                    "generations",
+                    {
+                        **{key: value for key, value in record.items() if key != "trace"},
+                        "trace_record_id": trace_reference["record_id"],
+                    },
+                    transaction_id=transaction_id,
+                    record_id=f"generation-{transaction_id}",
+                )
+                diagnostic_reference = dataset_writer.append(
+                    "diagnostics",
+                    diagnostic,
+                    transaction_id=transaction_id,
+                    record_id=f"diagnostic-{transaction_id}",
+                )
+                producer_reference = dataset_writer.append(
+                    "provenance",
+                    {
+                        "cell_id": cell.cell_id,
+                        "git_commit": config["git_commit"],
+                        "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+                        "source_config_sha256": config_hash,
+                    },
+                    transaction_id=transaction_id,
+                    record_id=f"provenance-{transaction_id}",
+                )
+                references = [
+                    trace_reference,
+                    generation_reference,
+                    diagnostic_reference,
+                    producer_reference,
+                ]
+                if task_ledger is None or dataset_claim is None:
+                    raise AssertionError("direct dataset write lacks a durable task claim")
+                task_ledger.transition(
+                    dataset_claim,
+                    state="result_saved",
+                    record_references=references,
+                )
+                task_ledger.transition(
+                    dataset_claim,
+                    state="completed",
+                    record_references=references,
+                )
+                dataset_stats["committed_count"] += 1
+                return cell.cell_id, {
+                    **record,
+                    "trace": trace_reference,
+                    "dataset_record_references": references,
+                }
             if claim is not None:
                 claim.commit({
                     "result": {k: v for k, v in record.items() if k != "trace"},
@@ -1660,6 +1869,57 @@ async def _run_smoke(
             pass
 
         async def execute(cell: SmokeCell) -> tuple[str, dict[str, Any] | None]:
+            if task_ledger is not None:
+                identity = shared_identities[cell.cell_id]
+                ownership = task_ledger.claim(
+                    identity,
+                    owner_id=inputs.dataset_writer_id or "dataset-writer",
+                )
+                if ownership.status == "busy":
+                    shared_busy.add(cell.cell_id)
+                    return cell.cell_id, None
+                if ownership.status == "completed":
+                    dataset_stats["reused_count"] += 1
+                    return cell.cell_id, {
+                        "cell_id": cell.cell_id,
+                        **cell.core,
+                        "dataset_record_references": ownership.latest_event.get(
+                            "record_references", []
+                        ),
+                    }
+                if ownership.status == "terminal_failed":
+                    raise SharedFailure("cell has a durable terminal dataset failure")
+                dataset_claim = ownership.claim
+                if dataset_claim is None:
+                    raise AssertionError("owned dataset task lacks a claim")
+                shared_busy.discard(cell.cell_id)
+                if not allocation_budget.can_start():
+                    task_ledger.transition(dataset_claim, state="checkpointed")
+                    shared_busy.add(cell.cell_id)
+                    return cell.cell_id, None
+                task_ledger.transition(dataset_claim, state="running")
+                for attempt in range(FAILED_CELL_RETRY_PASSES + 1):
+                    if not allocation_budget.can_start():
+                        task_ledger.transition(dataset_claim, state="checkpointed")
+                        shared_busy.add(cell.cell_id)
+                        return cell.cell_id, None
+                    try:
+                        return await execute_once(
+                            cell, dataset_claim=dataset_claim
+                        )
+                    except AgentExecutionError as error:
+                        if attempt == FAILED_CELL_RETRY_PASSES:
+                            task_ledger.transition(
+                                dataset_claim,
+                                state="terminal_failed",
+                                detail={
+                                    "error": str(error),
+                                    "attempts": attempt + 1,
+                                    "trace_sha256": error.trace.to_dict()["trace_sha256"],
+                                },
+                            )
+                            raise
+                raise AssertionError("dataset generator attempt loop did not terminate")
             if claim_store is None:
                 return await execute_once(cell)
             with claim_store.try_claim(
@@ -1764,7 +2024,12 @@ async def _run_smoke(
 
         failed = await run_pass(pending, retry_passes_completed=0)
         retry_passes_completed = 0
-        for retry_pass in range(1, (FAILED_CELL_RETRY_PASSES + 1) if claim_store is None else 1):
+        for retry_pass in range(
+            1,
+            (FAILED_CELL_RETRY_PASSES + 1)
+            if claim_store is None and task_ledger is None
+            else 1,
+        ):
             if not failed:
                 break
             if deadline_reached or not allocation_budget.can_start():
@@ -1812,6 +2077,11 @@ async def _run_smoke(
         manifest["resume_migration"] = resume_migration
     if claim_store is not None:
         manifest["shared_backlog"] = {**shared_stats, "busy_cell_ids": sorted(shared_busy)}
+    if task_ledger is not None:
+        manifest["direct_dataset"] = {
+            **dataset_stats,
+            "busy_cell_ids": sorted(shared_busy),
+        }
     _write_json_atomic(inputs.output / "run_manifest.json", manifest)
     if known_failed and not stopped_at_deadline:
         raise RuntimeError(
@@ -1854,6 +2124,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--selection-records-jsonl", type=Path)
     parser.add_argument("--cell-ids-jsonl", type=Path)
     parser.add_argument("--shared-claim-root", type=Path)
+    parser.add_argument("--dataset-root", type=Path)
+    parser.add_argument("--dataset-writer-id")
+    parser.add_argument("--dataset-ledger-stripes", type=int, default=256)
     parser.add_argument("--worker-index", type=int, default=0)
     parser.add_argument("--worker-count", type=int, default=1)
     parser.add_argument("--import-only", action="store_true")
@@ -1906,6 +2179,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         prompt_shard_count=arguments.prompt_shard_count,
         production_conditions=arguments.production_conditions,
         shared_claim_root=arguments.shared_claim_root,
+        dataset_root=arguments.dataset_root,
+        dataset_writer_id=arguments.dataset_writer_id,
+        dataset_ledger_stripes=arguments.dataset_ledger_stripes,
         worker_index=arguments.worker_index,
         worker_count=arguments.worker_count,
         import_only=arguments.import_only,

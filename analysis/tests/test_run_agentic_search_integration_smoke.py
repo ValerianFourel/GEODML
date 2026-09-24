@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
-from dataclasses import replace
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
-from tempfile import TemporaryDirectory
 import unittest
+from collections import Counter
+from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from analysis.interpretability.pipeline.agentic_search import (
@@ -30,8 +30,8 @@ from analysis.interpretability.pipeline.agentic_search import (
 from analysis.scripts.run_agentic_search_integration_smoke import (
     CalibrationPrompt,
     FrozenSnapshotSearchAdapter,
-    SmokeInputs,
     SmokeConditionHook,
+    SmokeInputs,
     TargetUrlConditionHook,
     VllmAgentGenerator,
     _build_target_urls,
@@ -41,12 +41,13 @@ from analysis.scripts.run_agentic_search_integration_smoke import (
     _legacy_resume_config,
     _load_calibration_prompts,
     _optimized_resume_config,
-    _prompt_shard,
     _prepare_config,
     _previous_resume_config,
+    _prompt_shard,
     _repair_resume_config,
     _select_cells,
     _serial_resume_config,
+    describe_queue,
     run_smoke,
     validate_manifest_artifacts,
 )
@@ -825,6 +826,48 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate"):
                 _select_cells(cells, task_path)
 
+    def test_execution_queue_preserves_declared_cell_order(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = _smoke_inputs(root)
+            question = "What is Berlin's population?"
+            prompt_id = "prompt-berlin"
+            question_sha256 = hashlib.sha256(question.encode()).hexdigest()
+            prompts_path = root / "prompts.jsonl"
+            records_path = root / "selection-records.jsonl"
+            prompts_path.write_text(json.dumps({
+                "candidate_id": prompt_id,
+                "question": question,
+                "question_sha256": question_sha256,
+                "keyword": "Berlin population",
+            }) + "\n", encoding="utf-8")
+            records_path.write_text(json.dumps({
+                "candidate_id": prompt_id, "axis_bin": 0,
+            }) + "\n", encoding="utf-8")
+            prompt = CalibrationPrompt(
+                prompt_id=prompt_id,
+                prompt=question,
+                question_sha256=question_sha256,
+                axis_bin=0,
+                keyword="Berlin population",
+            )
+            cells = _cells((prompt,))
+            requested = [cells[9].cell_id, cells[2].cell_id, cells[5].cell_id]
+            task_path = root / "tasks.jsonl"
+            task_path.write_text(
+                "".join(json.dumps({"cell_id": value}) + "\n" for value in requested),
+                encoding="utf-8",
+            )
+            description = describe_queue(replace(
+                inputs,
+                prompts_jsonl=prompts_path,
+                selection_records_jsonl=records_path,
+                cell_ids_jsonl=task_path,
+            ))
+            self.assertEqual(
+                [cell.cell_id for cell in description["cells"]], requested
+            )
+
     def test_twenty_five_prompt_calibration_runs_and_resumes_300_cells(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -926,9 +969,7 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
             removed_results = sorted(
                 (inputs.output / "results").glob("*.json")
             )[-14:]
-            retained_path = sorted(
-                (inputs.output / "results").glob("*.json")
-            )[0]
+            retained_path = min((inputs.output / "results").glob("*.json"))
             retained_bytes = retained_path.read_bytes()
             for result_path in removed_results:
                 result = json.loads(result_path.read_text(encoding="utf-8"))
@@ -1427,7 +1468,6 @@ class FrozenSnapshotSearchAdapterTests(unittest.TestCase):
 
             trace_only_result = results[0]
             trace_only_record = json.loads(trace_only_result.read_text(encoding="utf-8"))
-            trace_only_path = Path(trace_only_record["trace"])
             trace_only_result.unlink()
             retry_client = _FakeClientContext(delay_seconds=0.0)
             retried = asyncio.run(run_smoke(

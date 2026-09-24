@@ -32,8 +32,18 @@ export SEARCH_AGENTIC_PROMPT_SHARD_COUNT="${SEARCH_AGENTIC_PROMPT_SHARD_COUNT:-1
 export SEARCH_AGENTIC_PRODUCTION_CONDITIONS=1
 export GEODML_EXPECTED_JOB_ID="$SLURM_JOB_ID"
 if [[ "${GEODML_DISPATCH_MODE:-partition}" = backlog ]]; then
-  : "${GEODML_INFERENCE_CLAIM_ROOT:?Backlog generation requires a shared claim registry}"
-  export SEARCH_AGENTIC_SHARED_CLAIM_ROOT="$GEODML_INFERENCE_CLAIM_ROOT"
+  if [[ -n "${GEODML_DATASET_ROOT:-}" ]]; then
+    [[ -z "${GEODML_INFERENCE_CLAIM_ROOT:-}" ]] || {
+      printf '%s\n' 'Configure the final dataset or legacy claims, not both.' >&2
+      exit 2
+    }
+    export SEARCH_AGENTIC_DATASET_ROOT="$GEODML_DATASET_ROOT"
+    export SEARCH_AGENTIC_DATASET_WRITER_ID="job${SLURM_JOB_ID}-worker${GEODML_WORKER_INDEX}"
+    export SEARCH_AGENTIC_DATASET_LEDGER_STRIPES="${GEODML_DATASET_LEDGER_STRIPES:-256}"
+  else
+    : "${GEODML_INFERENCE_CLAIM_ROOT:?Backlog generation requires durable task state}"
+    export SEARCH_AGENTIC_SHARED_CLAIM_ROOT="$GEODML_INFERENCE_CLAIM_ROOT"
+  fi
   export SEARCH_AGENTIC_WORKER_INDEX="${GEODML_WORKER_INDEX:?}"
   export SEARCH_AGENTIC_WORKER_COUNT="${GEODML_WORKER_COUNT:?}"
 fi

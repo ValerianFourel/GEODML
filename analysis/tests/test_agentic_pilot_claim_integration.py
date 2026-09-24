@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from analysis.interpretability.pipeline.agentic_dataset import initialize_dataset
 from analysis.interpretability.pipeline.inference_claims import InferenceClaimStore
 from analysis.scripts import manage_agentic_pilot_judging as manager
 from analysis.scripts import report_agentic_500_pilot_results as reporter
@@ -32,6 +33,19 @@ def worker_arguments(root, output, claim_root, *, dispatch="partition"):
         "--max-concurrency", "1", "--max-output-tokens", "2048",
         "--request-timeout", "120", "--max-attempts", "3",
         "--disable-thinking", "--resume", "--dispatch-mode", dispatch,
+    ])
+
+
+def dataset_worker_arguments(root, output, dataset_root, *, writer_id):
+    return runner._parser().parse_args([
+        "agentic-judge", "--tasks", str(root / "plan/bulk_tasks.jsonl"),
+        "--judge-manifest", str(root / "plan/run_manifest.json"),
+        "--judge-role", "bulk", "--output-dir", str(output),
+        "--dataset-root", str(dataset_root), "--dataset-writer-id", writer_id,
+        "--max-concurrency", "4", "--max-output-tokens", "2048",
+        "--request-timeout", "120", "--max-attempts", "3",
+        "--disable-thinking", "--resume", "--dispatch-mode", "backlog",
+        "--fake",
     ])
 
 
@@ -152,3 +166,45 @@ def test_executed_sbatch_wrapper_and_reporter_have_identical_claim_fingerprints(
         ) == runner._shared_claim_identity(
             item, args=reporter._judge_claim_arguments(), model_id=model, model_revision=revision,
         )
+
+
+def test_agentic_judge_writes_final_dataset_and_reuses_ledger(
+    completed_allocation, monkeypatch, tmp_path
+):
+    root, _ = completed_allocation
+    dataset_root = tmp_path / "dataset"
+    initialize_dataset(
+        dataset_root,
+        population_id="test-population",
+        acceptance_policy_id="experiment-v2",
+    )
+    calls = 0
+    execute = runner._execute_one
+
+    async def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return await execute(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "_execute_one", counted)
+    first = dataset_worker_arguments(
+        root, tmp_path / "attempt-1", dataset_root, writer_id="judge-job-1"
+    )
+    assert asyncio.run(runner._run(first)) == 0
+    assert calls == 24
+    assert not (Path(first.output_dir) / "outcomes.jsonl").exists()
+    assert not (Path(first.output_dir) / "failures.jsonl").exists()
+    assert not (Path(first.output_dir) / "attempts.jsonl").exists()
+    judgment_manifests = list(
+        (dataset_root / "data/judgments").glob("*.manifest.json")
+    )
+    assert sum(json.loads(path.read_text())["rows"] for path in judgment_manifests) == 24
+
+    second = dataset_worker_arguments(
+        root, tmp_path / "attempt-2", dataset_root, writer_id="judge-job-2"
+    )
+    assert asyncio.run(runner._run(second)) == 0
+    assert calls == 24
+    manifest = json.loads((Path(second.output_dir) / "run_manifest.json").read_text())
+    assert manifest["direct_dataset"]["reused_count"] == 24
+    assert manifest["completed_count"] == 24

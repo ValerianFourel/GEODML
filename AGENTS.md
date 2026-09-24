@@ -40,6 +40,38 @@ and shuffled document conditions.
 - Avoid hard-coded usernames and machine-specific paths in committed code.
 - Add focused tests for every new behavioral contract.
 
+## Default one-hour Slurm limit
+
+- New batch jobs and interactive allocations default to `01:00:00` and must
+  not exceed one hour unless Valerian explicitly approves a longer duration
+  for that specific allocation.
+- The one-hour limit includes environment setup, model loading, warmup,
+  inference, retries, drain, and checkpointing.
+- This default is not standing authorization to allocate resources. Every
+  allocation still needs the estimate and approval required above.
+- Do not obtain extra runtime through automatic requeue, resubmission,
+  extensions, or chained allocations. Carry unfinished identities into a later
+  explicitly approved segment.
+
+## Default homogeneous-wave scheduling
+
+- Every finite inference wave uses exactly one model role: Qwen, Llama, or
+  Nemotron. Do not alternate model roles within a wave.
+- Unless Valerian explicitly approves otherwise, allow at most five concurrent
+  GEODML experiment allocations. Count batch and interactive allocations
+  together, and count an allocation once regardless of its `srun` steps.
+- Target a minimum ten-minute gap between observed allocation starts. Enforce
+  the gap before releasing another allocation; do not reserve a GPU node merely
+  to sleep. Submission spacing and array throttles do not prove start spacing.
+- A wave contains a finite approved number of one-hour segments, for example
+  twenty Qwen segments admitted five at a time. Do not silently add segments,
+  retries, another model role, or a larger resource budget.
+- Batch workers traverse the frozen keyword priority from the front.
+  Interactive workers traverse it from the back. Both finish eligible work in
+  the current keyword before advancing and use the same durable task ledger.
+- Preserve historical plans and running assignments when an incremental audit
+  replans unstarted segments. Planning and audit commands default to dry-run.
+
 ## Allocation-filling inference policy
 
 - Default every new inference `sbatch` to useful throughput across its approved

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from .agentic_search import (
     ExperimentalCondition,
@@ -48,7 +49,7 @@ def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
                 continue
             value = json.loads(line)
             if not isinstance(value, dict):
-                raise ValueError(f"expected object at {path}:{line_number}")
+                raise TypeError(f"expected object at {path}:{line_number}")
             rows.append(value)
     if not rows:
         raise ValueError(f"JSONL input is empty: {path}")
@@ -208,7 +209,7 @@ def build_cells(
 def select_cells(
     cells: Sequence[SmokeCell], cell_ids_jsonl: Path | None
 ) -> tuple[SmokeCell, ...]:
-    """Select an exact, ordered subset from a frozen cell population."""
+    """Select an exact, canonically ordered subset from a frozen population."""
 
     if cell_ids_jsonl is None:
         return tuple(cells)
