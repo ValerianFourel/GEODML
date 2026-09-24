@@ -265,6 +265,11 @@ def parser() -> argparse.ArgumentParser:
     inputs.add_argument("--dataset-root", type=Path, required=True)
     inputs.add_argument("--scheduler-snapshot", type=Path, required=True)
     inputs.add_argument("--stripes", type=int, default=256)
+    download = commands.add_parser("download-inputs")
+    download.add_argument("--input-bundle", required=True)
+    download.add_argument("--dataset-root", type=Path, required=True)
+    download.add_argument("--quota-evidence", type=Path, required=True)
+    download.add_argument("--stripes", type=int, default=256)
     planning = commands.add_parser("plan")
     planning.add_argument("--dataset-root", type=Path, required=True)
     planning.add_argument("--calibration", type=Path, required=True)
@@ -325,6 +330,21 @@ def main(argv=None) -> int:
     if args.command == "list":
         _, state = exchange.snapshot()
         print(json.dumps(state, indent=2))
+    elif args.command == "download-inputs":
+        from analysis.scripts.prepare_horeka_qwen import check_storage
+        value = exchange.manifest(args.input_bundle)
+        if value.get("metadata", {}).get("kind") != "frozen-inputs":
+            raise ValueError("download-inputs requires a frozen input bundle")
+        missing = [entry["bytes"] for name, entry in value["files"].items()
+                   if not (args.dataset_root / name).exists()]
+        check_storage(args.dataset_root, read(args.quota_evidence),
+                      sum(missing) + max(missing, default=0), len(missing) * 2)
+        exchange.download(args.input_bundle, args.dataset_root, stripes=args.stripes)
+        tasks, completed, blocked = inventory(args.dataset_root, stripes=args.stripes)
+        print(json.dumps({"input_bundle": args.input_bundle, "status": "verified",
+                          "task_count": len(tasks), "verified_completed": len(completed),
+                          "blocked": len(blocked),
+                          "eligible_remaining": len(tasks) - len(completed | blocked)}))
     elif args.command == "upload-inputs":
         snapshot = read(args.scheduler_snapshot)
         if (snapshot.get("cluster") != "jupiter" or snapshot.get("complete") is not True
