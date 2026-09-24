@@ -40,6 +40,7 @@ def test_manifest_includes_sealed_shards_and_artifacts_but_not_active_or_control
     root = _dataset(tmp_path)
     manifest = build_manifest(root)
     files = set(manifest["files"])
+    assert "README.md" in files
     assert "contract.json" in files
     assert "artifacts/raw/evidence.txt" in files
     assert any(name.startswith("data/generations/") and name.endswith(".jsonl")

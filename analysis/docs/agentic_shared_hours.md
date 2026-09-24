@@ -384,3 +384,16 @@ ledger counts. Bundle uploads report files and bytes confirmed remotely,
 including files already present. These counters are audit/transfer progress,
 not newly generated scientific results. Totals are shown only when known.
 Final JSON stays on stdout. Updating a checkout does not change a running process.
+
+## Repairing older bundles with omitted root files
+
+The publisher previously traversed allowlisted files as directories, omitting
+`README.md` while the frozen descriptor required it. New publications include
+allowlisted regular files. Existing bundle identities and plans stay immutable.
+`repair_shared_input_bundle.py --bundle ID --dataset-root ROOT --journal DIR`
+repairs only files required by the checksum-verified frozen descriptor but absent
+from that bundle's outer manifest. First run with `--publish` against the staged
+JUPITER mirror to publish the exact content-addressed objects, then without that
+flag on HoreKa. Missing, conflicting, escaping or credential-shaped content fails
+closed. No ledger imports, registrations, plan changes or inference occur. Later
+fresh downloads of an old affected bundle need this repair too; new bundles do not.

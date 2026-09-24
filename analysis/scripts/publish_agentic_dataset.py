@@ -61,7 +61,9 @@ def build_manifest(root: Path) -> dict[str, Any]:
         if name == "contract.json":
             continue
         parent = root / name
-        if parent.exists():
+        if parent.is_file():
+            paths.append(parent)
+        elif parent.exists():
             paths.extend(path for path in parent.rglob("*") if path.is_file())
     files: dict[str, dict[str, Any]] = {}
     for path in sorted(set(paths)):

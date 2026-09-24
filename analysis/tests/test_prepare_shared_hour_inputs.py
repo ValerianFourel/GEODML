@@ -2,6 +2,7 @@
 import json
 import time
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -191,3 +192,36 @@ def test_full_dispatch_publication_is_metadata_only_and_idempotent(tmp_path, mon
     assert bootstrap.publish_dispatch(root, exchange, snapshot, stripes=4)['published_revision'] == result['published_revision']
     with pytest.raises(ValueError, match='legacy allocations'):
         bootstrap.publish_dispatch(root, exchange, {**snapshot, 'jobs': [{'job_id': '1'}]}, stripes=4)
+
+
+def test_frozen_bundle_roundtrip_and_legacy_missing_readme_repair(tmp_path):
+    from analysis.interpretability.pipeline.agentic_hour_sync import Exchange
+    from analysis.scripts.prepare_shared_hour_inputs import verify_inputs
+    from analysis.scripts.publish_agentic_dataset import build_manifest
+    from analysis.scripts.repair_shared_input_bundle import repair
+    from analysis.tests.test_agentic_hours import MemoryHub
+    root, configs, priority = fixture(tmp_path)
+    staged = tmp_path / 'staged'
+    result = stage(root, staged, configs, priority, {
+        'cluster': 'jupiter', 'complete': True, 'jobs': [], 'captured_at_epoch': time.time()}, stripes=4)
+    names = list(build_manifest(staged)['files'])
+    assert 'README.md' in names
+    ex = Exchange(MemoryHub(), tmp_path / 'journal')
+    bundle = ex.upload(staged, names, outcomes={}, metadata={'kind': 'frozen-inputs'})
+    target = tmp_path / 'download'
+    ex.download(bundle, target, stripes=4)
+    manifest = Path('artifacts/shared-preparations') / (result['manifest_sha256'] + '.json')
+    assert verify_inputs(target, manifest, model='qwen38')['status'] == 'verified'
+    legacy = Exchange(MemoryHub(), tmp_path / 'legacy-journal')
+    broken = legacy.upload(staged, [n for n in names if n != 'README.md'], outcomes={}, metadata={'kind': 'frozen-inputs'})
+    destination = tmp_path / 'legacy-download'
+    legacy.download(broken, destination, stripes=4)
+    with pytest.raises(ValueError, match='publish from JUPITER'):
+        repair(legacy, broken, destination)
+    assert repair(legacy, broken, staged, publish=True)['files'] == ['README.md']
+    for _ in range(2):
+        assert repair(legacy, broken, destination)['plan_changed'] is False
+    assert verify_inputs(destination, manifest, model='qwen38')['status'] == 'verified'
+    (destination / 'README.md').write_text('wrong')
+    with pytest.raises(ValueError, match='conflicting'):
+        repair(legacy, broken, destination)
