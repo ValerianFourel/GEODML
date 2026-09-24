@@ -5,18 +5,32 @@ from analysis.scripts import horeka_qwen_probe as probe
 from analysis.tests.test_search_vllm_stage import gpu_inventory, profile
 
 
-def test_probe_selects_one_missing_prompt_in_keyword_order():
-    rows = {}
-    for i, (priority, prompt, status) in enumerate([(2, 'a', 'awaiting_calibration'),
-                                                  (1, 'b', 'awaiting_calibration'),
-                                                  (1, 'b', 'awaiting_calibration'),
-                                                  (0, 'c', 'blocked_or_failed')]):
-        rows[str(i)] = {'model': 'qwen38', 'priority_rank': priority, 'keyword_id': str(priority),
-                        'prompt_id': prompt, 'configuration_sha256': 'config', 'task_id': str(i),
-                        'runnable_task': {'cell_id': str(i)}}
-    plan = {'tasks': rows, 'completed_before_plan': ['2'],
-            'deferred': {'0': 'awaiting_calibration', '1': 'awaiting_calibration', '3': 'blocked_or_failed'}}
-    assert probe.choose_probe(plan) == [{'cell_id': '1'}]
+def test_probe_resolves_real_uncalibrated_plan_against_dataset(tmp_path):
+    from analysis.interpretability.pipeline.agentic_hours import (
+        build_plan,
+        empty_registry,
+        inventory,
+    )
+    from analysis.tests.test_agentic_hours import complete
+    from analysis.tests.test_prepare_shared_hour_inputs import fixture
+    root, _, _ = fixture(tmp_path)
+    tasks, done, blocked = inventory(root, stripes=4)
+    qwen = sorted((r for r in tasks if r['model'] == 'qwen38'),
+                  key=lambda r: (r['priority_rank'], r['keyword_id'], r['prompt_id'], r['task_id']))
+    plan = build_plan(tasks=tasks, calibration={}, registry=empty_registry(), contract={},
+                      completed=done, blocked=blocked, source_commit='a'*40,
+                      input_bundle='frozen-inputs', allow_uncalibrated=True)
+    assert plan['tasks'] == {} and plan['packages'] == []
+    assert len(plan['deferred']) == 48
+    # Completion after planning must also be excluded.
+    complete(root, qwen[0], 'new-completion')
+    expected = [r['runnable_task'] for r in qwen[1:] if r['prompt_id'] == qwen[0]['prompt_id']]
+    assert len(expected) == 11
+    assert probe.choose_probe(plan, root, stripes=4) == expected
+    for row in qwen:
+        plan['deferred'][row['fingerprint']] = 'blocked_or_failed'
+    with pytest.raises(ValueError, match='no missing Qwen'):
+        probe.choose_probe(plan, root, stripes=4)
 
 
 def test_local_profile_preserves_frozen_science():

@@ -21,10 +21,13 @@ def read(path):
     return json.loads(Path(path).read_bytes())
 
 
-def choose_probe(plan):
-    done = set(plan['completed_before_plan'])
-    rows = sorted((r for fp, r in plan['tasks'].items() if fp not in done and r['model'] == 'qwen38'
-                   and plan.get('deferred', {}).get(fp) == 'awaiting_calibration'),
+def choose_probe(plan, root, *, stripes=256):
+    from analysis.interpretability.pipeline.agentic_hours import inventory
+    # Uncalibrated plans have no packaged task rows; deferred IDs join the registry.
+    tasks, completed, blocked = inventory(root, stripes=stripes)
+    excluded = set(plan['completed_before_plan']) | completed | blocked
+    rows = sorted((r for r in tasks if r['fingerprint'] not in excluded and r['model'] == 'qwen38'
+                   and plan.get('deferred', {}).get(r['fingerprint']) == 'awaiting_calibration'),
                   key=lambda r: (r['priority_rank'], r['keyword_id'], r['prompt_id'], r['task_id']))
     if not rows:
         raise ValueError('no missing Qwen cells for compatibility test')
@@ -173,7 +176,7 @@ def prepare(args):
     plan = read(args.plan)
     from analysis.interpretability.pipeline.agentic_hours import verify_plan
     verify_plan(plan)
-    cells = choose_probe(plan)
+    cells = choose_probe(plan, root)
     settings = descriptor['models']['qwen38']['reference_runtime']
     runtime = args.workspace / 'environment/qwen-runtime/bin/python'
     if not runtime.is_file():
