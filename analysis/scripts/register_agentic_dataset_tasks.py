@@ -12,6 +12,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from analysis.interpretability.pipeline.agentic_audit_progress import (
+    audit_progress,
+    audit_stage,
+)
 from analysis.interpretability.pipeline.agentic_dataset import (
     FinalDatasetWriter,
     iter_sealed_rows,
@@ -150,6 +154,7 @@ def _append_if_missing(
     return True
 
 
+@audit_stage("register_generator_tasks")
 def register_generator_tasks(
     *,
     dataset_root: Path,
@@ -193,20 +198,20 @@ def register_generator_tasks(
     )
     writer = FinalDatasetWriter(dataset_root, writer_id=writer_id)
     counts = {"prompts": 0, "keyword_memberships": 0, "task_definitions": 0}
-    for prompt in prompts:
+    # These frozen files are shared by every prompt. Hash once, not once per row.
+    source = {
+        "prompts_jsonl_sha256": _sha256(inputs.prompts_jsonl),
+        "selection_records_jsonl_sha256": _sha256(inputs.selection_records_jsonl),
+        "prompt_selection_seed": inputs.prompt_selection_seed,
+    }
+    for number, prompt in enumerate(prompts, 1):
         prompt_row = {
             "prompt_id": prompt.prompt_id,
             "prompt_text": prompt.prompt,
             "prompt_sha256": prompt.question_sha256,
             "axis_bin": prompt.axis_bin,
             "source_keyword": prompt.keyword,
-            "source": {
-                "prompts_jsonl_sha256": _sha256(inputs.prompts_jsonl),
-                "selection_records_jsonl_sha256": _sha256(
-                    inputs.selection_records_jsonl
-                ),
-                "prompt_selection_seed": inputs.prompt_selection_seed,
-            },
+            "source": source,
         }
         counts["prompts"] += _append_if_missing(
             writer,
@@ -231,7 +236,9 @@ def register_generator_tasks(
             row=membership,
             existing=existing_memberships,
         )
-    for cell in cells:
+        audit_progress(phase="prompts", checked=number, total=len(prompts))
+    for number, cell in enumerate(cells, 1):
+        audit_progress(phase="tasks", checked=number, total=len(cells))
         if cell.prompt_id is None:
             raise ValueError("production generator cell lacks a prompt ID")
         identity = _generator_claim_identity(
