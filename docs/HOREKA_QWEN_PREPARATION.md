@@ -122,3 +122,24 @@ content-addressed manifest path printed by `pull`. The existing
 `prepare_qwen_environment.sh` verifies that manifest and uses its frozen Qwen
 profile/vLLM version. Without this variable it retains the original Qwen-only
 manifest workflow. Neither path validates GPU inference during installation.
+
+## First A100 compatibility allocation
+
+`horeka_qwen_probe.py submit` is a distinct, explicitly approved diagnostic run.
+It requires `--approved-walltime 01:00:00` and a recorded `--approval`, uses one
+exclusive node/four GPUs/32 requested CPUs/all node memory, and selects one
+missing prompt's cells in keyword order from the frozen plan. Outputs are
+non-scientific diagnostic checkpoints, never shared-ledger completions. This
+fixed-size compatibility test is an exception to production backlog filling.
+It does not fabricate GH200 timing or approve production dispatch.
+
+Before submission it checks inputs, storage, live GEODML allocations/start gaps,
+and any explicit reservation. A unique output directory plus durable submission
+marker prevents a second submission. Never retry an ambiguous receipt.
+On the compute node the existing HoreKa exclusivity verifier runs before model
+or runtime inspection. The A100 profile preserves the reference serving/scientific
+settings and pinned vLLM version; unsupported settings fail without fallback.
+The existing authenticated loopback stage runner controls the server. Work obeys
+the actual Slurm end time, with admission/cleanup margins. Slurm output, driver
+inventory, profile, execution metadata and compatibility result remain in the
+attempt directory. No GPU compatibility has been established until that run passes.
