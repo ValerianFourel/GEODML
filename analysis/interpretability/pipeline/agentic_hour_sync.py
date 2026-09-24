@@ -200,29 +200,35 @@ class Exchange:
                  revision: str | None = None) -> dict:
         revision = revision or self.store.head()
         value = self.manifest(bundle_id, revision)
-        for name, expected in value["files"].items():
-            relative_path(name)
-            target = root / name
-            if target.is_symlink() or not target.resolve().is_relative_to(root.resolve()):
-                raise ValueError("download path escapes dataset")
-            raw = target.read_bytes() if target.exists() and not verify_remote else self.store.read(
-                f"exchange/objects/{expected['sha256']}", revision)
-            if raw is None or len(raw) != expected["bytes"] or hashlib.sha256(raw).hexdigest() != expected["sha256"]:
-                raise ValueError(f"missing, corrupt, or conflicting artifact: {name}")
-            if target.exists() and target.read_bytes() != raw:
-                raise ValueError(f"conflicting local artifact: {name}")
-            if not target.exists():
-                atomic(target, raw)
-        for fp, event in value["outcomes"].items():
-            refs = event.get("record_references", [])
-            if event["state"] == "completed" and not refs:
-                raise ValueError(f"completion lacks record references: {fp}")
-            if not all(verify_record_reference(root, ref) for ref in refs):
-                raise ValueError(f"outcome references failed verification: {fp}")
-            if event["state"] not in {"completed", "terminal_failed"}:
-                raise ValueError("only verified terminal outcomes can be imported")
-            if event["state"] == "terminal_failed" and (not event.get("owner_id") or not event.get("generation")):
-                raise ValueError("terminal failure lacks its durable producer event")
+        from .agentic_verification_cache import VerificationCache
+        root = root.resolve()
+        with VerificationCache(root, force=verify_remote) as verification:
+            for name, expected in value["files"].items():
+                relative_path(name)
+                target = root / name
+                if target.is_symlink() or not target.resolve().is_relative_to(root):
+                    raise ValueError("download path escapes dataset")
+                if target.exists() and not verify_remote:
+                    if not verification.file(target, expected):
+                        raise ValueError(f"missing, corrupt, or conflicting artifact: {name}")
+                    continue
+                raw = self.store.read(f"exchange/objects/{expected['sha256']}", revision)
+                if raw is None or len(raw) != expected["bytes"] or hashlib.sha256(raw).hexdigest() != expected["sha256"]:
+                    raise ValueError(f"missing, corrupt, or conflicting artifact: {name}")
+                if not target.exists():
+                    atomic(target, raw)
+                if not verification.file(target, expected):
+                    raise ValueError(f"conflicting local artifact: {name}")
+            for fp, event in value["outcomes"].items():
+                refs = event.get("record_references", [])
+                if event["state"] == "completed" and not refs:
+                    raise ValueError(f"completion lacks record references: {fp}")
+                if not all(verify_record_reference(root, ref, verification=verification) for ref in refs):
+                    raise ValueError(f"outcome references failed verification: {fp}")
+                if event["state"] not in {"completed", "terminal_failed"}:
+                    raise ValueError("only verified terminal outcomes can be imported")
+                if event["state"] == "terminal_failed" and (not event.get("owner_id") or not event.get("generation")):
+                    raise ValueError("terminal failure lacks its durable producer event")
         if import_outcomes:
             import_events(root, value["outcomes"], stripes=stripes)
         return value

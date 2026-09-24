@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from analysis.interpretability.pipeline.agentic_audit_progress import audit_stage
 from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
 from analysis.interpretability.pipeline.agentic_hour_sync import (
     checkpoint_files,
@@ -117,7 +118,8 @@ def stage(source, output, model_inputs, priority, snapshot, *, stripes=256):
             'verified_completed': len(done), 'missing_models': report['missing_models']}
 
 
-def verify_inputs(root: Path, manifest: Path, *, model: str) -> dict:
+@audit_stage("verify_inputs")
+def verify_inputs(root: Path, manifest: Path, *, model: str, full_audit: bool = False) -> dict:
     root = root.resolve()
     manifest = manifest if manifest.is_absolute() else root / manifest
     if manifest.is_symlink() or not manifest.resolve().is_relative_to(root):
@@ -125,10 +127,14 @@ def verify_inputs(root: Path, manifest: Path, *, model: str) -> dict:
     value = json.loads(manifest.read_bytes())
     if value.get('format_version') != 'geodml-shared-inputs-v1' or manifest.stem != digest(value):
         raise ValueError('shared input manifest checksum mismatch')
-    for name, expected in value['files'].items():
-        path = root / name
-        if path.is_symlink() or not path.resolve().is_relative_to(root) or identity(path) != expected:
-            raise ValueError('shared input file checksum/path mismatch: ' + name)
+    from analysis.interpretability.pipeline.agentic_verification_cache import (
+        VerificationCache,
+    )
+    with VerificationCache(root, force=full_audit) as verification:
+        for name, expected in value['files'].items():
+            path = root / name
+            if not verification.file(path, expected):
+                raise ValueError('shared input file checksum/path mismatch: ' + name)
     binding = value['models'][model]
     key = 'GEODML_JUDGE_PROFILE' if model == 'nemotron' else 'SEARCH_AGENTIC_PROFILE'
     profile = root / binding['files'][key]

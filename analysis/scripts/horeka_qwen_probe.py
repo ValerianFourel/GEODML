@@ -21,10 +21,10 @@ def read(path):
     return json.loads(Path(path).read_bytes())
 
 
-def choose_probe(plan, root, *, stripes=256):
+def choose_probe(plan, root, *, stripes=256, full_audit=False):
     from analysis.interpretability.pipeline.agentic_hours import inventory
     # Uncalibrated plans have no packaged task rows; deferred IDs join the registry.
-    tasks, completed, blocked = inventory(root, stripes=stripes)
+    tasks, completed, blocked = inventory(root, stripes=stripes, reuse_verified=True, full_audit=full_audit)
     excluded = set(plan['completed_before_plan']) | completed | blocked
     rows = sorted((r for r in tasks if r['fingerprint'] not in excluded and r['model'] == 'qwen38'
                    and plan.get('deferred', {}).get(r['fingerprint']) == 'awaiting_calibration'),
@@ -171,12 +171,12 @@ def prepare(args):
     manifests = list((root / 'artifacts/shared-preparations').glob('*.json'))
     if len(manifests) != 1:
         raise ValueError('expected one frozen manifest')
-    checked = verify_inputs(root, manifests[0], model='qwen38')
+    checked = verify_inputs(root, manifests[0], model='qwen38', full_audit=getattr(args, 'full_audit', False))
     descriptor = read(manifests[0])
     plan = read(args.plan)
     from analysis.interpretability.pipeline.agentic_hours import verify_plan
     verify_plan(plan)
-    cells = choose_probe(plan, root)
+    cells = choose_probe(plan, root, full_audit=getattr(args, 'full_audit', False))
     settings = descriptor['models']['qwen38']['reference_runtime']
     runtime = args.workspace / 'environment/qwen-runtime/bin/python'
     if not runtime.is_file():
@@ -240,6 +240,7 @@ def main():
     submit.add_argument('--since', required=True)
     submit.add_argument('--approved-walltime', required=True, choices=['01:00:00'])
     submit.add_argument('--approval', required=True)
+    submit.add_argument('--full-audit', action='store_true', help='Ignore local verification receipts and recheck all bytes')
     args = parser.parse_args()
     return execute(args.config) if args.command == 'execute' else prepare(args)
 

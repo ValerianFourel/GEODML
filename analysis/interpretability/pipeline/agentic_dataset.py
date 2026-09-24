@@ -451,7 +451,7 @@ def recover_inprogress_writer(
     return recovered
 
 
-def verify_record_reference(root: Path, reference: Mapping[str, Any]) -> bool:
+def verify_record_reference(root: Path, reference: Mapping[str, Any], *, verification=None) -> bool:
     """Verify that a ledger reference resolves to an immutable sealed record."""
 
     table = reference.get("table")
@@ -478,6 +478,9 @@ def verify_record_reference(root: Path, reference: Mapping[str, Any]) -> bool:
     shard = directory / f"{stem}.jsonl"
     if not manifest_path.is_file() or not shard.is_file():
         return False
+    if verification is not None:
+        return verification.reference(reference, manifest_path, shard,
+                                      lambda: verify_record_reference(root, reference))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     raw = shard.read_bytes()
     if (
@@ -496,7 +499,7 @@ def verify_record_reference(root: Path, reference: Mapping[str, Any]) -> bool:
 
 
 def iter_sealed_rows(
-    root: Path, table: str, *, required: bool = False
+    root: Path, table: str, *, required: bool = False, verification=None
 ) -> Iterator[dict[str, Any]]:
     """Yield verified row payloads from immutable shards in manifest order."""
 
@@ -516,8 +519,14 @@ def iter_sealed_rows(
         shard = root / relative
         if not shard.resolve().is_relative_to(root.resolve()):
             raise ValueError(f"shard path escapes dataset root: {manifest_path}")
+        if verification is not None:
+            before = verification.signature(shard)
+            if not verification.file(shard, manifest):
+                raise ValueError(f"shard checksum mismatch: {shard}")
         raw = shard.read_bytes()
-        if hashlib.sha256(raw).hexdigest() != manifest.get("sha256"):
+        if verification is not None and before != verification.signature(shard):
+            raise ValueError(f"shard changed during verification: {shard}")
+        if verification is None and hashlib.sha256(raw).hexdigest() != manifest.get("sha256"):
             raise ValueError(f"shard checksum mismatch: {shard}")
         lines = [line for line in raw.splitlines() if line.strip()]
         if len(lines) != manifest.get("rows"):

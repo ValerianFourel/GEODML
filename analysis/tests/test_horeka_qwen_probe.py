@@ -85,7 +85,7 @@ def test_submit_once_records_one_hour_budget_and_refuses_repeat(tmp_path, monkey
     monkeypatch.setattr(agentic_hour_runtime, 'admission', lambda *a, **kw: {})
     monkeypatch.setattr(agentic_hour_runtime, 'validate_reservation', lambda *a: None)
     monkeypatch.setattr(agentic_hours, 'verify_plan', lambda *a: None)
-    monkeypatch.setattr(probe, 'choose_probe', lambda *a: [{'cell_id': 'missing-cell'}])
+    monkeypatch.setattr(probe, 'choose_probe', lambda *a, **kw: [{'cell_id': 'missing-cell'}])
     monkeypatch.setattr(probe.subprocess, 'check_output', lambda command, **kw: 'a'*40 if 'rev-parse' in command else '')
     submissions = []
     def submit(command, **kw):

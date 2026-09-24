@@ -7,6 +7,7 @@ import json
 import math
 import re
 from collections import defaultdict
+from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -51,15 +52,23 @@ def empty_registry() -> dict:
 
 
 @audit_stage("inventory")
-def inventory(root: Path, *, stripes: int = 256) -> tuple[list[dict], set[str], set[str]]:
+def inventory(root: Path, *, stripes: int = 256, reuse_verified: bool = False,
+              full_audit: bool = False) -> tuple[list[dict], set[str], set[str]]:
     """Read registered tasks and accept only locally verified completions."""
+    from .agentic_verification_cache import VerificationCache
+    root = root.resolve()
+    with (VerificationCache(root, force=full_audit) if reuse_verified else nullcontext()) as verification:
+        return _inventory(root, stripes, verification)
+
+
+def _inventory(root, stripes, verification):
     audit_progress(phase="keyword_memberships")
-    members = {r["prompt_id"]: r for r in iter_sealed_rows(root, "keyword_memberships", required=True)}
+    members = {r["prompt_id"]: r for r in iter_sealed_rows(root, "keyword_memberships", required=True, verification=verification)}
     audit_progress(phase="ledger", prompts=len(members))
     latest = StripedTaskLedger(root / "control/task-ledger", stripe_count=stripes).snapshot()["latest"]
     audit_progress(phase="verify_tasks", tasks_checked=0, verified_completed=0, blocked=0)
     completed, blocked, tasks = set(), set(), []
-    for row in iter_sealed_rows(root, "task_definitions", required=True):
+    for row in iter_sealed_rows(root, "task_definitions", required=True, verification=verification):
         fingerprint = identity_fingerprint(ClaimIdentity(**row["claim_identity"]))
         member = members[row["prompt_id"]]
         tasks.append({**row, "fingerprint": fingerprint,
@@ -73,7 +82,7 @@ def inventory(root: Path, *, stripes: int = 256) -> tuple[list[dict], set[str], 
                       "priority_rank": member["primary_priority_rank"]})
         event = latest.get(fingerprint, {})
         refs = event.get("record_references", [])
-        if event.get("state") == "completed" and refs and all(verify_record_reference(root, r) for r in refs):
+        if event.get("state") == "completed" and refs and all(verify_record_reference(root, r, verification=verification) for r in refs):
             completed.add(fingerprint)
         elif event.get("state") in {"completed", "claimed", "running", "result_saved", "terminal_failed"}:
             blocked.add(fingerprint)

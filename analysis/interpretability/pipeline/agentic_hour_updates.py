@@ -60,7 +60,7 @@ def select_hours(state, *, model, cluster=None, mode="batch", count=1, first=Non
 
 
 def progress(root, state, *, revision, deferred=None, prior_completed=(), stripes=256):
-    tasks, local_done, local_blocked = inventory(root, stripes=stripes)
+    tasks, local_done, local_blocked = inventory(root, stripes=stripes, reuse_verified=True)
     prompts = {r["prompt_id"]: r for r in iter_sealed_rows(root, "prompts")}
     done, failed, owned, assignments = set(prior_completed), set(), {}, {}
     for hour in state["hours"].values():
@@ -282,7 +282,7 @@ def run(exchange, args):
     deferred = current_plan.get("deferred", {})
     if args.command == "update":
         local_tasks = {t["fingerprint"] for t in inventory(Path(site["dataset_root"]),
-                                                         stripes=site.get("stripes", 256))[0]}
+                                                         stripes=site.get("stripes", 256), reuse_verified=True)[0]}
         if {fp for h in state["hours"].values() for fp in h["task_fingerprints"]} - local_tasks:
             raise ValueError("local mirror is incomplete; cannot replace global progress")
     report = progress(Path(site["dataset_root"]), state, revision=revision,

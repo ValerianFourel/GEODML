@@ -143,3 +143,27 @@ The existing authenticated loopback stage runner controls the server. Work obeys
 the actual Slurm end time, with admission/cleanup margins. Slurm output, driver
 inventory, profile, execution metadata and compatibility result remain in the
 attempt directory. No GPU compatibility has been established until that run passes.
+
+
+### Reusing verified inputs
+
+The probe, shared-hour downloads/reservation, and progress checks reuse local
+verification receipts in `dataset/local-only/verification-cache-v1.json`.
+The first check hashes every required file and verifies result references.
+Later checks reuse those proofs only while the dataset root, path, device,
+inode, size, modification time and change time match. New or changed files are
+verified again. Missing files, unsafe paths and checksum conflicts still fail.
+Receipts are atomic, disposable and never uploaded to Hugging Face.
+
+Each preparation still reads the current task ledger. A new completion is
+verified; a new active claim or failure remains blocked. Plans and HF ownership,
+quota and scheduler checks remain live. Compute-node exclusivity and runtime
+checks still run before loading the model. Cached verification does not authorize
+an allocation or make diagnostic results into scientific completions.
+
+Use the probe's `--full-audit` option when corruption is suspected. It ignores
+receipts. Explicit inventory audits and replanning retain full verification.
+Ordinary metadata checks cannot detect silent storage corruption that leaves all
+file metadata unchanged. Existing checkouts without receipts need one initial
+verification; old audit logs are not converted into proof. This change does not
+modify already submitted jobs.
