@@ -115,6 +115,22 @@ def test_weight_index_cannot_hide_missing_shards(tmp_path):
         prep.verify_models(manifest, tmp_path)
 
 
+@pytest.mark.parametrize('separator', [' | ', '|'])
+@pytest.mark.parametrize('kind,blocks,files,expected_bytes,expected_files', [
+    ('FILESET', '2955 10240 11264 4 none', '2161595 10485760 11534336 271 none',
+     7281 * 1024**3, 8323894),
+    ('USR', '13 256000 276480 0 none', '37862 52428800 57671680 0 none',
+     255987 * 1024**3, 52390938),
+])
+def test_quota_parser_accepts_gpfs_column_separators(separator, kind, blocks, files,
+                                                   expected_bytes, expected_files):
+    raw = ('Block Limits | File Limits\n'
+           'Filesystem type GB quota limit in_doubt grace | files quota limit in_doubt grace | Remarks\n'
+           f'work {kind} {blocks}{separator}{files}{separator}hkfs.scc.kit.edu\n')
+    result = prep.parse_quota(raw, kind)
+    assert result == {'headroom_bytes': expected_bytes, 'headroom_files': expected_files, 'raw': raw}
+
+
 def test_quota_parser_includes_in_doubt_and_both_byte_and_file_limits():
     row = prep.parse_quota('home FILESET 2955 10240 11264 4 none 2161595 10485760 11534336 271 none site', 'FILESET')
     assert row['headroom_bytes'] == (10240-2955-4) * 1024**3

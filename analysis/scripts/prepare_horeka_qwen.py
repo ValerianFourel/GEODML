@@ -166,7 +166,9 @@ def download_models(manifest: dict, cache: Path, quota: dict, *, download=None) 
 
 
 def parse_quota(raw: str, kind: str) -> dict:
-    rows = [line.split() for line in raw.splitlines() if len(line.split()) >= 12 and line.split()[1] == kind]
+    # GPFS separates block and file limits with vertical bars in table output.
+    columns = (line.replace('|', ' ').split() for line in raw.splitlines())
+    rows = [row for row in columns if len(row) >= 12 and row[1] == kind]
     if len(rows) != 1:
         raise ValueError('could not parse one authoritative GPFS quota row')
     row = rows[0]
