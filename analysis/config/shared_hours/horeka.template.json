@@ -6,5 +6,6 @@
   "cache_root": "/CONFIGURE/job-scratch/serving",
   "execution_boundary": "exclusive-slurm-node",
   "validated_models": {},
-  "allow_jupiter_full_node_representation": false
+  "allow_jupiter_full_node_representation": false,
+  "reservation": null
 }

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import fcntl
+import getpass
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -98,8 +100,36 @@ def admission(registry: dict, request: dict, snapshot: dict, storage: dict,
     return result
 
 
+def validate_reservation(request: dict, profile: dict) -> None:
+    name = profile.get("reservation")
+    if not name:
+        return
+    if profile["cluster"] != "horeka" or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        raise ValueError("invalid explicit HoreKa reservation")
+    result = subprocess.run(["scontrol", "-o", "show", "reservation", name],
+                            check=True, capture_output=True, text=True, timeout=30)
+    rows = [dict(re.findall(r"(\w+)=([^\s]+)", line)) for line in result.stdout.splitlines()]
+    rows = [row for row in rows if row.get("ReservationName") == name]
+    if len(rows) != 1:
+        raise ValueError("reservation cannot be verified")
+    row = rows[0]
+    if (row.get("State") != "ACTIVE" or "MAINT" in row.get("Flags", "").split(",")
+            or row.get("PartitionName") not in {"(null)", profile["partition"]}):
+        raise ValueError("reservation is not active for this partition")
+    accounts, users = row.get("Accounts", "(null)"), row.get("Users", "(null)")
+    if ((accounts != "(null)" and profile["account"] not in accounts.split(","))
+            or (users != "(null)" and getpass.getuser() not in users.split(","))
+            or accounts == users == "(null)"):
+        raise ValueError("reservation access is not verified for this account/user")
+    end = datetime.fromisoformat(row["EndTime"]).timestamp()
+    start = datetime.fromisoformat(row["StartTime"]).timestamp()
+    if not start <= time.time() < end - request["approval"]["walltime_seconds"]:
+        raise ValueError("reservation validity does not cover the requested duration")
+
+
 def allocation_command(request: dict, profile: dict, repository: Path) -> list[str]:
     validate_request(request, profile)
+    validate_reservation(request, profile)
     approval = request["approval"]
     resources = approval["resources"]
     seconds = approval["walltime_seconds"]
@@ -113,6 +143,8 @@ def allocation_command(request: dict, profile: dict, repository: Path) -> list[s
         f"--job-name=geodml-hours-{request['attempt_id']}",
         f"--comment=geodml-hours:{request['cluster']}:{request['attempt_id']}",
     ])
+    if profile.get("reservation"):
+        command.append(f"--reservation={profile['reservation']}")
     if request["mode"] == "batch":
         directory = Path(request["attempt_dir"]).resolve()
         command.extend([f"--chdir={directory}", f"--output={directory}/slurm-%j.out",

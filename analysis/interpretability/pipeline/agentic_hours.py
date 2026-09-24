@@ -36,6 +36,14 @@ def identifier(value: str) -> str:
     return value
 
 
+def reference_timing(calibration: dict, model: str, configuration: str) -> dict:
+    """Read legacy per-model or new per-configuration reference measurements."""
+    value = calibration.get(model, {})
+    if "configurations" in value:
+        return value["configurations"].get(configuration, {})
+    return value
+
+
 def empty_registry() -> dict:
     return {"format_version": REGISTRY_VERSION, "current_plan": None,
             "hours": {}, "admission": {}}
@@ -69,7 +77,7 @@ def inventory(root: Path, *, stripes: int = 256) -> tuple[list[dict], set[str], 
 
 def build_plan(*, tasks: list[dict], calibration: dict, registry: dict,
                contract: dict, completed: set[str], blocked: set[str],
-               source_commit: str, input_bundle: str) -> dict:
+               source_commit: str, input_bundle: str, allow_uncalibrated: bool = False) -> dict:
     """Repack released work only. Reference costs are allocation wall seconds."""
     if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
         raise ValueError("source_commit must be a full Git SHA")
@@ -98,11 +106,16 @@ def build_plan(*, tasks: list[dict], calibration: dict, registry: dict,
         if not set(row.get("dependency_fingerprints", [])) <= known_done:
             deferred[fp] = "generation_dependency"
             continue
-        groups[(row["model"], row["priority_rank"], row["keyword_id"], row["prompt_id"])].append(row)
+        timing = reference_timing(calibration, row["model"], row["configuration_sha256"])
+        if not timing and allow_uncalibrated:
+            deferred[fp] = "awaiting_calibration"
+            continue
+        groups[(row["model"], row["priority_rank"], row["keyword_id"],
+                row["configuration_sha256"], row["prompt_id"])].append(row)
     packages, current, current_key = [], [], None
     timings = {}
-    for model in {key[0] for key in groups}:
-        timing = calibration.get(model, {})
+    for model, configuration in {(key[0], key[3]) for key in groups}:
+        timing = reference_timing(calibration, model, configuration)
         if (timing.get("cluster") != "jupiter" or timing.get("gpus") != 4
                 or timing.get("gpu_type") != "GH200" or not timing.get("evidence")
                 or not timing.get("scientific_config_sha256") or not timing.get("reference_profile_sha256")):
@@ -113,19 +126,20 @@ def build_plan(*, tasks: list[dict], calibration: dict, registry: dict,
                 raise ValueError(f"{model}: invalid {key}")
         if timing["seconds_per_task"] <= 0 or timing["startup_seconds"] + timing["drain_seconds"] >= 3600:
             raise ValueError(f"{model}: reference timing leaves no useful work")
-        timings[model] = timing
+        timings[(model, configuration)] = timing
     for rows in groups.values():
         for row in rows:
-            if row.get("configuration_sha256") != timings[row["model"]]["scientific_config_sha256"]:
+            if row.get("configuration_sha256") != timings[(row["model"], row["configuration_sha256"])]["scientific_config_sha256"]:
                 raise ValueError("reference calibration does not match the registered scientific configuration")
 
     def flush():
         if not current:
             return
         model = current[0]["model"]
-        timing = timings[model]
+        timing = timings[(model, current[0]["configuration_sha256"])]
         seconds = timing["startup_seconds"] + timing["drain_seconds"] + len(current) * timing["seconds_per_task"]
         packages.append({"model": model, "keyword_id": current[0]["keyword_id"],
+                         "configuration_sha256": current[0]["configuration_sha256"],
                          "priority_rank": current[0]["priority_rank"],
                          "task_fingerprints": [r["fingerprint"] for r in current],
                          "reference_seconds": seconds, "oversized_prompt_group": seconds > 3600})
@@ -133,13 +147,13 @@ def build_plan(*, tasks: list[dict], calibration: dict, registry: dict,
     for key, rows in sorted(groups.items()):
         rows.sort(key=lambda r: (r["task_id"], r["fingerprint"]))
         model = key[0]
-        timing = timings[model]
+        timing = timings[(model, key[3])]
         size = len(current) + len(rows)
-        if current and (current_key != key[:3] or
+        if current and (current_key != key[:4] or
                         size * timing["seconds_per_task"] + timing["startup_seconds"] + timing["drain_seconds"] > 3600):
             flush()
             current = []
-        current_key = key[:3]
+        current_key = key[:4]
         current.extend(rows)
     flush()
     body = {"format_version": PLAN_VERSION, "base_registry_sha256": digest(registry),

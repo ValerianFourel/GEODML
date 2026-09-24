@@ -25,6 +25,7 @@ from analysis.interpretability.pipeline.agentic_hour_runtime import (
     allocation_command,
     execute,
     validate_request,
+    validate_reservation,
     verify_serving,
 )
 from analysis.interpretability.pipeline.agentic_hour_sync import (
@@ -42,6 +43,7 @@ from analysis.interpretability.pipeline.agentic_hours import (
     finish_hours,
     install_plan,
     inventory,
+    reference_timing,
     verify_plan,
 )
 from analysis.interpretability.pipeline.agentic_storage import storage_health
@@ -83,6 +85,9 @@ def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
     if len({row["model"] for row in selected}) != 1:
         raise ValueError("one attempt must use one model")
     model = selected[0]["model"]
+    from analysis.interpretability.pipeline.agentic_hour_updates import ALLOWED_MODELS
+    if model not in ALLOWED_MODELS.get(request["cluster"], set()):
+        raise ValueError("model is not enabled on the selected cluster")
     evidence = profile.get("validated_models", {}).get(model)
     if not evidence or not evidence.get("evidence") or not evidence.get("reference_profile_sha256"):
         raise ValueError("model has no validated cluster compatibility evidence")
@@ -106,10 +111,14 @@ def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
     for hour in selected:
         if hour["plan_id"] not in plans:
             plan = load_plan(exchange, hour["plan_id"])
-            if plan["calibration"][model]["reference_profile_sha256"] != evidence["reference_profile_sha256"]:
-                raise ValueError("cluster profile does not match the hour's frozen reference profile")
             exchange.download(plan["input_bundle"], dataset, stripes=stripes)
             plans[hour["plan_id"]] = plan
+        plan = plans[hour["plan_id"]]
+        configurations = {plan["tasks"][fp]["configuration_sha256"] for fp in hour["task_fingerprints"]}
+        if len(configurations) != 1 or reference_timing(
+                plan["calibration"], model, next(iter(configurations))
+        )["reference_profile_sha256"] != evidence["reference_profile_sha256"]:
+            raise ValueError("cluster profile does not match the hour's frozen reference profile")
         for bundle in hour["checkpoints"]:
             exchange.download(bundle, dataset, stripes=stripes)
         plan = plans[hour["plan_id"]]
@@ -118,6 +127,8 @@ def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
                 tasks[fp] = plan["tasks"][fp]
     if not tasks:
         raise ValueError("selected hours have no eligible work")
+    if len({task["configuration_sha256"] for task in tasks.values()}) != 1:
+        raise ValueError("one attempt must use one scientific configuration")
     attempt = {"format_version": "geodml-hour-attempt-v1", "request": request,
                "attempt_id": request["attempt_id"], "cluster": request["cluster"],
                "model": model, "cluster_profile": profile, "runtime_environment": runtime,
@@ -257,6 +268,20 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--repo-id", default="ValerianFourel/geodml-experiment-v2-paper-private")
     result.add_argument("--journal", type=Path)
     commands = result.add_subparsers(dest="command", required=True)
+    for name in ("status", "update", "pull", "select"):
+        command = commands.add_parser(name)
+        command.add_argument("--site", type=Path, required=True)
+        command.add_argument("--details", action="store_true")
+        if name == "update":
+            command.add_argument("--scope", choices=("results", "plan", "both"), default="results")
+        if name in {"pull", "select"}:
+            command.add_argument("--model", choices=("qwen38", "llama4", "nemotron"), required=True)
+        if name == "select":
+            command.add_argument("--cluster", choices=("jupiter", "horeka"))
+            command.add_argument("--mode", choices=("batch", "interactive"), default="batch")
+            command.add_argument("--count", type=int, default=1)
+            command.add_argument("--first")
+            command.add_argument("--configuration")
     commands.add_parser("list")
     inspect = commands.add_parser("inspect-inputs")
     inspect.add_argument("--dataset-root", type=Path, required=True)
@@ -324,9 +349,20 @@ def main(argv=None) -> int:
         print(json.dumps({"configuration_task_counts": groups, "verified_completed": len(completed),
                           "blocked": len(blocked)}, indent=2))
         return 0
+    if args.journal is None and getattr(args, "site", None):
+        args.journal = Path(read(args.site)["journal"])
     if args.journal is None:
         raise ValueError("network commands require a durable --journal outside the checkout")
     exchange = Exchange(HubStore(args.repo_id), args.journal)
+    if args.command in {"status", "update", "pull", "select"}:
+        from analysis.interpretability.pipeline.agentic_hour_updates import run
+        result = run(exchange, args)
+        if "progress" in result and not args.details:
+            report = result["progress"]
+            result["progress"] = {**{k: v for k, v in report.items() if k != "groups"},
+                                  "keyword_bin_groups": len(report["groups"])}
+        print(json.dumps(result, indent=2))
+        return 0
     if args.command == "list":
         _, state = exchange.snapshot()
         print(json.dumps(state, indent=2))
@@ -399,6 +435,7 @@ def main(argv=None) -> int:
         attempt = read(args.attempt)
         request = attempt["request"]
         validate_request(request, attempt["cluster_profile"])
+        validate_reservation(request, attempt["cluster_profile"])
         _, current = exchange.snapshot()
         tracked = [ticket["existing_job_id"] for ticket in current["admission"].get(attempt["cluster"], {}).get("tickets", {}).values()
                    if ticket.get("existing_job_id")]

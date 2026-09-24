@@ -57,6 +57,10 @@ and shuffled document conditions.
 
 ### Shared hours across clusters
 
+- Prefer HoreKa for Qwen; keep Qwen eligible on JUPITER too. Llama and Nemotron
+  run on JUPITER. Require an explicit model choice for each run. Routine result
+  updates preserve plan IDs; replan only on explicit request. Historical search,
+  HTML and paid SEO archives are separate from current scientific completion.
 - JUPITER is the chief setup. HoreKa is the secondary setup. JUPITER publishes
   the frozen population, GH200 timing references, and replacement hour plans.
   Either cluster may independently claim compatible published hours through the

@@ -1,0 +1,12 @@
+{
+  "qwen38": {
+    "runtime_environment": {
+      "SEARCH_AGENTIC_PROFILE": "/CONFIGURE/frozen/qwen38-profile.json",
+      "SEARCH_AGENTIC_DDG_SNAPSHOT": "/CONFIGURE/frozen/duckduckgo.parquet",
+      "SEARCH_AGENTIC_SEARXNG_SNAPSHOT": "/CONFIGURE/frozen/searxng.parquet",
+      "SEARCH_AGENTIC_PROMPTS_JSONL": "/CONFIGURE/frozen/population-prompts.jsonl",
+      "SEARCH_AGENTIC_SELECTION_RECORDS_JSONL": "/CONFIGURE/frozen/population-selection-records.jsonl"
+    },
+    "extra_files": {}
+  }
+}

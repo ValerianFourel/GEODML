@@ -1,0 +1,12 @@
+{
+  "cluster": "jupiter",
+  "dataset_root": "/CONFIGURE/shared-hours/dataset",
+  "input_bundle": null,
+  "calibration": "/CONFIGURE/shared-hours/calibration.json",
+  "source_commit": "REQUIRED_FULL_COMMITTED_SHA",
+  "plan_dir": "/CONFIGURE/shared-hours/plans",
+  "journal": "/CONFIGURE/shared-hours/journal",
+  "quota_evidence": "/CONFIGURE/shared-hours/quota.json",
+  "stripes": 256,
+  "attempts": []
+}

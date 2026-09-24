@@ -255,3 +255,96 @@ current progress. Its `unshare: ... No space left on device` failure occurred
 before inference while entering isolation; this alone establishes neither disk
 exhaustion nor GPU OOM. The corrected path has local regression coverage only;
 a real corrected JUPITER run is still required for cluster validation.
+
+## Fast update workflow
+
+The shared-hour model policy is Qwen on either cluster, preferably HoreKa;
+Llama and Nemotron on JUPITER. Selection requires an explicit model. These are
+routing preferences, not compatibility evidence or allocation approval.
+
+Copy `analysis/config/shared_hours/site.template.json` outside the checkout.
+Set its dataset root, journal, plan directory, quota evidence and cluster. Its
+`attempts` list contains explicit paths to this host's saved `attempt.json` files.
+Use the same local dataset root for attempts listed together. HoreKa can also set
+`workspace`, `quota_project` and optional `quota_cluster`; update/pull then capture
+fresh GPFS quota evidence automatically. JUPITER requires its actual site quota
+report in the existing evidence format. Do not manufacture a quota pass.
+
+Set `GEODML_SITE_CONFIG` to that JSON and `GEODML_PYTHON` to the prepared Python.
+Call `bash analysis/scripts/slurm/update_agentic_hours.sh` with:
+
+| Arguments | Effect |
+|---|---|
+| `status` | Read registry and local keyword/bin progress; no publication. |
+| `update` | Sync listed attempts, retrieve published results and refresh progress; keep plans. |
+| `update --scope plan` | JUPITER: retrieve published results and replan released work. |
+| `update --scope both` | JUPITER: publish local results, retrieve remote results, then replan. |
+| `pull --model qwen38` | Retrieve pinned plan/input/checkpoint bundles; no reservation. |
+| `select --model qwen38 --count 3` | Propose HoreKa Qwen hours without claiming or allocating. |
+| `select --model qwen38 --cluster jupiter --mode interactive --count 3` | Propose JUPITER Qwen hours in reverse keyword order. |
+
+The Python CLI supports the same commands with `--site PATH`. Output is a compact
+summary; `--details` includes all keyword/bin rows. Pull/update also save readable
+`progress.json` and `progress.md` in the local plan directory. `--first HOUR_ID`
+selects an explicit first hour. Selection never proves hardware compatibility.
+Use `--configuration HASH` when selecting a specific scientific configuration;
+the default uses the first eligible package's configuration and never mixes them.
+All claims still go through the existing validated-profile and approval gates.
+
+`coordination/progress.json` and `coordination/progress.md` summarize cells by
+model, primary keyword and frozen axis bin. They include hour assignments,
+owners and disjoint status counts. Missing bins are reported as unknown, never
+inferred. Reports carry the source registry checksum/revision; `hours.json`
+remains authoritative. A stale report cannot change ownership. Private HF write
+access is required for publication and claiming; read-only tokens support pulls.
+
+Repeated unchanged result updates upload no result payloads. A plan refresh with
+unchanged assignments/settings preserves hour IDs. Changed plans never replace
+owned packages, and completed or failed cells are never silently rescheduled.
+Input/checkpoint downloads currently retrieve whole immutable bundles, including
+other-model records needed for dependency verification. They do not download the
+historical archive. Transfers reuse existing verified files and preserve conflicts.
+
+Calibration accepts the original per-model shape, or
+`{"qwen38":{"configurations":{"CONFIGURATION_SHA":{...measurement fields...}}}}`.
+Each package contains one configuration and keyword. New update workflows defer
+missing calibration as `awaiting_calibration`; invalid supplied measurements still
+fail. The original `plan` command keeps its strict missing-calibration behavior.
+A pending-calibration plan is a tracker, not a runnable one-hour workload.
+
+## Initial publication from JUPITER
+
+`bootstrap_shared_hours.py --source DATASET --output NEW_BOOTSTRAP --since DATE`
+inspects Slurm, registrations and reconciliation needs without changing scientific
+records. Add `--include-job-id 1995245` for the known resume attempt. Ledger reads
+can initialize their normal advisory lock files.
+
+For publication, add `--publish --model-inputs FILE --keyword-priority FILE
+--quota-evidence FILE` and, when available, `--calibration FILE`.
+`model-inputs.template.json` documents the input-map shape. Replace each model's
+`runtime_environment` with its actual frozen runtime values; use no guessed
+model revision, setting or file. Add a model entry for every registered model.
+The helper reports missing registrations; it does not create them. Judgment
+registration continues through the existing exact-generation mapping pipeline.
+
+The helper reconciles terminal legacy writers, freezes a separate mirror,
+publishes verified input objects, and creates `site.json`, calibration, publication
+receipts and a plan. It checks for live legacy jobs before staging and again
+before publication/plan installation. Without timing evidence it publishes only
+deferred work. It never repeats registration or recovery acceptance and never
+submits Slurm jobs. If a plan already exists, use the saved site and `update`.
+The standard `publish-plan` command with the saved operation ID resolves an
+ambiguous plan-publication response.
+
+`prepare_shared_hour_inputs.py` also exposes staging independently for multiple
+registered models. Shared prompts, memberships, task shards and verified outcomes
+stay intact. Frozen input bindings and original runtime values are stored in
+`artifacts/shared-preparations/<hash>.json`. Site-local paths must be rebound before
+execution; the source paths are provenance, not portable runtime configuration.
+Never overwrite an existing mirror after its source changes.
+
+HoreKa's cluster profile may specify `reservation: "casualnet"`. Admission and
+command generation verify the actual reservation's account/user, partition,
+active state and remaining validity using Slurm. Null leaves reservation selection
+unset. Neither reservation membership nor `--exclusive` replaces compute-node
+execution-boundary verification.

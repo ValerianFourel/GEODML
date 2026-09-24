@@ -41,10 +41,12 @@ quota, not the filesystem-wide free capacity shown by `df`.
 
 File-count headroom: 8,324,165 in project home; 52,390,938 in personal work.
 
-- Keep code at `$HOME/geodml`.
+- Keep pinned code in `$HOME/geodml-checkouts/`; preserve the existing 370 GB
+  `$HOME/geodml` tree.
 - Use an allocated `/hkfs/work` workspace with `models/`, `datasets/`, `runs/`
-  and `logs/` directories. No active workspace was shown; the old `ragdag`
-  workspace has been unavailable since 30 August.
+  and `logs/` directories. The active workspace is `geodml-qwen`, created with
+  60 days and three extensions; recheck its current expiry with `ws_list`. The old
+  `ragdag` workspace has been unavailable since 30 August.
 - Use `$TMPDIR` for disposable runtime files, roughly 800 GB per node, deleted
   after the job. Keep completed results outside it.
 - Workspaces expire and have no backup. Preserve durable results in project home
@@ -70,9 +72,9 @@ The current judge is Nano, as pinned in the
 The [continuation configuration](../analysis/scripts/prepare_agentic_adaptive_500.py)
 records the current model revisions.
 
-Place Qwen and Nano on HoreKa only after validating their frozen serving profiles.
-Keep Scout on JUPITER. Preserve revisions, precision, context and scientific
-settings; do not silently quantize, offload or switch to multiple nodes.
+Prefer Qwen on HoreKa after validating its frozen serving profile; keep it
+available on JUPITER too. Run Scout and Nano on JUPITER for the current work.
+Preserve revisions, precision, context and scientific settings; do not silently quantize, offload or switch to multiple nodes.
 
 ## Before execution
 

@@ -91,3 +91,34 @@ reservation support to the shared-hour launcher. Verify the actual Slurm boundar
 on the compute node before loading Qwen, without `unshare`. Preserve the frozen
 scientific settings and obtain production approval only after measuring startup
 and throughput. No production launcher is supplied by this preparation step.
+
+## Full historical archive
+
+`analysis/scripts/prepare_horeka_archive.py` downloads the full historical
+`ValerianFourel/geodml-papersize` revision
+`8ba12dcc592e41eda86f349ca3dde97d726e4b4b` independently of shared-hour inputs.
+Pass `--root`, `--report-dir`, and fresh `--quota-evidence`; `--inventory-only`
+reports size without downloading payloads. Keep it in a separate workspace
+archive directory. The live inventory contained 41,911 files and 37,749,713,024
+bytes when checked on 24 September 2026. Disk capacity must include transfer
+metadata and safety margins.
+
+Downloads resume per file and verify authoritative Hub checksums. Tar archives
+remain compressed. Existing conflicting files stop the process. Raw paid API
+errors are preserved, not counted as valid measurements. Archive files never
+create task-ledger completions. Optional `--publish-catalog` publishes only the
+pinned inventory to the private V2 repository and requires write access.
+
+Models passed HoreKa preparation at commit `2ba0cf3`; this does not validate GPU
+inference. The current read-only HF login can download inputs and archives but
+must be replaced with appropriately scoped write access before publishing results
+or claiming hours. Tokens stay in the host's saved HF login, never in configuration.
+
+For initial publication and routine transfers, see the
+[fast update workflow](../analysis/docs/agentic_shared_hours.md#fast-update-workflow).
+
+For a shared multi-model bundle, set `GEODML_SHARED_INPUT_MANIFEST` to the
+content-addressed manifest path printed by `pull`. The existing
+`prepare_qwen_environment.sh` verifies that manifest and uses its frozen Qwen
+profile/vLLM version. Without this variable it retains the original Qwen-only
+manifest workflow. Neither path validates GPU inference during installation.

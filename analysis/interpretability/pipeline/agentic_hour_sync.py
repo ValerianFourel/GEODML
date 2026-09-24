@@ -155,7 +155,7 @@ class Exchange:
     def upload(self, root: Path, names: list[str], *, outcomes: dict,
                metadata: dict) -> str:
         from analysis.scripts.publish_agentic_dataset import SECRET_BYTES
-        files, inventory = {}, {}
+        inventory = {}
         for name in sorted(set(names)):
             relative_path(name)
             path = root / name
@@ -165,7 +165,8 @@ class Exchange:
             if SECRET_BYTES.search(raw):
                 raise ValueError("credential-shaped content rejected")
             sha = hashlib.sha256(raw).hexdigest()
-            files[f"exchange/objects/{sha}"] = raw
+            # Keep at most one sealed payload in memory; the manifest is last.
+            self.immutable({f"exchange/objects/{sha}": raw})
             inventory[name] = {"sha256": sha, "bytes": len(raw)}
         manifest = {"format_version": "geodml-hour-bundle-v1", "files": inventory,
                     "outcomes": outcomes, "metadata": metadata}
@@ -173,7 +174,6 @@ class Exchange:
             raise ValueError("credential-shaped metadata rejected")
         bundle_id = "bundle-" + digest(manifest)
         # Data first, marker last: no reader can mistake a partial upload for a bundle.
-        self.immutable(files)
         self.immutable({f"exchange/bundles/{bundle_id}.json": canonical(manifest)})
         return bundle_id
 
@@ -188,8 +188,9 @@ class Exchange:
         return value
 
     def download(self, bundle_id: str, root: Path, *, stripes: int = 256,
-                 import_outcomes: bool = True, verify_remote: bool = False) -> dict:
-        revision = self.store.head()
+                 import_outcomes: bool = True, verify_remote: bool = False,
+                 revision: str | None = None) -> dict:
+        revision = revision or self.store.head()
         value = self.manifest(bundle_id, revision)
         for name, expected in value["files"].items():
             relative_path(name)
