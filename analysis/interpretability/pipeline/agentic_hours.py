@@ -11,6 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .agentic_audit_progress import audit_progress, audit_stage
 from .agentic_dataset import iter_sealed_rows, verify_record_reference
 from .agentic_task_ledger import StripedTaskLedger, identity_fingerprint
 from .inference_claims import ClaimIdentity
@@ -49,10 +50,14 @@ def empty_registry() -> dict:
             "hours": {}, "admission": {}}
 
 
+@audit_stage("inventory")
 def inventory(root: Path, *, stripes: int = 256) -> tuple[list[dict], set[str], set[str]]:
     """Read registered tasks and accept only locally verified completions."""
+    audit_progress(phase="keyword_memberships")
     members = {r["prompt_id"]: r for r in iter_sealed_rows(root, "keyword_memberships", required=True)}
+    audit_progress(phase="ledger", prompts=len(members))
     latest = StripedTaskLedger(root / "control/task-ledger", stripe_count=stripes).snapshot()["latest"]
+    audit_progress(phase="verify_tasks", tasks_checked=0, verified_completed=0, blocked=0)
     completed, blocked, tasks = set(), set(), []
     for row in iter_sealed_rows(root, "task_definitions", required=True):
         fingerprint = identity_fingerprint(ClaimIdentity(**row["claim_identity"]))
@@ -72,6 +77,7 @@ def inventory(root: Path, *, stripes: int = 256) -> tuple[list[dict], set[str], 
             completed.add(fingerprint)
         elif event.get("state") in {"completed", "claimed", "running", "result_saved", "terminal_failed"}:
             blocked.add(fingerprint)
+        audit_progress(tasks_checked=len(tasks), verified_completed=len(completed), blocked=len(blocked))
     return tasks, completed, blocked
 
 

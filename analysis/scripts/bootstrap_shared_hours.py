@@ -5,12 +5,17 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from analysis.interpretability.pipeline.agentic_audit_progress import (
+    audit_progress,
+    audit_stage,
+)
 from analysis.interpretability.pipeline.agentic_hour_sync import (
     REGISTRY_PATH,
     Exchange,
@@ -40,18 +45,23 @@ from analysis.scripts.publish_agentic_dataset import build_manifest
 from analysis.scripts.reconcile_agentic_dataset import reconcile
 
 
+@audit_stage("dispatch")
 def publish_dispatch(source, exchange, snapshot, *, stripes=256):
     """Publish the complete audited inventory without copying input payloads."""
+    audit_progress(phase="scheduler_and_hub")
     scheduler_gate(snapshot)
     revision, state = exchange.snapshot()
     if state != empty_registry():
         raise ValueError('shared registry already in use; use the saved site update workflow')
+    audit_progress(phase="reconciliation")
     review = reconcile(source, scheduler_snapshot=snapshot, stripe_count=stripes, apply=False)
     if review['actions'] or review['blocked']:
         raise ValueError('dispatch requires reconciled legacy work')
+    audit_progress(phase="inventory")
     tasks, done, blocked = inventory(source, stripes=stripes)
     from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
     bins = {p['prompt_id']: p.get('axis_bin') for p in iter_sealed_rows(source, 'prompts')}
+    audit_progress(phase="dispatch_rows", tasks_total=len(tasks), tasks_prepared=0, verified_completed=len(done))
     rows = []
     for task in sorted(tasks, key=lambda t: (t['model'], t['priority_rank'], t['keyword_id'], t['prompt_id'], t['fingerprint'])):
         fp = task['fingerprint']
@@ -59,6 +69,8 @@ def publish_dispatch(source, exchange, snapshot, *, stripes=256):
         rows.append({**task, 'axis_bin': bins.get(task['prompt_id']), 'dispatch_status': status,
                      'preferred_cluster': PREFERRED_CLUSTER[task['model']],
                      'allowed_clusters': sorted(c for c, models in ALLOWED_MODELS.items() if task['model'] in models)})
+        audit_progress(tasks_prepared=len(rows))
+    audit_progress(phase="serialize_and_hash")
     document = {'format_version': 'geodml-dispatch-inventory-v1', 'runnable': False,
                 'allocation_approved': False, 'hour_packages': None,
                 'reference_hour': {'cluster': 'jupiter', 'nodes': 1, 'gpus': 4, 'gpu_type': 'GH200', 'seconds': 3600},
@@ -73,7 +85,9 @@ def publish_dispatch(source, exchange, snapshot, *, stripes=256):
     summary.update(dispatch_id=plan_id, inventory_path=path, scheduler_snapshot=snapshot,
                    note='Full task dispatch inventory. Hour sizing and frozen input publication remain required. '
                         'Verified completions are observations, not transferred result payloads.')
+    audit_progress(phase="check_existing_publication")
     if exchange.store.read(path, revision) is None:
+        audit_progress(phase="compress_and_upload")
         result = exchange.store.commit(revision, {path: gzip.compress(canonical(document), mtime=0),
                                        'coordination/dispatch.json': canonical(summary)},
                                        'Publish audited keyword/bin dispatch inventory')
@@ -126,6 +140,8 @@ def main(argv=None):
                              help='publish observations and an empty registry, even while legacy jobs are pending')
     parser.add_argument('--repo-id', default='ValerianFourel/geodml-experiment-v2-paper-private')
     args = parser.parse_args(argv)
+    os.environ.setdefault("GEODML_AUDIT_PROGRESS", "1")
+    @audit_stage("scheduler")
     def scheduler():
         value = capture(plan={'plan_id': 'shared-hours-bootstrap'}, since=args.since,
                         include_job_ids=args.include_job_id)

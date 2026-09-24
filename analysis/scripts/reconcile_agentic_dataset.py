@@ -11,6 +11,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from analysis.interpretability.pipeline.agentic_audit_progress import (
+    audit_progress,
+    audit_stage,
+)
 from analysis.interpretability.pipeline.agentic_dataset import (
     iter_sealed_rows,
     recover_inprogress_writer,
@@ -63,6 +67,7 @@ def _owners(snapshot: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+@audit_stage("reconciliation")
 def reconcile(
     root: Path,
     *,
@@ -72,6 +77,7 @@ def reconcile(
 ) -> dict[str, Any]:
     """Plan or apply safe terminal-owner recovery for known task identities."""
 
+    audit_progress(phase="task_registry", tasks_checked=0)
     owners = _owners(scheduler_snapshot)
     identities: dict[str, ClaimIdentity] = {}
     for row in iter_sealed_rows(root, "task_definitions", required=True):
@@ -80,12 +86,16 @@ def reconcile(
         if fingerprint in identities:
             raise ValueError("task definitions contain a duplicate identity")
         identities[fingerprint] = identity
+        audit_progress(tasks_checked=len(identities))
     ledger = StripedTaskLedger(root / "control" / "task-ledger", stripe_count=stripe_count)
+    audit_progress(phase="ledger")
     latest = ledger.snapshot()["latest"]
     actions: list[dict[str, Any]] = []
     blocked: list[dict[str, Any]] = []
     recovered_writers: dict[str, list[dict[str, Any]]] = {}
-    for fingerprint, event in sorted(latest.items()):
+    audit_progress(phase="verify_ledger", ledger_total=len(latest), ledger_checked=0)
+    for index, (fingerprint, event) in enumerate(sorted(latest.items()), 1):
+        audit_progress(ledger_checked=index-1, actions=len(actions), blocked=len(blocked))
         owner_id = event.get("owner_id")
         owner = owners.get(owner_id) if isinstance(owner_id, str) else None
         if owner is None or owner["state"] not in TERMINAL_SCHEDULER_STATES:
@@ -159,6 +169,7 @@ def reconcile(
                 "owner_id": owner_id,
                 "action": "release_uncommitted_claim",
             })
+    audit_progress(ledger_checked=len(latest), actions=len(actions), blocked=len(blocked))
     return {
         "format_version": "geodml-agentic-reconciliation-v1",
         "applied": apply,

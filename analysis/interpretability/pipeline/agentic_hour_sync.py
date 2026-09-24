@@ -12,6 +12,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
+from .agentic_audit_progress import audit_progress, audit_stage
 from .agentic_dataset import verify_record_reference
 from .agentic_hours import canonical, digest, empty_registry, identifier
 from .agentic_task_ledger import StripedTaskLedger
@@ -152,11 +153,15 @@ class Exchange:
                 raise ConflictError("upload busy; resume without changing its files")
         return revision
 
+    @audit_stage("bundle_upload")
     def upload(self, root: Path, names: list[str], *, outcomes: dict,
                metadata: dict) -> str:
         from analysis.scripts.publish_agentic_dataset import SECRET_BYTES
         inventory = {}
-        for name in sorted(set(names)):
+        names = sorted(set(names))
+        audit_progress(phase="verify_and_publish_files", files_total=len(names), files_finished=0, bytes_finished=0)
+        bytes_finished = 0
+        for name in names:
             relative_path(name)
             path = root / name
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
@@ -168,12 +173,15 @@ class Exchange:
             # Keep at most one sealed payload in memory; the manifest is last.
             self.immutable({f"exchange/objects/{sha}": raw})
             inventory[name] = {"sha256": sha, "bytes": len(raw)}
+            bytes_finished += len(raw)
+            audit_progress(files_finished=len(inventory), bytes_finished=bytes_finished)
         manifest = {"format_version": "geodml-hour-bundle-v1", "files": inventory,
                     "outcomes": outcomes, "metadata": metadata}
         if SECRET_BYTES.search(canonical(manifest)):
             raise ValueError("credential-shaped metadata rejected")
         bundle_id = "bundle-" + digest(manifest)
         # Data first, marker last: no reader can mistake a partial upload for a bundle.
+        audit_progress(phase="publish_manifest")
         self.immutable({f"exchange/bundles/{bundle_id}.json": canonical(manifest)})
         return bundle_id
 

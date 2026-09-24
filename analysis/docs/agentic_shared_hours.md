@@ -372,3 +372,15 @@ packages, or submits allocations. It requires fresh complete scheduler evidence
 and refuses to overwrite a registry already in use. Concurrent publication is
 protected by the HF parent revision. Repeating it refreshes the observations.
 Normal bootstrap publication still requires legacy jobs to have stopped.
+
+## Audit progress
+
+Bootstrap commands enable progress messages on stderr by default. Set
+`GEODML_AUDIT_PROGRESS=1` for standalone Python sync blocks too, or `0` to
+silence them. Every ten seconds, each active audit stage reports elapsed time,
+its current phase and observed counters. Inventory reports tasks checked,
+verified completions and blocked tasks; reconciliation reports registry and
+ledger counts. Bundle uploads report files and bytes confirmed remotely,
+including files already present. These counters are audit/transfer progress,
+not newly generated scientific results. Totals are shown only when known.
+Final JSON stays on stdout. Updating a checkout does not change a running process.
