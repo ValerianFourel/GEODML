@@ -117,6 +117,8 @@ def test_twenty_qwen_jobs_are_independent_held_and_never_alternate(tmp_path):
         next(arg for arg in job["command"] if arg.startswith("--export="))
         for job in bundle["jobs"]
     ]
+    assert bundle["runtime_environment"]["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] == "1"
+    assert all("GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1" in value for value in exports)
     assert all("GEODML_WORKER_INDEX=0" in value for value in exports)
     assert all("GEODML_WORKER_COUNT=1" in value for value in exports)
 
@@ -132,6 +134,7 @@ def test_interactive_segments_are_reserved_without_becoming_batch_jobs(tmp_path)
         and "--time=01:00:00" in row["allocation_command"]
         and row["step_command"][0] == "srun"
         and row["environment"]["GEODML_WORKER_COUNT"] == "1"
+        and row["environment"]["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] == "1"
         for row in bundle["interactive_segments"]
     )
 

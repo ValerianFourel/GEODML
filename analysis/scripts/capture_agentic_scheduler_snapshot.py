@@ -34,6 +34,9 @@ def _epoch(value: str) -> int | None:
 
 
 def _comment(value: str) -> dict[str, str]:
+    hour = re.fullmatch(r"geodml-hours:(jupiter|horeka):([A-Za-z0-9][A-Za-z0-9_.-]{0,159})", value)
+    if hour:
+        return {"cluster": hour[1], "attempt_id": hour[2]}
     match = COMMENT.fullmatch(value)
     if match is None:
         return {}
@@ -60,6 +63,7 @@ def capture(
     plan: dict[str, Any],
     since: str,
     runner: Callable[[list[str]], str] = _run,
+    include_job_ids: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Capture all live geodml-* jobs plus this plan's terminal history."""
 
@@ -80,7 +84,7 @@ def capture(
         if len(fields) != 6:
             raise ValueError(f"unexpected squeue row {number}")
         job_id, name, state, start, reason, comment = (item.strip() for item in fields)
-        if not name.startswith("geodml-"):
+        if not name.startswith("geodml-") and job_id not in include_job_ids:
             continue
         state = state.upper()
         metadata = _comment(comment)
@@ -96,7 +100,7 @@ def capture(
         })
     history_raw = runner([
         "sacct", "-X", "--noheader", "--parsable2", f"--starttime={since}",
-        "--format=JobIDRaw,JobName,State,Start,Comment",
+        "--format=JobIDRaw,JobName%200,State,Start,Comment%512",
     ])
     completed_segment_ids: set[str] = set()
     owners: dict[str, dict[str, Any]] = {}
@@ -107,14 +111,17 @@ def capture(
         if len(fields) < 5:
             raise ValueError(f"unexpected sacct row {number}")
         job_id, name, state, start, comment = (item.strip() for item in fields[:5])
-        if not re.fullmatch(r"[0-9]+", job_id) or not name.startswith("geodml-"):
+        if not re.fullmatch(r"[0-9]+", job_id) or (not name.startswith("geodml-") and job_id not in include_job_ids):
             continue
         state = state.split()[0].rstrip("+").upper()
         metadata = _comment(comment)
         if state in TERMINAL_STATES:
             if metadata.get("plan_id") == plan_id:
                 completed_segment_ids.add(metadata["segment_id"])
-            for owner_id in (f"job{job_id}-worker0", f"judge-{job_id}-0"):
+            owner_ids = [f"job{job_id}-worker0", f"judge-{job_id}-0"]
+            if metadata.get("attempt_id"):
+                owner_ids.append(f"{metadata['cluster']}-{metadata['attempt_id']}")
+            for owner_id in owner_ids:
                 owners[owner_id] = {
                     "owner_id": owner_id,
                     "job_id": job_id,

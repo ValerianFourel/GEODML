@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -548,7 +549,11 @@ class FinalDatasetWriter:
         self.maximum_shard_bytes = maximum_shard_bytes
         self._writers: dict[str, JsonlShardWriter] = {}
         self._manifests: list[dict[str, Any]] = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._seal_interval = float(os.environ.get("GEODML_DATASET_SEAL_INTERVAL_SECONDS", "0"))
+        if not 0 <= self._seal_interval < float("inf"):
+            raise ValueError("dataset seal interval must be finite and non-negative")
+        self._last_seal = time.monotonic()
 
     def _sequence(self, table: str) -> int:
         directory = self.root / "data" / table
@@ -598,6 +603,8 @@ class FinalDatasetWriter:
         record_id: str | None = None,
     ) -> dict[str, Any]:
         with self._lock:
+            if self._seal_interval and time.monotonic() - self._last_seal >= self._seal_interval:
+                self.seal()
             try:
                 writer = self._writer(table)
                 reference = writer.append(
@@ -646,6 +653,7 @@ class FinalDatasetWriter:
                     )
                     raise
                 del self._writers[table]
+            self._last_seal = time.monotonic()
             return list(self._manifests)
 
     def close(self) -> None:

@@ -19,6 +19,11 @@ WRAPPER = REPOSITORY / "analysis/scripts/slurm/jupiter/run_inference_wave_worker
 def _environment(root: Path, *, launcher_status: int = 0) -> dict[str, str]:
     repository = root / "repository"
     repository.mkdir()
+    # Slurm/controller verification is covered by test_jupiter_inference_boundary.
+    # This fixture exercises dispatch, budgets and worker lifecycle after admission.
+    verifier = repository / "analysis/scripts/verify_inference_allocation.py"
+    verifier.parent.mkdir(parents=True)
+    verifier.write_text('import os\nassert os.environ["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] == "1"\n')
     launcher = repository / "worker.sh"
     launcher.write_text(
         "#!/usr/bin/env bash\n"

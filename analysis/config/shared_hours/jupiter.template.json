@@ -1,0 +1,10 @@
+{
+  "cluster": "jupiter",
+  "account": "REQUIRED_SITE_ACCOUNT",
+  "partition": "booster",
+  "environment_file": "/CONFIGURE/site-environment.sh",
+  "cache_root": "/CONFIGURE/job-scratch/serving",
+  "validated_models": {},
+  "execution_boundary": "exclusive-slurm-node",
+  "allow_jupiter_full_node_representation": true
+}

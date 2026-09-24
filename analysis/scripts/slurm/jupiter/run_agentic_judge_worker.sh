@@ -19,7 +19,7 @@ if [[ -n "${GEODML_DATASET_ROOT:-}" ]]; then
   [[ "$GEODML_DATASET_ROOT" = /* ]] || { printf '%s\n' 'Dataset root must be absolute.' >&2; exit 2; }
   geodml_durable_args=(
     --dataset-root "$GEODML_DATASET_ROOT"
-    --dataset-writer-id "judge-${SLURM_JOB_ID:-local}-${GEODML_WORKER_INDEX:-0}"
+    --dataset-writer-id "${GEODML_DATASET_WRITER_ID:-judge-${SLURM_JOB_ID:-local}-${GEODML_WORKER_INDEX:-0}}"
     --dataset-ledger-stripes "${GEODML_DATASET_LEDGER_STRIPES:-256}"
   )
 else

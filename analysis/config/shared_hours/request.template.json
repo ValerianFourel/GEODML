@@ -1,0 +1,17 @@
+{
+  "attempt_id": "REQUIRED_UNIQUE_ID",
+  "cluster": "jupiter",
+  "mode": "interactive",
+  "hour_ids": [],
+  "attempt_dir": "/CONFIGURE/runs/attempt",
+  "since": "YYYY-MM-DD",
+  "git_commit": "REQUIRED_FULL_COMMITTED_SHA",
+  "approval": {
+    "status": "proposed",
+    "walltime_seconds": null,
+    "maximum_gpu_hours": null,
+    "evidence": null,
+    "estimate": null,
+    "resources": {"nodes": 1, "gpus": 4, "cpus": 32, "memory": "all"}
+  }
+}

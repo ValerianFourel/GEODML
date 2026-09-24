@@ -124,6 +124,7 @@ def build_submission(
         _safe(value, label)
     if not allocation_estimate.strip():
         raise ValueError("allocation estimate is required")
+    runtime_environment = {**runtime_environment, "GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY": "1"}
     required_environment = {
         "ACL_ARR_VENV", "GEODML_CACHE_ROOT", "GEODML_WORKER_LAUNCHER",
     }
@@ -288,7 +289,9 @@ def build_submission(
             "status": "prepared",
             "command": command,
         })
+    from analysis.scripts.verify_inference_allocation import cluster_profile
     identity = {
+        "execution_boundary_profile": cluster_profile("jupiter"),
         "format_version": SUBMISSION_FORMAT,
         "plan_id": plan["plan_id"],
         "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),

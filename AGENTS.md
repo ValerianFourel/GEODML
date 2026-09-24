@@ -55,10 +55,48 @@ and shuffled document conditions.
 
 ## Default homogeneous-wave scheduling
 
+### Shared hours across clusters
+
+- JUPITER is the chief setup. HoreKa is the secondary setup. JUPITER publishes
+  the frozen population, GH200 timing references, and replacement hour plans.
+  Either cluster may independently claim compatible published hours through the
+  private Hugging Face coordination registry.
+- An hour is a fixed work package sized against one JUPITER node with four
+  GH200 GPUs. It is not a Slurm allocation. A HoreKa package can span multiple
+  separately approved allocations. Record actual A100 resource use separately
+  from estimated JUPITER-equivalent work.
+- Apply the five-allocation limit and minimum ten-minute observed-start gap
+  separately on each cluster, counting batch and interactive allocations together.
+  All existing wall-time, finite-wave, approval, and live-allocation protections
+  apply equally to JUPITER and HoreKa.
+- Keep one model per package/allocation and keyword-first ordering. Batch selects
+  from the front; interactive selects from the back. A specifically selected hour
+  runs first. Spillover must belong to the explicitly approved finite hour list.
+- Use conflict-checked HF reservations and unique cluster/attempt writer IDs.
+  Filesystem locks coordinate only workers sharing the same cluster filesystem.
+  Never run legacy workers over tasks assigned through independent HF claims.
+- Network outages do not expire ownership. Finish already reserved work locally;
+  claim no new work offline. Confirm the owning allocation is terminal and
+  reconcile saved artifacts before releasing or reassigning its hours.
+- HF completion requires verified task identities and published record references.
+  Slurm success, elapsed time, and upload counts do not establish completion.
+- Replanning replaces only released unfinished work. Preserve owned packages,
+  historical plans, completed cells, frozen scientific settings, and task IDs.
+- HoreKa runs only validated four-A100 serving profiles preserving model revision,
+  precision, context and scientific settings. Leave incompatible models on JUPITER;
+  do not silently quantize, offload, change models, or request multiple nodes.
+- Transfer sealed shards incrementally using a finite login/transfer-host helper.
+  Keep model caches and filesystem locks out of HF. Do not remove unsynchronized
+  scientific data. Stop admissions on storage failures or stale quota evidence.
+- Shared-hour code and configuration live in Git. Site paths and setup scripts
+  are configured externally. See `analysis/docs/agentic_shared_hours.md`.
+
+### Existing wave rules
+
 - Every finite inference wave uses exactly one model role: Qwen, Llama, or
   Nemotron. Do not alternate model roles within a wave.
 - Unless Valerian explicitly approves otherwise, allow at most five concurrent
-  GEODML experiment allocations. Count batch and interactive allocations
+  GEODML experiment allocations per cluster. Count batch and interactive allocations
   together, and count an allocation once regardless of its `srun` steps.
 - Target a minimum ten-minute gap between observed allocation starts. Enforce
   the gap before releasing another allocation; do not reserve a GPU node merely
@@ -121,3 +159,20 @@ an execution-boundary issue, not permission to fabricate scientific outputs.
 
 Report files changed, behavior implemented, tests run, assumptions, unresolved
 issues, and the smallest sensible next step.
+
+
+### Maintained inference execution boundary
+
+- JUPITER shared-hour, wave batch, interactive and bootstrap entry points must
+  explicitly select `GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1` after environment
+  setup and preserve it in saved runtime configurations.
+- Verify whole-node exclusivity with the existing Slurm verifier on the allocated
+  compute host before bootstrap preparation or model loading. Fail closed;
+  these paths must never invoke `unshare` or fall back to namespace creation.
+  Preserve authentication, loopback binding and transport restrictions.
+- Validate HoreKa's explicitly configured boundary separately. Do not globally
+  disable isolation or change unrelated launchers.
+- Resume prepared bootstrap backlogs from existing artifacts after fresh
+  reconciliation; do not repeat registration, recovery acceptance or overwrite
+  plans. Job 1994448's counts are historical, not current progress. Its isolation
+  failure alone is not evidence of disk exhaustion or GPU OOM.

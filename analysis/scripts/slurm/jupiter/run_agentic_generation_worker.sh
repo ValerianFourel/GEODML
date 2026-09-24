@@ -38,7 +38,7 @@ if [[ "${GEODML_DISPATCH_MODE:-partition}" = backlog ]]; then
       exit 2
     }
     export SEARCH_AGENTIC_DATASET_ROOT="$GEODML_DATASET_ROOT"
-    export SEARCH_AGENTIC_DATASET_WRITER_ID="job${SLURM_JOB_ID}-worker${GEODML_WORKER_INDEX}"
+    export SEARCH_AGENTIC_DATASET_WRITER_ID="${GEODML_DATASET_WRITER_ID:-job${SLURM_JOB_ID}-worker${GEODML_WORKER_INDEX}}"
     export SEARCH_AGENTIC_DATASET_LEDGER_STRIPES="${GEODML_DATASET_LEDGER_STRIPES:-256}"
   else
     : "${GEODML_INFERENCE_CLAIM_ROOT:?Backlog generation requires durable task state}"

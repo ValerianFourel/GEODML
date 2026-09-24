@@ -72,6 +72,8 @@ class StripedTaskLedger:
         self.locks = root / "locks"
         self.events.mkdir(parents=True, exist_ok=True)
         self.locks.mkdir(parents=True, exist_ok=True)
+        authorized = os.environ.get("GEODML_HOUR_TASKS")
+        self._authorized_tasks = json.loads(Path(authorized).read_bytes()) if authorized else None
 
     def _stripe(self, fingerprint: str) -> int:
         return int(fingerprint[:16], 16) % self.stripe_count
@@ -131,6 +133,11 @@ class StripedTaskLedger:
         if not isinstance(owner_id, str) or not owner_id:
             raise ValueError("owner_id is required")
         fingerprint = identity_fingerprint(identity)
+        # Opt-in shared-hour execution cannot silently create an unplanned identity.
+        if self._authorized_tasks is not None:
+            tasks = self._authorized_tasks
+            if fingerprint not in tasks or tasks[fingerprint]["claim_identity"] != asdict(identity):
+                raise ValueError("inference identity is outside the reserved hour packages")
         with self._locked(fingerprint) as path:
             history = self._history(path, fingerprint)
             latest = None if not history else history[-1]

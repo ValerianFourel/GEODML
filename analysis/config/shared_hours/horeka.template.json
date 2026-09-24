@@ -1,0 +1,10 @@
+{
+  "cluster": "horeka",
+  "account": "REQUIRED_SITE_ACCOUNT",
+  "partition": "accelerated",
+  "environment_file": "/CONFIGURE/site-environment.sh",
+  "cache_root": "/CONFIGURE/job-scratch/serving",
+  "execution_boundary": "exclusive-slurm-node",
+  "validated_models": {},
+  "allow_jupiter_full_node_representation": false
+}

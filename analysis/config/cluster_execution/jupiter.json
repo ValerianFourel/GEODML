@@ -1,0 +1,5 @@
+{
+  "cluster": "jupiter",
+  "execution_boundary": "exclusive-slurm-node",
+  "allow_jupiter_full_node_representation": true
+}

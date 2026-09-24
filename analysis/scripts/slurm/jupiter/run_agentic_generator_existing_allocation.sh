@@ -35,6 +35,36 @@ source "${ACL_ARR_ENVIRONMENT_FILE:-$HOME/geodml-acl-arr-pilot.env}"
 if ! type module >/dev/null 2>&1; then source /etc/profile; fi
 module load Stages/2026 GCC Python CUDA git
 source "${ACL_ARR_VENV:?}/bin/activate"
+export GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY="1"
+unset GEODML_PRIVATE_NETWORK_NAMESPACE
+if [[ "$action" == "launch" ]]; then
+  test "${SLURM_JOB_ID:?}" = "$job_id"
+  job_record="$(scontrol show job --oneliner "$job_id")"
+  record_num_nodes=""
+  record_num_cpus=""
+  record_node_list=""
+  record_start_time=""
+  record_end_time=""
+  for token in $job_record; do
+    case "$token" in
+      NumNodes=*) record_num_nodes="${token#*=}" ;;
+      NumCPUs=*) record_num_cpus="${token#*=}" ;;
+      NodeList=*) record_node_list="${token#*=}" ;;
+      StartTime=*) record_start_time="${token#*=}" ;;
+      EndTime=*) record_end_time="${token#*=}" ;;
+    esac
+  done
+  export SLURM_JOB_NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-$record_num_nodes}}"
+  export SLURM_JOB_CPUS_PER_NODE="${SLURM_JOB_CPUS_PER_NODE:-$record_num_cpus}"
+  export SLURM_JOB_NODELIST="${SLURM_JOB_NODELIST:-$record_node_list}"
+  export SLURM_JOB_START_TIME="${SLURM_JOB_START_TIME:-$(date -d "$record_start_time" +%s)}"
+  export SLURM_JOB_END_TIME="${SLURM_JOB_END_TIME:-$(date -d "$record_end_time" +%s)}"
+  test "$SLURM_JOB_NUM_NODES" = "1"
+  : "${SLURM_JOB_CPUS_PER_NODE:?}"
+  : "${SLURM_JOB_NODELIST:?}"
+  : "${SLURM_JOB_END_TIME:?}"
+  python3 "$repository/analysis/scripts/verify_inference_allocation.py" --cluster jupiter
+fi
 test -z "$(git -C "$repository" status --porcelain --untracked-files=all)"
 
 json_value() {
@@ -92,30 +122,6 @@ fi
   exit 64
 }
 test "${SLURM_JOB_ID:?}" = "$job_id"
-job_record="$(scontrol show job --oneliner "$job_id")"
-record_num_nodes=""
-record_num_cpus=""
-record_node_list=""
-record_start_time=""
-record_end_time=""
-for token in $job_record; do
-  case "$token" in
-    NumNodes=*) record_num_nodes="${token#*=}" ;;
-    NumCPUs=*) record_num_cpus="${token#*=}" ;;
-    NodeList=*) record_node_list="${token#*=}" ;;
-    StartTime=*) record_start_time="${token#*=}" ;;
-    EndTime=*) record_end_time="${token#*=}" ;;
-  esac
-done
-export SLURM_JOB_NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-$record_num_nodes}}"
-export SLURM_JOB_CPUS_PER_NODE="${SLURM_JOB_CPUS_PER_NODE:-$record_num_cpus}"
-export SLURM_JOB_NODELIST="${SLURM_JOB_NODELIST:-$record_node_list}"
-export SLURM_JOB_START_TIME="${SLURM_JOB_START_TIME:-$(date -d "$record_start_time" +%s)}"
-export SLURM_JOB_END_TIME="${SLURM_JOB_END_TIME:-$(date -d "$record_end_time" +%s)}"
-test "$SLURM_JOB_NUM_NODES" = "1"
-: "${SLURM_JOB_CPUS_PER_NODE:?}"
-: "${SLURM_JOB_NODELIST:?}"
-: "${SLURM_JOB_END_TIME:?}"
 test -s "$manifest"
 test "$(json_value "$manifest" status)" = "prepared"
 
@@ -135,6 +141,7 @@ stdout="$logs/srun-${job_id}.out"
 stderr="$logs/srun-${job_id}.err"
 export GEODML_MODEL_SLUG="$model_slug"
 export GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY="1"
+unset GEODML_PRIVATE_NETWORK_NAMESPACE
 export GEODML_WAVE_ROOT="$run_root/models/$model_slug/wave"
 export GEODML_WAVE_OUTPUT_ROOT="$run_root/models/$model_slug/outputs"
 export GEODML_WAVE_LOG_ROOT="$logs"

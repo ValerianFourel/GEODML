@@ -194,7 +194,7 @@ def _verify_multinode_step(executable: str, job_id: str, fields: dict, checks=No
     return host
 
 
-def _verify_exclusive_slurm_boundary(checks=None) -> dict:
+def _verify_exclusive_slurm_boundary(checks=None, *, allow_jupiter_full_node=True) -> dict:
     if sys.platform != "linux":
         raise EndpointSecurityError("exclusive Slurm node verification requires Linux")
     job_nodes = os.environ.get("SLURM_JOB_NUM_NODES", "")
@@ -236,7 +236,7 @@ def _verify_exclusive_slurm_boundary(checks=None) -> dict:
     whole_node_exclusive = (
         exclusive_disposition == "NODE"
         or (exclusive_disposition is None and fields.get("Shared") == "0")
-        or jupiter_full_node_allocation
+        or (allow_jupiter_full_node and jupiter_full_node_allocation)
     )
     for name, expected, observed in (
         ("job_id", job_id, fields.get("JobId")),

@@ -23,6 +23,9 @@ fi
 module load Stages/2026 GCC Python CUDA
 module load git
 source "$ACL_ARR_VENV/bin/activate"
+export GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY="1"
+unset GEODML_PRIVATE_NETWORK_NAMESPACE
+python3 "$GEODML_EXECUTION_REPOSITORY/analysis/scripts/verify_inference_allocation.py" --cluster jupiter
 set -u
 : "${SLURM_JOB_ID:?Run through Slurm}"
 test "$(git -C "$GEODML_EXECUTION_REPOSITORY" rev-parse HEAD)" = \
