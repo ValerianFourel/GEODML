@@ -7,7 +7,7 @@ packages, or submit jobs.
 
 ## Required measurement
 
-Use a saved, successful one-hour JUPITER allocation on four GH200 GPUs for
+Use a saved, successful one-hour or explicitly approved three-hour JUPITER allocation on four GH200 GPUs for
 the pinned Qwen model and registered scientific configuration. A failed
 bootstrap or HoreKa compatibility probe is not reference calibration.
 The helper requires the measurement directory to contain:
@@ -16,17 +16,31 @@ The helper requires the measurement directory to contain:
   and frozen profile SHA-256 in `files`.
 - `runtime.json`: `SEARCH_AGENTIC_PROFILE` pointing to that frozen profile.
 - `boundary.json`: verified boundary and Slurm job ID.
-- `allocation.json`: saved `slurm` fields with one node and one-hour limit.
+- `allocation.json`: saved `slurm` fields with one node and the approved limit.
+  Three-hour measurements require `preparation.json.approved_walltime` to match.
 - Exactly one `results/attempts/*/run_manifest.json`: positive newly committed
   completions, no reused cells or failed cells, and matching dataset root.
 
+`prepare_jupiter_qwen_measurement.py` prepares these artifacts from existing
+Qwen registrations and the saved Qwen runtime. With `--submit` and explicit
+approval evidence, it submits exactly one three-hour, exclusive four-GH200 job:
+Qwen member 1 of the approved five-Qwen/five-Llama wave. It does not submit the
+remaining nine members or automatically retry. Preparation reconciles the
+source dataset once and freezes the missing Qwen backlog with one cached
+inventory pass; it does not repeat registration or recovery acceptance.
+Submission requires an idle scheduler and the observed start gap. It saves
+intent before submitting a held job, saves its ID before release, and prevents
+duplicate submission through a dataset-level receipt. Runtime checks the
+exclusive Slurm boundary before loading the model; no namespace fallback is
+used. The whole backlog supplies useful work until the deadline.
+
 These are the same measurement artifacts used by the Llama first-hour workflow.
 Existing Qwen runs need to supply equivalent evidence; do not manufacture a
-successful measurement from a failed run. This helper does not prepare or
-launch a new measurement allocation.
+successful measurement from a failed run. The hour-packaging helper itself
+does not prepare or launch a new measurement allocation.
 
 The helper checks the historical job through `sacct` for successful completion
-on four GH200 GPUs on JUPITER. It uses `3600 / newly_committed_cells` seconds
+on four GH200 GPUs on JUPITER. It uses `approved_allocation_seconds / newly_committed_cells` seconds
 per cell, including startup, then adds a further 300-second reserve to each
 package. Packages retain keyword ordering and complete prompt groups. An
 indivisible group exceeding the estimate is explicitly reported as oversized.

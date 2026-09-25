@@ -45,12 +45,14 @@ def measured_calibration(directory):
     measured = read(paths[0])
     direct = measured.get('direct_dataset', {})
     count = direct.get('committed_count')
+    walltime = prior.get('approved_walltime', '01:00:00')
+    seconds = {'01:00:00': 3600, '03:00:00': 10800}.get(walltime)
     configuration = prior['summary']['configuration_sha256']
     if (type(count) is not int or count <= 0 or direct.get('reused_count') != 0
             or measured.get('completed_count') != count or measured.get('failed_cell_ids') != []
             or measured.get('status') not in {'checkpointed', 'completed'}
             or boundary.get('status') != 'verified'
-            or allocation.get('TimeLimit') != '01:00:00' or allocation.get('NumNodes') != '1'
+            or not seconds or allocation.get('TimeLimit') != walltime or allocation.get('NumNodes') != '1'
             or not re.fullmatch(r'[0-9a-f]{64}', configuration)):
         raise ValueError('clean one-hour reference measurement required')
     if Path(direct.get('root', '')).resolve() != Path(prior['dataset_root']).resolve():
@@ -75,8 +77,9 @@ def measured_calibration(directory):
     return configuration, {
         'cluster': 'jupiter', 'gpus': 4, 'gpu_type': 'GH200',
         'scientific_config_sha256': configuration, 'reference_profile_sha256': sha,
-        'seconds_per_task': 3600 / count, 'startup_seconds': 0, 'drain_seconds': 300,
+        'seconds_per_task': seconds / count, 'startup_seconds': 0, 'drain_seconds': 300,
         'evidence': {'job_id': job, 'manifest_sha256': digest(measured), 'committed': count,
+                     'allocation_seconds': seconds,
                      'method': 'effective full allocation cost per cell; includes startup; additional 300s reserve'},
     }
 

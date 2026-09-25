@@ -57,7 +57,11 @@ def read(path):
 
 
 def command(argv):
-    return subprocess.run(argv, check=True, text=True, capture_output=True).stdout.strip()
+    options = {}
+    if argv[0] == 'sbatch':
+        options['env'] = {k: v for k, v in os.environ.items()
+                          if k not in {'HF_TOKEN', 'HUGGING_FACE_HUB_TOKEN', 'HF_API_TOKEN'}}
+    return subprocess.run(argv, check=True, text=True, capture_output=True, **options).stdout.strip()
 
 
 def clean_commit():
@@ -93,9 +97,10 @@ def inputs_from_runtime(root, runtime, profile):
 
 
 @audit_stage("freeze_llama_backlog")
-def freeze_backlog(root, output, *, stripes=256):
-    tasks, completed, blocked = inventory(root, stripes=stripes, reuse_verified=True)
-    tasks = [row for row in tasks if row["model"] == "llama4"]
+def freeze_backlog(root, output, *, stripes=256, model="llama4", local_inventory=None):
+    tasks, completed, blocked = (inventory(root, stripes=stripes, reuse_verified=True)
+                                 if local_inventory is None else local_inventory)
+    tasks = [row for row in tasks if row["model"] == model]
     if not tasks or len({row["configuration_sha256"] for row in tasks}) != 1:
         raise ValueError("expected one registered Llama configuration")
     eligible = [row for row in tasks if row["fingerprint"] not in completed | blocked
@@ -109,7 +114,7 @@ def freeze_backlog(root, output, *, stripes=256):
     path = output / "wave/backlog.jsonl"
     atomic(path, raw)
     manifest = {"format_version": "geodml-inference-wave-v2", "status": "planned",
-                "dispatch_mode": "backlog", "model": "llama4", "direction": "forward",
+                "dispatch_mode": "backlog", "model": model, "direction": "forward",
                 "backlog": {"path": str(path), **identity(path), "task_count": len(eligible)}}
     atomic(path.parent / "run_manifest.json", canonical(manifest))
     return {"registered": len(tasks), "completed": sum(t["fingerprint"] in completed for t in tasks),
@@ -226,24 +231,30 @@ def current_scheduler(since):
 
 
 def submit(args):
-    if args.approved_walltime != "01:00:00":
-        raise ValueError("this first allocation requires its explicit one-hour approval")
     output = args.output.resolve()
     record = verify_prepared(output)
+    model = record.get("model", "llama4")
+    walltime = record.get("approved_walltime", "01:00:00")
+    if model not in {"llama4", "qwen38"} or walltime not in {"01:00:00", "03:00:00"}:
+        raise ValueError("unsupported first measurement")
+    if args.approved_walltime != walltime:
+        raise ValueError("this first allocation requires its explicit one-hour approval")
+    gpu_hours = 12 if walltime == "03:00:00" else 4
     if not args.approval.strip():
         raise ValueError("explicit approval evidence required")
     root = Path(record["dataset_root"])
     # A dataset-wide receipt also prevents a second attempt directory from creating
     # another bootstrap allocation. Any further job needs a measured new plan.
-    receipt = root / "control/llama-first-allocation.json"
-    with (root / "control/llama-first-allocation.lock").open("a") as lock:
+    label = "llama" if model == "llama4" else "qwen38"
+    receipt = root / f"control/{label}-first-allocation.json"
+    with (root / f"control/{label}-first-allocation.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if receipt.exists():
             raise ValueError(f"allocation already requested; inspect {receipt}; do not resubmit")
         store = HubStore(args.hf_repo)
         revision = store.head()
         registry = json.loads(store.read("coordination/hours.json", revision))
-        if any(hour.get("model") == "llama4" for hour in registry["hours"].values()):
+        if any(hour.get("model") == model for hour in registry["hours"].values()):
             raise ValueError("shared Llama hour packages exist; use their coordinated dispatcher")
         snapshot = current_scheduler(args.since)
         scheduler_gate(snapshot, int(time.time()))
@@ -259,14 +270,14 @@ def submit(args):
         atomic(output / "scheduler.json", canonical(snapshot))
         atomic(output / "storage.json", canonical(storage))
         approval = {"evidence": args.approval, "walltime": args.approved_walltime,
-                    "maximum_gpu_hours": 4, "estimate": ESTIMATE,
+                    "maximum_gpu_hours": gpu_hours, "estimate": record.get("estimate", ESTIMATE),
                     "resources": {"nodes": 1, "gpus": 4, "cpus": 32, "memory": "all"},
                     "hf_revision": revision, "hf_plan_updated": False}
         atomic(output / "approval.json", canonical(approval))
         argv = ["sbatch", "--parsable", "--hold", "--no-requeue", "--nodes=1", "--ntasks=1",
                 "--gres=gpu:4", "--cpus-per-task=32", "--mem=0", "--exclusive",
                 "--time=" + args.approved_walltime, "--account=" + args.account,
-                "--partition=" + args.partition, "--job-name=geodml-llama-first-hour",
+                "--partition=" + args.partition, "--job-name=geodml-" + label + "-first-hour",
                 "--chdir=" + str(REPOSITORY), "--output=" + str(output / "slurm-%j.out"),
                 "--error=" + str(output / "slurm-%j.err"), str(output / "run.sh")]
         request = {"status": "submission_requested", "output": str(output), "command": argv,
@@ -292,7 +303,7 @@ def submit(args):
         atomic(receipt, canonical(request))
         atomic(output / "submission.json", canonical(request))
         return {"job_id": job, "output": str(output), "walltime": args.approved_walltime,
-                "maximum_gpu_hours": 4, "eligible_cells": record["summary"]["eligible"]}
+                "maximum_gpu_hours": gpu_hours, "eligible_cells": record["summary"]["eligible"]}
 
 
 def execute(output):
@@ -305,7 +316,7 @@ def execute(output):
         raise ValueError("allocation differs from this submission receipt")
     info = command(["scontrol", "show", "job", job, "-o"])
     fields = dict(token.split("=", 1) for token in info.split() if "=" in token)
-    if fields.get("TimeLimit") != "01:00:00" or fields.get("NumNodes") != "1":
+    if fields.get("TimeLimit") != record.get("approved_walltime", "01:00:00") or fields.get("NumNodes") != "1":
         raise ValueError("allocation differs from approved one-hour single-node resources")
     times = {variable: str(int(datetime.fromisoformat(fields[field]).timestamp()))
              for field, variable in (("StartTime", "SLURM_JOB_START_TIME"), ("EndTime", "SLURM_JOB_END_TIME"))}
