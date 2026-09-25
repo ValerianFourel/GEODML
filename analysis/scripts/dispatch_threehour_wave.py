@@ -263,19 +263,20 @@ def qwen(args, pin, exchange):
     submit(args, entries, root, allowed, release=not getattr(args, 'hold_queue', False))
 
 
-def groups(state, count=5):
+def groups(state, count=5, budget=9000):
     rows = [(key, row) for key, row in state['hours'].items()
             if row['model'] == 'llama4' and not row['owner'] and row['status'] in {'available', 'partial'}
             and set(row['task_fingerprints']) - set(row['completed']) - set(row['failed'])]
     rows.sort(key=lambda item: (item[1]['priority_rank'], item[0]))
     if len(rows) < count:
         raise ValueError(f'Fewer than {count} eligible Llama packages; JUPITER must replan released work first')
-    # Reserve about twice the observed upper three-hour throughput. Keep each
-    # group contiguous in keyword priority; remaining packages stay available.
+    # Reserve about twice the observed upper throughput for the approved
+    # wall-time (3000 fingerprints per node-hour). Keep each group contiguous
+    # in keyword priority; remaining packages stay available.
     result, cursor = [], 0
     for _ in range(count):
         selected, size = [], 0
-        while cursor < len(rows) and size < 9000:
+        while cursor < len(rows) and size < budget:
             key, row = rows[cursor]
             selected.append(key)
             size += len(set(row['task_fingerprints']) - set(row['completed']) - set(row['failed']))
@@ -309,9 +310,10 @@ def admit(state, attempts, snapshot, storage, args):
     seen = set()
     for attempt in attempts:
         validate_request(attempt['request'], attempt['cluster_profile'])
+        expected = walltime_seconds(getattr(args, 'walltime', '03:00:00'))
         if (attempt['model'] != 'llama4' or attempt['request']['cluster'] != 'jupiter'
-                or attempt['request']['approval']['walltime_seconds'] != 10800):
-            raise ValueError('Only approved three-hour JUPITER Llama members are supported')
+                or attempt['request']['approval']['walltime_seconds'] != expected):
+            raise ValueError(f'Only approved {expected // 3600}-hour JUPITER Llama members are supported')
         if attempt['attempt_id'] in tickets:
             raise ValueError('Attempt already admitted; inspect saved receipts')
         for key, owner in attempt['owners'].items():
@@ -328,37 +330,42 @@ def admit(state, attempts, snapshot, storage, args):
             'storage_sha256': digest(storage), 'quota_verified': storage['quota_verified'],
             'policy_exception': args.approval}
     result['admission']['jupiter']['finite_wave'] = {
-        'attempt_ids': [a['attempt_id'] for a in attempts], 'maximum_gpu_hours': 12 * members,
+        'attempt_ids': [a['attempt_id'] for a in attempts],
+        'maximum_gpu_hours': member_gpu_hours(args) * members,
         'start_gap_seconds': 0, 'evidence': args.approval}
     return result
 
 
 def llama(args, pin, exchange):
-    if getattr(args, 'walltime', '03:00:00') != '03:00:00':
-        raise ValueError('Llama shared-hour waves keep the approved three-hour wall-time')
+    walltime = getattr(args, 'walltime', '03:00:00')
+    if walltime not in ('03:00:00', '08:00:00'):
+        raise ValueError('Llama shared-hour waves support only the approved three-hour and eight-hour wall-times')
+    hours = int(walltime[:2])
     members = getattr(args, 'members', 5)
     hold = getattr(args, 'hold_queue', False)
     gate(first.current_scheduler(args.since), args.allowed_jobs, 0 if hold else members,
          args.maximum_concurrent, now=time.time(), running_only=hold)
-    site = read(args.llama_site)
+    sites = args.llama_site if isinstance(args.llama_site, list) else [args.llama_site]
+    site = read(sites[0])
     root = Path(site['dataset_root'])
     health(args, root)
-    for path in site['attempts']:
-        attempt = read(path)
-        _, state = exchange.snapshot()
-        sync_path = Path(path).parent / 'sync.json'
-        if sync_path.exists():
-            saved = read(sync_path)
-            if saved.get('status') == 'released' and all(saved['bundle'] in state['hours'][h]['checkpoints'] for h in attempt['owners']):
-                print('ALREADY SYNCED: ' + attempt['attempt_id'], flush=True)
-                continue
-        snapshot = scheduler(attempt)
-        if not any(o['owner_id'] == attempt['writer_id'] and o['state'] in TERMINAL_SCHEDULER_STATES for o in snapshot['owners']):
-            raise ValueError('Previous Llama allocation is not confirmed terminal')
-        result = sync_once(exchange, attempt, snapshot, health(args, root))
-        if result['status'] != 'released':
-            raise ValueError('Previous Llama results could not be released: ' + str(result))
-        print(json.dumps(result), flush=True)
+    for site_record in sites:
+        for path in read(site_record)['attempts']:
+            attempt = read(path)
+            _, state = exchange.snapshot()
+            sync_path = Path(path).parent / 'sync.json'
+            if sync_path.exists():
+                saved = read(sync_path)
+                if saved.get('status') == 'released' and all(saved['bundle'] in state['hours'][h]['checkpoints'] for h in attempt['owners']):
+                    print('ALREADY SYNCED: ' + attempt['attempt_id'], flush=True)
+                    continue
+            snapshot = scheduler(attempt)
+            if not any(o['owner_id'] == attempt['writer_id'] and o['state'] in TERMINAL_SCHEDULER_STATES for o in snapshot['owners']):
+                raise ValueError('Previous Llama allocation is not confirmed terminal')
+            result = sync_once(exchange, attempt, snapshot, health(args, root))
+            if result['status'] != 'released':
+                raise ValueError('Previous Llama results could not be released: ' + str(result))
+            print(json.dumps(result), flush=True)
     _, state = exchange.snapshot()
     if any(h.get('owner') for h in state['hours'].values()):
         raise ValueError('Existing shared owners remain')
@@ -372,16 +379,20 @@ def llama(args, pin, exchange):
     serving = {k: v for k, v in runtime.items() if k in FILE_KEYS | SETTING_KEYS
                and k != 'GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY'}
     attempts = []
-    estimate = (f'Approved wave of {members} three-hour JUPITER Llama members. '
-                'Previous 55-minute Llama runs committed 1042-1395 cells each; '
-                'rough three-hour range 3100-4500 cells per node, workload-dependent. '
-                'Three hours approved, actual allocation deadline with drain margin, 12 GPU-hours each; '
-                f'maximum {12 * members} GPU-hours. Frozen remaining packages only: released '
-                'unfinished work, never completed cells.')
-    for number, hours in enumerate(groups(state, members), 1):
-        name = 'llama-threehour-' + digest(str(args.output))[:12] + f'-{number}'
+    estimate = (f'Approved wave of {members} {hours}-hour JUPITER Llama members. Each allocation runs '
+                f'{hours} consecutive one-hour bouts, consuming its owned frozen packages in keyword-'
+                'priority order with per-cell checkpoints, so every hour boundary is a valid stop point. '
+                'Previous 55-minute Llama runs committed 1042-1395 cells each (~1100-1400 cells per '
+                f'node-hour); rough {hours}-hour range {1100 * hours}-{1400 * hours} cells per member, '
+                f'workload-dependent. Reservation budget {3000 * hours} fingerprints per member (~2x the '
+                f'upper observed throughput). {hours} hours approved, actual allocation deadline with '
+                f'drain margin, {4 * hours} GPU-hours each; maximum {4 * hours * members} GPU-hours. '
+                'Frozen remaining packages only: released unfinished work, never completed cells.')
+    duration = 'threehour' if hours == 3 else f'{hours}hour'
+    for number, hour_ids in enumerate(groups(state, members, budget=3000 * hours), 1):
+        name = f'llama-{duration}-' + digest(str(args.output))[:12] + f'-{number}'
         request = {'attempt_id': name, 'cluster': 'jupiter', 'mode': 'batch', 'git_commit': pin,
-                   'hour_ids': hours, 'since': args.since, 'attempt_dir': str(args.output / name),
+                   'hour_ids': hour_ids, 'since': args.since, 'attempt_dir': str(args.output / name),
                    'approval': approval(args, estimate)}
         attempts.append(stage(exchange, request=request, profile=profile, runtime=serving,
                               reference_profile=Path(runtime['SEARCH_AGENTIC_PROFILE']), dataset=root,
@@ -668,17 +679,20 @@ def main():
     p.add_argument('model', choices=['qwen', 'llama', 'relaunch-qwen', 'release-queue'])
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--qwen-reference', type=Path)
-    for key in ('environment-file', 'llama-site', 'llama-runtime'):
+    for key in ('environment-file', 'llama-runtime'):
         p.add_argument('--' + key, type=Path)
+    p.add_argument('--llama-site', type=Path, action='append',
+                   help='site.json of a prior Llama wave whose attempts must sync first; repeatable')
     p.add_argument('--since', required=True)
     p.add_argument('--approval', required=True)
     for key in ('account', 'partition'):
         p.add_argument('--' + key)  # required per mode; the releaser does not sbatch
     for key in ('existing-qwen-job', 'repo-id'):
         p.add_argument('--' + key)
-    p.add_argument('--maximum-concurrent', type=int, choices=[5, 10, 20, 30], default=5)
-    p.add_argument('--walltime', choices=['03:00:00', '04:00:00'], default='03:00:00',
-                   help='approved per-member wall-time; 04:00:00 only for qwen continuation rounds')
+    p.add_argument('--maximum-concurrent', type=int, choices=[5, 10, 20, 30, 40, 50], default=5)
+    p.add_argument('--walltime', choices=['03:00:00', '04:00:00', '08:00:00'], default='03:00:00',
+                   help='approved per-member wall-time; 04:00:00 only for qwen continuation rounds, '
+                        '08:00:00 only for llama rounds')
     p.add_argument('--round', type=int, default=1,
                    help='explicitly approved wave round; round >= 2 requires a fresh output directory')
     p.add_argument('--members', type=int, default=5,

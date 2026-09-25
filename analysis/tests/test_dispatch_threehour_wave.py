@@ -678,7 +678,7 @@ def test_walltime_cannot_change_outside_continuation_rounds(tmp_path, monkeypatc
 def test_llama_refuses_walltime_changes(tmp_path):
     options = args(tmp_path)
     options.walltime = '04:00:00'
-    with pytest.raises(ValueError, match='three-hour wall-time'):
+    with pytest.raises(ValueError, match='wall-times'):
         wave.llama(options, 'a' * 40, None)
 
 
@@ -724,3 +724,75 @@ def test_release_now_once_fails_loudly_instead_of_polling(tmp_path, monkeypatch)
         wave.release_queue(options)
     assert releases == []
     assert not (out / 'queue-released.json').exists()
+
+
+def test_groups_budget_scales_with_the_approved_walltime():
+    state = {'hours': {}}
+    for i in range(12):
+        state['hours'][str(i)] = {'model': 'llama4', 'owner': None, 'status': 'available',
+            'task_fingerprints': [f'{i}-{n}' for n in range(3000)], 'completed': [],
+            'failed': [], 'priority_rank': i}
+    assert wave.groups(state, 2) == [['0', '1', '2'], ['3', '4', '5']]
+    assert wave.groups(state, 2, budget=24000) == [
+        [str(i) for i in range(8)], [str(i) for i in range(8, 12)]]
+
+
+def test_admission_supports_the_eight_hour_wave_budget(tmp_path, monkeypatch):
+    state, attempts, snapshot, storage = fixture()
+    options = args(tmp_path)
+    options.walltime = '08:00:00'
+    monkeypatch.setattr(wave.time, 'time', lambda: 1001)
+    for a in attempts:
+        a['request']['approval'] = wave.approval(options, 'eight-hour estimate')
+    result = wave.admit(state, attempts, snapshot, storage, options)
+    admission = result['admission']['jupiter']
+    assert len(admission['tickets']) == 5
+    assert admission['finite_wave']['maximum_gpu_hours'] == 160
+    # A three-hour approval that is internally consistent (so the shared
+    # request validator passes) must still fail the wave-level wall-time lock.
+    attempts[0]['request']['approval'] = wave.approval(args(tmp_path), 'three-hour estimate')
+    with pytest.raises(ValueError, match='8-hour'):
+        wave.admit(state, attempts, snapshot, storage, options)
+
+
+def test_llama_eight_hour_dispatch_syncs_every_prior_site(tmp_path, monkeypatch):
+    options = args(tmp_path)
+    options.walltime = '08:00:00'
+    monkeypatch.setattr(wave.time, 'time', lambda: 1001)
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()), 'jobs': []})
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    monkeypatch.setattr(wave, 'scheduler', lambda a: {'owners': []})
+    # Site one: fully synced already. Site two: allocation not confirmed terminal.
+    a1 = tmp_path / 'old1' / 'attempt.json'
+    wave.save(a1, {'attempt_id': 'old-1', 'writer_id': 'w1', 'model': 'llama4',
+                   'owners': {'h1': {}}})
+    wave.save(tmp_path / 'old1' / 'sync.json', {'status': 'released', 'bundle': 'b1'})
+    a2 = tmp_path / 'old2' / 'attempt.json'
+    wave.save(a2, {'attempt_id': 'old-2', 'writer_id': 'w2', 'model': 'llama4',
+                   'owners': {'h2': {}}})
+    s1, s2 = tmp_path / 'site1.json', tmp_path / 'site2.json'
+    wave.save(s1, {'dataset_root': str(tmp_path), 'attempts': [str(a1)]})
+    wave.save(s2, {'dataset_root': str(tmp_path), 'attempts': [str(a2)]})
+    options.llama_site = [s1, s2]
+    state = {'hours': {'h1': {'checkpoints': ['b1']}}}
+    exchange = SimpleNamespace(snapshot=lambda: ('rev', state))
+    with pytest.raises(ValueError, match='not confirmed terminal'):
+        wave.llama(options, 'a' * 40, exchange)
+    assert not (tmp_path / 'submission-intent.json').exists()
+
+
+def test_allocation_command_derives_the_eight_hour_slurm_time(tmp_path):
+    from analysis.interpretability.pipeline.agentic_hour_runtime import allocation_command
+    _, attempts, _, _ = fixture()
+    request = deepcopy(attempts[0]['request'])
+    request['attempt_dir'] = str(tmp_path)
+    request['approval'] = {'status': 'approved', 'evidence': 'x', 'estimate': 'y',
+        'walltime': '08:00:00', 'walltime_seconds': 28800, 'maximum_gpu_hours': 32,
+        'extended_walltime_approval': {'walltime_seconds': 28800, 'evidence': 'x'},
+        'resources': {'nodes': 1, 'gpus': 4, 'cpus': 32, 'memory': 'all'}}
+    profile = {**attempts[0]['cluster_profile'], 'account': 'project', 'partition': 'booster'}
+    command = allocation_command(request, profile, tmp_path / 'repo')
+    assert '--time=08:00:00' in command
+    assert '--job-name=geodml-hours-wave-0' in command
+    assert '--gres=gpu:4' in command and '--exclusive' in command
