@@ -19,6 +19,8 @@ from .agentic_task_ledger import StripedTaskLedger
 from .inference_claims import ClaimIdentity
 
 REGISTRY_PATH = "coordination/hours.json"
+UPLOAD_BATCH_BYTES = 64 * 1024 * 1024
+UPLOAD_BATCH_FILES = 32
 
 
 def atomic(path: Path, raw: bytes) -> None:
@@ -161,6 +163,15 @@ class Exchange:
         names = sorted(set(names))
         audit_progress(phase="verify_and_publish_files", files_total=len(names), files_finished=0, bytes_finished=0)
         bytes_finished = 0
+        pending = {}
+        pending_bytes = 0
+
+        def flush():
+            if pending:
+                self.immutable(pending)
+                pending.clear()
+                audit_progress(files_finished=len(inventory), bytes_finished=bytes_finished)
+
         for name in names:
             relative_path(name)
             path = root / name
@@ -170,11 +181,22 @@ class Exchange:
             if SECRET_BYTES.search(raw):
                 raise ValueError("credential-shaped content rejected")
             sha = hashlib.sha256(raw).hexdigest()
-            # Keep at most one sealed payload in memory; the manifest is last.
-            self.immutable({f"exchange/objects/{sha}": raw})
+            object_name = f"exchange/objects/{sha}"
+            if pending and (len(pending) >= UPLOAD_BATCH_FILES
+                            or pending_bytes + len(raw) > UPLOAD_BATCH_BYTES):
+                flush()
+                pending_bytes = 0
+            # Bound buffered payloads; a single oversized file travels alone.
+            # Content-addressed objects already committed are reused on retry.
+            if object_name not in pending:
+                pending[object_name] = raw
+                pending_bytes += len(raw)
             inventory[name] = {"sha256": sha, "bytes": len(raw)}
             bytes_finished += len(raw)
-            audit_progress(files_finished=len(inventory), bytes_finished=bytes_finished)
+            if pending_bytes >= UPLOAD_BATCH_BYTES:
+                flush()
+                pending_bytes = 0
+        flush()
         manifest = {"format_version": "geodml-hour-bundle-v1", "files": inventory,
                     "outcomes": outcomes, "metadata": metadata}
         if SECRET_BYTES.search(canonical(manifest)):
