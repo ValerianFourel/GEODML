@@ -655,3 +655,63 @@ def test_release_queue_skips_members_that_left_the_queue(tmp_path, monkeypatch):
     assert releases == ['301', '303']
     assert [a['event'] for a in result['anomalies']] == ['held_member_missing']
     assert wave.read(tmp_path / 'wave' / 'member-302' / 'submission.json')['status'] == 'submitted_held'
+
+
+def test_four_hour_walltime_flows_through_qwen_continuation(tmp_path, monkeypatch):
+    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201'], members=9, maximum=30)
+    options.walltime = '04:00:00'
+    captured = []
+    monkeypatch.setattr(wave, 'submit', lambda *a, **k: captured.append((a, k)))
+    wave.qwen(options, 'a' * 40, exchange)
+    entries = captured[0][0][1]
+    assert len(entries) == 9
+    for number, (directory, command, approved) in enumerate(entries, 1):
+        assert '--time=04:00:00' in command
+        assert f'--job-name=geodml-qwen-4hour-{number}-c2' in command
+        assert approved['walltime'] == '04:00:00'
+        assert approved['walltime_seconds'] == 14400 and approved['maximum_gpu_hours'] == 16
+        preparation = wave.read(directory / 'preparation.json')
+        assert preparation['approved_walltime'] == '04:00:00'
+        assert 'one-hour bouts' in preparation['estimate']
+
+
+def test_walltime_cannot_change_outside_continuation_rounds(tmp_path, monkeypatch):
+    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201'])
+    options.walltime, options.round = '04:00:00', 1
+    with pytest.raises(ValueError, match='cannot change wall-time'):
+        wave.qwen(options, 'a' * 40, exchange)
+
+
+def test_llama_refuses_walltime_changes(tmp_path):
+    options = args(tmp_path)
+    options.walltime = '04:00:00'
+    with pytest.raises(ValueError, match='three-hour wall-time'):
+        wave.llama(options, 'a' * 40, None)
+
+
+def test_relaunch_refuses_walltime_changes(tmp_path, monkeypatch):
+    states = {str(100 + n): 'FAILED' for n in range(1, 6)}
+    options = relaunch_env(tmp_path, monkeypatch, states)[0]
+    options.walltime = '04:00:00'
+    with pytest.raises(ValueError, match='three-hour wall-time'):
+        wave.relaunch_qwen(options, 'a' * 40)
+
+
+def test_release_now_once_releases_the_whole_queue(tmp_path, monkeypatch):
+    phases = lambda now: [{'job_id': j, 'state': 'RUNNING', 'held': False} for j in ('201', '202')]
+    options, releases, clock, out = queue_env(tmp_path, monkeypatch, phases=phases)
+    options.once = True
+    result = wave.release_queue(options)
+    assert releases == ['301', '302', '303']
+    assert result['released'] == releases
+    assert wave.read(out / 'queue-released.json')['released_job_ids'] == releases
+
+
+def test_release_now_once_fails_loudly_instead_of_polling(tmp_path, monkeypatch):
+    phases = lambda now: [{'job_id': '999', 'state': 'RUNNING', 'held': False}]
+    options, releases, clock, out = queue_env(tmp_path, monkeypatch, phases=phases)
+    options.once = True
+    with pytest.raises(ValueError, match='release-now stopped'):
+        wave.release_queue(options)
+    assert releases == []
+    assert not (out / 'queue-released.json').exists()

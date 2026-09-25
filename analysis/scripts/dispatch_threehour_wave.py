@@ -80,10 +80,20 @@ def health(args, root):
     return result
 
 
+def walltime_seconds(walltime):
+    return int(walltime[:2]) * 3600 + int(walltime[3:5]) * 60 + int(walltime[6:8])
+
+
+def member_gpu_hours(args):
+    return 4 * walltime_seconds(getattr(args, 'walltime', '03:00:00')) / 3600
+
+
 def approval(args, estimate):
-    return {'status': 'approved', 'evidence': args.approval, 'walltime': '03:00:00',
-            'walltime_seconds': 10800, 'maximum_gpu_hours': 12,
-            'extended_walltime_approval': {'walltime_seconds': 10800, 'evidence': args.approval},
+    walltime = getattr(args, 'walltime', '03:00:00')
+    seconds = walltime_seconds(walltime)
+    return {'status': 'approved', 'evidence': args.approval, 'walltime': walltime,
+            'walltime_seconds': seconds, 'maximum_gpu_hours': 4 * seconds / 3600,
+            'extended_walltime_approval': {'walltime_seconds': seconds, 'evidence': args.approval},
             'resources': {'nodes': 1, 'gpus': 4, 'cpus': 32, 'memory': 'all'},
             'estimate': estimate}
 
@@ -154,6 +164,9 @@ def qwen(args, pin, exchange):
     reference, submitted = verify_reference(args.qwen_reference)
     job = str(submitted['job_id'])
     continuation = getattr(args, 'round', 1) >= 2
+    walltime = getattr(args, 'walltime', '03:00:00')
+    hours = int(walltime[:2])
+    duration = 'threehour' if hours == 3 else f'{hours}hour'
     if not continuation and job != args.existing_qwen_job:
         raise ValueError('Qwen member one differs from approved existing job')
     _, state = exchange.snapshot()
@@ -177,14 +190,18 @@ def qwen(args, pin, exchange):
         gate(snapshot, allowed, 0 if hold else members, args.maximum_concurrent,
              now=time.time(), running_only=hold)
         health(args, root)
-        estimate = (f'Explicitly approved Qwen continuation round {args.round}: {members} three-hour members. '
-                    'The shared atomic member-one ledger admits only missing cells, so completed work is '
-                    'never repeated; prior-round throughput is recorded in the earlier receipts. Each '
-                    'allocation admits missing cells for up to 175 minutes including startup, with five '
-                    f'minutes for drain/cleanup; 12 GPU-hours each, maximum {12 * members} GPU-hours. '
+        estimate = (f'Explicitly approved Qwen continuation round {args.round}: {members} {hours}-hour members. '
+                    f'Each allocation runs {hours} consecutive one-hour bouts against the shared frozen '
+                    'member-one queue; the atomic ledger admits only missing cells and checkpoints every '
+                    'cell, so completed work is never repeated and every hour boundary is a valid stop '
+                    f'point. Prior-round throughput is recorded in the earlier receipts. Admission for up '
+                    f'to {hours * 60 - 5} minutes including startup, five minutes for drain/cleanup; '
+                    f'{4 * hours} GPU-hours each, maximum {4 * hours * members} GPU-hours. '
                     'No full completion promise.')
         numbers, suffix, tag, total = range(1, members + 1), f'-c{args.round}', f'-round-{args.round}', members
     else:
+        if walltime != '03:00:00':
+            raise ValueError('The dispatched three-hour wave cannot change wall-time')
         allowed = [] if replace_cancelled else [job]
         gate(snapshot, allowed, 5 if replace_cancelled else 4, args.maximum_concurrent, now=time.time())
         known = [j for j in snapshot['jobs'] + snapshot['owners'] if str(j['job_id']) == job]
@@ -234,11 +251,12 @@ def qwen(args, pin, exchange):
         frozen = {str(directory / n): first.identity(directory / n) for n in ('runtime.json', 'run.sh')}
         frozen.update(localize_reference(directory, reference, args.qwen_reference))
         save(directory / 'preparation.json', {**reference, 'git_commit': pin, 'files': frozen,
+             'approved_walltime': walltime,
              'wave_member': f'qwen-{number}-of-{total}{tag}', 'estimate': estimate})
         command = ['sbatch', '--parsable', '--hold', '--no-requeue', '--nodes=1', '--ntasks=1',
-                   '--gres=gpu:4', '--exclusive', '--cpus-per-task=32', '--mem=0', '--time=03:00:00',
+                   '--gres=gpu:4', '--exclusive', '--cpus-per-task=32', '--mem=0', '--time=' + walltime,
                    '--account=' + args.account, '--partition=' + args.partition,
-                   f'--job-name=geodml-qwen-threehour-{number}{suffix}', '--chdir=' + str(REPO),
+                   f'--job-name=geodml-qwen-{duration}-{number}{suffix}', '--chdir=' + str(REPO),
                    '--output=' + str(directory / 'slurm-%j.out'), '--error=' + str(directory / 'slurm-%j.err'),
                    str(directory / 'run.sh')]
         entries.append((directory, command, approval(args, estimate)))
@@ -316,6 +334,8 @@ def admit(state, attempts, snapshot, storage, args):
 
 
 def llama(args, pin, exchange):
+    if getattr(args, 'walltime', '03:00:00') != '03:00:00':
+        raise ValueError('Llama shared-hour waves keep the approved three-hour wall-time')
     members = getattr(args, 'members', 5)
     hold = getattr(args, 'hold_queue', False)
     gate(first.current_scheduler(args.since), args.allowed_jobs, 0 if hold else members,
@@ -393,7 +413,8 @@ def submit(args, entries, root, allowed, round_id=None, receipt_extra=None, rele
          args.maximum_concurrent, now=time.time(), running_only=not release)
     health(args, root)
     save(intent, {'members': [str(d) for d, _, _ in entries], 'approval': args.approval,
-                  'existing_qwen_job': args.existing_qwen_job, 'maximum_total_gpu_hours': 12 * len(entries),
+                  'existing_qwen_job': args.existing_qwen_job,
+                  'maximum_total_gpu_hours': member_gpu_hours(args) * len(entries),
                   'maximum_concurrent': args.maximum_concurrent, 'start_gap_seconds': 0,
                   'quota_exception': args.allow_stale_quota,
                   'replaces_cancelled_qwen': args.replace_cancelled_qwen})
@@ -420,12 +441,12 @@ def submit(args, entries, root, allowed, round_id=None, receipt_extra=None, rele
         raise ValueError('All new allocations must be confirmed held before release')
     if not release:
         save(args.output / 'queued.json', {
-            'queue_state': 'held', 'job_ids': jobs, 'maximum_gpu_hours': 12 * len(jobs),
+            'queue_state': 'held', 'job_ids': jobs, 'maximum_gpu_hours': member_gpu_hours(args) * len(jobs),
             'members': [{'job_id': job, 'directory': str(directory), 'command': command}
                         for (directory, command, _), job in zip(entries, jobs, strict=True)],
             'approval': args.approval, **(receipt_extra or {})})
         print(json.dumps({'queued_job_ids': jobs, 'held': True,
-                          'new_gpu_hours': 12 * len(jobs)}, default=str), flush=True)
+                          'new_gpu_hours': member_gpu_hours(args) * len(jobs)}, default=str), flush=True)
         return
     for (directory, _, _), job in zip(entries, jobs, strict=True):
         health(args, root)
@@ -437,8 +458,8 @@ def submit(args, entries, root, allowed, round_id=None, receipt_extra=None, rele
         first.command(['scontrol', 'release', job])
         print('RELEASED_JOB=' + job, flush=True)
     final = args.output / ('submitted.json' if round_id is None else f'relaunch-{round_id}.json')
-    save(final, {'job_ids': jobs, 'maximum_gpu_hours': 12 * len(jobs), **(receipt_extra or {})})
-    print(json.dumps({'job_ids': jobs, 'new_gpu_hours': 12 * len(jobs),
+    save(final, {'job_ids': jobs, 'maximum_gpu_hours': member_gpu_hours(args) * len(jobs), **(receipt_extra or {})})
+    print(json.dumps({'job_ids': jobs, 'new_gpu_hours': member_gpu_hours(args) * len(jobs),
                       'relaunch_round': round_id}, default=str), flush=True)
 
 
@@ -449,6 +470,8 @@ def relaunch_qwen(args, pin):
     receipts rotate to job-suffixed files; the frozen member-one queue and all
     scientific settings are reused unchanged. Requires fresh explicit approval.
     """
+    if getattr(args, 'walltime', '03:00:00') != '03:00:00':
+        raise ValueError('Relaunch keeps the failed wave three-hour wall-time')
     reference, _ = verify_reference(args.qwen_reference)
     root = Path(reference['dataset_root'])
     guard = args.qwen_reference / guard_name('qwen', getattr(args, 'round', 1))
@@ -576,6 +599,11 @@ def release_queue(args):
         with log.open('a') as handle:
             handle.write(json.dumps(value, default=str) + '\n')
 
+    def wait(reason):
+        if getattr(args, 'once', False):
+            raise ValueError('release-now stopped without releasing the queue: ' + reason)
+        time.sleep(args.poll_seconds)
+
     released, anomalies, release_times = [], [], {}
     deadline = time.time() + args.queue_timeout_seconds
     gap = args.start_gap_seconds
@@ -586,7 +614,7 @@ def release_queue(args):
                              + ','.join(job for job, _, _ in pending))
         snapshot = first.current_scheduler(args.since)
         if snapshot.get('complete') is not True or not 0 <= time.time() - snapshot['captured_at_epoch'] <= 120:
-            time.sleep(args.poll_seconds)
+            wait('scheduler evidence incomplete or stale')
             continue
         rows = snapshot['jobs']
         now = time.time()
@@ -600,7 +628,7 @@ def release_queue(args):
             print('BLOCKED: ' + json.dumps(line, default=str), flush=True)
             record_line(line)
             anomalies.append(line)
-            time.sleep(args.poll_seconds)
+            wait('unexpected running jobs: ' + ','.join(line['unexpected']))
             continue
         job, directory, source = pending[0]
         if job not in held:
@@ -611,10 +639,10 @@ def release_queue(args):
             pending.pop(0)
             continue
         if len(running) + 1 > args.maximum_concurrent:
-            time.sleep(args.poll_seconds)
+            wait(f'capacity: {len(running)} unheld jobs already live')
             continue
         if gap and last_release is not None and now - last_release < gap:
-            time.sleep(args.poll_seconds)
+            wait('approved start gap has not elapsed')
             continue
         receipt = read(directory / 'submission.json')
         if str(receipt.get('job_id', '')) != job or receipt.get('status') != 'submitted_held':
@@ -646,7 +674,9 @@ def main():
         p.add_argument('--' + key, required=True)
     for key in ('existing-qwen-job', 'repo-id'):
         p.add_argument('--' + key)
-    p.add_argument('--maximum-concurrent', type=int, choices=[5, 10], default=5)
+    p.add_argument('--maximum-concurrent', type=int, choices=[5, 10, 20, 30], default=5)
+    p.add_argument('--walltime', choices=['03:00:00', '04:00:00'], default='03:00:00',
+                   help='approved per-member wall-time; 04:00:00 only for qwen continuation rounds')
     p.add_argument('--round', type=int, default=1,
                    help='explicitly approved wave round; round >= 2 requires a fresh output directory')
     p.add_argument('--members', type=int, default=5,
@@ -661,6 +691,8 @@ def main():
     p.add_argument('--start-gap-seconds', type=int, default=600,
                    help='minimum seconds between queue releases unless zero is explicitly approved')
     p.add_argument('--poll-seconds', type=int, default=60)
+    p.add_argument('--once', action='store_true',
+                   help='release-queue: one deterministic pass; fail loudly instead of polling')
     p.add_argument('--queue-timeout-seconds', type=int, default=21600)
     p.add_argument('--replace-cancelled-qwen', action='store_true')
     p.add_argument('--simultaneous-starts', action='store_true')
@@ -679,8 +711,8 @@ def main():
                if getattr(args, name) in (None, '')]
     if missing:
         raise ValueError('Missing required arguments: ' + ', '.join(missing))
-    if args.round < 1 or not 1 <= args.members <= 10:
-        raise ValueError('Round must be at least 1 and members must be between 1 and 10')
+    if args.round < 1 or not 1 <= args.members <= 20:
+        raise ValueError('Round must be at least 1 and members must be between 1 and 20')
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     with (args.qwen_reference / 'expansion.lock').open('a') as lock:
