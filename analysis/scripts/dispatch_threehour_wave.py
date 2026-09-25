@@ -360,8 +360,12 @@ def llama(args, pin, exchange):
                     print('ALREADY SYNCED: ' + attempt['attempt_id'], flush=True)
                     continue
             snapshot = scheduler(attempt)
+            observed = sorted({o['state'] for o in snapshot['owners']
+                               if o['owner_id'] == attempt['writer_id']})
             if not any(o['owner_id'] == attempt['writer_id'] and o['state'] in TERMINAL_SCHEDULER_STATES for o in snapshot['owners']):
-                raise ValueError('Previous Llama allocation is not confirmed terminal')
+                raise ValueError('Previous Llama allocation is not confirmed terminal (observed: '
+                                 + (', '.join(observed) if observed else 'no scheduler rows')
+                                 + '); if it just ended, wait for slurmdbd to finalize and rerun')
             result = sync_once(exchange, attempt, snapshot, health(args, root))
             if result['status'] != 'released':
                 raise ValueError('Previous Llama results could not be released: ' + str(result))
