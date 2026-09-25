@@ -666,12 +666,14 @@ def release_queue(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('model', choices=['qwen', 'llama', 'relaunch-qwen', 'release-queue'])
-    for key in ('output', 'qwen-reference'):
-        p.add_argument('--' + key, type=Path, required=True)
+    p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--qwen-reference', type=Path)
     for key in ('environment-file', 'llama-site', 'llama-runtime'):
         p.add_argument('--' + key, type=Path)
-    for key in ('since', 'account', 'partition', 'approval'):
-        p.add_argument('--' + key, required=True)
+    p.add_argument('--since', required=True)
+    p.add_argument('--approval', required=True)
+    for key in ('account', 'partition'):
+        p.add_argument('--' + key)  # required per mode; the releaser does not sbatch
     for key in ('existing-qwen-job', 'repo-id'):
         p.add_argument('--' + key)
     p.add_argument('--maximum-concurrent', type=int, choices=[5, 10, 20, 30], default=5)
@@ -701,9 +703,11 @@ def main():
     args = p.parse_args()
     if not args.approval.strip() or not args.simultaneous_starts:
         raise ValueError('Explicit finite-wave walltime and simultaneous-start approval required')
-    required = {'qwen': ['environment_file', 'repo_id'],
-                'llama': ['environment_file', 'repo_id', 'llama_site', 'llama_runtime'],
-                'relaunch-qwen': [], 'release-queue': ['queue']}
+    required = {'qwen': ['qwen_reference', 'environment_file', 'repo_id', 'account', 'partition'],
+                'llama': ['qwen_reference', 'environment_file', 'repo_id', 'llama_site',
+                          'llama_runtime', 'account', 'partition'],
+                'relaunch-qwen': ['qwen_reference', 'account', 'partition'],
+                'release-queue': ['queue']}
     needs = required[args.model]
     if args.round == 1 and args.model in ('qwen', 'llama'):
         needs = [*needs, 'existing_qwen_job']
@@ -715,15 +719,17 @@ def main():
         raise ValueError('Round must be at least 1 and members must be between 1 and 20')
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
+    if args.model == 'release-queue':
+        # The releaser touches only its own queue receipts and scontrol; it
+        # needs no reference directory, expansion lock, pin or registry access.
+        release_queue(args)
+        return
     with (args.qwen_reference / 'expansion.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         pin = first.clean_commit()
         args.allowed_jobs = []
         if args.model == 'relaunch-qwen':
             relaunch_qwen(args, pin)
-            return
-        if args.model == 'release-queue':
-            release_queue(args)
             return
         # One fixed receipt location per model under the original preparation prevents
         # alternate --output paths from duplicating the approved wave.
