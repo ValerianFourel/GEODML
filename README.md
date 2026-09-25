@@ -34,7 +34,7 @@ Generator queue definitions live in `agentic_generation_tasks.py`; the
 integration runner imports them alongside its execution and resume logic.
 
 The earlier first-party prompt-policy continuum has a separate
-[handoff](analysis/docs/prompt_continuum_project_handoff.md). The paper grid
+[handoff](analysis/docs/handoff/2026-08-10_prompt_continuum_project_handoff.md). The paper grid
 below, `pipeline/`, and dated result logs describe historical work. Preserve
 their prompts and artifacts when changing current code.
 
@@ -143,7 +143,7 @@ pre-submission data fixes and findings; early-phase findings are in
 
 The randomized prompt-continuum work from the deterministic foundation through
 the offline policy-clause pilot is summarized in
-[`analysis/docs/prompt_continuum_project_handoff.md`](analysis/docs/prompt_continuum_project_handoff.md).
+[`analysis/docs/handoff/2026-08-10_prompt_continuum_project_handoff.md`](analysis/docs/handoff/2026-08-10_prompt_continuum_project_handoff.md).
 
 The proposed bounded agentic-search extension, including parallel query
 expansion, a reactive snippet loop, pinned BGE cross-encoder compaction,
