@@ -1,4 +1,5 @@
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -202,3 +203,211 @@ def test_explicit_cancelled_replacement_preserves_results_and_creates_exactly_fi
         assert submitted == []
         if state != 'CANCELLED':
             assert reconciled == []
+
+
+def test_localize_reference_binds_frozen_files_inside_the_member_directory(tmp_path):
+    reference_dir = tmp_path / 'reference'
+    (reference_dir / 'nested').mkdir(parents=True)
+    profile = reference_dir / 'profile.json'
+    profile.write_text('{"profile": true}')
+    nested = reference_dir / 'nested' / 'backlog.jsonl'
+    nested.write_text('cell\n')
+    reference = {'files': {str(profile): wave.first.identity(profile),
+                           str(nested): wave.first.identity(nested)}}
+    member = tmp_path / 'qwen-1'
+    member.mkdir()
+    localized = wave.localize_reference(member, reference, reference_dir)
+    assert set(localized) == {str(member / 'inputs' / 'profile.json'),
+                              str(member / 'inputs' / 'nested' / 'backlog.jsonl')}
+    from analysis.interpretability.pipeline.agentic_verification_cache import VerificationCache
+    with VerificationCache(member) as verification:
+        for path, expected in localized.items():
+            assert verification.file(Path(path), expected)
+        # The exact wave failure: member-one paths are outside the member cache root.
+        with pytest.raises(ValueError, match='not in the subpath'):
+            verification.file(profile, reference['files'][str(profile)])
+    # Re-running is idempotent, and tampering fails closed.
+    assert wave.localize_reference(member, reference, reference_dir) == localized
+    profile.write_text('{"profile": false}')
+    with pytest.raises(ValueError):
+        wave.localize_reference(tmp_path / 'qwen-2', reference, reference_dir)
+    outside = tmp_path / 'elsewhere.json'
+    outside.write_text('x')
+    with pytest.raises(ValueError, match='outside member one'):
+        wave.localize_reference(tmp_path / 'qwen-3',
+                                {'files': {str(outside): wave.first.identity(outside)}}, reference_dir)
+
+
+def test_qwen_staging_copies_frozen_reference_into_each_member(tmp_path, monkeypatch):
+    options = args(tmp_path / 'new')
+    options.output.mkdir()
+    options.qwen_reference = tmp_path / 'reference'
+    options.qwen_reference.mkdir()
+    profile = options.qwen_reference / 'profile.json'
+    profile.write_text('{"p": 1}')
+    options.environment_file = tmp_path / 'env.sh'
+    options.account, options.partition = 'project', 'booster'
+    runtime = {'GEODML_DATASET_ROOT': str(tmp_path / 'dataset'), 'ACL_ARR_VENV': '/venv'}
+    wave.save(options.qwen_reference / 'runtime.json', runtime)
+    reference = {'dataset_root': runtime['GEODML_DATASET_ROOT'],
+                 'files': {str(profile): wave.first.identity(profile)},
+                 'dataset_files': {}, 'external_files': {}}
+    monkeypatch.setattr(wave, 'verify_reference', lambda p: (reference, {'job_id': '42'}))
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()),
+        'jobs': [{'job_id': '42', 'state': 'RUNNING'}], 'owners': []})
+    captured = []
+    monkeypatch.setattr(wave, 'submit', lambda *a, **kw: captured.append(a))
+    exchange = SimpleNamespace(snapshot=lambda: ('revision', {'hours': {}}))
+    wave.qwen(options, 'a' * 40, exchange)
+    for directory, _, _ in captured[0][1]:
+        record = wave.read(directory / 'preparation.json')
+        assert str(profile) not in record['files']
+        local = directory / 'inputs' / 'profile.json'
+        assert record['files'][str(local)] == wave.first.identity(profile)
+        assert wave.first.identity(local) == wave.first.identity(profile)
+
+
+def relaunch_env(tmp_path, monkeypatch, states, live_members=(), live_wave_jobs=('201', '202')):
+    reference = tmp_path / 'reference'
+    reference.mkdir()
+    profile = reference / 'profile.json'
+    profile.write_text('{"p": 1}')
+    wave.save(reference / 'preparation.json', {
+        'model': 'qwen38', 'approved_walltime': '03:00:00',
+        'dataset_root': str(tmp_path / 'dataset'),
+        'files': {str(profile): wave.first.identity(profile)},
+        'dataset_files': {}, 'external_files': {}})
+    wave.save(reference / 'submission.json', {'status': 'submitted', 'job_id': '42'})
+    wave.save(reference / 'runtime.json', {'GEODML_DATASET_ROOT': str(tmp_path / 'dataset'),
+                                           'ACL_ARR_VENV': '/venv'})
+    output = tmp_path / 'wave'
+    output.mkdir()
+    wave.save(reference / 'expansion-qwen.json', {'output': str(output), 'git_commit': 'b' * 40})
+    (output / 'environment.sh').write_text('source env\n')
+    jobs = {n: str(100 + n) for n in range(1, 6)}
+    wave.save(output / 'submitted.json', {'job_ids': list(jobs.values()), 'maximum_gpu_hours': 60})
+    for n, job in jobs.items():
+        d = output / f'qwen-{n}'
+        wave.save(d / 'submission.json', {'status': 'submitted', 'job_id': job,
+                                          'command': ['sbatch'], 'approval': {'walltime': '03:00:00'}})
+        wave.save(d / 'preparation.json', {'files': {str(profile): wave.first.identity(profile)}})
+        wave.save(d / 'runtime.json', {'GEODML_EXECUTION_COMMIT': 'b' * 40})
+        (d / 'run.sh').write_text('old\n')
+    live_wave = tmp_path / 'llama-wave'
+    live_wave.mkdir()
+    wave.save(live_wave / 'submitted.json', {'job_ids': list(live_wave_jobs)})
+    snapshot_jobs = [{'job_id': j, 'state': 'RUNNING', 'held': False} for j in live_wave_jobs]
+    snapshot_jobs += [{'job_id': jobs[n], 'state': 'PENDING', 'held': False} for n in live_members]
+    new_jobs = []
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()),
+        'jobs': snapshot_jobs + new_jobs, 'owners': []})
+    released, commands = [], []
+    next_id = [300]
+    def command(argv):
+        if argv[0] == 'sbatch':
+            commands.append(argv)
+            job = str(next_id[0])
+            next_id[0] += 1
+            new_jobs.append({'job_id': job, 'state': 'PENDING', 'held': True})
+            return job
+        if argv[0] == 'scontrol':
+            released.append(argv[-1])
+            return ''
+        if argv[0] == 'sacct' and argv[-1] == '--format=State':
+            state = states.get(argv[argv.index('-j') + 1])
+            return '' if state is None else state
+        if argv[0] == 'sacct':
+            return 'acct-row'
+        raise AssertionError(argv)
+    monkeypatch.setattr(wave.first, 'command', command)
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    options = SimpleNamespace(output=output, qwen_reference=reference, since='2026-09-01',
+        account='project', partition='booster', approval='fresh relaunch approval',
+        maximum_concurrent=10, allow_stale_quota=True, quota=None, existing_qwen_job=None,
+        replace_cancelled_qwen=False, live_wave=live_wave / 'submitted.json', allowed_jobs=[],
+        simultaneous_starts=True)
+    return options, jobs, profile, commands, released
+
+
+def test_relaunch_resubmits_every_failed_member_with_append_only_receipts(tmp_path, monkeypatch):
+    options, jobs, profile, commands, released = relaunch_env(
+        tmp_path, monkeypatch, {str(100 + n): 'FAILED' for n in range(1, 6)})
+    wave.relaunch_qwen(options, 'a' * 40)
+    assert released == ['300', '301', '302', '303', '304']
+    assert (options.output / 'relaunch-intent-1.json').exists()
+    receipt = wave.read(options.output / 'relaunch-1.json')
+    assert receipt['job_ids'] == released and receipt['maximum_gpu_hours'] == 60
+    assert set(receipt['failed_jobs']) == set(jobs.values())
+    assert receipt['approval'] == 'fresh relaunch approval' and receipt['git_commit'] == 'a' * 40
+    names = [' '.join(c) for c in commands]
+    for n, old in jobs.items():
+        d = options.output / f'qwen-{n}'
+        assert any(f'--job-name=geodml-qwen-threehour-{n}-r1' in name for name in names)
+        assert '--time=03:00:00' in names[int(n) - 1] and '--hold' in names[int(n) - 1]
+        assert wave.read(d / f'submission-failed-{old}.json')['job_id'] == old
+        assert (d / f'preparation-failed-{old}.json').exists()
+        fresh = wave.read(d / 'submission.json')
+        assert fresh['status'] == 'submitted' and fresh['job_id'] not in jobs.values()
+        record = wave.read(d / 'preparation.json')
+        assert record['wave_member'] == f'qwen-{n}-of-5-relaunch-1' and record['relaunch_of'] == old
+        assert record['git_commit'] == 'a' * 40
+        local = d / 'inputs' / 'profile.json'
+        assert record['files'][str(local)]['sha256'] == wave.first.identity(profile)['sha256']
+        assert str(profile) not in record['files']
+        assert wave.read(d / 'runtime.json')['GEODML_EXECUTION_COMMIT'] == 'a' * 40
+
+
+def test_relaunch_never_touches_live_completed_or_unknown_members(tmp_path, monkeypatch):
+    states = {'101': 'FAILED', '103': 'COMPLETED', '104': 'FAILED', '105': 'CANCELLED'}
+    options, jobs, profile, commands, released = relaunch_env(
+        tmp_path, monkeypatch, states, live_members=(2,))
+    wave.relaunch_qwen(options, 'a' * 40)
+    assert released == ['300', '301']
+    receipt = wave.read(options.output / 'relaunch-1.json')
+    assert receipt['job_ids'] == released and receipt['maximum_gpu_hours'] == 24
+    assert set(receipt['failed_jobs']) == {'101', '104'}
+    assert receipt['member_states']['102'] == 'PENDING'
+    for n in ('2', '3', '5'):
+        d = options.output / f'qwen-{n}'
+        assert wave.read(d / 'submission.json')['job_id'] == jobs[int(n)]
+        assert not list(d.glob('submission-failed-*'))
+        assert wave.read(d / 'preparation.json') == {'files': {str(profile): wave.first.identity(profile)}}
+
+
+def test_relaunch_without_failures_is_a_clean_noop(tmp_path, monkeypatch):
+    options, jobs, profile, commands, released = relaunch_env(
+        tmp_path, monkeypatch, {str(100 + n): 'COMPLETED' for n in range(1, 6)})
+    assert wave.relaunch_qwen(options, 'a' * 40)['status'] == 'no_failed_members'
+    assert commands == [] and released == []
+    assert not (options.output / 'relaunch-intent-1.json').exists()
+    assert not (options.output / 'relaunch-1.json').exists()
+
+
+def test_relaunch_stops_without_scheduler_evidence_and_keeps_receipts(tmp_path, monkeypatch):
+    options, jobs, profile, commands, released = relaunch_env(tmp_path, monkeypatch, {'101': None})
+    with pytest.raises(ValueError, match='No scheduler evidence'):
+        wave.relaunch_qwen(options, 'a' * 40)
+    assert commands == []
+    assert wave.read(options.output / 'qwen-1' / 'submission.json')['job_id'] == '101'
+
+
+def test_relaunch_guards_rounds_and_wave_ownership(tmp_path, monkeypatch):
+    states = {str(100 + n): 'FAILED' for n in range(1, 6)}
+    options, jobs, profile, commands, released = relaunch_env(tmp_path, monkeypatch, states)
+    wave.save(options.output / 'relaunch-intent-1.json', {'members': []})
+    with pytest.raises(ValueError, match='already attempted'):
+        wave.relaunch_qwen(options, 'a' * 40)
+    (options.output / 'relaunch-intent-1.json').unlink()
+    wave.save(options.output / 'relaunch-1.json', {'job_ids': []})
+    wave.relaunch_qwen(options, 'a' * 40)
+    assert (options.output / 'relaunch-intent-2.json').exists()
+    assert wave.read(options.output / 'relaunch-2.json')['job_ids'] == released
+    assert all('--job-name=geodml-qwen-threehour-' in ' '.join(c) and '-r2' in ' '.join(c)
+               for c in commands)
+    wave.save(options.qwen_reference / 'expansion-qwen.json',
+              {'output': str(tmp_path / 'elsewhere'), 'git_commit': 'b' * 40})
+    with pytest.raises(ValueError, match='originally dispatched'):
+        wave.relaunch_qwen(options, 'a' * 40)

@@ -36,6 +36,7 @@ from analysis.interpretability.pipeline.agentic_hours import (
 from analysis.interpretability.pipeline.agentic_storage import storage_health
 from analysis.scripts import prepare_jupiter_llama as first
 from analysis.scripts.manage_agentic_hours import scheduler, stage, sync_once
+from analysis.scripts.prepare_agentic_qwen_inputs import copy_immutable
 from analysis.scripts.prepare_shared_hour_inputs import FILE_KEYS, SETTING_KEYS
 from analysis.scripts.reconcile_agentic_dataset import (
     TERMINAL_SCHEDULER_STATES,
@@ -92,6 +93,39 @@ def verify_reference(path):
     if submission.get('status') != 'submitted' or not str(submission.get('job_id', '')).isdigit():
         raise ValueError('Member one has no confirmed submission')
     return record, submission
+
+
+def localize_reference(directory, reference, reference_root):
+    """Bind frozen member-one files inside the executing member directory.
+
+    ``verify_prepared`` proves ``record['files']`` through a VerificationCache
+    rooted at the member directory, so member-one paths outside that root
+    crashed the allocation before any cell ran. Copy each frozen file under
+    ``inputs/`` preserving its identity, fail closed on any mismatch, and
+    return the member-local proof map.
+    """
+    root = Path(reference_root)
+    localized = {}
+    for name, expected in reference['files'].items():
+        source = Path(name)
+        try:
+            relative = source.relative_to(root)
+        except ValueError:
+            raise ValueError('Frozen reference file lies outside member one: ' + name)
+        target = Path(directory) / 'inputs' / relative
+        copy_immutable(source, target, expected)
+        if first.identity(target) != expected:
+            raise ValueError('Localized reference mismatch: ' + str(target))
+        localized[str(target)] = expected
+    return localized
+
+
+def member_state(job, snapshot):
+    for row in snapshot['jobs']:
+        if str(row['job_id']) == str(job):
+            return row['state']
+    row = first.command(['sacct', '-X', '-j', str(job), '--noheader', '--parsable2', '--format=State'])
+    return row.split('|')[0].split()[0].rstrip('+').upper() if row.strip() else None
 
 
 def setup(args, runtime):
@@ -164,7 +198,7 @@ def qwen(args, pin, exchange):
                   ' execute --output ' + shlex.quote(str(directory)) + '\n')
         atomic(directory / 'run.sh', script.encode())
         frozen = {str(directory / n): first.identity(directory / n) for n in ('runtime.json', 'run.sh')}
-        frozen.update(reference['files'])
+        frozen.update(localize_reference(directory, reference, args.qwen_reference))
         save(directory / 'preparation.json', {**reference, 'git_commit': pin, 'files': frozen,
              'wave_member': f'qwen-{number}-of-5', 'estimate': estimate})
         command = ['sbatch', '--parsable', '--hold', '--no-requeue', '--nodes=1', '--ntasks=1',
@@ -308,8 +342,9 @@ def llama(args, pin, exchange):
     submit(args, entries, root, args.allowed_jobs)
 
 
-def submit(args, entries, root, allowed):
-    intent = args.output / 'submission-intent.json'
+def submit(args, entries, root, allowed, round_id=None, receipt_extra=None):
+    intent = args.output / ('submission-intent.json' if round_id is None
+                            else f'relaunch-intent-{round_id}.json')
     if intent.exists():
         raise ValueError('Submission already attempted; inspect receipts, never resubmit')
     gate(first.current_scheduler(args.since), allowed, len(entries), args.maximum_concurrent, now=time.time())
@@ -348,19 +383,122 @@ def submit(args, entries, root, allowed):
         save(directory / 'submission.json', {**receipt, 'status': 'submitted'})
         first.command(['scontrol', 'release', job])
         print('RELEASED_JOB=' + job, flush=True)
-    save(args.output / 'submitted.json', {'job_ids': jobs, 'maximum_gpu_hours': 12 * len(jobs)})
-    print(json.dumps({'job_ids': jobs, 'new_gpu_hours': 12 * len(jobs)}), flush=True)
+    final = args.output / ('submitted.json' if round_id is None else f'relaunch-{round_id}.json')
+    save(final, {'job_ids': jobs, 'maximum_gpu_hours': 12 * len(jobs), **(receipt_extra or {})})
+    print(json.dumps({'job_ids': jobs, 'new_gpu_hours': 12 * len(jobs),
+                      'relaunch_round': round_id}, default=str), flush=True)
+
+
+def relaunch_qwen(args, pin):
+    """Resubmit only Slurm-confirmed FAILED Qwen members of the dispatched wave.
+
+    Live, completed, cancelled and deadline members are never touched. Old
+    receipts rotate to job-suffixed files; the frozen member-one queue and all
+    scientific settings are reused unchanged. Requires fresh explicit approval.
+    """
+    reference, _ = verify_reference(args.qwen_reference)
+    root = Path(reference['dataset_root'])
+    guard = args.qwen_reference / 'expansion-qwen.json'
+    if not guard.exists() or read(guard).get('output') != str(args.output):
+        raise ValueError('Relaunch must target the originally dispatched wave directory')
+    dispatched = read(args.output / 'submitted.json')
+    wave_jobs = {str(j) for j in dispatched['job_ids']}
+    members = []
+    for number in range(1, 6):
+        directory = args.output / f'qwen-{number}'
+        receipt = read(directory / 'submission.json')
+        job = str(receipt.get('job_id', ''))
+        if receipt.get('status') != 'submitted' or job not in wave_jobs:
+            raise ValueError(f'qwen-{number} receipt is not part of the dispatched wave')
+        members.append((number, directory, job))
+    snapshot = first.current_scheduler(args.since)
+    if snapshot.get('complete') is not True or not 0 <= time.time() - snapshot['captured_at_epoch'] <= 120:
+        raise ValueError('Fresh complete scheduler evidence required')
+    failed, live_jobs, states = [], [], {}
+    for number, directory, job in members:
+        state = member_state(job, snapshot)
+        states[job] = state
+        if state is None:
+            raise ValueError(f'No scheduler evidence for job {job} (qwen-{number}); inspect manually')
+        if state not in TERMINAL_SCHEDULER_STATES:
+            live_jobs.append(job)
+        elif state == 'FAILED':
+            failed.append((number, directory, job))
+    allowed = [*live_jobs, *(read(args.live_wave)['job_ids'] if args.live_wave else [])]
+    if not failed:
+        result = {'status': 'no_failed_members', 'member_states': states}
+        print(json.dumps(result), flush=True)
+        return result
+    gate(snapshot, allowed, len(failed), args.maximum_concurrent, now=time.time())
+    health(args, root)
+    round_id = 1 + len(list(args.output.glob('relaunch-[0-9]*.json')))
+    if (args.output / f'relaunch-intent-{round_id}.json').exists():
+        raise ValueError('Relaunch round already attempted; inspect receipts, never resubmit')
+    environment = args.output / 'environment.sh'
+    if not environment.exists():
+        raise ValueError('Wave environment.sh is missing; cannot relaunch')
+    source = read(args.qwen_reference / 'runtime.json')
+    estimate = ('Relaunch of Qwen wave members whose allocations FAILED within seconds at pre-inference '
+                'verification (frozen member-one paths outside the member directory crashed '
+                'verify_prepared before any cell ran; failed attempts consumed seconds and are recorded '
+                'separately). Same frozen queue and atomic ledger as member one; throughput unmeasured. '
+                'Each allocation admits missing cells for up to 175 minutes including startup, with five '
+                'minutes for drain/cleanup; 12 GPU-hours each.')
+    entries, accounting = [], {}
+    for number, directory, job in failed:
+        accounting[job] = {'member': f'qwen-{number}', 'state': 'FAILED', 'sacct': first.command(
+            ['sacct', '-X', '-j', job, '--noheader', '--parsable2',
+             '--format=JobIDRaw,State,ExitCode,ElapsedRaw,AllocTRES'])}
+        os.replace(directory / 'submission.json', directory / f'submission-failed-{job}.json')
+        if (directory / 'preparation.json').exists():
+            os.replace(directory / 'preparation.json', directory / f'preparation-failed-{job}.json')
+        if (directory / 'sbatch-response.txt').exists():
+            os.replace(directory / 'sbatch-response.txt', directory / f'sbatch-response-{job}.txt')
+        runtime = {**source, 'GEODML_EXECUTION_COMMIT': pin, 'GEODML_EXECUTION_REPOSITORY': str(REPO),
+                   'GEODML_WORKER_LAUNCHER': str(REPO / 'analysis/scripts/slurm/jupiter/run_agentic_generation_worker.sh'),
+                   'GEODML_WAVE_OUTPUT_ROOT': str(directory / 'results'),
+                   'GEODML_WAVE_LOG_ROOT': str(directory / 'logs'),
+                   'GEODML_WORKER_STDOUT': str(directory / 'slurm-%j.out'),
+                   'GEODML_WORKER_STDERR': str(directory / 'slurm-%j.err'),
+                   'GEODML_WORKER_INDEX': '0', 'GEODML_WORKER_COUNT': '1',
+                   'GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY': '1'}
+        save(directory / 'runtime.json', runtime)
+        script = ('#!/bin/bash\nset -eo pipefail\nsource ' + shlex.quote(str(environment)) +
+                  '\nexec python3 ' + shlex.quote(str(REPO / 'analysis/scripts/prepare_jupiter_llama.py')) +
+                  ' execute --output ' + shlex.quote(str(directory)) + '\n')
+        atomic(directory / 'run.sh', script.encode())
+        frozen = {str(directory / n): first.identity(directory / n) for n in ('runtime.json', 'run.sh')}
+        frozen.update(localize_reference(directory, reference, args.qwen_reference))
+        save(directory / 'preparation.json', {**reference, 'git_commit': pin, 'files': frozen,
+             'wave_member': f'qwen-{number}-of-5-relaunch-{round_id}', 'estimate': estimate,
+             'relaunch_of': job})
+        command = ['sbatch', '--parsable', '--hold', '--no-requeue', '--nodes=1', '--ntasks=1',
+                   '--gres=gpu:4', '--exclusive', '--cpus-per-task=32', '--mem=0', '--time=03:00:00',
+                   '--account=' + args.account, '--partition=' + args.partition,
+                   f'--job-name=geodml-qwen-threehour-{number}-r{round_id}', '--chdir=' + str(REPO),
+                   '--output=' + str(directory / 'slurm-%j.out'), '--error=' + str(directory / 'slurm-%j.err'),
+                   str(directory / 'run.sh')]
+        entries.append((directory, command, approval(args, estimate)))
+    return submit(args, entries, root, allowed, round_id=round_id, receipt_extra={
+        'relaunch_round': round_id, 'failed_jobs': accounting, 'member_states': states,
+        'approval': args.approval, 'git_commit': pin})
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('model', choices=['qwen', 'llama'])
-    for key in ('output', 'environment-file', 'qwen-reference', 'llama-site', 'llama-runtime'):
+    p.add_argument('model', choices=['qwen', 'llama', 'relaunch-qwen'])
+    for key in ('output', 'qwen-reference'):
         p.add_argument('--' + key, type=Path, required=True)
-    for key in ('existing-qwen-job', 'repo-id', 'since', 'account', 'partition', 'approval'):
+    for key in ('environment-file', 'llama-site', 'llama-runtime'):
+        p.add_argument('--' + key, type=Path)
+    for key in ('since', 'account', 'partition', 'approval'):
         p.add_argument('--' + key, required=True)
+    for key in ('existing-qwen-job', 'repo-id'):
+        p.add_argument('--' + key)
     p.add_argument('--maximum-concurrent', type=int, choices=[5, 10], default=5)
     p.add_argument('--qwen-wave', type=Path)
+    p.add_argument('--live-wave', type=Path,
+                   help='submitted.json of a wave allowed to remain live during relaunch-qwen')
     p.add_argument('--replace-cancelled-qwen', action='store_true')
     p.add_argument('--simultaneous-starts', action='store_true')
     p.add_argument('--allow-stale-quota', action='store_true')
@@ -368,20 +506,30 @@ def main():
     args = p.parse_args()
     if not args.approval.strip() or not args.simultaneous_starts:
         raise ValueError('Explicit finite-wave walltime and simultaneous-start approval required')
+    required = {'qwen': ('environment_file', 'existing_qwen_job', 'repo_id'),
+                'llama': ('environment_file', 'existing_qwen_job', 'repo_id', 'llama_site', 'llama_runtime'),
+                'relaunch-qwen': ()}
+    missing = ['--' + name.replace('_', '-') for name in required[args.model]
+               if getattr(args, name) in (None, '')]
+    if missing:
+        raise ValueError('Missing required arguments: ' + ', '.join(missing))
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
-    # One fixed receipt location per model under the original preparation prevents
-    # alternate --output paths from duplicating the approved wave.
-    guard = args.qwen_reference / ('expansion-' + args.model + '.json')
     with (args.qwen_reference / 'expansion.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        pin = first.clean_commit()
+        args.allowed_jobs = []
+        if args.model == 'relaunch-qwen':
+            relaunch_qwen(args, pin)
+            return
+        # One fixed receipt location per model under the original preparation prevents
+        # alternate --output paths from duplicating the approved wave.
+        guard = args.qwen_reference / ('expansion-' + args.model + '.json')
         if guard.exists() and read(guard)['output'] != str(args.output):
             raise ValueError('This wave already belongs to another output directory')
         if (args.output / 'submission-intent.json').exists():
             raise ValueError('Submission already attempted; inspect saved receipts')
-        pin = first.clean_commit()
         save(guard, {'output': str(args.output), 'git_commit': pin})
-        args.allowed_jobs = []
         if args.model == 'llama' and args.maximum_concurrent == 10:
             if not args.qwen_wave:
                 raise ValueError('Ten-way mode requires the saved Qwen wave receipt')
