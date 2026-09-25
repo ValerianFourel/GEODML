@@ -179,6 +179,14 @@ def scheduler(attempt: dict, additional_job_ids: list[str] | None = None) -> dic
     result["cluster"] = attempt["cluster"]
     # An explicitly attached allocation can have a historical name/comment.
     if existing:
+        existing = str(existing)
+        named = [owner for owner in result['owners'] if owner['owner_id'] == attempt['writer_id']]
+        if named:
+            if (len(named) != 1 or str(named[0]['job_id']) != existing
+                    or named[0].get('cluster') != attempt['cluster']
+                    or named[0].get('attempt_id') != attempt['attempt_id']):
+                raise ValueError('conflicting scheduler owner for ' + attempt['writer_id'])
+            return result
         for owner in list(result["owners"]):
             if str(owner["job_id"]) == existing:
                 result["owners"].append({**owner, "owner_id": attempt["writer_id"],
