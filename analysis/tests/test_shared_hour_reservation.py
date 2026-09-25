@@ -38,3 +38,28 @@ def test_horeka_reservation_requires_active_matching_access(monkeypatch):
 def test_unconfigured_reservation_does_not_query_slurm(monkeypatch):
     monkeypatch.setattr(runtime.subprocess, 'run', lambda *a, **k: pytest.fail('unexpected scheduler query'))
     runtime.validate_reservation({}, {'cluster': 'jupiter'})
+
+
+def test_three_hour_interactive_allocation_requires_matching_explicit_extension(tmp_path):
+    request = {'attempt_id': 'qwen-interactive', 'cluster': 'horeka', 'mode': 'interactive',
+               'git_commit': 'a' * 40, 'hour_ids': ['hour-3', 'hour-4', 'hour-5'],
+               'approval': {'status': 'approved', 'evidence': 'Three hours requested',
+                            'estimate': 'One node, four A100; package throughput unknown',
+                            'walltime_seconds': 10800, 'maximum_gpu_hours': 12,
+                            'resources': {'nodes': 1, 'gpus': 4, 'cpus': 32, 'memory': 'all'}}}
+    profile = {'cluster': 'horeka', 'account': 'project', 'partition': 'accelerated'}
+    with pytest.raises(ValueError, match='extended-walltime'):
+        runtime.allocation_command(request, profile, tmp_path)
+    request['approval']['extended_walltime_approval'] = {
+        'walltime_seconds': 10800, 'evidence': 'Explicit three-hour interactive approval'}
+    command = runtime.allocation_command(request, profile, tmp_path)
+    assert command[0] == 'salloc'
+    assert '--time=03:00:00' in command
+    assert '--gres=gpu:4' in command
+    request['approval']['maximum_gpu_hours'] = 4
+    with pytest.raises(ValueError, match='GPU-hour'):
+        runtime.allocation_command(request, profile, tmp_path)
+    request['approval']['maximum_gpu_hours'] = 12
+    request['approval']['extended_walltime_approval']['walltime_seconds'] = 7200
+    with pytest.raises(ValueError, match='extended-walltime'):
+        runtime.allocation_command(request, profile, tmp_path)

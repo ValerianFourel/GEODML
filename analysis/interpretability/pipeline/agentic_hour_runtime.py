@@ -36,9 +36,13 @@ def validate_request(request: dict, profile: dict) -> None:
         raise ValueError("mode must be batch or interactive")
     approval = request["approval"]
     seconds = approval.get("walltime_seconds")
+    extension = approval.get("extended_walltime_approval", {})
+    extended = (isinstance(extension, dict) and bool(extension.get("evidence"))
+                and extension.get("walltime_seconds") == seconds)
     if (approval.get("status") != "approved" or not approval.get("evidence")
-            or not approval.get("estimate") or type(seconds) is not int or not 0 < seconds <= 3600):
-        raise ValueError("a specific approved allocation of at most one hour and its estimate are required")
+            or not approval.get("estimate") or type(seconds) is not int or seconds <= 0
+            or (seconds > 3600 and not extended)):
+        raise ValueError("a specific approved allocation and estimate are required; beyond one hour needs explicit extended-walltime approval")
     resources = approval["resources"]
     if resources.get("nodes") != 1 or resources.get("gpus") != 4:
         raise ValueError("shared-hour workers currently require one four-GPU node")
