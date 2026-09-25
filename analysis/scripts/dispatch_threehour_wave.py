@@ -172,8 +172,10 @@ def qwen(args, pin, exchange):
         if replace_cancelled:
             raise ValueError('Continuation rounds replace nothing; use relaunch-qwen for failed members')
         members = getattr(args, 'members', 5)
+        hold = getattr(args, 'hold_queue', False)
         allowed = list(args.allowed_jobs)
-        gate(snapshot, allowed, members, args.maximum_concurrent, now=time.time())
+        gate(snapshot, allowed, 0 if hold else members, args.maximum_concurrent,
+             now=time.time(), running_only=hold)
         health(args, root)
         estimate = (f'Explicitly approved Qwen continuation round {args.round}: {members} three-hour members. '
                     'The shared atomic member-one ledger admits only missing cells, so completed work is '
@@ -278,7 +280,9 @@ def admit(state, attempts, snapshot, storage, args):
     if (prior.get('pending_attempt') or
             not set(prior.get('finite_wave', {}).get('attempt_ids', [])) <= terminal):
         raise ValueError('Previous admission has not ended')
-    gate(snapshot, args.allowed_jobs, 5, args.maximum_concurrent, now=time.time())
+    hold = getattr(args, 'hold_queue', False)
+    gate(snapshot, args.allowed_jobs, 0 if hold else members,
+         args.maximum_concurrent, now=time.time(), running_only=hold)
     result = deepcopy(state)
     selected = {h for a in attempts for h in a['owners']}
     if any(h.get('owner') and key not in selected for key, h in result['hours'].items()):
@@ -313,7 +317,9 @@ def admit(state, attempts, snapshot, storage, args):
 
 def llama(args, pin, exchange):
     members = getattr(args, 'members', 5)
-    gate(first.current_scheduler(args.since), args.allowed_jobs, members, args.maximum_concurrent, now=time.time())
+    hold = getattr(args, 'hold_queue', False)
+    gate(first.current_scheduler(args.since), args.allowed_jobs, 0 if hold else members,
+         args.maximum_concurrent, now=time.time(), running_only=hold)
     site = read(args.llama_site)
     root = Path(site['dataset_root'])
     health(args, root)

@@ -519,7 +519,9 @@ def test_guard_names_are_round_scoped():
 
 
 def test_hold_queue_flag_flows_into_submit(tmp_path, monkeypatch):
-    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201', '202'])
+    # The cap is already full of allowed live jobs; a held queue must still dispatch.
+    options, exchange = qwen_continuation_env(
+        tmp_path, monkeypatch, [str(200 + n) for n in range(1, 11)])
     options.hold_queue = True
     captured = []
     monkeypatch.setattr(wave, 'submit', lambda *a, **k: captured.append((a, k)))
