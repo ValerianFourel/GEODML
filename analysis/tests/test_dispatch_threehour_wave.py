@@ -329,6 +329,7 @@ def relaunch_env(tmp_path, monkeypatch, states, live_members=(), live_wave_jobs=
         maximum_concurrent=10, allow_stale_quota=True, quota=None, existing_qwen_job=None,
         replace_cancelled_qwen=False, live_wave=live_wave / 'submitted.json', allowed_jobs=[],
         simultaneous_starts=True)
+    options.new_jobs = new_jobs
     return options, jobs, profile, commands, released
 
 
@@ -392,6 +393,35 @@ def test_relaunch_stops_without_scheduler_evidence_and_keeps_receipts(tmp_path, 
         wave.relaunch_qwen(options, 'a' * 40)
     assert commands == []
     assert wave.read(options.output / 'qwen-1' / 'submission.json')['job_id'] == '101'
+
+
+def test_second_round_accepts_relaunched_receipts_and_only_the_failed_member(tmp_path, monkeypatch):
+    states = {str(100 + n): 'FAILED' for n in range(1, 6)}
+    options, jobs, profile, commands, released = relaunch_env(tmp_path, monkeypatch, states)
+    wave.relaunch_qwen(options, 'a' * 40)
+    assert released == ['300', '301', '302', '303', '304']
+    # Round two: only job 304 (qwen-5) died; its siblings stay live in squeue.
+    options.new_jobs[:] = [row for row in options.new_jobs if row['job_id'] != '304']
+    states['304'] = 'FAILED'
+    before = {n: wave.read(options.output / f'qwen-{n}' / 'submission.json')['job_id']
+              for n in range(1, 6)}
+    assert before == {1: '300', 2: '301', 3: '302', 4: '303', 5: '304'}
+    wave.relaunch_qwen(options, 'a' * 40)
+    assert released == ['300', '301', '302', '303', '304', '305']
+    receipt = wave.read(options.output / 'relaunch-2.json')
+    assert receipt['job_ids'] == ['305'] and receipt['maximum_gpu_hours'] == 12
+    assert set(receipt['failed_jobs']) == {'304'}
+    assert receipt['member_states'] == {'300': 'PENDING', '301': 'PENDING', '302': 'PENDING',
+                                        '303': 'PENDING', '304': 'FAILED'}
+    d5 = options.output / 'qwen-5'
+    assert wave.read(d5 / 'submission-failed-304.json')['job_id'] == '304'
+    assert wave.read(d5 / 'submission.json')['job_id'] == '305'
+    assert wave.read(d5 / 'preparation.json')['wave_member'] == 'qwen-5-of-5-relaunch-2'
+    for n in range(1, 5):
+        d = options.output / f'qwen-{n}'
+        assert wave.read(d / 'submission.json')['job_id'] == str(299 + n)
+        assert not list(d.glob('submission-failed-3*'))
+    assert any('--job-name=geodml-qwen-threehour-5-r2' in ' '.join(c) for c in commands)
 
 
 def test_relaunch_guards_rounds_and_wave_ownership(tmp_path, monkeypatch):

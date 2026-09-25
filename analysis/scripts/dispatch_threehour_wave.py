@@ -403,6 +403,8 @@ def relaunch_qwen(args, pin):
         raise ValueError('Relaunch must target the originally dispatched wave directory')
     dispatched = read(args.output / 'submitted.json')
     wave_jobs = {str(j) for j in dispatched['job_ids']}
+    for round_receipt in sorted(args.output.glob('relaunch-[0-9]*.json')):
+        wave_jobs.update(str(j) for j in read(round_receipt).get('job_ids', []))
     members = []
     for number in range(1, 6):
         directory = args.output / f'qwen-{number}'
