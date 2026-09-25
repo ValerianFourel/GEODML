@@ -1,4 +1,5 @@
 import json
+import sys
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -466,8 +467,14 @@ def qwen_continuation_env(tmp_path, monkeypatch, live_jobs, members=5, maximum=1
     return options, exchange
 
 
-def test_qwen_continuation_round_stages_a_fresh_approved_wave(tmp_path, monkeypatch):
-    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201', '202'])
+@pytest.mark.parametrize('walltime,seconds,duration,members,maximum', [
+    ('03:00:00', 10800, 'threehour', 5, 10),
+    ('04:00:00', 14400, '4hour', 9, 30)])
+def test_qwen_continuation_round_stages_a_fresh_approved_wave(
+        tmp_path, monkeypatch, walltime, seconds, duration, members, maximum):
+    options, exchange = qwen_continuation_env(
+        tmp_path, monkeypatch, ['201', '202'], members=members, maximum=maximum)
+    options.walltime = walltime
     captured = []
     monkeypatch.setattr(wave, 'submit', lambda *a, **k: captured.append((a, k)))
     wave.qwen(options, 'a' * 40, exchange)
@@ -475,14 +482,18 @@ def test_qwen_continuation_round_stages_a_fresh_approved_wave(tmp_path, monkeypa
     assert kwargs == {'release': True}
     assert positional[3] == ['201', '202']
     entries = positional[1]
-    assert [d.name for d, _, _ in entries] == [f'qwen-{n}' for n in range(1, 6)]
+    assert len(entries) == members
+    assert [d.name for d, _, _ in entries] == [f'qwen-{n}' for n in range(1, members + 1)]
     for number, (directory, command, approved) in enumerate(entries, 1):
-        assert f'--job-name=geodml-qwen-threehour-{number}-c2' in command
-        assert '--time=03:00:00' in command and '--exclusive' in command
-        assert approved['maximum_gpu_hours'] == 12
+        assert f'--job-name=geodml-qwen-{duration}-{number}-c2' in command
+        assert '--time=' + walltime in command and '--exclusive' in command
+        assert approved['walltime'] == walltime and approved['walltime_seconds'] == seconds
+        assert approved['maximum_gpu_hours'] == 4 * seconds / 3600
         preparation = wave.read(directory / 'preparation.json')
-        assert preparation['wave_member'] == f'qwen-{number}-of-5-round-2'
+        assert preparation['approved_walltime'] == walltime
+        assert preparation['wave_member'] == f'qwen-{number}-of-{members}-round-2'
         assert 'continuation round 2' in preparation['estimate']
+        assert 'one-hour bouts' in preparation['estimate']
 
 
 def test_qwen_continuation_respects_the_concurrency_cap(tmp_path, monkeypatch):
@@ -657,24 +668,6 @@ def test_release_queue_skips_members_that_left_the_queue(tmp_path, monkeypatch):
     assert wave.read(tmp_path / 'wave' / 'member-302' / 'submission.json')['status'] == 'submitted_held'
 
 
-def test_four_hour_walltime_flows_through_qwen_continuation(tmp_path, monkeypatch):
-    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201'], members=9, maximum=30)
-    options.walltime = '04:00:00'
-    captured = []
-    monkeypatch.setattr(wave, 'submit', lambda *a, **k: captured.append((a, k)))
-    wave.qwen(options, 'a' * 40, exchange)
-    entries = captured[0][0][1]
-    assert len(entries) == 9
-    for number, (directory, command, approved) in enumerate(entries, 1):
-        assert '--time=04:00:00' in command
-        assert f'--job-name=geodml-qwen-4hour-{number}-c2' in command
-        assert approved['walltime'] == '04:00:00'
-        assert approved['walltime_seconds'] == 14400 and approved['maximum_gpu_hours'] == 16
-        preparation = wave.read(directory / 'preparation.json')
-        assert preparation['approved_walltime'] == '04:00:00'
-        assert 'one-hour bouts' in preparation['estimate']
-
-
 def test_walltime_cannot_change_outside_continuation_rounds(tmp_path, monkeypatch):
     options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201'])
     options.walltime, options.round = '04:00:00', 1
@@ -705,6 +698,22 @@ def test_release_now_once_releases_the_whole_queue(tmp_path, monkeypatch):
     assert releases == ['301', '302', '303']
     assert result['released'] == releases
     assert wave.read(out / 'queue-released.json')['released_job_ids'] == releases
+
+
+def test_cli_requires_only_the_arguments_each_mode_uses(tmp_path, monkeypatch):
+    # Regression: the first release-queue poller died at argparse because
+    # --qwen-reference/--account/--partition were globally required.
+    base = ['dispatch_threehour_wave.py', '--since', '2026-09-01', '--approval', 'x',
+            '--simultaneous-starts', '--output', str(tmp_path / 'out')]
+    monkeypatch.setattr(sys, 'argv', base + ['release-queue', '--once',
+                                             '--queue', str(tmp_path / 'missing.json')])
+    with pytest.raises(FileNotFoundError):
+        wave.main()
+    monkeypatch.setattr(sys, 'argv', base + ['qwen'])
+    with pytest.raises(ValueError, match='Missing required arguments') as excinfo:
+        wave.main()
+    missing = str(excinfo.value)
+    assert '--qwen-reference' in missing and '--account' in missing and '--partition' in missing
 
 
 def test_release_now_once_fails_loudly_instead_of_polling(tmp_path, monkeypatch):
