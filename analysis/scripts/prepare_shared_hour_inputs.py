@@ -34,12 +34,12 @@ SETTING_KEYS = {'SEARCH_AGENTIC_CROSS_ENCODER_SNAPSHOT', 'SEARCH_AGENTIC_CROSS_E
                 'GEODML_JUDGE_MAX_OUTPUT_TOKENS', 'GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY'}
 
 
-def stage(source, output, model_inputs, priority, snapshot, *, stripes=256):
+def stage(source, output, model_inputs, priority, snapshot, *, stripes=256, local_inventory=None):
     scheduler_gate(snapshot)
     source, output = source.resolve(), output.resolve()
     if source.is_relative_to(output) or output.is_relative_to(source):
         raise ValueError('input mirror must be separate from the live dataset')
-    tasks, done, blocked = inventory(source, stripes=stripes)
+    tasks, done, blocked = (inventory(source, stripes=stripes) if local_inventory is None else local_inventory)
     if not tasks:
         raise ValueError('no registered work to freeze')
     indexed = {t['fingerprint']: t for t in tasks}

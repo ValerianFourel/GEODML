@@ -67,3 +67,31 @@ HF's existing Qwen plan is not replaced by this bootstrap. After the allocation
 ends, reconcile its results, publish Llama inputs/results, and refresh shared
 hour plans using measured Llama throughput. Do not launch Llama on another
 cluster through an independent bootstrap meanwhile.
+
+## Explicit five-job concurrent continuation
+
+`analysis/scripts/dispatch_llama_five.py` prepares one finite wave of five
+one-hour, four-GH200 jobs. It requires explicit approval evidence and
+`--allow-stale-quota-and-simultaneous-starts`. These exceptions apply only to
+this wave. Quota remains recorded as unverified; storage failures still stop
+submissions. The total approved budget is 20 GPU-hours.
+
+The helper reconciles saved results and reads the task inventory once. It does
+not repeat registration or recovery acceptance. It publishes frozen inputs and
+results, derives conservative reference costs from the completed bootstrap,
+and reserves disjoint keyword-ordered queues through HF. Each worker receives
+ample eligible work for its allocation and checkpoints unfinished packages.
+The working dataset is the new wave's `dataset/` mirror; future synchronization
+must use its `site.json`, not the historical bootstrap site.
+
+All five jobs are submitted held. A durable intent is written before the first
+submission, and each returned job ID is saved before release. Only after all
+five held jobs are observed, with no other live allocation, are they released.
+Slurm may start them at different times. No resubmission is automatic. If any
+step fails, inspect `submission-*.json` and Slurm before recovery; rerunning
+after submission intent is deliberately refused.
+
+The HF registry records the finite wave and blocks ordinary admissions while
+its allocation states remain unresolved. Terminal results and ownership must
+be reconciled before another wave. The default ten-minute start gap and quota
+checks remain in the ordinary shared-hour dispatcher.

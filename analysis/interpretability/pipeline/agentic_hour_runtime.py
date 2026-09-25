@@ -65,6 +65,13 @@ def admission(registry: dict, request: dict, snapshot: dict, storage: dict,
     state = result["admission"].setdefault(cluster, {})
     jobs = snapshot["jobs"]
     history = snapshot.get("owners", [])
+    wave = state.get("finite_wave")
+    if wave:
+        terminal = {row.get("attempt_id") for row in [*jobs, *history]
+                    if row["state"] in TERMINAL_SCHEDULER_STATES}
+        if not set(wave["attempt_ids"]) <= terminal:
+            raise ValueError("approved concurrent wave is outstanding; reconcile every allocation first")
+        state.pop("finite_wave")
     starts = [row["start_epoch"] for row in [*jobs, *history]
               if isinstance(row.get("start_epoch"), int) and row["start_epoch"] > 0]
     last = max([state.get("last_start", 0), *starts])
