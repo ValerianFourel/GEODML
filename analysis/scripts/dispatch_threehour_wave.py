@@ -768,7 +768,9 @@ def main():
             if not args.replace_cancelled_qwen:
                 args.allowed_jobs = [args.existing_qwen_job, *args.allowed_jobs]
         from huggingface_hub import get_token
-        if args.model == 'llama' or not get_token():
+        # A pre-exported HF_TOKEN (e.g. for a scheduled background dispatch)
+        # suppresses the prompt; interactive dispatch without one still asks.
+        if not os.environ.get('HF_TOKEN') and (args.model == 'llama' or not get_token()):
             os.environ['HF_TOKEN'] = getpass.getpass('HF WRITE token (hidden): ' if args.model == 'llama' else 'HF token (hidden): ').strip()
         exchange = Exchange(HubStore(args.repo_id), args.output / 'journal')
         (qwen if args.model == 'qwen' else llama)(args, pin, exchange)
