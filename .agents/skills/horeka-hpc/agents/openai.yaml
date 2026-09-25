@@ -1,0 +1,4 @@
+interface:
+  display_name: "HoreKa HPC"
+  short_description: "Operate HoreKa Slurm workloads safely"
+  default_prompt: "Use $horeka-hpc to prepare or troubleshoot this HoreKa workload."

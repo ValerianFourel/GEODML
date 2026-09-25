@@ -1,0 +1,4 @@
+interface:
+  display_name: "JUPITER HPC"
+  short_description: "Operate JUPITER Slurm workloads safely"
+  default_prompt: "Use $jupiter-hpc to prepare or troubleshoot this JUPITER workload."
