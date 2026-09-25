@@ -327,7 +327,7 @@ def relaunch_env(tmp_path, monkeypatch, states, live_members=(), live_wave_jobs=
     options = SimpleNamespace(output=output, qwen_reference=reference, since='2026-09-01',
         account='project', partition='booster', approval='fresh relaunch approval',
         maximum_concurrent=10, allow_stale_quota=True, quota=None, existing_qwen_job=None,
-        replace_cancelled_qwen=False, live_wave=live_wave / 'submitted.json', allowed_jobs=[],
+        replace_cancelled_qwen=False, live_wave=[live_wave / 'submitted.json'], allowed_jobs=[],
         simultaneous_starts=True)
     options.new_jobs = new_jobs
     return options, jobs, profile, commands, released
@@ -441,3 +441,75 @@ def test_relaunch_guards_rounds_and_wave_ownership(tmp_path, monkeypatch):
               {'output': str(tmp_path / 'elsewhere'), 'git_commit': 'b' * 40})
     with pytest.raises(ValueError, match='originally dispatched'):
         wave.relaunch_qwen(options, 'a' * 40)
+
+
+def qwen_continuation_env(tmp_path, monkeypatch, live_jobs, members=5, maximum=10):
+    options = args(tmp_path / 'round2')
+    options.output.mkdir()
+    options.qwen_reference = tmp_path / 'reference'
+    options.environment_file = tmp_path / 'env.sh'
+    options.account, options.partition = 'project', 'booster'
+    options.round, options.members = 2, members
+    options.maximum_concurrent = maximum
+    options.allowed_jobs = list(live_jobs)
+    runtime = {'GEODML_DATASET_ROOT': str(tmp_path / 'dataset'), 'ACL_ARR_VENV': '/venv'}
+    wave.save(options.qwen_reference / 'runtime.json', runtime)
+    reference = {'dataset_root': runtime['GEODML_DATASET_ROOT'], 'files': {},
+                 'dataset_files': {}, 'external_files': {}}
+    monkeypatch.setattr(wave, 'verify_reference', lambda p: (reference, {'job_id': '42'}))
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()),
+        'jobs': [{'job_id': j, 'state': 'RUNNING'} for j in live_jobs], 'owners': []})
+    exchange = SimpleNamespace(snapshot=lambda: ('revision', {'hours': {}}))
+    return options, exchange
+
+
+def test_qwen_continuation_round_stages_a_fresh_approved_wave(tmp_path, monkeypatch):
+    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201', '202'])
+    captured = []
+    monkeypatch.setattr(wave, 'submit', lambda *a: captured.append(a))
+    wave.qwen(options, 'a' * 40, exchange)
+    assert captured[0][3] == ['201', '202']
+    entries = captured[0][1]
+    assert [d.name for d, _, _ in entries] == [f'qwen-{n}' for n in range(1, 6)]
+    for number, (directory, command, approved) in enumerate(entries, 1):
+        assert f'--job-name=geodml-qwen-threehour-{number}-c2' in command
+        assert '--time=03:00:00' in command and '--exclusive' in command
+        assert approved['maximum_gpu_hours'] == 12
+        preparation = wave.read(directory / 'preparation.json')
+        assert preparation['wave_member'] == f'qwen-{number}-of-5-round-2'
+        assert 'continuation round 2' in preparation['estimate']
+
+
+def test_qwen_continuation_respects_the_concurrency_cap(tmp_path, monkeypatch):
+    live = [str(200 + n) for n in range(1, 7)]
+    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, live)
+    with pytest.raises(ValueError):
+        wave.qwen(options, 'a' * 40, exchange)
+    assert not list((tmp_path / 'round2').glob('qwen-*'))
+
+
+def test_llama_groups_and_admission_scale_to_the_approved_member_count(tmp_path):
+    state = {'hours': {}}
+    for i in range(12):
+        state['hours'][str(i)] = {'model': 'llama4', 'owner': None, 'status': 'available',
+            'task_fingerprints': [f'{i}-{n}' for n in range(9000)], 'completed': [],
+            'failed': [], 'priority_rank': i}
+    assert wave.groups(state, 9) == [[str(i)] for i in range(9)]
+    with pytest.raises(ValueError, match='Fewer than 13 eligible'):
+        wave.groups(state, 13)
+    fixture_state, attempts, snapshot, storage = fixture()
+    options = args(tmp_path)
+    options.members = 9
+    for a in attempts:
+        a['request']['approval'] = wave.approval(options, 'measured estimate')
+    with pytest.raises(ValueError, match='Exactly 9 distinct'):
+        wave.admit(fixture_state, attempts, snapshot, storage, options)
+
+
+def test_guard_names_are_round_scoped():
+    assert wave.guard_name('llama', 1) == 'expansion-llama.json'
+    assert wave.guard_name('qwen', 1) == 'expansion-qwen.json'
+    assert wave.guard_name('llama', 2) == 'expansion-llama-r2.json'
+    assert wave.guard_name('qwen', 3) == 'expansion-qwen-r3.json'

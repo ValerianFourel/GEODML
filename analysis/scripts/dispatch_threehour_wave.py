@@ -120,6 +120,11 @@ def localize_reference(directory, reference, reference_root):
     return localized
 
 
+def guard_name(model, round_id):
+    """Round-scoped wave-ownership receipt; round one keeps the historical name."""
+    return f'expansion-{model}.json' if round_id == 1 else f'expansion-{model}-r{round_id}.json'
+
+
 def member_state(job, snapshot):
     for row in snapshot['jobs']:
         if str(row['job_id']) == str(job):
@@ -141,7 +146,8 @@ def setup(args, runtime):
 def qwen(args, pin, exchange):
     reference, submitted = verify_reference(args.qwen_reference)
     job = str(submitted['job_id'])
-    if job != args.existing_qwen_job:
+    continuation = getattr(args, 'round', 1) >= 2
+    if not continuation and job != args.existing_qwen_job:
         raise ValueError('Qwen member one differs from approved existing job')
     _, state = exchange.snapshot()
     if any(h['model'] == 'qwen38' for h in state['hours'].values()):
@@ -152,34 +158,53 @@ def qwen(args, pin, exchange):
         raise ValueError('Qwen ledger differs from member one')
     snapshot = first.current_scheduler(args.since)
     replace_cancelled = args.replace_cancelled_qwen
-    allowed = [] if replace_cancelled else [job]
-    gate(snapshot, allowed, 5 if replace_cancelled else 4, args.maximum_concurrent, now=time.time())
-    known = [j for j in snapshot['jobs'] + snapshot['owners'] if str(j['job_id']) == job]
-    health(args, root)
-    if replace_cancelled:
-        if not known or any(j['state'] != 'CANCELLED' for j in known):
-            raise ValueError('Replacement requires Slurm-confirmed cancellation of the original Qwen job')
-        accounting = first.command(['sacct', '-X', '-j', job, '--noheader', '--parsable2',
-                                    '--format=JobIDRaw,State,ExitCode,ElapsedRaw,AllocTRES'])
-        save(args.output / 'cancelled-reference.json', {
-            'job_id': job, 'scheduler_rows': known, 'accounting': accounting,
-            'new_wave_node_hours': 30, 'new_wave_gpu_hours': 120,
-            'prior_consumption': 'Recorded separately in accounting; not deducted from the newly approved wave',
-            'approval': args.approval})
-        review = reconcile(root, scheduler_snapshot=snapshot, apply=True)
-        save(args.output / 'cancelled-reconciliation.json', review)
-        if review['blocked']:
-            raise ValueError('Cancelled Qwen results need review before replacement')
-    elif not known or any(j['state'] not in {'PENDING', 'RUNNING', 'CONFIGURING', 'COMPLETING', 'COMPLETED'} for j in known):
-        raise ValueError('Existing Qwen allocation missing or failed; inspect before expanding')
+    if continuation:
+        # A continuation round is a freshly approved wave in a fresh output
+        # directory. The shared atomic member-one ledger admits only missing
+        # cells, so completed work is never repeated.
+        if replace_cancelled:
+            raise ValueError('Continuation rounds replace nothing; use relaunch-qwen for failed members')
+        members = getattr(args, 'members', 5)
+        allowed = list(args.allowed_jobs)
+        gate(snapshot, allowed, members, args.maximum_concurrent, now=time.time())
+        health(args, root)
+        estimate = (f'Explicitly approved Qwen continuation round {args.round}: {members} three-hour members. '
+                    'The shared atomic member-one ledger admits only missing cells, so completed work is '
+                    'never repeated; prior-round throughput is recorded in the earlier receipts. Each '
+                    'allocation admits missing cells for up to 175 minutes including startup, with five '
+                    f'minutes for drain/cleanup; 12 GPU-hours each, maximum {12 * members} GPU-hours. '
+                    'No full completion promise.')
+        numbers, suffix, tag, total = range(1, members + 1), f'-c{args.round}', f'-round-{args.round}', members
+    else:
+        allowed = [] if replace_cancelled else [job]
+        gate(snapshot, allowed, 5 if replace_cancelled else 4, args.maximum_concurrent, now=time.time())
+        known = [j for j in snapshot['jobs'] + snapshot['owners'] if str(j['job_id']) == job]
+        health(args, root)
+        if replace_cancelled:
+            if not known or any(j['state'] != 'CANCELLED' for j in known):
+                raise ValueError('Replacement requires Slurm-confirmed cancellation of the original Qwen job')
+            accounting = first.command(['sacct', '-X', '-j', job, '--noheader', '--parsable2',
+                                        '--format=JobIDRaw,State,ExitCode,ElapsedRaw,AllocTRES'])
+            save(args.output / 'cancelled-reference.json', {
+                'job_id': job, 'scheduler_rows': known, 'accounting': accounting,
+                'new_wave_node_hours': 30, 'new_wave_gpu_hours': 120,
+                'prior_consumption': 'Recorded separately in accounting; not deducted from the newly approved wave',
+                'approval': args.approval})
+            review = reconcile(root, scheduler_snapshot=snapshot, apply=True)
+            save(args.output / 'cancelled-reconciliation.json', review)
+            if review['blocked']:
+                raise ValueError('Cancelled Qwen results need review before replacement')
+        elif not known or any(j['state'] not in {'PENDING', 'RUNNING', 'CONFIGURING', 'COMPLETING', 'COMPLETED'} for j in known):
+            raise ValueError('Existing Qwen allocation missing or failed; inspect before expanding')
+        estimate = (('Approved new Qwen members 1-5 after explicit cancellation; prior resource use recorded separately. ' if replace_cancelled
+                     else 'Approved Qwen members 2-5; member 1 already submitted. ') + 'Throughput unmeasured. '
+                    'Each allocation admits missing cells for up to 175 minutes including startup, '
+                    'with five minutes for drain/cleanup; 12 GPU-hours each. '
+                    'All five share one frozen queue and atomic task ledger; no full completion promise.')
+        numbers, suffix, tag, total = range(1 if replace_cancelled else 2, 6), '', '', 5
     environment = setup(args, source)
     entries = []
-    estimate = (('Approved new Qwen members 1-5 after explicit cancellation; prior resource use recorded separately. ' if replace_cancelled
-                 else 'Approved Qwen members 2-5; member 1 already submitted. ') + 'Throughput unmeasured. '
-                'Each allocation admits missing cells for up to 175 minutes including startup, '
-                'with five minutes for drain/cleanup; 12 GPU-hours each. '
-                'All five share one frozen queue and atomic task ledger; no full completion promise.')
-    for number in range(1 if replace_cancelled else 2, 6):
+    for number in numbers:
         directory = args.output / f'qwen-{number}'
         directory.mkdir(exist_ok=True)
         runtime = {**source, 'GEODML_EXECUTION_COMMIT': pin, 'GEODML_EXECUTION_REPOSITORY': str(REPO),
@@ -200,28 +225,28 @@ def qwen(args, pin, exchange):
         frozen = {str(directory / n): first.identity(directory / n) for n in ('runtime.json', 'run.sh')}
         frozen.update(localize_reference(directory, reference, args.qwen_reference))
         save(directory / 'preparation.json', {**reference, 'git_commit': pin, 'files': frozen,
-             'wave_member': f'qwen-{number}-of-5', 'estimate': estimate})
+             'wave_member': f'qwen-{number}-of-{total}{tag}', 'estimate': estimate})
         command = ['sbatch', '--parsable', '--hold', '--no-requeue', '--nodes=1', '--ntasks=1',
                    '--gres=gpu:4', '--exclusive', '--cpus-per-task=32', '--mem=0', '--time=03:00:00',
                    '--account=' + args.account, '--partition=' + args.partition,
-                   f'--job-name=geodml-qwen-threehour-{number}', '--chdir=' + str(REPO),
+                   f'--job-name=geodml-qwen-threehour-{number}{suffix}', '--chdir=' + str(REPO),
                    '--output=' + str(directory / 'slurm-%j.out'), '--error=' + str(directory / 'slurm-%j.err'),
                    str(directory / 'run.sh')]
         entries.append((directory, command, approval(args, estimate)))
     submit(args, entries, root, allowed)
 
 
-def groups(state):
+def groups(state, count=5):
     rows = [(key, row) for key, row in state['hours'].items()
             if row['model'] == 'llama4' and not row['owner'] and row['status'] in {'available', 'partial'}
             and set(row['task_fingerprints']) - set(row['completed']) - set(row['failed'])]
     rows.sort(key=lambda item: (item[1]['priority_rank'], item[0]))
-    if len(rows) < 5:
-        raise ValueError('Fewer than five eligible Llama packages')
+    if len(rows) < count:
+        raise ValueError(f'Fewer than {count} eligible Llama packages; JUPITER must replan released work first')
     # Reserve about twice the observed upper three-hour throughput. Keep each
     # group contiguous in keyword priority; remaining packages stay available.
     result, cursor = [], 0
-    for _ in range(5):
+    for _ in range(count):
         selected, size = [], 0
         while cursor < len(rows) and size < 9000:
             key, row = rows[cursor]
@@ -229,14 +254,15 @@ def groups(state):
             size += len(set(row['task_fingerprints']) - set(row['completed']) - set(row['failed']))
             cursor += 1
         if not selected:
-            raise ValueError('Insufficient eligible Llama work for five allocations')
+            raise ValueError(f'Insufficient eligible Llama work for {count} allocations')
         result.append(selected)
     return result
 
 
 def admit(state, attempts, snapshot, storage, args):
-    if len(attempts) != 5 or len({a['attempt_id'] for a in attempts}) != 5:
-        raise ValueError('Exactly five distinct Llama attempts required')
+    members = getattr(args, 'members', 5)
+    if len(attempts) != members or len({a['attempt_id'] for a in attempts}) != members:
+        raise ValueError(f'Exactly {members} distinct Llama attempts required')
     if (not storage['safe_to_admit'] or not 0 <= time.time() - storage['captured_at_epoch'] <= 300
             or (not storage['quota_verified'] and not args.allow_stale_quota)):
         raise ValueError('Storage evidence blocks admission')
@@ -256,7 +282,7 @@ def admit(state, attempts, snapshot, storage, args):
         validate_request(attempt['request'], attempt['cluster_profile'])
         if (attempt['model'] != 'llama4' or attempt['request']['cluster'] != 'jupiter'
                 or attempt['request']['approval']['walltime_seconds'] != 10800):
-            raise ValueError('Only the five approved three-hour JUPITER Llama members are supported')
+            raise ValueError('Only approved three-hour JUPITER Llama members are supported')
         if attempt['attempt_id'] in tickets:
             raise ValueError('Attempt already admitted; inspect saved receipts')
         for key, owner in attempt['owners'].items():
@@ -273,13 +299,14 @@ def admit(state, attempts, snapshot, storage, args):
             'storage_sha256': digest(storage), 'quota_verified': storage['quota_verified'],
             'policy_exception': args.approval}
     result['admission']['jupiter']['finite_wave'] = {
-        'attempt_ids': [a['attempt_id'] for a in attempts], 'maximum_gpu_hours': 60,
+        'attempt_ids': [a['attempt_id'] for a in attempts], 'maximum_gpu_hours': 12 * members,
         'start_gap_seconds': 0, 'evidence': args.approval}
     return result
 
 
 def llama(args, pin, exchange):
-    gate(first.current_scheduler(args.since), args.allowed_jobs, 5, args.maximum_concurrent, now=time.time())
+    members = getattr(args, 'members', 5)
+    gate(first.current_scheduler(args.since), args.allowed_jobs, members, args.maximum_concurrent, now=time.time())
     site = read(args.llama_site)
     root = Path(site['dataset_root'])
     health(args, root)
@@ -312,11 +339,13 @@ def llama(args, pin, exchange):
     serving = {k: v for k, v in runtime.items() if k in FILE_KEYS | SETTING_KEYS
                and k != 'GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY'}
     attempts = []
-    estimate = ('Previous five 55-minute Llama runs committed 1042-1395 cells each; '
+    estimate = (f'Approved wave of {members} three-hour JUPITER Llama members. '
+                'Previous 55-minute Llama runs committed 1042-1395 cells each; '
                 'rough three-hour range 3100-4500 cells per node, workload-dependent. '
                 'Three hours approved, actual allocation deadline with drain margin, 12 GPU-hours each; '
-                'five Llama members, maximum 60 GPU-hours. Frozen remaining packages only.')
-    for number, hours in enumerate(groups(state), 1):
+                f'maximum {12 * members} GPU-hours. Frozen remaining packages only: released '
+                'unfinished work, never completed cells.')
+    for number, hours in enumerate(groups(state, members), 1):
         name = 'llama-threehour-' + digest(str(args.output))[:12] + f'-{number}'
         request = {'attempt_id': name, 'cluster': 'jupiter', 'mode': 'batch', 'git_commit': pin,
                    'hour_ids': hours, 'since': args.since, 'attempt_dir': str(args.output / name),
@@ -350,7 +379,7 @@ def submit(args, entries, root, allowed, round_id=None, receipt_extra=None):
     gate(first.current_scheduler(args.since), allowed, len(entries), args.maximum_concurrent, now=time.time())
     health(args, root)
     save(intent, {'members': [str(d) for d, _, _ in entries], 'approval': args.approval,
-                  'existing_qwen_job': args.existing_qwen_job, 'maximum_total_gpu_hours': 120,
+                  'existing_qwen_job': args.existing_qwen_job, 'maximum_total_gpu_hours': 12 * len(entries),
                   'maximum_concurrent': args.maximum_concurrent, 'start_gap_seconds': 0,
                   'quota_exception': args.allow_stale_quota,
                   'replaces_cancelled_qwen': args.replace_cancelled_qwen})
@@ -398,7 +427,7 @@ def relaunch_qwen(args, pin):
     """
     reference, _ = verify_reference(args.qwen_reference)
     root = Path(reference['dataset_root'])
-    guard = args.qwen_reference / 'expansion-qwen.json'
+    guard = args.qwen_reference / guard_name('qwen', getattr(args, 'round', 1))
     if not guard.exists() or read(guard).get('output') != str(args.output):
         raise ValueError('Relaunch must target the originally dispatched wave directory')
     dispatched = read(args.output / 'submitted.json')
@@ -426,7 +455,12 @@ def relaunch_qwen(args, pin):
             live_jobs.append(job)
         elif state == 'FAILED':
             failed.append((number, directory, job))
-    allowed = [*live_jobs, *(read(args.live_wave)['job_ids'] if args.live_wave else [])]
+    waves = args.live_wave or []
+    if not isinstance(waves, (list, tuple)):
+        waves = [waves]
+    allowed = [*live_jobs]
+    for wave_receipt in waves:
+        allowed.extend(str(j) for j in read(wave_receipt)['job_ids'])
     if not failed:
         result = {'status': 'no_failed_members', 'member_states': states}
         print(json.dumps(result), flush=True)
@@ -498,9 +532,13 @@ def main():
     for key in ('existing-qwen-job', 'repo-id'):
         p.add_argument('--' + key)
     p.add_argument('--maximum-concurrent', type=int, choices=[5, 10], default=5)
+    p.add_argument('--round', type=int, default=1,
+                   help='explicitly approved wave round; round >= 2 requires a fresh output directory')
+    p.add_argument('--members', type=int, default=5,
+                   help='allocations in this wave (llama any round; qwen continuation rounds)')
     p.add_argument('--qwen-wave', type=Path)
-    p.add_argument('--live-wave', type=Path,
-                   help='submitted.json of a wave allowed to remain live during relaunch-qwen')
+    p.add_argument('--live-wave', type=Path, action='append',
+                   help='receipt (submitted.json / relaunch-N.json) of a wave allowed to remain live; repeatable')
     p.add_argument('--replace-cancelled-qwen', action='store_true')
     p.add_argument('--simultaneous-starts', action='store_true')
     p.add_argument('--allow-stale-quota', action='store_true')
@@ -508,13 +546,18 @@ def main():
     args = p.parse_args()
     if not args.approval.strip() or not args.simultaneous_starts:
         raise ValueError('Explicit finite-wave walltime and simultaneous-start approval required')
-    required = {'qwen': ('environment_file', 'existing_qwen_job', 'repo_id'),
-                'llama': ('environment_file', 'existing_qwen_job', 'repo_id', 'llama_site', 'llama_runtime'),
-                'relaunch-qwen': ()}
-    missing = ['--' + name.replace('_', '-') for name in required[args.model]
+    required = {'qwen': ['environment_file', 'repo_id'],
+                'llama': ['environment_file', 'repo_id', 'llama_site', 'llama_runtime'],
+                'relaunch-qwen': []}
+    needs = required[args.model]
+    if args.round == 1 and args.model != 'relaunch-qwen':
+        needs = [*needs, 'existing_qwen_job']
+    missing = ['--' + name.replace('_', '-') for name in needs
                if getattr(args, name) in (None, '')]
     if missing:
         raise ValueError('Missing required arguments: ' + ', '.join(missing))
+    if args.round < 1 or not 1 <= args.members <= 10:
+        raise ValueError('Round must be at least 1 and members must be between 1 and 10')
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     with (args.qwen_reference / 'expansion.lock').open('a') as lock:
@@ -526,13 +569,17 @@ def main():
             return
         # One fixed receipt location per model under the original preparation prevents
         # alternate --output paths from duplicating the approved wave.
-        guard = args.qwen_reference / ('expansion-' + args.model + '.json')
+        guard = args.qwen_reference / guard_name(args.model, args.round)
         if guard.exists() and read(guard)['output'] != str(args.output):
             raise ValueError('This wave already belongs to another output directory')
         if (args.output / 'submission-intent.json').exists():
             raise ValueError('Submission already attempted; inspect saved receipts')
-        save(guard, {'output': str(args.output), 'git_commit': pin})
-        if args.model == 'llama' and args.maximum_concurrent == 10:
+        save(guard, {'output': str(args.output), 'git_commit': pin,
+                     'round': args.round, 'members': args.members})
+        for wave_receipt in (args.live_wave or []):
+            args.allowed_jobs.extend(str(j) for j in read(wave_receipt)['job_ids'])
+        if (args.model == 'llama' and args.maximum_concurrent == 10
+                and args.round == 1 and not args.live_wave):
             if not args.qwen_wave:
                 raise ValueError('Ten-way mode requires the saved Qwen wave receipt')
             args.allowed_jobs = read(args.qwen_wave / 'submitted.json')['job_ids']
