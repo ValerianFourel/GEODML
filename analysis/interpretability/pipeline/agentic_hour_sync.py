@@ -9,7 +9,9 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from collections.abc import Callable
+from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
 
 from .agentic_audit_progress import audit_progress, audit_stage
@@ -53,6 +55,36 @@ class ConflictError(RuntimeError):
     pass
 
 
+def commit_with_cooldown(operation):
+    """Retry one rejected commit after the server's cooldown, without re-auditing."""
+    try:
+        return operation()
+    except Exception as error:
+        response = getattr(error, 'response', None)
+        if getattr(response, 'status_code', None) != 429:
+            raise
+        value = response.headers.get('Retry-After')
+        delay = 3660.0  # The Hub commit-limit message specifies about one hour.
+        if value:
+            try:
+                delay = float(value)
+            except ValueError:
+                try:
+                    delay = parsedate_to_datetime(value).timestamp() - time.time()
+                except (TypeError, ValueError, OverflowError):
+                    pass
+        if not 0 <= delay <= 3660:
+            raise  # Never retry earlier than a longer server-requested wait.
+        deadline = time.monotonic() + max(delay, 1)
+        print(f'HF_COMMIT_COOLDOWN seconds={max(delay, 1):.0f} retry=1/1; preserving current batch', flush=True)
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            audit_progress(phase='hf_commit_cooldown', retry_in_seconds=round(remaining))
+            time.sleep(min(30, max(0, remaining)))
+        # Same payload and parent revision: concurrent changes must still fail CAS.
+        return operation()
+
+
 class HubStore:
     """Small adapter; tests exercise the same protocol with isolated stores."""
 
@@ -80,12 +112,12 @@ class HubStore:
         from huggingface_hub import CommitOperationAdd
         from huggingface_hub.errors import HfHubHTTPError
         try:
-            result = self.api.create_commit(
+            result = commit_with_cooldown(lambda: self.api.create_commit(
                 repo_id=self.repo_id, repo_type="dataset", revision="main",
                 parent_commit=revision, commit_message=message,
                 operations=[CommitOperationAdd(path_in_repo=name, path_or_fileobj=raw)
                             for name, raw in files.items()],
-            )
+            ))
         except HfHubHTTPError as error:
             if getattr(error.response, "status_code", None) in {409, 412}:
                 raise ConflictError("repository advanced") from error
