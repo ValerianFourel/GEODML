@@ -50,11 +50,18 @@ def save(path, value):
     atomic(Path(path), canonical(value))
 
 
-def gate(snapshot, allowed, extra, maximum, *, now):
+def gate(snapshot, allowed, extra, maximum, *, now, running_only=False):
     if snapshot.get('complete') is not True or not 0 <= now - snapshot['captured_at_epoch'] <= 120:
         raise ValueError('Fresh complete scheduler evidence required')
-    ids = {str(j['job_id']) for j in snapshot['jobs']}
-    if not ids <= set(allowed) or len(ids) + extra > maximum:
+    rows = snapshot['jobs']
+    ids = {str(j['job_id']) for j in rows}
+    if not ids <= set(allowed):
+        raise ValueError('Other allocations or concurrency limit block submission; preserve live jobs')
+    if running_only:
+        # Held queue members wait without consuming capacity; only unheld
+        # jobs count against the approved concurrent-allocation cap.
+        ids = {str(j['job_id']) for j in rows if not j.get('held')}
+    if len(ids) + extra > maximum:
         raise ValueError('Other allocations or concurrency limit block submission; preserve live jobs')
 
 
@@ -233,7 +240,7 @@ def qwen(args, pin, exchange):
                    '--output=' + str(directory / 'slurm-%j.out'), '--error=' + str(directory / 'slurm-%j.err'),
                    str(directory / 'run.sh')]
         entries.append((directory, command, approval(args, estimate)))
-    submit(args, entries, root, allowed)
+    submit(args, entries, root, allowed, release=not getattr(args, 'hold_queue', False))
 
 
 def groups(state, count=5):
@@ -368,15 +375,16 @@ def llama(args, pin, exchange):
         entries.append((directory, command, attempt['request']['approval']))
     save(args.output / 'site.json', {**site, 'source_commit': pin,
          'attempts': [str(d / 'attempt.json') for d, _, _ in entries], 'journal': str(args.output / 'journal')})
-    submit(args, entries, root, args.allowed_jobs)
+    submit(args, entries, root, args.allowed_jobs, release=not getattr(args, 'hold_queue', False))
 
 
-def submit(args, entries, root, allowed, round_id=None, receipt_extra=None):
+def submit(args, entries, root, allowed, round_id=None, receipt_extra=None, release=True):
     intent = args.output / ('submission-intent.json' if round_id is None
                             else f'relaunch-intent-{round_id}.json')
     if intent.exists():
         raise ValueError('Submission already attempted; inspect receipts, never resubmit')
-    gate(first.current_scheduler(args.since), allowed, len(entries), args.maximum_concurrent, now=time.time())
+    gate(first.current_scheduler(args.since), allowed, len(entries) if release else 0,
+         args.maximum_concurrent, now=time.time(), running_only=not release)
     health(args, root)
     save(intent, {'members': [str(d) for d, _, _ in entries], 'approval': args.approval,
                   'existing_qwen_job': args.existing_qwen_job, 'maximum_total_gpu_hours': 12 * len(entries),
@@ -387,7 +395,8 @@ def submit(args, entries, root, allowed, round_id=None, receipt_extra=None):
     for directory, command, approved in entries:
         health(args, root)
         health(args, Path(read(args.qwen_reference / 'preparation.json')['dataset_root']))
-        gate(first.current_scheduler(args.since), [*allowed, *jobs], 1, args.maximum_concurrent, now=time.time())
+        gate(first.current_scheduler(args.since), [*allowed, *jobs], 1 if release else 0,
+             args.maximum_concurrent, now=time.time(), running_only=not release)
         receipt = {'status': 'submission_requested', 'command': command, 'approval': approved}
         save(directory / 'submission.json', receipt)
         raw = first.command(command)
@@ -399,10 +408,19 @@ def submit(args, entries, root, allowed, round_id=None, receipt_extra=None):
         save(directory / 'submission.json', {**receipt, 'job_id': job, 'status': 'submitted_held'})
         print('HELD_JOB=' + job, flush=True)
     snapshot = first.current_scheduler(args.since)
-    gate(snapshot, [*allowed, *jobs], 0, args.maximum_concurrent, now=time.time())
+    gate(snapshot, [*allowed, *jobs], 0, args.maximum_concurrent, now=time.time(), running_only=not release)
     held = {str(j['job_id']) for j in snapshot['jobs'] if j['state'] == 'PENDING' and j.get('held')}
     if not set(jobs) <= held:
         raise ValueError('All new allocations must be confirmed held before release')
+    if not release:
+        save(args.output / 'queued.json', {
+            'queue_state': 'held', 'job_ids': jobs, 'maximum_gpu_hours': 12 * len(jobs),
+            'members': [{'job_id': job, 'directory': str(directory), 'command': command}
+                        for (directory, command, _), job in zip(entries, jobs, strict=True)],
+            'approval': args.approval, **(receipt_extra or {})})
+        print(json.dumps({'queued_job_ids': jobs, 'held': True,
+                          'new_gpu_hours': 12 * len(jobs)}, default=str), flush=True)
+        return
     for (directory, _, _), job in zip(entries, jobs, strict=True):
         health(args, root)
         health(args, Path(read(args.qwen_reference / 'preparation.json')['dataset_root']))
@@ -520,9 +538,100 @@ def relaunch_qwen(args, pin):
         'approval': args.approval, 'git_commit': pin})
 
 
+def release_queue(args):
+    """Release held queue members only while the live cap permits.
+
+    Never submits, requeues or extends anything: it reads finite held-queue
+    receipts, watches the live scheduler and releases each held allocation
+    only when every unheld job is a known wave member and capacity plus the
+    approved start gap permit. Anomalies are recorded, never acted on.
+    """
+    allowed, pending = set(), []
+    for path in args.queue:
+        record = read(path)
+        if record.get('queue_state') != 'held':
+            raise ValueError('Not a held queue receipt: ' + str(path))
+        for member in record['members']:
+            pending.append((str(member['job_id']), Path(member['directory']), Path(path)))
+            allowed.add(str(member['job_id']))
+    waves = args.live_wave or []
+    if not isinstance(waves, (list, tuple)):
+        waves = [waves]
+    for wave_receipt in waves:
+        allowed.update(str(j) for j in read(wave_receipt)['job_ids'])
+    if len({job for job, _, _ in pending}) != len(pending):
+        raise ValueError('Duplicate jobs across queue receipts')
+    done = args.output / 'queue-released.json'
+    if done.exists():
+        raise ValueError('Queue already released; inspect receipts, never release twice')
+    log = args.output / 'release-log.jsonl'
+
+    def record_line(value):
+        with log.open('a') as handle:
+            handle.write(json.dumps(value, default=str) + '\n')
+
+    released, anomalies, release_times = [], [], {}
+    deadline = time.time() + args.queue_timeout_seconds
+    gap = args.start_gap_seconds
+    last_release = None
+    while pending:
+        if time.time() > deadline:
+            raise ValueError('Queue release window expired with members still held: '
+                             + ','.join(job for job, _, _ in pending))
+        snapshot = first.current_scheduler(args.since)
+        if snapshot.get('complete') is not True or not 0 <= time.time() - snapshot['captured_at_epoch'] <= 120:
+            time.sleep(args.poll_seconds)
+            continue
+        rows = snapshot['jobs']
+        now = time.time()
+        running = {str(j['job_id']) for j in rows if not j.get('held')}
+        # Count just-released jobs as committed even if squeue lags behind.
+        running |= {j for j, t in release_times.items() if now - t <= 120}
+        held = {str(j['job_id']) for j in rows if j.get('held')}
+        if not running <= allowed:
+            line = {'event': 'blocked_unexpected_running', 'at': now,
+                    'unexpected': sorted(running - allowed)}
+            print('BLOCKED: ' + json.dumps(line, default=str), flush=True)
+            record_line(line)
+            anomalies.append(line)
+            time.sleep(args.poll_seconds)
+            continue
+        job, directory, source = pending[0]
+        if job not in held:
+            line = {'event': 'held_member_missing', 'job_id': job, 'at': now}
+            print('ANOMALY: ' + json.dumps(line, default=str), flush=True)
+            record_line(line)
+            anomalies.append(line)
+            pending.pop(0)
+            continue
+        if len(running) + 1 > args.maximum_concurrent:
+            time.sleep(args.poll_seconds)
+            continue
+        if gap and last_release is not None and now - last_release < gap:
+            time.sleep(args.poll_seconds)
+            continue
+        receipt = read(directory / 'submission.json')
+        if str(receipt.get('job_id', '')) != job or receipt.get('status') != 'submitted_held':
+            raise ValueError(f'Queue receipt mismatch for job {job}; inspect, never release')
+        save(directory / 'submission.json', {**receipt, 'status': 'submitted'})
+        first.command(['scontrol', 'release', job])
+        last_release = now
+        release_times[job] = now
+        released.append(job)
+        record_line({'event': 'released', 'job_id': job, 'at': now,
+                     'running_before_release': len(running), 'queue_receipt': str(source)})
+        print('RELEASED_JOB=' + job, flush=True)
+        pending.pop(0)
+    save(done, {'queue_state': 'released', 'released_job_ids': released,
+                'anomalies': anomalies, 'maximum_concurrent': args.maximum_concurrent,
+                'start_gap_seconds': gap, 'approval': args.approval})
+    print(json.dumps({'released_job_ids': released, 'anomalies': len(anomalies)}, default=str), flush=True)
+    return {'released': released, 'anomalies': anomalies}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('model', choices=['qwen', 'llama', 'relaunch-qwen'])
+    p.add_argument('model', choices=['qwen', 'llama', 'relaunch-qwen', 'release-queue'])
     for key in ('output', 'qwen-reference'):
         p.add_argument('--' + key, type=Path, required=True)
     for key in ('environment-file', 'llama-site', 'llama-runtime'):
@@ -538,7 +647,15 @@ def main():
                    help='allocations in this wave (llama any round; qwen continuation rounds)')
     p.add_argument('--qwen-wave', type=Path)
     p.add_argument('--live-wave', type=Path, action='append',
-                   help='receipt (submitted.json / relaunch-N.json) of a wave allowed to remain live; repeatable')
+                   help='receipt (submitted.json / relaunch-N.json / queued.json) of a wave allowed to remain live; repeatable')
+    p.add_argument('--hold-queue', action='store_true',
+                   help='submit wave members held and stop; release later with release-queue')
+    p.add_argument('--queue', type=Path, action='append',
+                   help='queued.json receipt for release-queue; repeatable')
+    p.add_argument('--start-gap-seconds', type=int, default=600,
+                   help='minimum seconds between queue releases unless zero is explicitly approved')
+    p.add_argument('--poll-seconds', type=int, default=60)
+    p.add_argument('--queue-timeout-seconds', type=int, default=21600)
     p.add_argument('--replace-cancelled-qwen', action='store_true')
     p.add_argument('--simultaneous-starts', action='store_true')
     p.add_argument('--allow-stale-quota', action='store_true')
@@ -548,9 +665,9 @@ def main():
         raise ValueError('Explicit finite-wave walltime and simultaneous-start approval required')
     required = {'qwen': ['environment_file', 'repo_id'],
                 'llama': ['environment_file', 'repo_id', 'llama_site', 'llama_runtime'],
-                'relaunch-qwen': []}
+                'relaunch-qwen': [], 'release-queue': ['queue']}
     needs = required[args.model]
-    if args.round == 1 and args.model != 'relaunch-qwen':
+    if args.round == 1 and args.model in ('qwen', 'llama'):
         needs = [*needs, 'existing_qwen_job']
     missing = ['--' + name.replace('_', '-') for name in needs
                if getattr(args, name) in (None, '')]
@@ -566,6 +683,9 @@ def main():
         args.allowed_jobs = []
         if args.model == 'relaunch-qwen':
             relaunch_qwen(args, pin)
+            return
+        if args.model == 'release-queue':
+            release_queue(args)
             return
         # One fixed receipt location per model under the original preparation prevents
         # alternate --output paths from duplicating the approved wave.

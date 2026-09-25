@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -118,7 +119,7 @@ def test_qwen_reuses_frozen_queue_and_ledger_without_touching_member_one(tmp_pat
         'complete': True, 'captured_at_epoch': int(wave.time.time()),
         'jobs': [{'job_id': '42', 'state': 'RUNNING'}], 'owners': []})
     captured = []
-    monkeypatch.setattr(wave, 'submit', lambda *a: captured.append(a))
+    monkeypatch.setattr(wave, 'submit', lambda *a, **k: captured.append(a))
     exchange = SimpleNamespace(snapshot=lambda: ('revision', {'hours': {}}))
     wave.qwen(options, 'a' * 40, exchange)
     assert len(captured[0][1]) == 4
@@ -185,7 +186,7 @@ def test_explicit_cancelled_replacement_preserves_results_and_creates_exactly_fi
         reconciled.append((root, kw))
         return {'blocked': ['bad result'] if blocked else [], 'actions': ['preserved checkpoint']}
     monkeypatch.setattr(wave, 'reconcile', reconcile)
-    monkeypatch.setattr(wave, 'submit', lambda *a: submitted.append(a))
+    monkeypatch.setattr(wave, 'submit', lambda *a, **k: submitted.append(a))
     exchange = SimpleNamespace(snapshot=lambda: ('revision', {'hours': {}}))
     if state == 'CANCELLED' and not blocked:
         wave.qwen(options, 'a' * 40, exchange)
@@ -468,10 +469,12 @@ def qwen_continuation_env(tmp_path, monkeypatch, live_jobs, members=5, maximum=1
 def test_qwen_continuation_round_stages_a_fresh_approved_wave(tmp_path, monkeypatch):
     options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201', '202'])
     captured = []
-    monkeypatch.setattr(wave, 'submit', lambda *a: captured.append(a))
+    monkeypatch.setattr(wave, 'submit', lambda *a, **k: captured.append((a, k)))
     wave.qwen(options, 'a' * 40, exchange)
-    assert captured[0][3] == ['201', '202']
-    entries = captured[0][1]
+    positional, kwargs = captured[0]
+    assert kwargs == {'release': True}
+    assert positional[3] == ['201', '202']
+    entries = positional[1]
     assert [d.name for d, _, _ in entries] == [f'qwen-{n}' for n in range(1, 6)]
     for number, (directory, command, approved) in enumerate(entries, 1):
         assert f'--job-name=geodml-qwen-threehour-{number}-c2' in command
@@ -513,3 +516,140 @@ def test_guard_names_are_round_scoped():
     assert wave.guard_name('qwen', 1) == 'expansion-qwen.json'
     assert wave.guard_name('llama', 2) == 'expansion-llama-r2.json'
     assert wave.guard_name('qwen', 3) == 'expansion-qwen-r3.json'
+
+
+def test_hold_queue_flag_flows_into_submit(tmp_path, monkeypatch):
+    options, exchange = qwen_continuation_env(tmp_path, monkeypatch, ['201', '202'])
+    options.hold_queue = True
+    captured = []
+    monkeypatch.setattr(wave, 'submit', lambda *a, **k: captured.append((a, k)))
+    wave.qwen(options, 'a' * 40, exchange)
+    assert captured[0][1] == {'release': False}
+
+
+def test_gate_running_only_counts_unheld_jobs_against_the_cap():
+    snapshot = {'complete': True, 'captured_at_epoch': 100,
+                'jobs': [{'job_id': '1', 'held': False}, {'job_id': '2', 'held': True}]}
+    wave.gate(snapshot, ['1', '2'], 0, 1, now=101, running_only=True)
+    with pytest.raises(ValueError):
+        wave.gate(snapshot, ['1', '2'], 0, 1, now=101)
+    with pytest.raises(ValueError):
+        wave.gate(snapshot, ['1'], 0, 5, now=101, running_only=True)
+
+
+def test_hold_queue_submission_keeps_every_member_held(tmp_path, monkeypatch):
+    options = args(tmp_path)
+    wave.save(options.qwen_reference / 'preparation.json', {'dataset_root': str(tmp_path)})
+    jobs = [{'job_id': '42', 'state': 'RUNNING', 'held': False}]
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()), 'jobs': jobs})
+    commands, releases = [], []
+    def command(argv):
+        if argv[0] == 'sbatch':
+            commands.append(argv)
+            job = str(100 + len(commands))
+            jobs.append({'job_id': job, 'state': 'PENDING', 'held': True})
+            return job
+        releases.append(argv)
+        return ''
+    monkeypatch.setattr(wave.first, 'command', command)
+    entries = [(tmp_path / str(i), ['sbatch', '--hold'], wave.approval(options, 'estimate'))
+               for i in range(9)]
+    wave.submit(options, entries, tmp_path, ['42'], release=False)
+    assert releases == [] and len(commands) == 9
+    queued = wave.read(tmp_path / 'queued.json')
+    assert queued['queue_state'] == 'held'
+    assert queued['job_ids'] == [str(100 + n) for n in range(1, 10)]
+    assert queued['maximum_gpu_hours'] == 108
+    assert [m['directory'] for m in queued['members']] == [str(tmp_path / str(i)) for i in range(9)]
+    for i in range(9):
+        assert wave.read(tmp_path / str(i) / 'submission.json')['status'] == 'submitted_held'
+    assert not (tmp_path / 'submitted.json').exists()
+
+
+def queue_env(tmp_path, monkeypatch, member_jobs=('301', '302', '303'), phases=None,
+              held_visible=None, gap=0, maximum=10):
+    out = tmp_path / 'release'
+    out.mkdir()
+    wave_dir = tmp_path / 'wave'
+    wave_dir.mkdir()
+    members = []
+    for job in member_jobs:
+        directory = wave_dir / f'member-{job}'
+        directory.mkdir()
+        wave.save(directory / 'submission.json', {'job_id': job, 'status': 'submitted_held'})
+        members.append({'job_id': job, 'directory': str(directory), 'command': ['sbatch', '--hold']})
+    receipt = wave_dir / 'queued.json'
+    wave.save(receipt, {'queue_state': 'held', 'job_ids': list(member_jobs), 'members': members})
+    live = tmp_path / 'live.json'
+    wave.save(live, {'job_ids': ['201', '202']})
+    live2 = tmp_path / 'live2.json'
+    wave.save(live2, {'job_ids': [str(210 + n) for n in range(1, 9)]})
+    clock = {'now': 1000.0}
+    monkeypatch.setattr(wave.time, 'time', lambda: clock['now'])
+    def fake_sleep(seconds):
+        clock['now'] += seconds
+    monkeypatch.setattr(wave.time, 'sleep', fake_sleep)
+    def current_scheduler(*a):
+        now = clock['now']
+        jobs = phases(now)
+        visible = held_visible(member_jobs) if held_visible else [
+            j for j in member_jobs
+            if wave.read(wave_dir / f'member-{j}' / 'submission.json')['status'] == 'submitted_held']
+        jobs = jobs + [{'job_id': j, 'state': 'PENDING', 'held': True} for j in visible]
+        jobs = jobs + [{'job_id': j, 'state': 'PENDING', 'held': False} for j in member_jobs
+                       if j not in visible]
+        return {'complete': True, 'captured_at_epoch': now, 'jobs': jobs}
+    monkeypatch.setattr(wave.first, 'current_scheduler', current_scheduler)
+    releases = []
+    monkeypatch.setattr(wave.first, 'command',
+                        lambda argv: releases.append(argv[-1]) or '' if argv[0] == 'scontrol' else '')
+    options = SimpleNamespace(queue=[receipt], live_wave=[live, live2], output=out,
+        since='2026-09-01', maximum_concurrent=maximum, start_gap_seconds=gap,
+        poll_seconds=60, queue_timeout_seconds=21600, approval='explicit release approval')
+    return options, releases, clock, out
+
+
+def test_release_queue_waits_for_capacity_and_blocks_on_strangers(tmp_path, monkeypatch):
+    def phases(now):
+        if now < 1100:
+            return [{'job_id': '999', 'state': 'RUNNING', 'held': False}]
+        if now < 1200:
+            return ([{'job_id': j, 'state': 'RUNNING', 'held': False} for j in ('201', '202')]
+                    + [{'job_id': str(210 + n), 'state': 'RUNNING', 'held': False} for n in range(1, 9)])
+        return [{'job_id': j, 'state': 'RUNNING', 'held': False} for j in ('201', '202')]
+    options, releases, clock, out = queue_env(tmp_path, monkeypatch, phases=phases)
+    result = wave.release_queue(options)
+    assert releases == ['301', '302', '303']
+    assert result['released'] == ['301', '302', '303']
+    done = wave.read(out / 'queue-released.json')
+    assert done['queue_state'] == 'released' and done['released_job_ids'] == releases
+    assert any(a['event'] == 'blocked_unexpected_running' for a in done['anomalies'])
+    log = (out / 'release-log.jsonl').read_text()
+    assert 'blocked_unexpected_running' in log and log.count('"released"') == 3
+    for job in ('301', '302', '303'):
+        member = wave.read(tmp_path / 'wave' / f'member-{job}' / 'submission.json')
+        assert member['status'] == 'submitted'
+    with pytest.raises(ValueError, match='already released'):
+        wave.release_queue(options)
+
+
+def test_release_queue_honors_the_start_gap(tmp_path, monkeypatch):
+    phases = lambda now: [{'job_id': j, 'state': 'RUNNING', 'held': False} for j in ('201', '202')]
+    options, releases, clock, out = queue_env(tmp_path, monkeypatch, phases=phases, gap=600)
+    wave.release_queue(options)
+    times = [json.loads(line)['at'] for line in (out / 'release-log.jsonl').read_text().splitlines()
+             if json.loads(line)['event'] == 'released']
+    assert releases == ['301', '302', '303']
+    assert all(b - a >= 600 for a, b in zip(times, times[1:]))
+
+
+def test_release_queue_skips_members_that_left_the_queue(tmp_path, monkeypatch):
+    phases = lambda now: [{'job_id': j, 'state': 'RUNNING', 'held': False} for j in ('201', '202')]
+    options, releases, clock, out = queue_env(tmp_path, monkeypatch,
+        phases=phases, held_visible=lambda jobs: [j for j in jobs if j != '302'])
+    result = wave.release_queue(options)
+    assert releases == ['301', '303']
+    assert [a['event'] for a in result['anomalies']] == ['held_member_missing']
+    assert wave.read(tmp_path / 'wave' / 'member-302' / 'submission.json')['status'] == 'submitted_held'
