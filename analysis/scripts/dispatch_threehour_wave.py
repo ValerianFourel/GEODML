@@ -1,6 +1,7 @@
 """Finite approved Qwen expansion and coordinated Llama wave on JUPITER.
 
-The existing Qwen measurement is member one. This helper never replaces it.
+The existing Qwen measurement is member one unless its cancellation and a new
+five-member wave are explicitly confirmed.
 Qwen workers share its immutable queue and atomic ledger. Llama stays HF-owned.
 """
 from __future__ import annotations
@@ -36,7 +37,10 @@ from analysis.interpretability.pipeline.agentic_storage import storage_health
 from analysis.scripts import prepare_jupiter_llama as first
 from analysis.scripts.manage_agentic_hours import scheduler, stage, sync_once
 from analysis.scripts.prepare_shared_hour_inputs import FILE_KEYS, SETTING_KEYS
-from analysis.scripts.reconcile_agentic_dataset import TERMINAL_SCHEDULER_STATES
+from analysis.scripts.reconcile_agentic_dataset import (
+    TERMINAL_SCHEDULER_STATES,
+    reconcile,
+)
 
 read = first.read
 
@@ -113,18 +117,35 @@ def qwen(args, pin, exchange):
     if Path(source['GEODML_DATASET_ROOT']).resolve() != root.resolve():
         raise ValueError('Qwen ledger differs from member one')
     snapshot = first.current_scheduler(args.since)
-    gate(snapshot, [job], 4, args.maximum_concurrent, now=time.time())
+    replace_cancelled = args.replace_cancelled_qwen
+    allowed = [] if replace_cancelled else [job]
+    gate(snapshot, allowed, 5 if replace_cancelled else 4, args.maximum_concurrent, now=time.time())
     known = [j for j in snapshot['jobs'] + snapshot['owners'] if str(j['job_id']) == job]
-    if not known or any(j['state'] not in {'PENDING', 'RUNNING', 'CONFIGURING', 'COMPLETING', 'COMPLETED'} for j in known):
-        raise ValueError('Existing Qwen allocation missing or failed; inspect before expanding')
     health(args, root)
+    if replace_cancelled:
+        if not known or any(j['state'] != 'CANCELLED' for j in known):
+            raise ValueError('Replacement requires Slurm-confirmed cancellation of the original Qwen job')
+        accounting = first.command(['sacct', '-X', '-j', job, '--noheader', '--parsable2',
+                                    '--format=JobIDRaw,State,ExitCode,ElapsedRaw,AllocTRES'])
+        save(args.output / 'cancelled-reference.json', {
+            'job_id': job, 'scheduler_rows': known, 'accounting': accounting,
+            'new_wave_node_hours': 30, 'new_wave_gpu_hours': 120,
+            'prior_consumption': 'Recorded separately in accounting; not deducted from the newly approved wave',
+            'approval': args.approval})
+        review = reconcile(root, scheduler_snapshot=snapshot, apply=True)
+        save(args.output / 'cancelled-reconciliation.json', review)
+        if review['blocked']:
+            raise ValueError('Cancelled Qwen results need review before replacement')
+    elif not known or any(j['state'] not in {'PENDING', 'RUNNING', 'CONFIGURING', 'COMPLETING', 'COMPLETED'} for j in known):
+        raise ValueError('Existing Qwen allocation missing or failed; inspect before expanding')
     environment = setup(args, source)
     entries = []
-    estimate = ('Approved Qwen members 2-5; member 1 already submitted. Throughput unmeasured. '
+    estimate = (('Approved new Qwen members 1-5 after explicit cancellation; prior resource use recorded separately. ' if replace_cancelled
+                 else 'Approved Qwen members 2-5; member 1 already submitted. ') + 'Throughput unmeasured. '
                 'Each allocation admits missing cells for up to 175 minutes including startup, '
                 'with five minutes for drain/cleanup; 12 GPU-hours each. '
                 'All five share one frozen queue and atomic task ledger; no full completion promise.')
-    for number in range(2, 6):
+    for number in range(1 if replace_cancelled else 2, 6):
         directory = args.output / f'qwen-{number}'
         directory.mkdir(exist_ok=True)
         runtime = {**source, 'GEODML_EXECUTION_COMMIT': pin, 'GEODML_EXECUTION_REPOSITORY': str(REPO),
@@ -153,7 +174,7 @@ def qwen(args, pin, exchange):
                    '--output=' + str(directory / 'slurm-%j.out'), '--error=' + str(directory / 'slurm-%j.err'),
                    str(directory / 'run.sh')]
         entries.append((directory, command, approval(args, estimate)))
-    submit(args, entries, root, [job])
+    submit(args, entries, root, allowed)
 
 
 def groups(state):
@@ -296,7 +317,8 @@ def submit(args, entries, root, allowed):
     save(intent, {'members': [str(d) for d, _, _ in entries], 'approval': args.approval,
                   'existing_qwen_job': args.existing_qwen_job, 'maximum_total_gpu_hours': 120,
                   'maximum_concurrent': args.maximum_concurrent, 'start_gap_seconds': 0,
-                  'quota_exception': args.allow_stale_quota})
+                  'quota_exception': args.allow_stale_quota,
+                  'replaces_cancelled_qwen': args.replace_cancelled_qwen})
     jobs = []
     for directory, command, approved in entries:
         health(args, root)
@@ -339,6 +361,7 @@ def main():
         p.add_argument('--' + key, required=True)
     p.add_argument('--maximum-concurrent', type=int, choices=[5, 10], default=5)
     p.add_argument('--qwen-wave', type=Path)
+    p.add_argument('--replace-cancelled-qwen', action='store_true')
     p.add_argument('--simultaneous-starts', action='store_true')
     p.add_argument('--allow-stale-quota', action='store_true')
     p.add_argument('--quota', type=Path)
@@ -362,7 +385,9 @@ def main():
         if args.model == 'llama' and args.maximum_concurrent == 10:
             if not args.qwen_wave:
                 raise ValueError('Ten-way mode requires the saved Qwen wave receipt')
-            args.allowed_jobs = [args.existing_qwen_job, *read(args.qwen_wave / 'submitted.json')['job_ids']]
+            args.allowed_jobs = read(args.qwen_wave / 'submitted.json')['job_ids']
+            if not args.replace_cancelled_qwen:
+                args.allowed_jobs = [args.existing_qwen_job, *args.allowed_jobs]
         from huggingface_hub import get_token
         if args.model == 'llama' or not get_token():
             os.environ['HF_TOKEN'] = getpass.getpass('HF WRITE token (hidden): ' if args.model == 'llama' else 'HF token (hidden): ').strip()

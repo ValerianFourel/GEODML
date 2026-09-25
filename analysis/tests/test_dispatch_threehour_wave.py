@@ -10,7 +10,7 @@ from analysis.tests.test_dispatch_llama_five import fixture
 def args(tmp_path):
     return SimpleNamespace(output=tmp_path, approval='explicit ten-job three-hour wave',
         existing_qwen_job='42', maximum_concurrent=10, allow_stale_quota=True,
-        since='2026-09-01', allowed_jobs=['42'], qwen_reference=tmp_path / 'reference')
+        since='2026-09-01', allowed_jobs=['42'], replace_cancelled_qwen=False, qwen_reference=tmp_path / 'reference')
 
 
 def test_capacity_counts_existing_qwen_and_rejects_unrelated_allocations():
@@ -158,3 +158,47 @@ def test_llama_never_reassigns_an_unconfirmed_previous_allocation(tmp_path, monk
     with pytest.raises(ValueError, match='not confirmed terminal'):
         wave.llama(options, 'a' * 40, exchange)
     assert not (tmp_path / 'submission-intent.json').exists()
+
+
+@pytest.mark.parametrize('state,blocked', [('CANCELLED', False), ('CANCELLED', True), ('RUNNING', False), ('FAILED', False), (None, False)])
+def test_explicit_cancelled_replacement_preserves_results_and_creates_exactly_five(tmp_path, monkeypatch, state, blocked):
+    options = args(tmp_path / 'new')
+    options.output.mkdir()
+    options.replace_cancelled_qwen = True
+    options.qwen_reference = tmp_path / 'reference'
+    options.environment_file = tmp_path / 'env.sh'
+    options.account, options.partition = 'project', 'booster'
+    source = {'GEODML_DATASET_ROOT': str(tmp_path / 'dataset'), 'ACL_ARR_VENV': '/venv',
+              'GEODML_WAVE_ROOT': str(options.qwen_reference / 'wave')}
+    wave.save(options.qwen_reference / 'runtime.json', source)
+    reference = {'dataset_root': source['GEODML_DATASET_ROOT'], 'files': {}, 'dataset_files': {}, 'external_files': {}}
+    monkeypatch.setattr(wave, 'verify_reference', lambda p: (reference, {'job_id': '42'}))
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    snapshot = {'complete': True, 'captured_at_epoch': int(wave.time.time()),
+                'jobs': [{'job_id': '42', 'state': state}] if state == 'RUNNING' else [],
+                'owners': [{'job_id': '42', 'state': state}] if state and state != 'RUNNING' else []}
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: snapshot)
+    monkeypatch.setattr(wave.first, 'command', lambda command: '42|CANCELLED by 123|0:0|35|gres/gpu=4')
+    reconciled, submitted = [], []
+    def reconcile(root, **kw):
+        reconciled.append((root, kw))
+        return {'blocked': ['bad result'] if blocked else [], 'actions': ['preserved checkpoint']}
+    monkeypatch.setattr(wave, 'reconcile', reconcile)
+    monkeypatch.setattr(wave, 'submit', lambda *a: submitted.append(a))
+    exchange = SimpleNamespace(snapshot=lambda: ('revision', {'hours': {}}))
+    if state == 'CANCELLED' and not blocked:
+        wave.qwen(options, 'a' * 40, exchange)
+        assert len(reconciled) == 1 and reconciled[0][1]['apply'] is True
+        entries = submitted[0][1]
+        assert [d.name for d, _, _ in entries] == ['qwen-1', 'qwen-2', 'qwen-3', 'qwen-4', 'qwen-5']
+        assert sum(a['maximum_gpu_hours'] for _, _, a in entries) == 60
+        assert submitted[0][3] == []
+        saved = wave.read(options.output / 'cancelled-reference.json')
+        assert saved['new_wave_gpu_hours'] == 120 and '35' in saved['accounting']
+        assert wave.read(options.qwen_reference / 'runtime.json') == source
+    else:
+        with pytest.raises(ValueError):
+            wave.qwen(options, 'a' * 40, exchange)
+        assert submitted == []
+        if state != 'CANCELLED':
+            assert reconciled == []
