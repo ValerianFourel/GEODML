@@ -796,3 +796,39 @@ def test_allocation_command_derives_the_eight_hour_slurm_time(tmp_path):
     assert '--time=08:00:00' in command
     assert '--job-name=geodml-hours-wave-0' in command
     assert '--gres=gpu:4' in command and '--exclusive' in command
+
+
+def test_llama_reserves_the_approved_fingerprint_budget(tmp_path, monkeypatch):
+    options = args(tmp_path)
+    options.walltime = '08:00:00'
+    options.fingerprints_per_hour = 1500
+    options.account = 'scifi'
+    options.partition = 'booster'
+    monkeypatch.setattr(wave.time, 'time', lambda: 1001)
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()), 'jobs': []})
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    a1 = tmp_path / 'old1' / 'attempt.json'
+    wave.save(a1, {'attempt_id': 'old-1', 'writer_id': 'w1', 'model': 'llama4',
+                   'owners': {'h1': {}}, 'cluster_profile': {'cluster': 'jupiter'}})
+    wave.save(tmp_path / 'old1' / 'sync.json', {'status': 'released', 'bundle': 'b1'})
+    s1 = tmp_path / 'site1.json'
+    wave.save(s1, {'dataset_root': str(tmp_path), 'attempts': [str(a1)]})
+    options.llama_site = [s1]
+    rt = tmp_path / 'runtime.json'
+    wave.save(rt, {'GEODML_CACHE_ROOT': str(tmp_path / 'cache'),
+                   'SEARCH_AGENTIC_PROFILE': str(tmp_path / 'profile.json')})
+    options.llama_runtime = rt
+    monkeypatch.setattr(wave, 'setup', lambda a, r: tmp_path / 'env.sh')
+    state = {'hours': {'h1': {'checkpoints': ['b1'], 'owner': None}}}
+    exchange = SimpleNamespace(snapshot=lambda: ('rev', state))
+    captured = {}
+
+    def probe(ready, count, budget=None):
+        captured['budget'] = budget
+        raise RuntimeError('probe')
+
+    monkeypatch.setattr(wave, 'groups', probe)
+    with pytest.raises(RuntimeError, match='probe'):
+        wave.llama(options, 'a' * 40, exchange)
+    assert captured['budget'] == 12000

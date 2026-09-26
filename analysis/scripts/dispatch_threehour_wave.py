@@ -383,17 +383,18 @@ def llama(args, pin, exchange):
     serving = {k: v for k, v in runtime.items() if k in FILE_KEYS | SETTING_KEYS
                and k != 'GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY'}
     attempts = []
+    budget = getattr(args, 'fingerprints_per_hour', 3000) * hours
     estimate = (f'Approved wave of {members} {hours}-hour JUPITER Llama members. Each allocation runs '
                 f'{hours} consecutive one-hour bouts, consuming its owned frozen packages in keyword-'
                 'priority order with per-cell checkpoints, so every hour boundary is a valid stop point. '
                 'Previous 55-minute Llama runs committed 1042-1395 cells each (~1100-1400 cells per '
                 f'node-hour); rough {hours}-hour range {1100 * hours}-{1400 * hours} cells per member, '
-                f'workload-dependent. Reservation budget {3000 * hours} fingerprints per member (~2x the '
-                f'upper observed throughput). {hours} hours approved, actual allocation deadline with '
+                f'workload-dependent. Reservation budget {budget} fingerprints per member '
+                f'(approved fingerprints-per-hour x wall-hours). {hours} hours approved, actual allocation deadline with '
                 f'drain margin, {4 * hours} GPU-hours each; maximum {4 * hours * members} GPU-hours. '
                 'Frozen remaining packages only: released unfinished work, never completed cells.')
     duration = 'threehour' if hours == 3 else f'{hours}hour'
-    for number, hour_ids in enumerate(groups(state, members, budget=3000 * hours), 1):
+    for number, hour_ids in enumerate(groups(state, members, budget=budget), 1):
         name = f'llama-{duration}-' + digest(str(args.output))[:12] + f'-{number}'
         request = {'attempt_id': name, 'cluster': 'jupiter', 'mode': 'batch', 'git_commit': pin,
                    'hour_ids': hour_ids, 'since': args.since, 'attempt_dir': str(args.output / name),
@@ -697,6 +698,9 @@ def main():
     p.add_argument('--walltime', choices=['03:00:00', '04:00:00', '08:00:00'], default='03:00:00',
                    help='approved per-member wall-time; 04:00:00 only for qwen continuation rounds, '
                         '08:00:00 only for llama rounds')
+    p.add_argument('--fingerprints-per-hour', type=int, default=3000,
+                   help='llama reservation budget per wall-hour per member; 3000 preserves the '
+                        'historical three-hour waves, measured llama4 rates are 1100-1560 cells/node-hour')
     p.add_argument('--round', type=int, default=1,
                    help='explicitly approved wave round; round >= 2 requires a fresh output directory')
     p.add_argument('--members', type=int, default=5,
