@@ -71,14 +71,14 @@ def load_plan(exchange: Exchange, plan_id: str) -> dict:
     return plan
 
 
-def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
-          reference_profile: Path, dataset: Path, repository: Path,
-          operation_id: str, stripes: int = 256) -> dict:
+def _prepare_attempt(exchange: Exchange, registry: dict, *, request: dict, profile: dict,
+                     runtime: dict, reference_profile: Path, dataset: Path,
+                     repository: Path, stripes: int) -> tuple[dict, dict, Path]:
+    """Validate one request and build its attempt manifest without reserving."""
     from analysis.scripts.verify_inference_allocation import cluster_profile
     profile = {**cluster_profile(request["cluster"]), **profile}
     validate_request(request, profile)
     directory = Path(request["attempt_dir"]).resolve()
-    _, registry = exchange.snapshot()
     selected = [registry["hours"][key] for key in request["hour_ids"]]
     selected = selected[:1] + sorted(selected[1:], key=lambda row: (row["priority_rank"], row["hour_id"]),
                                     reverse=request["mode"] == "interactive")
@@ -143,18 +143,20 @@ def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
         prior = read(directory / "attempt.json")
         if prior["request"] != request or prior["runtime_environment"] != runtime:
             raise ValueError("attempt directory belongs to a different request")
-    exchange.transact(operation_id, {"action": "reserve", "request": request,
-                                    "profile_sha256": digest(profile)},
-                      lambda state: claim_hours(state, hour_ids=request["hour_ids"],
-                                                cluster=request["cluster"], attempt_id=request["attempt_id"],
-                                                supported_models=list(profile["validated_models"])))
-    _, registry = exchange.snapshot()
+    return attempt, tasks, directory
+
+
+def _verify_owners(registry: dict, request: dict) -> dict:
     owners = {}
     for key in request["hour_ids"]:
         owner = registry["hours"][key]["owner"]
         if not owner or owner["attempt_id"] != request["attempt_id"] or owner["cluster"] != request["cluster"]:
             raise ValueError("reservation is no longer owned by this attempt")
         owners[key] = owner
+    return owners
+
+
+def _write_attempt(attempt: dict, tasks: dict, directory: Path, owners: dict) -> dict:
     queue = b"".join(canonical({**row["runnable_task"], "geodml_keyword_id": row["keyword_id"],
                                 "geodml_task_fingerprint": fp}) + b"\n" for fp, row in tasks.items())
     attempt.update(owners=owners, backlog_sha256=hashlib.sha256(queue).hexdigest())
@@ -167,6 +169,66 @@ def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
     atomic(directory / "backlog.jsonl", queue)
     atomic(directory / "attempt.json", canonical(attempt))
     return attempt
+
+
+def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
+          reference_profile: Path, dataset: Path, repository: Path,
+          operation_id: str, stripes: int = 256) -> dict:
+    _, registry = exchange.snapshot()
+    attempt, tasks, directory = _prepare_attempt(
+        exchange, registry, request=request, profile=profile, runtime=runtime,
+        reference_profile=reference_profile, dataset=dataset, repository=repository,
+        stripes=stripes)
+    exchange.transact(operation_id, {"action": "reserve", "request": request,
+                                    "profile_sha256": digest(attempt["cluster_profile"])},
+                      lambda state: claim_hours(state, hour_ids=request["hour_ids"],
+                                                cluster=request["cluster"], attempt_id=request["attempt_id"],
+                                                supported_models=list(attempt["cluster_profile"]["validated_models"])))
+    _, registry = exchange.snapshot()
+    return _write_attempt(attempt, tasks, directory, _verify_owners(registry, request))
+
+
+def stage_wave(exchange: Exchange, *, requests: list[dict], profile: dict, runtime: dict,
+               reference_profile: Path, dataset: Path, repository: Path,
+               operation_id: str, stripes: int = 256) -> list[dict]:
+    """Reserve an entire finite wave in one atomic registry transaction.
+
+    Every request goes through the same validation as stage(); hour sets must
+    be disjoint across the wave. A single claim_hours transaction covers all
+    attempts, so any conflict aborts the whole wave with no partial
+    reservations, and staging costs one prepare snapshot, one reserve commit
+    and one verification snapshot instead of three round-trips per member.
+    """
+    if not requests:
+        raise ValueError("a wave requires at least one request")
+    seen: set[str] = set()
+    for request in requests:
+        overlap = seen.intersection(request["hour_ids"])
+        if overlap:
+            raise ValueError("wave requests must not share hours: " + sorted(overlap)[0])
+        seen.update(request["hour_ids"])
+    _, registry = exchange.snapshot()
+    prepared = [_prepare_attempt(exchange, registry, request=request, profile=profile,
+                                 runtime=runtime, reference_profile=reference_profile,
+                                 dataset=dataset, repository=repository, stripes=stripes)
+                for request in requests]
+
+    def claim_all(state):
+        # claim_hours is pure: it deep-copies and returns the updated registry,
+        # so chained calls keep every member's claim in one committed state.
+        for (attempt, _, _), request in zip(prepared, requests):
+            state = claim_hours(state, hour_ids=request["hour_ids"], cluster=request["cluster"],
+                                attempt_id=request["attempt_id"],
+                                supported_models=list(attempt["cluster_profile"]["validated_models"]))
+        return state
+
+    exchange.transact(operation_id,
+                      {"action": "reserve-wave",
+                       "attempts": [request["attempt_id"] for request in requests]},
+                      claim_all)
+    _, registry = exchange.snapshot()
+    return [_write_attempt(attempt, tasks, directory, _verify_owners(registry, request))
+            for (attempt, tasks, directory), request in zip(prepared, requests)]
 
 
 def scheduler(attempt: dict, additional_job_ids: list[str] | None = None) -> dict:

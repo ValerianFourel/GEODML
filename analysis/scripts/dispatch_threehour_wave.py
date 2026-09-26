@@ -35,7 +35,7 @@ from analysis.interpretability.pipeline.agentic_hours import (
 )
 from analysis.interpretability.pipeline.agentic_storage import storage_health
 from analysis.scripts import prepare_jupiter_llama as first
-from analysis.scripts.manage_agentic_hours import scheduler, stage, sync_once
+from analysis.scripts.manage_agentic_hours import scheduler, stage_wave, sync_once
 from analysis.scripts.prepare_agentic_qwen_inputs import copy_immutable
 from analysis.scripts.prepare_shared_hour_inputs import FILE_KEYS, SETTING_KEYS
 from analysis.scripts.reconcile_agentic_dataset import (
@@ -395,14 +395,16 @@ def llama(args, pin, exchange):
                 f'drain margin, {4 * hours} GPU-hours each; maximum {4 * hours * members} GPU-hours. '
                 'Frozen remaining packages only: released unfinished work, never completed cells.')
     duration = 'threehour' if hours == 3 else f'{hours}hour'
+    requests = []
     for number, hour_ids in enumerate(groups(state, members, budget=budget), 1):
         name = f'llama-{duration}-' + digest(str(args.output))[:12] + f'-{number}'
-        request = {'attempt_id': name, 'cluster': 'jupiter', 'mode': 'batch', 'git_commit': pin,
-                   'hour_ids': hour_ids, 'since': args.since, 'attempt_dir': str(args.output / name),
-                   'approval': approval(args, estimate)}
-        attempts.append(stage(exchange, request=request, profile=profile, runtime=serving,
-                              reference_profile=Path(runtime['SEARCH_AGENTIC_PROFILE']), dataset=root,
-                              repository=REPO, operation_id='reserve-' + name))
+        requests.append({'attempt_id': name, 'cluster': 'jupiter', 'mode': 'batch', 'git_commit': pin,
+                         'hour_ids': hour_ids, 'since': args.since, 'attempt_dir': str(args.output / name),
+                         'approval': approval(args, estimate)})
+    attempts = stage_wave(exchange, requests=requests, profile=profile, runtime=serving,
+                          reference_profile=Path(runtime['SEARCH_AGENTIC_PROFILE']), dataset=root,
+                          repository=REPO,
+                          operation_id='reserve-wave-' + digest(str(args.output))[:20])
     snapshot = first.current_scheduler(args.since)
     storage = health(args, root)
     exchange.transact('admit-' + digest(str(args.output))[:20], {'attempts': [a['attempt_id'] for a in attempts]},

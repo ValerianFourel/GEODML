@@ -586,3 +586,102 @@ def test_prepared_bootstrap_resume_preserves_artifacts_and_recounts(tmp_path, mo
     assert all(Path(name).read_bytes() == raw for name, raw in preserved.items())
     assert len(launched) == 1 and launched[0][1][-1].endswith("run_inference_wave_worker.sbatch")
     assert resume.os.environ["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] == "1"
+
+
+def test_stage_wave_reserves_the_whole_wave_in_one_transaction(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    from analysis.interpretability.pipeline.agentic_hours import digest
+    from analysis.scripts.manage_agentic_hours import stage_wave
+    from analysis.scripts.search_vllm_stage import build_profile
+
+    root = data(tmp_path / "jupiter")
+    reference = build_profile(
+        stage="qwen-generator", model_id="pinned-model", model_revision="a" * 40,
+        vllm_executable="/fixture/vllm", vllm_version="fixture", vllm_help="",
+        visible_gpus=[{"index": i, "uuid": f"GPU-{i}", "name": "GH200", "memory_total_mib": 97871} for i in range(4)],
+        cuda_visible_devices="0,1,2,3", expected_gpu_name_pattern="GH200", max_model_len=4096,
+        request_concurrency=1,
+    )
+    reference_path = tmp_path / "reference.json"
+    reference_path.write_bytes(canonical(reference))
+    reference_sha = hashlib.sha256(reference_path.read_bytes()).hexdigest()
+    hub = MemoryHub()
+    exchange = Exchange(hub, tmp_path / "journal")
+    bundle = exchange.upload(root, list(build_manifest(root)["files"]), outcomes={}, metadata={})
+    values = calibration()
+    values["qwen38"]["reference_profile_sha256"] = reference_sha
+    tasks, completed, blocked = inventory(root, stripes=4)
+    value = build_plan(tasks=tasks, calibration=values, registry=empty_registry(), contract={},
+                       completed=completed, blocked=blocked, source_commit="b" * 40, input_bundle=bundle)
+    exchange.transact("plan", {}, lambda state: install_plan(state, value, cluster="jupiter"),
+                      {f"coordination/plans/{value['plan_id']}.json": canonical(value)})
+    repo = tmp_path / "code"
+    leaf = repo / "analysis/scripts/slurm/jupiter/run_agentic_generation_worker.sh"
+    leaf.parent.mkdir(parents=True)
+    leaf.write_text("exec true\n")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                    "commit", "-qm", "fixture"], cwd=repo, check=True)
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    packages = value["packages"]
+    assert len(packages) >= 2
+    cluster = {"cluster": "jupiter", "cache_root": str(tmp_path / "cache"),
+               "minimum_cache_free_bytes": 0, "minimum_cache_free_inodes": 0,
+               "validated_models": {"qwen38": {"evidence": "fixture", "reference_profile_sha256": reference_sha}}}
+
+    def request(name, hour_ids):
+        return {"attempt_id": name, "cluster": "jupiter", "mode": "interactive",
+                "hour_ids": hour_ids, "attempt_dir": str(tmp_path / f"attempt-{name}"),
+                "git_commit": commit, "since": "2026-09-24",
+                "approval": {"status": "approved", "walltime_seconds": 3600, "maximum_gpu_hours": 4.0,
+                             "evidence": "fixture-only", "estimate": "synthetic test; no GPUs used",
+                             "resources": {"nodes": 1, "gpus": 4, "cpus": 32, "memory": "all"}}}
+
+    runtime = {"SEARCH_AGENTIC_PROFILE": str(reference_path)}
+    kwargs = {"profile": cluster, "runtime": runtime, "reference_profile": reference_path,
+              "dataset": root, "repository": repo, "stripes": 4}
+    wave = [request("wave-1", [packages[0]["hour_id"]]), request("wave-2", [packages[1]["hour_id"]])]
+    calls = []
+    original = exchange.transact
+
+    def counted(*a, **k):
+        calls.append(a[0])
+        return original(*a, **k)
+
+    exchange.transact = counted
+    revision_before = hub.head()
+    attempts = stage_wave(exchange, requests=wave, operation_id="reserve-wave", **kwargs)
+    assert calls == ["reserve-wave"]
+    assert int(hub.head()) == int(revision_before) + 1
+    _, registry = exchange.snapshot()
+    assert [attempt["attempt_id"] for attempt in attempts] == ["wave-1", "wave-2"]
+    for attempt, req in zip(attempts, wave):
+        for key in req["hour_ids"]:
+            assert registry["hours"][key]["owner"]["attempt_id"] == attempt["attempt_id"]
+        assert (Path(req["attempt_dir"]) / "attempt.json").is_file()
+        assert (Path(req["attempt_dir"]) / "backlog.jsonl").is_file()
+        assert attempt["owners"]
+    # Idempotent rerun: same operation id, no new commit, saved manifests returned.
+    calls.clear()
+    revision_before = hub.head()
+    rerun = stage_wave(exchange, requests=wave, operation_id="reserve-wave", **kwargs)
+    assert rerun == attempts
+    assert calls == ["reserve-wave"]
+    assert hub.head() == revision_before
+    # Any conflict aborts the whole wave before committing.
+    conflict = [request("wave-3", [packages[0]["hour_id"], packages[1]["hour_id"]])]
+    with pytest.raises(ValueError):
+        stage_wave(exchange, requests=conflict, operation_id="reserve-wave-2", **kwargs)
+    _, registry = exchange.snapshot()
+    assert registry["hours"][packages[0]["hour_id"]]["owner"]["attempt_id"] == "wave-1"
+    assert registry["hours"][packages[1]["hour_id"]]["owner"]["attempt_id"] == "wave-2"
+    # Overlapping hour sets inside one wave are rejected before any registry access.
+    calls.clear()
+    with pytest.raises(ValueError, match="must not share"):
+        stage_wave(exchange, requests=[request("wave-4", [packages[0]["hour_id"]]),
+                                       request("wave-5", [packages[0]["hour_id"]])],
+                   operation_id="reserve-wave-3", **kwargs)
+    assert calls == []
