@@ -22,10 +22,15 @@ from analysis.scripts.report_latent_ranking_relationship import (
     COORDINATES, _load_coordinates, _load_observations, _correlation,
 )
 from analysis.interpretability.pipeline.axis_permutation_metrics import ranking_agreement
+from analysis.scripts.summarize_axis_ranking_change import format_top_k_summary
 import numpy as np
 
 FACTORS = ("model", "method", "engine", "condition")
-METRICS = ("top1_change", "top3_set_distance", "kendall_distance_common", "url_set_distance")
+METRICS = ("top1_change", "top3_set_distance", "kendall_distance_common", "url_set_distance") + tuple(
+    f"top{k}_full_{name}"
+    for k in (3, 5)
+    for name in ("set_change", "ordered_change", "set_distance", "kendall_distance_common")
+)
 
 
 def compare_prompts(observations, *, max_pairs=2000, seed=20260926):
@@ -60,6 +65,22 @@ def compare_prompts(observations, *, max_pairs=2000, seed=20260926):
             agreement = ranking_agreement(left, right)
             union = set(left) | set(right)
             top_union = set(left[:3]) | set(right[:3])
+            top_k = {}
+            for k in (3, 5):
+                prefix = f"top{k}_full_"
+                values = dict.fromkeys(("set_change", "ordered_change", "set_distance", "kendall_distance_common"))
+                if len(left) >= k and len(right) >= k:
+                    a_top, b_top = left[:k], right[:k]
+                    common = set(a_top) & set(b_top)
+                    agreement_k = ranking_agreement(a_top, b_top)
+                    tau = agreement_k["kendall_tau_common"]
+                    values = {
+                        "set_change": float(set(a_top) != set(b_top)),
+                        "ordered_change": float(a_top != b_top),
+                        "set_distance": 1 - len(common) / len(set(a_top) | set(b_top)),
+                        "kendall_distance_common": None if tau is None else (1 - tau) / 2,
+                    }
+                top_k.update({prefix + name: value for name, value in values.items()})
             for field, role in COORDINATES:
                 # Orient each comparison from low to high axis position.
                 low, high = (a, b) if a[field] <= b[field] else (b, a)
@@ -81,6 +102,7 @@ def compare_prompts(observations, *, max_pairs=2000, seed=20260926):
                         else (1 - agreement["kendall_tau_common"]) / 2
                     ),
                     "url_set_distance": 1 - len(set(left) & set(right)) / len(union),
+                    **top_k,
                 })
     return result
 
@@ -111,6 +133,7 @@ def summarize(pairs):
                         within.append(value)
             summaries.append({
                 **identity, "metric": metric, "pairs": len(valid),
+                "candidate_pairs": len(rows), "excluded_pairs": len(rows) - len(valid),
                 "keywords": len(by_keyword),
                 "mean_distance": float(y.mean()) if len(y) else None,
                 "rho_axis_gap_vs_ranking_distance": rho if math.isfinite(rho) else None,
@@ -132,6 +155,8 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-pairs-per-keyword", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=20260926)
+    parser.add_argument("--summary-only", action="store_true",
+                        help="Print the compact top-3/top-5 table instead of the full JSON.")
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error("output directory already exists; use a new path")
@@ -149,14 +174,17 @@ def main():
                 writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
                 writer.writeheader()
                 writer.writerows(rows)
-    report = {"scientific_result": False,
+    report = {"format_version": "geodml-direct-axis-ranking-v2", "scientific_result": False,
               "comparison": "different prompts within keyword/model/method/engine/condition",
               "limitation": "Exact query, input candidates, evidence and surface realization are not matched. Descriptive association only. Pairs share prompts; no independent-pair p-values.",
+              "top_k_policy": "Full top-3 and top-5 metrics require at least k URLs in both rankings. Set distance is Jaccard distance. Order distance uses only URLs shared within both top-k lists, requiring at least two. Legacy metrics are preserved unchanged.",
               "seed": args.seed, "max_pairs_per_keyword": args.max_pairs_per_keyword,
               "coordinates": provenance, "accounting": accounting,
               "observations": len(observations), "summaries": summaries}
     (args.output_dir / "report.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
-    print(json.dumps(report, indent=2, allow_nan=False))
+    summary = format_top_k_summary(report)
+    (args.output_dir / "summary.txt").write_text(summary + "\n")
+    print(summary if args.summary_only else json.dumps(report, indent=2, allow_nan=False))
     print("RESULTS=" + str(args.output_dir))
 
 
