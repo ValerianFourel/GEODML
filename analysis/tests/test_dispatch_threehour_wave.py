@@ -832,3 +832,54 @@ def test_llama_reserves_the_approved_fingerprint_budget(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match='probe'):
         wave.llama(options, 'a' * 40, exchange)
     assert captured['budget'] == 12000
+
+
+def test_admission_supports_the_five_hour_wave_budget(tmp_path, monkeypatch):
+    state, attempts, snapshot, storage = fixture()
+    options = args(tmp_path)
+    options.walltime = '05:00:00'
+    monkeypatch.setattr(wave.time, 'time', lambda: 1001)
+    for a in attempts:
+        a['request']['approval'] = wave.approval(options, 'five-hour estimate')
+    result = wave.admit(state, attempts, snapshot, storage, options)
+    admission = result['admission']['jupiter']
+    assert admission['finite_wave']['maximum_gpu_hours'] == 100
+    attempts[0]['request']['approval'] = wave.approval(args(tmp_path), 'three-hour estimate')
+    with pytest.raises(ValueError, match='5-hour'):
+        wave.admit(state, attempts, snapshot, storage, options)
+
+
+def test_llama_five_hour_wave_passes_the_guard_with_its_budget(tmp_path, monkeypatch):
+    options = args(tmp_path)
+    options.walltime = '05:00:00'
+    options.fingerprints_per_hour = 1600
+    options.account = 'scifi'
+    options.partition = 'booster'
+    monkeypatch.setattr(wave.time, 'time', lambda: 1001)
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()), 'jobs': []})
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    a1 = tmp_path / 'old1' / 'attempt.json'
+    wave.save(a1, {'attempt_id': 'old-1', 'writer_id': 'w1', 'model': 'llama4',
+                   'owners': {'h1': {}}, 'cluster_profile': {'cluster': 'jupiter'}})
+    wave.save(tmp_path / 'old1' / 'sync.json', {'status': 'released', 'bundle': 'b1'})
+    s1 = tmp_path / 'site1.json'
+    wave.save(s1, {'dataset_root': str(tmp_path), 'attempts': [str(a1)]})
+    options.llama_site = [s1]
+    rt = tmp_path / 'runtime.json'
+    wave.save(rt, {'GEODML_CACHE_ROOT': str(tmp_path / 'cache'),
+                   'SEARCH_AGENTIC_PROFILE': str(tmp_path / 'profile.json')})
+    options.llama_runtime = rt
+    monkeypatch.setattr(wave, 'setup', lambda a, r: tmp_path / 'env.sh')
+    state = {'hours': {'h1': {'checkpoints': ['b1'], 'owner': None}}}
+    exchange = SimpleNamespace(snapshot=lambda: ('rev', state))
+    captured = {}
+
+    def probe(ready, count, budget=None):
+        captured['budget'] = budget
+        raise RuntimeError('probe')
+
+    monkeypatch.setattr(wave, 'groups', probe)
+    with pytest.raises(RuntimeError, match='probe'):
+        wave.llama(options, 'a' * 40, exchange)
+    assert captured['budget'] == 8000
