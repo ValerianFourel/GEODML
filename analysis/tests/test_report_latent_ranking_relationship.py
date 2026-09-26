@@ -136,14 +136,22 @@ def test_report_joins_verified_rankings_and_separates_observed_axis(tmp_path):
     order = next(
         row for row in report["permutation_associations"]
         if row["coordinate_role"] == "observed_latent"
-        and row["outcome"] == "natural_vs_shuffled_top1_match"
+        and row["outcome"] == "natural_vs_shuffled_top1_change"
     )
     assert target["spearman_rho"] > 0.8
-    assert order["spearman_rho"] < -0.8
+    assert order["spearman_rho"] > 0.8
     assert target["permutable_keywords"] == 1
+    first_bin = report["permutation_bin_summaries"][0]
+    last_bin = report["permutation_bin_summaries"][-1]
+    assert first_bin["mean_natural_vs_shuffled_top1_change"] == 0.0
+    assert last_bin["mean_natural_vs_shuffled_top1_change"] == 1.0
     assert report["scientific_result"] is False
 
     output = write_report(report, tmp_path / "report")
     assert json.loads((output / "report.json").read_text()) == report
-    assert "Observed latent-coordinate associations" in (output / "report.md").read_text()
+    assert "Ranking change along the observed latent axis" in (
+        output / "report.md"
+    ).read_text()
     assert (output / "associations.csv").read_text().count("observed_latent") > 1
+    bins = (output / "permutation-bin-summary.csv").read_text()
+    assert "mean_natural_vs_shuffled_top1_change" in bins

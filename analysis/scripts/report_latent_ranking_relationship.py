@@ -53,9 +53,9 @@ TASK_OUTCOMES = (
     "target_reciprocal_rank_if_seen",
 )
 PAIR_OUTCOMES = (
-    "natural_vs_shuffled_top1_match",
-    "natural_vs_shuffled_topk_overlap",
-    "natural_vs_shuffled_kendall_tau_common",
+    "natural_vs_shuffled_top1_change",
+    "natural_vs_shuffled_topk_change",
+    "natural_vs_shuffled_kendall_distance_common",
 )
 
 
@@ -311,12 +311,18 @@ def _paired_permutation_rows(observations: Sequence[Mapping[str, Any]]) -> list[
             "engine": key[3], "keyword_id": natural["keyword_id"],
             "axis_bin": natural["axis_bin"],
             **{field: natural[field] for field, _ in COORDINATES},
-            "natural_vs_shuffled_top1_match": (
+            "natural_vs_shuffled_top1_change": (
                 None if agreement["top1_match"] is None
-                else float(agreement["top1_match"])
+                else 1.0 - float(agreement["top1_match"])
             ),
-            "natural_vs_shuffled_topk_overlap": agreement["topk_overlap"],
-            "natural_vs_shuffled_kendall_tau_common": agreement["kendall_tau_common"],
+            "natural_vs_shuffled_topk_change": (
+                None if agreement["topk_overlap"] is None
+                else 1.0 - agreement["topk_overlap"]
+            ),
+            "natural_vs_shuffled_kendall_distance_common": (
+                None if agreement["kendall_tau_common"] is None
+                else (1.0 - agreement["kendall_tau_common"]) / 2.0
+            ),
         })
     return paired
 
@@ -453,6 +459,51 @@ def _bin_summaries(observations: Sequence[Mapping[str, Any]]) -> list[dict[str, 
     return output
 
 
+def _permutation_bin_summaries(
+    pairs: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    fields = ("model", "method", "engine", "axis_bin")
+    groups: dict[tuple[Any, ...], list[Mapping[str, Any]]] = defaultdict(list)
+    for row in pairs:
+        groups[tuple(row[field] for field in fields)].append(row)
+    output = []
+    for key, rows in sorted(groups.items()):
+        summary = {
+            **dict(zip(fields, key, strict=True)),
+            "pairs": len(rows),
+            "mean_observed_latent_coordinate": float(np.mean([
+                row["observed_axis_1_percentile_0_1"] for row in rows
+            ])),
+        }
+        for outcome in PAIR_OUTCOMES:
+            values = [row[outcome] for row in rows if row[outcome] is not None]
+            summary[f"{outcome}_n"] = len(values)
+            summary[f"mean_{outcome}"] = (
+                float(np.mean(values)) if values else None
+            )
+        output.append(summary)
+    return output
+
+
+def permutation_sniff_check(
+    observations: Sequence[Mapping[str, Any]],
+    *,
+    permutations: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Summarize how natural-versus-shuffled ranking change varies by axis."""
+
+    pairs = _paired_permutation_rows(observations)
+    return {
+        "pairs": pairs,
+        "associations": _associations(
+            pairs, PAIR_OUTCOMES, ("model", "method", "engine"),
+            permutations=permutations, seed=seed,
+        ),
+        "bin_summaries": _permutation_bin_summaries(pairs),
+    }
+
+
 @audit_stage("latent_ranking_report")
 def build_report(
     dataset_root: Path,
@@ -486,16 +537,15 @@ def build_report(
     observations, accounting = _load_observations(
         dataset_root, coordinates, selected_models, stripe_count=stripe_count
     )
-    pairs = _paired_permutation_rows(observations)
+    sniff = permutation_sniff_check(
+        observations, permutations=permutations, seed=seed
+    )
+    pairs = sniff["pairs"]
     audit_progress(
         phase="associations", observations=len(observations), pairs=len(pairs)
     )
     task_associations = _associations(
         observations, TASK_OUTCOMES, ("model", "method", "engine", "condition"),
-        permutations=permutations, seed=seed,
-    )
-    pair_associations = _associations(
-        pairs, PAIR_OUTCOMES, ("model", "method", "engine"),
         permutations=permutations, seed=seed,
     )
     report = {
@@ -525,8 +575,8 @@ def build_report(
                 "absent URLs receive no invented rank."
             ),
             (
-                "Top-k overlap uses k=min(3, natural ranking length, shuffled "
-                "ranking length) for each pair."
+                "Top-k change is one minus overlap, with k=min(3, natural "
+                "ranking length, shuffled ranking length) for each pair."
             ),
         ],
         "settings": {
@@ -543,7 +593,8 @@ def build_report(
         "observation_count": len(observations),
         "natural_shuffled_pair_count": len(pairs),
         "task_associations": task_associations,
-        "permutation_associations": pair_associations,
+        "permutation_associations": sniff["associations"],
+        "permutation_bin_summaries": sniff["bin_summaries"],
         "bin_summaries": _bin_summaries(observations),
     }
     audit_progress(phase="done", observations=len(observations), pairs=len(pairs))
@@ -568,7 +619,7 @@ def _format(value: object) -> str:
 
 def _markdown(report: Mapping[str, Any]) -> str:
     lines = [
-        "# Latent-axis to ranking relationship",
+        "# Latent-axis permutation sniff check",
         "",
         "> Exploratory saved-artifact report. This is not a causal or confirmatory result.",
         "",
@@ -581,7 +632,24 @@ def _markdown(report: Mapping[str, Any]) -> str:
     ]
     lines.extend(f"- {warning}" for warning in report["warnings"])
     lines.extend([
-        "", "## Observed latent-coordinate associations", "",
+        "", "## Ranking change along the observed latent axis", "",
+        (
+            "Each outcome is a distance from 0 to 1. Zero means no measured "
+            "change and one means the largest measured change."
+        ),
+        "",
+        "| Model | Method | Engine | Change outcome | pairs | Spearman rho | Blocked permutation p |",
+        "|---|---|---|---|---:|---:|---:|",
+    ])
+    for row in report["permutation_associations"]:
+        if row["coordinate_role"] != "observed_latent":
+            continue
+        lines.append("| " + " | ".join(_format(row.get(field)) for field in (
+            "model", "method", "engine", "outcome", "n", "spearman_rho",
+            "blocked_permutation_p_two_sided",
+        )) + " |")
+    lines.extend([
+        "", "## Other observed latent-coordinate associations", "",
         (
             "| Model | Method | Engine | Condition | Outcome | n | Spearman rho "
             "| Blocked permutation p |"
@@ -599,20 +667,9 @@ def _markdown(report: Mapping[str, Any]) -> str:
             "spearman_rho", "blocked_permutation_p_two_sided",
         )) + " |")
     lines.extend([
-        "", "## Latent-coordinate relationship with order sensitivity", "",
-        "| Model | Method | Engine | Outcome | n | Spearman rho | Blocked permutation p |",
-        "|---|---|---|---|---:|---:|---:|",
-    ])
-    for row in report["permutation_associations"]:
-        if row["coordinate_role"] != "observed_latent":
-            continue
-        lines.append("| " + " | ".join(_format(row.get(field)) for field in (
-            "model", "method", "engine", "outcome", "n", "spearman_rho",
-            "blocked_permutation_p_two_sided",
-        )) + " |")
-    lines.extend([
         "", "Full assigned-versus-observed results are in `associations.csv`.",
-        "Axis-bin outcome summaries are in `bin-summary.csv`.", "",
+        "Permutation change by axis bin is in `permutation-bin-summary.csv`.",
+        "Other axis-bin outcome summaries are in `bin-summary.csv`.", "",
     ])
     return "\n".join(lines)
 
@@ -636,6 +693,10 @@ def write_report(report: Mapping[str, Any], output: Path) -> Path:
             [*report["task_associations"], *report["permutation_associations"]],
         )
         _write_csv(temporary / "bin-summary.csv", report["bin_summaries"])
+        _write_csv(
+            temporary / "permutation-bin-summary.csv",
+            report["permutation_bin_summaries"],
+        )
         os.replace(temporary, output)
     except BaseException:
         for child in temporary.iterdir():
