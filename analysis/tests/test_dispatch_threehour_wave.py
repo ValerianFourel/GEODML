@@ -151,12 +151,12 @@ def test_llama_never_reassigns_an_unconfirmed_previous_allocation(tmp_path, monk
     options = args(tmp_path)
     options.llama_site = tmp_path / 'site.json'
     path = tmp_path / 'old/attempt.json'
-    wave.save(path, {'writer_id': 'old-writer'})
+    wave.save(path, {'attempt_id': 'old', 'writer_id': 'old-writer'})
     wave.save(options.llama_site, {'dataset_root': str(tmp_path), 'attempts': [str(path)]})
     monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
         'complete': True, 'captured_at_epoch': int(wave.time.time()), 'jobs': []})
     monkeypatch.setattr(wave, 'health', lambda *a: {})
-    monkeypatch.setattr(wave, 'scheduler', lambda *a: {'owners': []})
+    monkeypatch.setattr(wave, 'scheduler_wave', lambda *a: {'owners': []})
     exchange = SimpleNamespace(snapshot=lambda: ('revision', {'hours': {}}))
     with pytest.raises(ValueError, match='not confirmed terminal'):
         wave.llama(options, 'a' * 40, exchange)
@@ -762,7 +762,7 @@ def test_llama_eight_hour_dispatch_syncs_every_prior_site(tmp_path, monkeypatch)
     monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
         'complete': True, 'captured_at_epoch': int(wave.time.time()), 'jobs': []})
     monkeypatch.setattr(wave, 'health', lambda *a: {})
-    monkeypatch.setattr(wave, 'scheduler', lambda a: {'owners': []})
+    monkeypatch.setattr(wave, 'scheduler_wave', lambda a: {'owners': []})
     # Site one: fully synced already. Site two: allocation not confirmed terminal.
     a1 = tmp_path / 'old1' / 'attempt.json'
     wave.save(a1, {'attempt_id': 'old-1', 'writer_id': 'w1', 'model': 'llama4',

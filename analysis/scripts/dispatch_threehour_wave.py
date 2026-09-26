@@ -35,7 +35,7 @@ from analysis.interpretability.pipeline.agentic_hours import (
 )
 from analysis.interpretability.pipeline.agentic_storage import storage_health
 from analysis.scripts import prepare_jupiter_llama as first
-from analysis.scripts.manage_agentic_hours import scheduler, stage_wave, sync_once
+from analysis.scripts.manage_agentic_hours import scheduler_wave, stage_wave, sync_wave
 from analysis.scripts.prepare_agentic_qwen_inputs import copy_immutable
 from analysis.scripts.prepare_shared_hour_inputs import FILE_KEYS, SETTING_KEYS
 from analysis.scripts.reconcile_agentic_dataset import (
@@ -336,6 +336,73 @@ def admit(state, attempts, snapshot, storage, args):
     return result
 
 
+def sync_sites(args, exchange, sites, root, *, require_finished):
+    """Publish every finished attempt of earlier Llama waves in one wave sync.
+
+    Costs one registry read, one scheduler capture, one reconciliation and one
+    registry commit for the whole set. Live attempts keep their ownership; with
+    ``require_finished`` they (or any blocked attempt) stop the caller.
+    """
+    _, state = exchange.snapshot()
+    summary = {'already_synced': [], 'released': [], 'live': [], 'blocked': []}
+    pending = []
+    for site_record in sites:
+        for path in read(site_record)['attempts']:
+            attempt = read(path)
+            sync_path = Path(path).parent / 'sync.json'
+            if sync_path.exists():
+                saved = read(sync_path)
+                if saved.get('status') == 'released' and all(saved['bundle'] in state['hours'][h]['checkpoints'] for h in attempt['owners']):
+                    print('ALREADY SYNCED: ' + attempt['attempt_id'], flush=True)
+                    summary['already_synced'].append(attempt['attempt_id'])
+                    continue
+            pending.append(attempt)
+    if not pending:
+        return summary
+    snapshot = scheduler_wave(pending)
+    finished = []
+    for attempt in pending:
+        rows = [o for o in snapshot['owners'] if o['owner_id'] == attempt['writer_id']]
+        if any(o['state'] in TERMINAL_SCHEDULER_STATES for o in rows):
+            finished.append(attempt)
+        else:
+            summary['live'].append({'attempt_id': attempt['attempt_id'],
+                                    'observed': sorted({o['state'] for o in rows})})
+    if summary['live'] and require_finished:
+        raise ValueError('Previous Llama allocation is not confirmed terminal ('
+                         + '; '.join(row['attempt_id'] + ' observed: ' + (', '.join(row['observed']) or 'no scheduler rows')
+                                     for row in summary['live'])
+                         + '); if it just ended, wait for slurmdbd to finalize and rerun')
+    results = sync_wave(exchange, finished, snapshot, health(args, root)) if finished else []
+    for attempt, result in zip(finished, results, strict=True):
+        print(json.dumps(result), flush=True)
+        if result['status'] == 'released':
+            summary['released'].append(attempt['attempt_id'])
+        else:
+            summary['blocked'].append({'attempt_id': attempt['attempt_id'], 'result': result})
+    if summary['blocked'] and require_finished:
+        raise ValueError('Previous Llama results could not be released: ' + json.dumps(summary['blocked']))
+    return summary
+
+
+def sync_llama(args, pin, exchange):
+    """Publish finished Llama waves now, without preparing any allocation."""
+    sites = args.llama_site if isinstance(args.llama_site, list) else [args.llama_site]
+    root = Path(read(sites[0])['dataset_root'])
+    health(args, root)
+    summary = sync_sites(args, exchange, sites, root, require_finished=False)
+    receipt = {**summary, 'sites': [str(s) for s in sites], 'git_commit': pin,
+               'completed_at': int(time.time())}
+    path = args.output / f"sync-{receipt['completed_at']}.json"
+    if path.exists():
+        raise FileExistsError('Refusing to overwrite sync receipt ' + str(path))
+    save(path, receipt)
+    counts = {key: len(value) for key, value in summary.items()}
+    print(json.dumps({'sync': counts, 'live': summary['live'],
+                      'blocked': [row['attempt_id'] for row in summary['blocked']]}), flush=True)
+    return summary
+
+
 def llama(args, pin, exchange):
     walltime = getattr(args, 'walltime', '03:00:00')
     if walltime not in ('03:00:00', '05:00:00', '08:00:00'):
@@ -349,30 +416,13 @@ def llama(args, pin, exchange):
     site = read(sites[0])
     root = Path(site['dataset_root'])
     health(args, root)
-    for site_record in sites:
-        for path in read(site_record)['attempts']:
-            attempt = read(path)
-            _, state = exchange.snapshot()
-            sync_path = Path(path).parent / 'sync.json'
-            if sync_path.exists():
-                saved = read(sync_path)
-                if saved.get('status') == 'released' and all(saved['bundle'] in state['hours'][h]['checkpoints'] for h in attempt['owners']):
-                    print('ALREADY SYNCED: ' + attempt['attempt_id'], flush=True)
-                    continue
-            snapshot = scheduler(attempt)
-            observed = sorted({o['state'] for o in snapshot['owners']
-                               if o['owner_id'] == attempt['writer_id']})
-            if not any(o['owner_id'] == attempt['writer_id'] and o['state'] in TERMINAL_SCHEDULER_STATES for o in snapshot['owners']):
-                raise ValueError('Previous Llama allocation is not confirmed terminal (observed: '
-                                 + (', '.join(observed) if observed else 'no scheduler rows')
-                                 + '); if it just ended, wait for slurmdbd to finalize and rerun')
-            result = sync_once(exchange, attempt, snapshot, health(args, root))
-            if result['status'] != 'released':
-                raise ValueError('Previous Llama results could not be released: ' + str(result))
-            print(json.dumps(result), flush=True)
+    sync_sites(args, exchange, sites, root, require_finished=True)
     _, state = exchange.snapshot()
-    if any(h.get('owner') for h in state['hours'].values()):
-        raise ValueError('Existing shared owners remain')
+    owners = sorted({str(h['owner'].get('attempt_id')) for h in state['hours'].values() if h.get('owner')})
+    if owners:
+        raise ValueError('Existing shared owners remain: ' + ', '.join(owners[:10])
+                         + (' ...' if len(owners) > 10 else '')
+                         + ' (pass their site.json with --llama-site, or release unstarted reservations)')
     prior = read(site['attempts'][0])
     if prior['model'] != 'llama4':
         raise ValueError('Expected the previous Llama shared-hour site')
@@ -684,7 +734,8 @@ def release_queue(args):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('model', choices=['qwen', 'llama', 'relaunch-qwen', 'release-queue'])
+    p.add_argument('model', choices=['qwen', 'llama', 'relaunch-qwen', 'release-queue', 'sync-llama'],
+                   help='sync-llama publishes finished Llama waves and allocates nothing')
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--qwen-reference', type=Path)
     for key in ('environment-file', 'llama-runtime'):
@@ -692,7 +743,7 @@ def main():
     p.add_argument('--llama-site', type=Path, action='append',
                    help='site.json of a prior Llama wave whose attempts must sync first; repeatable')
     p.add_argument('--since', required=True)
-    p.add_argument('--approval', required=True)
+    p.add_argument('--approval', default='', help='required for every mode that submits or releases jobs')
     for key in ('account', 'partition'):
         p.add_argument('--' + key)  # required per mode; the releaser does not sbatch
     for key in ('existing-qwen-job', 'repo-id'):
@@ -726,13 +777,14 @@ def main():
     p.add_argument('--allow-stale-quota', action='store_true')
     p.add_argument('--quota', type=Path)
     args = p.parse_args()
-    if not args.approval.strip() or not args.simultaneous_starts:
+    if args.model != 'sync-llama' and (not args.approval.strip() or not args.simultaneous_starts):
         raise ValueError('Explicit finite-wave walltime and simultaneous-start approval required')
     required = {'qwen': ['qwen_reference', 'environment_file', 'repo_id', 'account', 'partition'],
                 'llama': ['qwen_reference', 'environment_file', 'repo_id', 'llama_site',
                           'llama_runtime', 'account', 'partition'],
                 'relaunch-qwen': ['qwen_reference', 'account', 'partition'],
-                'release-queue': ['queue']}
+                'release-queue': ['queue'],
+                'sync-llama': ['qwen_reference', 'repo_id', 'llama_site']}
     needs = required[args.model]
     if args.round == 1 and args.model in ('qwen', 'llama'):
         needs = [*needs, 'existing_qwen_job']
@@ -756,6 +808,11 @@ def main():
         if args.model == 'relaunch-qwen':
             relaunch_qwen(args, pin)
             return
+        if args.model == 'sync-llama':
+            # Publishing finished results reserves and submits nothing: no wave guard.
+            hf_token(write=True)
+            sync_llama(args, pin, Exchange(HubStore(args.repo_id), args.output / 'journal'))
+            return
         # One fixed receipt location per model under the original preparation prevents
         # alternate --output paths from duplicating the approved wave.
         guard = args.qwen_reference / guard_name(args.model, args.round)
@@ -774,13 +831,17 @@ def main():
             args.allowed_jobs = read(args.qwen_wave / 'submitted.json')['job_ids']
             if not args.replace_cancelled_qwen:
                 args.allowed_jobs = [args.existing_qwen_job, *args.allowed_jobs]
-        from huggingface_hub import get_token
-        # A pre-exported HF_TOKEN (e.g. for a scheduled background dispatch)
-        # suppresses the prompt; interactive dispatch without one still asks.
-        if not os.environ.get('HF_TOKEN') and (args.model == 'llama' or not get_token()):
-            os.environ['HF_TOKEN'] = getpass.getpass('HF WRITE token (hidden): ' if args.model == 'llama' else 'HF token (hidden): ').strip()
+        hf_token(write=args.model == 'llama')
         exchange = Exchange(HubStore(args.repo_id), args.output / 'journal')
         (qwen if args.model == 'qwen' else llama)(args, pin, exchange)
+
+
+def hf_token(*, write):
+    from huggingface_hub import get_token
+    # A pre-exported HF_TOKEN (e.g. for a scheduled background dispatch)
+    # suppresses the prompt; interactive dispatch without one still asks.
+    if not os.environ.get('HF_TOKEN') and (write or not get_token()):
+        os.environ['HF_TOKEN'] = getpass.getpass('HF WRITE token (hidden): ' if write else 'HF token (hidden): ').strip()
 
 
 if __name__ == '__main__':

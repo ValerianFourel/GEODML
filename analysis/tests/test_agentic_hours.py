@@ -588,12 +588,10 @@ def test_prepared_bootstrap_resume_preserves_artifacts_and_recounts(tmp_path, mo
     assert resume.os.environ["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] == "1"
 
 
-def test_stage_wave_reserves_the_whole_wave_in_one_transaction(tmp_path):
+def stage_wave_fixture(tmp_path, hub):
+    """Published two-package plan, validated cluster profile and pinned fixture repository."""
     import subprocess
-    from pathlib import Path
 
-    from analysis.interpretability.pipeline.agentic_hours import digest
-    from analysis.scripts.manage_agentic_hours import stage_wave
     from analysis.scripts.search_vllm_stage import build_profile
 
     root = data(tmp_path / "jupiter")
@@ -607,7 +605,6 @@ def test_stage_wave_reserves_the_whole_wave_in_one_transaction(tmp_path):
     reference_path = tmp_path / "reference.json"
     reference_path.write_bytes(canonical(reference))
     reference_sha = hashlib.sha256(reference_path.read_bytes()).hexdigest()
-    hub = MemoryHub()
     exchange = Exchange(hub, tmp_path / "journal")
     bundle = exchange.upload(root, list(build_manifest(root)["files"]), outcomes={}, metadata={})
     values = calibration()
@@ -626,8 +623,7 @@ def test_stage_wave_reserves_the_whole_wave_in_one_transaction(tmp_path):
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                     "commit", "-qm", "fixture"], cwd=repo, check=True)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
-    packages = value["packages"]
-    assert len(packages) >= 2
+    assert len(value["packages"]) >= 2
     cluster = {"cluster": "jupiter", "cache_root": str(tmp_path / "cache"),
                "minimum_cache_free_bytes": 0, "minimum_cache_free_inodes": 0,
                "validated_models": {"qwen38": {"evidence": "fixture", "reference_profile_sha256": reference_sha}}}
@@ -643,6 +639,16 @@ def test_stage_wave_reserves_the_whole_wave_in_one_transaction(tmp_path):
     runtime = {"SEARCH_AGENTIC_PROFILE": str(reference_path)}
     kwargs = {"profile": cluster, "runtime": runtime, "reference_profile": reference_path,
               "dataset": root, "repository": repo, "stripes": 4}
+    return exchange, value["packages"], request, kwargs
+
+
+def test_stage_wave_reserves_the_whole_wave_in_one_transaction(tmp_path):
+    from pathlib import Path
+
+    from analysis.scripts.manage_agentic_hours import stage_wave
+
+    hub = MemoryHub()
+    exchange, packages, request, kwargs = stage_wave_fixture(tmp_path, hub)
     wave = [request("wave-1", [packages[0]["hour_id"]]), request("wave-2", [packages[1]["hour_id"]])]
     calls = []
     original = exchange.transact

@@ -312,6 +312,32 @@ missing calibration as `awaiting_calibration`; invalid supplied measurements sti
 fail. The original `plan` command keeps its strict missing-calibration behavior.
 A pending-calibration plan is a tracker, not a runnable one-hour workload.
 
+## Wave-level registry cost
+
+`hours.json` is one large document (about 26 MB in September 2026), so cost
+scales with registry round-trips, not with the size of a change. Waves therefore
+batch them:
+
+- `Exchange` keeps registry bytes it read or committed, keyed by the immutable
+  commit revision. Snapshots after this process's own commits cost no download;
+  another writer's commit is always read from the Hub.
+- `stage_wave` reserves every member in one transaction and verifies the shared
+  plan, input bundle and prior checkpoints once per wave. Reuse ends with staging;
+  later downloads verify local files again.
+- `sync_wave` publishes a finished wave with one scheduler capture, one
+  reconciliation and one ledger snapshot per dataset root, shared upload commits
+  and one registry transaction. Each attempt gets the same bundle,
+  `finish_hours` transition and `sync.json` that `sync_once` would produce. A
+  rejected or blocked attempt stays owned and does not stop the others. Reruns
+  reuse saved receipts; a receipt lost after the registry commit is restored
+  without applying the checkpoint twice.
+
+`dispatch_threehour_wave.py sync-llama --llama-site SITE [--llama-site ...]`
+runs that sync alone. It needs no allocation approval, submits nothing, skips
+live attempts (reported as `live`), and writes `sync-<epoch>.json` under
+`--output`. The `llama` dispatch mode runs the same sync first and stops before
+reserving if any earlier attempt is live or blocked.
+
 ## Initial publication from JUPITER
 
 `bootstrap_shared_hours.py --source DATASET --output NEW_BOOTSTRAP --since DATE`

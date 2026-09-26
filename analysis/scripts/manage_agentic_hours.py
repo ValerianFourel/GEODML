@@ -61,14 +61,7 @@ def read(path) -> dict:
 
 
 def load_plan(exchange: Exchange, plan_id: str) -> dict:
-    raw = exchange.store.read(f"coordination/plans/{plan_id}.json", exchange.store.head())
-    if raw is None:
-        raise ValueError("published plan is missing")
-    plan = json.loads(raw)
-    if plan.get("plan_id") != plan_id:
-        raise ValueError("plan identity mismatch")
-    verify_plan(plan)
-    return plan
+    return exchange.plan(plan_id)
 
 
 def _prepare_attempt(exchange: Exchange, registry: dict, *, request: dict, profile: dict,
@@ -175,10 +168,11 @@ def stage(exchange: Exchange, *, request: dict, profile: dict, runtime: dict,
           reference_profile: Path, dataset: Path, repository: Path,
           operation_id: str, stripes: int = 256) -> dict:
     _, registry = exchange.snapshot()
-    attempt, tasks, directory = _prepare_attempt(
-        exchange, registry, request=request, profile=profile, runtime=runtime,
-        reference_profile=reference_profile, dataset=dataset, repository=repository,
-        stripes=stripes)
+    with exchange.reusing_verification():
+        attempt, tasks, directory = _prepare_attempt(
+            exchange, registry, request=request, profile=profile, runtime=runtime,
+            reference_profile=reference_profile, dataset=dataset, repository=repository,
+            stripes=stripes)
     exchange.transact(operation_id, {"action": "reserve", "request": request,
                                     "profile_sha256": digest(attempt["cluster_profile"])},
                       lambda state: claim_hours(state, hour_ids=request["hour_ids"],
@@ -208,10 +202,13 @@ def stage_wave(exchange: Exchange, *, requests: list[dict], profile: dict, runti
             raise ValueError("wave requests must not share hours: " + sorted(overlap)[0])
         seen.update(request["hour_ids"])
     _, registry = exchange.snapshot()
-    prepared = [_prepare_attempt(exchange, registry, request=request, profile=profile,
-                                 runtime=runtime, reference_profile=reference_profile,
-                                 dataset=dataset, repository=repository, stripes=stripes)
-                for request in requests]
+    # Members usually share one plan, its input bundle and prior checkpoints:
+    # verify each once for the wave instead of once per member.
+    with exchange.reusing_verification():
+        prepared = [_prepare_attempt(exchange, registry, request=request, profile=profile,
+                                     runtime=runtime, reference_profile=reference_profile,
+                                     dataset=dataset, repository=repository, stripes=stripes)
+                    for request in requests]
 
     def claim_all(state):
         # claim_hours is pure: it deep-copies and returns the updated registry,
@@ -231,29 +228,55 @@ def stage_wave(exchange: Exchange, *, requests: list[dict], profile: dict, runti
             for (attempt, tasks, directory), request in zip(prepared, requests)]
 
 
-def scheduler(attempt: dict, additional_job_ids: list[str] | None = None) -> dict:
+def _existing_job(attempt: dict):
     existing = attempt.get("admission_ticket", {}).get("existing_job_id") if attempt.get("admission_ticket") else None
     receipt = Path(attempt["request"]["attempt_dir"]) / "execution.json"
     if receipt.exists():
         existing = read(receipt)["job_id"]
+    return existing
+
+
+def _attach_owner(result: dict, attempt: dict, existing) -> None:
+    # An explicitly attached allocation can have a historical name/comment.
+    existing = str(existing)
+    named = [owner for owner in result['owners'] if owner['owner_id'] == attempt['writer_id']]
+    if named:
+        if (len(named) != 1 or str(named[0]['job_id']) != existing
+                or named[0].get('cluster') != attempt['cluster']
+                or named[0].get('attempt_id') != attempt['attempt_id']):
+            raise ValueError('conflicting scheduler owner for ' + attempt['writer_id'])
+        return
+    for owner in list(result["owners"]):
+        if str(owner["job_id"]) == existing:
+            result["owners"].append({**owner, "owner_id": attempt["writer_id"],
+                                      "cluster": attempt["cluster"], "attempt_id": attempt["attempt_id"]})
+            break
+
+
+def scheduler(attempt: dict, additional_job_ids: list[str] | None = None) -> dict:
+    existing = _existing_job(attempt)
     result = capture(plan={"plan_id": "shared-hours"}, since=attempt["request"]["since"],
                      include_job_ids=[*(additional_job_ids or []), *([existing] if existing else [])])
     result["cluster"] = attempt["cluster"]
-    # An explicitly attached allocation can have a historical name/comment.
     if existing:
-        existing = str(existing)
-        named = [owner for owner in result['owners'] if owner['owner_id'] == attempt['writer_id']]
-        if named:
-            if (len(named) != 1 or str(named[0]['job_id']) != existing
-                    or named[0].get('cluster') != attempt['cluster']
-                    or named[0].get('attempt_id') != attempt['attempt_id']):
-                raise ValueError('conflicting scheduler owner for ' + attempt['writer_id'])
-            return result
-        for owner in list(result["owners"]):
-            if str(owner["job_id"]) == existing:
-                result["owners"].append({**owner, "owner_id": attempt["writer_id"],
-                                          "cluster": attempt["cluster"], "attempt_id": attempt["attempt_id"]})
-                break
+        _attach_owner(result, attempt, existing)
+    return result
+
+
+def scheduler_wave(attempts: list[dict]) -> dict:
+    """One scheduler capture mapping every attempt of a finished wave."""
+    clusters = {attempt["cluster"] for attempt in attempts}
+    if len(clusters) != 1:
+        raise ValueError("a wave scheduler snapshot covers exactly one cluster")
+    existing = {attempt["attempt_id"]: _existing_job(attempt) for attempt in attempts}
+    # The earliest start date gives a superset of every attempt's history.
+    result = capture(plan={"plan_id": "shared-hours"},
+                     since=min(attempt["request"]["since"] for attempt in attempts),
+                     include_job_ids=sorted({str(job) for job in existing.values() if job}))
+    result["cluster"] = clusters.pop()
+    for attempt in attempts:
+        if existing[attempt["attempt_id"]]:
+            _attach_owner(result, attempt, existing[attempt["attempt_id"]])
     return result
 
 
@@ -278,34 +301,38 @@ def transient_network_error(error: Exception) -> bool:
                for cls in type(error).__mro__)
 
 
-def sync_once(exchange: Exchange, attempt: dict, snapshot: dict, storage: dict) -> dict:
-    root = Path(attempt["dataset_root"])
-    directory = Path(attempt["request"]["attempt_dir"])
-    stripes = attempt["ledger_stripes"]
+def _check_sync_inputs(attempt: dict, snapshot: dict, storage: dict) -> None:
     if snapshot.get("cluster") != attempt["cluster"] or snapshot.get("complete") is not True:
         raise ValueError("wrong-cluster or incomplete scheduler snapshot")
     if not 0 <= time.time() - snapshot.get("captured_at_epoch", 0) <= 120:
         raise ValueError("stale scheduler snapshot")
     if (storage.get("safe_to_admit") is not True or storage.get("quota_verified") is not True
             or not 0 <= time.time() - storage.get("captured_at_epoch", 0) <= 300):
-        atomic(directory / "STOP_ADMISSION", b"storage health requires review\n")
-    terminal = [row for row in snapshot.get("owners", []) if row["owner_id"] == attempt["writer_id"]
-                and row["state"] in TERMINAL_SCHEDULER_STATES
-                and row.get("cluster") == attempt["cluster"]]
-    # Recovery itself validates terminal scheduler states and repairs only stopped writers.
-    if terminal:
-        reconciliation = reconcile(root, scheduler_snapshot={**snapshot, "owners": terminal},
-                                   stripe_count=stripes, apply=True)
-        if reconciliation["blocked"]:
-            return {"status": "blocked", "reconciliation": reconciliation}
+        atomic(Path(attempt["request"]["attempt_dir"]) / "STOP_ADMISSION", b"storage health requires review\n")
+
+
+def _terminal_rows(attempt: dict, snapshot: dict) -> list[dict]:
+    return [row for row in snapshot.get("owners", []) if row["owner_id"] == attempt["writer_id"]
+            and row["state"] in TERMINAL_SCHEDULER_STATES
+            and row.get("cluster") == attempt["cluster"]]
+
+
+def _checkpoint(attempt: dict, terminal: list[dict], latest: dict | None = None) -> dict:
+    """Collect one attempt's sealed checkpoint: {"result": final} or the pending upload."""
+    root = Path(attempt["dataset_root"])
+    directory = Path(attempt["request"]["attempt_dir"])
+    stripes = attempt["ledger_stripes"]
     tasks = read(directory / "tasks.json")
-    names, outcomes = checkpoint_files(root, tasks, stripes=stripes, writer_id=attempt["writer_id"])
+    names, outcomes = checkpoint_files(root, tasks, stripes=stripes, writer_id=attempt["writer_id"],
+                                       latest=latest)
     if terminal:
-        latest = StripedTaskLedger(root / "control/task-ledger", stripe_count=stripes).snapshot()["latest"]
-        unpublished = [fp for fp in tasks if latest.get(fp, {}).get("state") in {"completed", "result_saved", "terminal_failed"}
+        current = latest if latest is not None else StripedTaskLedger(
+            root / "control/task-ledger", stripe_count=stripes).snapshot()["latest"]
+        unpublished = [fp for fp in tasks if current.get(fp, {}).get("state") in {"completed", "result_saved", "terminal_failed"}
                        and fp not in outcomes]
         if unpublished:
-            return {"status": "blocked", "reason": "terminal_results_not_publishable", "fingerprints": unpublished}
+            return {"result": {"status": "blocked", "reason": "terminal_results_not_publishable",
+                               "fingerprints": unpublished}}
     metadata = {"attempt_id": attempt["attempt_id"], "cluster": attempt["cluster"],
                 "owners": attempt["owners"], "terminal": bool(terminal),
                 "request": attempt["request"], "writer_id": attempt["writer_id"],
@@ -319,18 +346,130 @@ def sync_once(exchange: Exchange, attempt: dict, snapshot: dict, storage: dict) 
     signature = digest({"names": names, "outcomes": outcomes, "metadata": metadata})
     prior_sync = directory / "sync.json"
     if prior_sync.exists() and read(prior_sync).get("signature") == signature:
-        return read(prior_sync)
-    bundle = exchange.upload(root, names, outcomes=outcomes, metadata=metadata)
+        return {"result": read(prior_sync)}
+    return {"names": names, "outcomes": outcomes, "metadata": metadata,
+            "signature": signature, "terminal": bool(terminal)}
+
+
+def _record_sync(attempt: dict, pending: dict, bundle: str) -> dict:
+    result = {"status": "released" if pending["terminal"] else "owned", "bundle": bundle,
+              "signature": pending["signature"],
+              "verified_tasks_in_checkpoint": len(pending["outcomes"])}
+    atomic(Path(attempt["request"]["attempt_dir"]) / "sync.json", canonical(result))
+    return result
+
+
+def sync_once(exchange: Exchange, attempt: dict, snapshot: dict, storage: dict) -> dict:
+    root = Path(attempt["dataset_root"])
+    stripes = attempt["ledger_stripes"]
+    _check_sync_inputs(attempt, snapshot, storage)
+    terminal = _terminal_rows(attempt, snapshot)
+    # Recovery itself validates terminal scheduler states and repairs only stopped writers.
+    if terminal:
+        reconciliation = reconcile(root, scheduler_snapshot={**snapshot, "owners": terminal},
+                                   stripe_count=stripes, apply=True)
+        if reconciliation["blocked"]:
+            return {"status": "blocked", "reconciliation": reconciliation}
+    pending = _checkpoint(attempt, terminal)
+    if "result" in pending:
+        return pending["result"]
+    bundle = exchange.upload(root, pending["names"], outcomes=pending["outcomes"], metadata=pending["metadata"])
     exchange.download(bundle, root, stripes=stripes, import_outcomes=False, verify_remote=True)
     operation_id = "checkpoint-" + digest({"bundle": bundle, "owners": attempt["owners"]})[:32]
     exchange.transact(operation_id, {"action": "checkpoint", "bundle": bundle},
                       lambda state: finish_hours(state, owners=attempt["owners"], checkpoint=bundle,
-                                                 outcomes=outcomes, terminal=bool(terminal)))
-    result = {"status": "released" if terminal else "owned", "bundle": bundle,
-              "signature": signature,
-              "verified_tasks_in_checkpoint": len(outcomes)}
-    atomic(directory / "sync.json", canonical(result))
-    return result
+                                                 outcomes=pending["outcomes"], terminal=pending["terminal"]))
+    return _record_sync(attempt, pending, bundle)
+
+
+def _applied(state: dict, attempt: dict, bundle: str) -> bool:
+    # finish_hours alone appends a checkpoint, to every owned hour at once.
+    return bool(attempt["owners"]) and all(bundle in state["hours"][key]["checkpoints"]
+                                           for key in attempt["owners"])
+
+
+def sync_wave(exchange: Exchange, attempts: list[dict], snapshot: dict, storage: dict) -> list[dict]:
+    """Publish a finished wave's checkpoints with one registry transaction.
+
+    Every attempt gets the bundle, finish_hours transition and sync.json receipt
+    that sync_once would give it, but the wave shares one scheduler snapshot,
+    one reconciliation and one ledger snapshot per dataset root, bounded upload
+    commits, and a single conflict-checked registry commit. A blocked or
+    rejected attempt keeps its ownership and does not stop the others.
+    """
+    if len({attempt["attempt_id"] for attempt in attempts}) != len(attempts):
+        raise ValueError("a wave sync requires distinct attempts")
+    for attempt in attempts:
+        _check_sync_inputs(attempt, snapshot, storage)
+    results: list[dict | None] = [None] * len(attempts)
+    pending: dict[int, dict] = {}
+    roots: dict[tuple[str, int], list[int]] = {}
+    for index, attempt in enumerate(attempts):
+        key = (str(Path(attempt["dataset_root"]).resolve()), attempt["ledger_stripes"])
+        roots.setdefault(key, []).append(index)
+    for (name, stripes), indices in roots.items():
+        root = Path(name)
+        terminal = {index: _terminal_rows(attempts[index], snapshot) for index in indices}
+        rows = [row for index in indices for row in terminal[index]]
+        if rows:
+            # One recovery pass repairs every stopped writer of the wave.
+            reconciliation = reconcile(root, scheduler_snapshot={**snapshot, "owners": rows},
+                                       stripe_count=stripes, apply=True)
+            for index in indices:
+                writer = attempts[index]["writer_id"]
+                mine = [row for row in reconciliation["blocked"] if row.get("owner_id") == writer]
+                if mine:
+                    results[index] = {"status": "blocked", "reconciliation": {
+                        **reconciliation, "blocked": mine,
+                        "actions": [row for row in reconciliation["actions"] if row.get("owner_id") == writer],
+                        "recovered_writers": {key: value for key, value in
+                                              reconciliation["recovered_writers"].items() if key == writer}}}
+        latest = StripedTaskLedger(root / "control/task-ledger", stripe_count=stripes).snapshot()["latest"]
+        for index in indices:
+            if results[index] is None:
+                prepared = _checkpoint(attempts[index], terminal[index], latest)
+                if "result" in prepared:
+                    results[index] = prepared["result"]
+                else:
+                    pending[index] = prepared
+    order = sorted(pending)
+    if order:
+        bundles, errors = exchange.upload_many(
+            [(Path(attempts[index]["dataset_root"]), pending[index]["names"],
+              pending[index]["outcomes"], pending[index]["metadata"]) for index in order],
+            isolate_errors=True)
+        _, state = exchange.snapshot()
+        todo = []
+        for position, index in enumerate(order):
+            if position in errors:
+                results[index] = {"status": "blocked", "reason": "upload_rejected", "error": errors[position]}
+            elif _applied(state, attempts[index], bundles[position]):
+                # An earlier run committed this checkpoint; only its local receipt was lost.
+                results[index] = _record_sync(attempts[index], pending[index], bundles[position])
+            else:
+                todo.append((index, bundles[position]))
+        for index, bundle in todo:
+            exchange.download(bundle, Path(attempts[index]["dataset_root"]),
+                              stripes=attempts[index]["ledger_stripes"],
+                              import_outcomes=False, verify_remote=True)
+        if todo:
+            entries = [{"attempt_id": attempts[index]["attempt_id"], "bundle": bundle,
+                        "owners": attempts[index]["owners"]} for index, bundle in todo]
+
+            def change(current):
+                for index, bundle in todo:
+                    if _applied(current, attempts[index], bundle):
+                        continue
+                    current = finish_hours(current, owners=attempts[index]["owners"], checkpoint=bundle,
+                                           outcomes=pending[index]["outcomes"],
+                                           terminal=pending[index]["terminal"])
+                return current
+
+            exchange.transact("checkpoint-wave-" + digest(entries)[:32],
+                              {"action": "checkpoint-wave", "checkpoints": entries}, change)
+            for index, bundle in todo:
+                results[index] = _record_sync(attempts[index], pending[index], bundle)
+    return results
 
 
 def parser() -> argparse.ArgumentParser:

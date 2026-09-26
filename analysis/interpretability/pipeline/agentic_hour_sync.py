@@ -11,18 +11,20 @@ import os
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
 
 from .agentic_audit_progress import audit_progress, audit_stage
 from .agentic_dataset import verify_record_reference
-from .agentic_hours import canonical, digest, empty_registry, identifier
+from .agentic_hours import canonical, digest, empty_registry, identifier, verify_plan
 from .agentic_task_ledger import StripedTaskLedger
 from .inference_claims import ClaimIdentity
 
 REGISTRY_PATH = "coordination/hours.json"
 UPLOAD_BATCH_BYTES = 64 * 1024 * 1024
 UPLOAD_BATCH_FILES = 32
+REGISTRY_CACHE_REVISIONS = 4
 
 
 def atomic(path: Path, raw: bytes) -> None:
@@ -128,11 +130,59 @@ class HubStore:
 class Exchange:
     def __init__(self, store, journal: Path):
         self.store, self.journal = store, journal
+        # A commit revision never changes content, so the registry bytes this
+        # process read or committed at a revision are exact. Nothing is persisted.
+        self._registry: dict[str, bytes | None] = {}
+        # Plan and bundle IDs are content hashes; reuse of their verification is
+        # limited to an explicit staging session (see reusing_verification).
+        self._session = False
+        self._plans: dict[str, dict] = {}
+        self._downloaded: dict[tuple, tuple[bool, dict]] = {}
+
+    @contextmanager
+    def reusing_verification(self):
+        """Verify each plan and bundle once while staging one finite wave."""
+        outer, self._session = self._session, True
+        try:
+            yield self
+        finally:
+            self._session = outer
+            if not outer:
+                self._plans.clear()
+                self._downloaded.clear()
+
+    def _remember(self, revision, raw: bytes | None) -> None:
+        if not isinstance(revision, str):
+            return
+        self._registry.pop(revision, None)
+        self._registry[revision] = raw
+        while len(self._registry) > REGISTRY_CACHE_REVISIONS:
+            self._registry.pop(next(iter(self._registry)))
 
     def snapshot(self) -> tuple[str, dict]:
+        """Registry at the current head; revisions this process read or wrote cost no download."""
         revision = self.store.head()
-        raw = self.store.read(REGISTRY_PATH, revision)
+        if revision in self._registry:
+            raw = self._registry[revision]
+        else:
+            raw = self.store.read(REGISTRY_PATH, revision)
+            self._remember(revision, raw)
         return revision, empty_registry() if raw is None else json.loads(raw)
+
+    def plan(self, plan_id: str) -> dict:
+        """Load and verify a published plan; callers must treat it as read-only."""
+        if plan_id in self._plans:
+            return self._plans[plan_id]
+        raw = self.store.read(f"coordination/plans/{plan_id}.json", self.store.head())
+        if raw is None:
+            raise ValueError("published plan is missing")
+        value = json.loads(raw)
+        if value.get("plan_id") != plan_id:
+            raise ValueError("plan identity mismatch")
+        verify_plan(value)
+        if self._session:
+            self._plans[plan_id] = value
+        return value
 
     def transact(self, operation_id: str, payload: dict,
                  change: Callable[[dict], dict], extra: dict[str, bytes] | None = None) -> dict:
@@ -154,12 +204,15 @@ class Exchange:
                 return receipt
             updated = change(state)
             receipt = {"intent": intent, "registry_sha256": digest(updated)}
-            files = {**(extra or {}), REGISTRY_PATH: canonical(updated), remote: canonical(receipt)}
+            raw = canonical(updated)
+            files = {**(extra or {}), REGISTRY_PATH: raw, remote: canonical(receipt)}
             try:
-                self.store.commit(revision, files, f"GEODML {operation_id}")
-                return receipt
+                committed = self.store.commit(revision, files, f"GEODML {operation_id}")
             except ConflictError:
                 continue
+            # The server accepted exactly these bytes on top of `revision`.
+            self._remember(committed, raw)
+            return receipt
         raise ConflictError("coordination busy; retry the same operation ID")
 
     def immutable(self, files: dict[str, bytes]) -> str:
@@ -179,65 +232,94 @@ class Exchange:
                 if not missing:
                     break
                 try:
+                    parent = revision
                     revision = self.store.commit(revision, missing, "GEODML sealed transfer")
-                    break
                 except ConflictError:
                     continue
+                # A compare-and-set commit without the registry leaves it unchanged.
+                if REGISTRY_PATH not in missing and parent in self._registry:
+                    self._remember(revision, self._registry[parent])
+                break
             else:
                 raise ConflictError("upload busy; resume without changing its files")
         return revision
 
-    @audit_stage("bundle_upload")
     def upload(self, root: Path, names: list[str], *, outcomes: dict,
                metadata: dict) -> str:
+        return self.upload_many([(root, names, outcomes, metadata)])[0][0]
+
+    @audit_stage("bundle_upload")
+    def upload_many(self, entries: list[tuple[Path, list[str], dict, dict]], *,
+                    isolate_errors: bool = False) -> tuple[list[str | None], dict[int, str]]:
+        """Publish several bundles: objects share bounded commits, manifests commit last.
+
+        With ``isolate_errors`` a rejected entry (unsafe path, credential-shaped
+        content) publishes no manifest and is reported by index; the others
+        proceed. Objects it already flushed are unreferenced content, never a bundle.
+        """
         from analysis.scripts.publish_agentic_dataset import SECRET_BYTES
-        inventory = {}
-        names = sorted(set(names))
-        audit_progress(phase="verify_and_publish_files", files_total=len(names), files_finished=0, bytes_finished=0)
-        bytes_finished = 0
-        pending = {}
-        pending_bytes = 0
+        total = sum(len(set(names)) for _, names, _, _ in entries)
+        audit_progress(phase="verify_and_publish_files", files_total=total, files_finished=0, bytes_finished=0)
+        progress = {"files": 0, "bytes": 0}
+        pending: dict[str, bytes] = {}
 
         def flush():
             if pending:
                 self.immutable(pending)
                 pending.clear()
-                audit_progress(files_finished=len(inventory), bytes_finished=bytes_finished)
+                audit_progress(files_finished=progress["files"], bytes_finished=progress["bytes"])
 
-        for name in names:
-            relative_path(name)
-            path = root / name
-            if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
-                raise ValueError("transfer path escapes the dataset")
-            raw = path.read_bytes()
-            if SECRET_BYTES.search(raw):
-                raise ValueError("credential-shaped content rejected")
-            sha = hashlib.sha256(raw).hexdigest()
-            object_name = f"exchange/objects/{sha}"
-            if pending and (len(pending) >= UPLOAD_BATCH_FILES
-                            or pending_bytes + len(raw) > UPLOAD_BATCH_BYTES):
-                flush()
-                pending_bytes = 0
-            # Bound buffered payloads; a single oversized file travels alone.
-            # Content-addressed objects already committed are reused on retry.
-            if object_name not in pending:
-                pending[object_name] = raw
-                pending_bytes += len(raw)
-            inventory[name] = {"sha256": sha, "bytes": len(raw)}
-            bytes_finished += len(raw)
-            if pending_bytes >= UPLOAD_BATCH_BYTES:
-                flush()
-                pending_bytes = 0
+        manifests: dict[int, dict] = {}
+        errors: dict[int, str] = {}
+        for index, (root, names, outcomes, metadata) in enumerate(entries):
+            added: list[str] = []
+            try:
+                inventory = {}
+                for name in sorted(set(names)):
+                    relative_path(name)
+                    path = root / name
+                    if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
+                        raise ValueError("transfer path escapes the dataset")
+                    raw = path.read_bytes()
+                    if SECRET_BYTES.search(raw):
+                        raise ValueError("credential-shaped content rejected")
+                    sha = hashlib.sha256(raw).hexdigest()
+                    object_name = f"exchange/objects/{sha}"
+                    if pending and (len(pending) >= UPLOAD_BATCH_FILES
+                                    or sum(map(len, pending.values())) + len(raw) > UPLOAD_BATCH_BYTES):
+                        flush()
+                    # Bound buffered payloads; a single oversized file travels alone.
+                    # Content-addressed objects already committed are reused on retry.
+                    if object_name not in pending:
+                        pending[object_name] = raw
+                        added.append(object_name)
+                    inventory[name] = {"sha256": sha, "bytes": len(raw)}
+                    progress["files"] += 1
+                    progress["bytes"] += len(raw)
+                    if sum(map(len, pending.values())) >= UPLOAD_BATCH_BYTES:
+                        flush()
+                manifest = {"format_version": "geodml-hour-bundle-v1", "files": inventory,
+                            "outcomes": outcomes, "metadata": metadata}
+                if SECRET_BYTES.search(canonical(manifest)):
+                    raise ValueError("credential-shaped metadata rejected")
+            except ValueError as error:
+                if not isolate_errors:
+                    raise
+                for object_name in added:
+                    pending.pop(object_name, None)
+                errors[index] = str(error)
+                continue
+            manifests[index] = manifest
         flush()
-        manifest = {"format_version": "geodml-hour-bundle-v1", "files": inventory,
-                    "outcomes": outcomes, "metadata": metadata}
-        if SECRET_BYTES.search(canonical(manifest)):
-            raise ValueError("credential-shaped metadata rejected")
-        bundle_id = "bundle-" + digest(manifest)
+        bundles: list[str | None] = [None] * len(entries)
+        for index, manifest in manifests.items():
+            bundles[index] = "bundle-" + digest(manifest)
         # Data first, marker last: no reader can mistake a partial upload for a bundle.
         audit_progress(phase="publish_manifest")
-        self.immutable({f"exchange/bundles/{bundle_id}.json": canonical(manifest)})
-        return bundle_id
+        if manifests:
+            self.immutable({f"exchange/bundles/{bundles[index]}.json": canonical(manifest)
+                            for index, manifest in manifests.items()})
+        return bundles, errors
 
     def manifest(self, bundle_id: str, revision: str | None = None) -> dict:
         identifier(bundle_id)
@@ -252,10 +334,16 @@ class Exchange:
     def download(self, bundle_id: str, root: Path, *, stripes: int = 256,
                  import_outcomes: bool = True, verify_remote: bool = False,
                  revision: str | None = None) -> dict:
+        root = root.resolve()
+        key = (bundle_id, str(root), stripes)
+        prior = self._downloaded.get(key)
+        # Inside a staging session a bundle verified (and imported) into this root
+        # needs no second pass; forced remote checks always rerun.
+        if prior and not verify_remote and (prior[0] or not import_outcomes):
+            return prior[1]
         revision = revision or self.store.head()
         value = self.manifest(bundle_id, revision)
         from .agentic_verification_cache import VerificationCache
-        root = root.resolve()
         with VerificationCache(root, force=verify_remote) as verification:
             for name, expected in value["files"].items():
                 relative_path(name)
@@ -285,6 +373,8 @@ class Exchange:
                     raise ValueError("terminal failure lacks its durable producer event")
         if import_outcomes:
             import_events(root, value["outcomes"], stripes=stripes)
+        if self._session:
+            self._downloaded[key] = (import_outcomes or bool(prior and prior[0]), value)
         return value
 
 
@@ -309,9 +399,13 @@ def import_events(root: Path, outcomes: dict, *, stripes: int) -> None:
 
 
 def checkpoint_files(root: Path, tasks: dict, *, stripes: int = 256,
-                     writer_id: str | None = None) -> tuple[list[str], dict]:
-    """Only completed transactions whose entire reference set is sealed."""
-    latest = StripedTaskLedger(root / "control/task-ledger", stripe_count=stripes).snapshot()["latest"]
+                     writer_id: str | None = None, latest: dict | None = None) -> tuple[list[str], dict]:
+    """Only completed transactions whose entire reference set is sealed.
+
+    ``latest`` lets a wave sync share one ledger snapshot across its attempts.
+    """
+    if latest is None:
+        latest = StripedTaskLedger(root / "control/task-ledger", stripe_count=stripes).snapshot()["latest"]
     names, outcomes = set(), {}
     for fp, task in tasks.items():
         event = latest.get(fp, {})
