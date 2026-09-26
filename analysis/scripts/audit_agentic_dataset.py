@@ -16,6 +16,10 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from analysis.interpretability.pipeline.agentic_audit_progress import (
+    audit_progress,
+    audit_stage,
+)
 from analysis.interpretability.pipeline.agentic_dataset import verify_record_reference
 from analysis.interpretability.pipeline.agentic_task_ledger import (
     StripedTaskLedger,
@@ -153,6 +157,7 @@ def _throughput(root: Path, model: str) -> dict[str, Any]:
     }
 
 
+@audit_stage("dataset_audit")
 def build_audit(
     root: Path,
     *,
@@ -166,6 +171,7 @@ def build_audit(
     if contract.get("format_version") != "geodml-incremental-dataset-v1":
         raise ValueError("unsupported incremental dataset contract")
     memberships, ranks = _memberships(root)
+    audit_progress(phase="task_definitions", prompts=len(memberships), tasks_checked=0)
     all_tasks: list[dict[str, Any]] = []
     fingerprints: set[str] = set()
     for row in _sealed_rows(root, "task_definitions"):
@@ -193,16 +199,21 @@ def build_audit(
             "primary_keyword_id": memberships[prompt_id]["primary_keyword_id"],
         }
         all_tasks.append(prepared)
+        audit_progress(tasks_checked=len(all_tasks))
     tasks = [task for task in all_tasks if task.get("model") == model]
     if not tasks:
         raise ValueError(f"no task definitions found for model: {model}")
+    audit_progress(phase="ledger", tasks_checked=len(all_tasks))
     ledger = StripedTaskLedger(root / "control" / "task-ledger", stripe_count=stripe_count)
     snapshot = ledger.snapshot()
     latest = snapshot["latest"]
+    audit_progress(phase="verify_completed", ledger_events=snapshot["event_count"],
+                   verified=0, verified_completed=0)
     completed_fingerprints = set()
-    for task in all_tasks:
+    for index, task in enumerate(all_tasks, 1):
         fingerprint = task["fingerprint"]
         event = latest.get(fingerprint, {})
+        audit_progress(verified=index)
         if event.get("state") != "completed":
             continue
         references = event.get("record_references", [])
@@ -212,6 +223,8 @@ def build_audit(
             for reference in references
         ):
             completed_fingerprints.add(fingerprint)
+        audit_progress(verified_completed=len(completed_fingerprints))
+    audit_progress(phase="classify", grouped=0, completed=len(completed_fingerprints))
     groups: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
     for keyword_id, rank in ranks.items():
@@ -224,7 +237,7 @@ def build_audit(
             "eligible_remaining": 0,
             "task_ids": [],
         }
-    for task in tasks:
+    for index, task in enumerate(tasks, 1):
         group = groups[task["primary_keyword_id"]]
         group["task_ids"].append(task["fingerprint"])
         event = latest.get(task["fingerprint"])
@@ -257,6 +270,8 @@ def build_audit(
             group["blocked"] += 1
         else:
             group["eligible_remaining"] += 1
+        audit_progress(grouped=index)
+    audit_progress(phase="report", tasks_grouped=len(tasks))
     throughput = _throughput(root, model)
     seconds_per_task = throughput["aggregate"]["median_seconds_per_task"]
     keyword_rows: list[dict[str, Any]] = []
@@ -290,6 +305,7 @@ def build_audit(
                 "PENDING", "CONFIGURING", "RUNNING", "COMPLETING", "STAGE_OUT"
             }
         ]
+    audit_progress(phase="done", keywords=len(keyword_rows), failures=len(failures))
     identity = {
         "contract_sha256": hashlib.sha256((root / "contract.json").read_bytes()).hexdigest(),
         "model": model,
