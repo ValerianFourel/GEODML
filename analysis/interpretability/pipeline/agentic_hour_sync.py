@@ -21,6 +21,11 @@ from .agentic_hours import canonical, digest, empty_registry, identifier, verify
 from .agentic_task_ledger import StripedTaskLedger
 from .inference_claims import ClaimIdentity
 
+# The Hub's 10-second default read timeout failed a round-6 dispatch mid-verification.
+# Set before huggingface_hub is imported (it is imported lazily below).
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
+
 REGISTRY_PATH = "coordination/hours.json"
 UPLOAD_BATCH_BYTES = 64 * 1024 * 1024
 UPLOAD_BATCH_FILES = 32
@@ -101,6 +106,34 @@ def commit_with_cooldown(operation):
         return operation()
 
 
+NETWORK_RETRIES = 5
+
+
+def transient_network_error(error: Exception) -> bool:
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status in {408, 429, 500, 502, 503, 504}:
+        return True
+    if isinstance(error, (ConnectionError, TimeoutError)):
+        return True
+    # huggingface_hub uses httpx or requests; match their transport errors by name.
+    return any(cls.__name__ in {"TransportError", "TimeoutException", "ConnectError", "ConnectionError",
+                                "ReadTimeout", "ReadError", "RemoteProtocolError", "ChunkedEncodingError"}
+               for cls in type(error).__mro__)
+
+
+def with_network_retries(operation, *, attempts: int = NETWORK_RETRIES, sleep=time.sleep):
+    """Retry an idempotent read after a timeout or dropped connection."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return operation()
+        except Exception as error:
+            if attempt == attempts or not transient_network_error(error):
+                raise
+            delay = min(60, 5 * 2 ** (attempt - 1))
+            print(f"HF_READ_RETRY {attempt}/{attempts - 1} after {type(error).__name__}; waiting {delay}s", flush=True)
+            sleep(delay)
+
+
 class HubStore:
     """Small adapter; tests exercise the same protocol with isolated stores."""
 
@@ -116,13 +149,20 @@ class HubStore:
         return self.api.repo_info(self.repo_id, repo_type="dataset").sha
 
     def read(self, name: str, revision: str) -> bytes | None:
-        from huggingface_hub import hf_hub_download
+        import huggingface_hub
         from huggingface_hub.errors import EntryNotFoundError
-        try:
-            path = hf_hub_download(self.repo_id, name, repo_type="dataset", revision=revision)
-        except EntryNotFoundError:
-            return None
-        return Path(path).read_bytes()
+
+        def fetch():
+            try:
+                return Path(huggingface_hub.hf_hub_download(
+                    self.repo_id, name, repo_type="dataset", revision=revision)).read_bytes()
+            except EntryNotFoundError:
+                return None
+        return with_network_retries(fetch)
+
+    def exists(self, name: str, revision: str) -> bool:
+        return with_network_retries(lambda: self.api.file_exists(
+            self.repo_id, name, repo_type="dataset", revision=revision))
 
     def commit(self, revision: str, files: dict[str, bytes], message: str) -> str:
         from huggingface_hub import CommitOperationAdd
@@ -238,6 +278,14 @@ class Exchange:
                 revision = self.store.head()
                 missing = {}
                 for name, raw in batch.items():
+                    # A content-addressed object is identical to any existing copy at its
+                    # path; check presence instead of downloading it again. The later
+                    # verification download still checks every byte.
+                    if (name.startswith("exchange/objects-v2/") and hasattr(self.store, "exists")
+                            and name.rsplit("/", 1)[-1] == hashlib.sha256(raw).hexdigest()):
+                        if not self.store.exists(name, revision):
+                            missing[name] = raw
+                        continue
                     old = self.store.read(name, revision)
                     if old is None:
                         missing[name] = raw

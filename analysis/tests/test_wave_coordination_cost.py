@@ -321,3 +321,46 @@ def test_objects_fan_out_below_the_hub_directory_limit_and_old_bundles_still_dow
                             {object_path(e["sha256"]) for e in files.values()}}, **moved})
     exchange.download(bundle, tmp_path / "mirror", stripes=4, import_outcomes=False)
     assert sorted(p.name for p in (tmp_path / "mirror/reports").iterdir()) == sorted(Path(n).name for n in names)
+
+
+def test_reads_retry_timeouts_but_not_real_errors():
+    from analysis.interpretability.pipeline.agentic_hour_sync import with_network_retries
+
+    class ReadTimeout(Exception):
+        pass
+
+    calls, waits = [], []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise ReadTimeout("The read operation timed out")
+        return b"ok"
+
+    assert with_network_retries(flaky, sleep=waits.append) == b"ok" and waits == [5, 10]
+    with pytest.raises(ValueError):
+        with_network_retries(lambda: (_ for _ in ()).throw(ValueError("bad")), sleep=waits.append)
+    calls.clear()
+    with pytest.raises(ReadTimeout):
+        with_network_retries(lambda: (calls.append(1), (_ for _ in ()).throw(ReadTimeout()))[1], attempts=2,
+                             sleep=lambda _: None)
+    assert len(calls) == 2
+
+
+def test_reupload_checks_presence_instead_of_downloading_objects(tmp_path):
+    class PresenceHub(CountingHub):
+        def exists(self, name, revision):
+            self.reads["exists:" + name] += 1
+            return name in self.versions[int(revision)]
+
+    root = tmp_path / "source"
+    names = reports(root, 4, "p")
+    hub = PresenceHub()
+    exchange = Exchange(hub, tmp_path / "journal")
+    bundle = exchange.upload(root, names, outcomes={}, metadata={})
+    before = len(hub.versions)
+    hub.reads.clear()
+    assert exchange.upload(root, names, outcomes={}, metadata={}) == bundle
+    assert len(hub.versions) == before
+    assert not [name for name in hub.reads if name.startswith("exchange/objects-v2/")]
+    assert sum(1 for name in hub.reads if name.startswith("exists:")) == 4
