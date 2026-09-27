@@ -364,3 +364,38 @@ def test_reupload_checks_presence_instead_of_downloading_objects(tmp_path):
     assert len(hub.versions) == before
     assert not [name for name in hub.reads if name.startswith("exchange/objects-v2/")]
     assert sum(1 for name in hub.reads if name.startswith("exists:")) == 4
+
+
+class HashHub(CountingHub):
+    """Reports Hub-style hashes: git blob ids for even sizes, LFS SHA-256 for odd sizes."""
+
+    def hashes(self, names, revision):
+        import hashlib
+        result = {}
+        for name in names:
+            raw = self.versions[int(revision)].get(name)
+            if raw is None:
+                continue
+            if len(raw) % 2:
+                result[name] = {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "blob_id": None}
+            else:
+                result[name] = {"size": len(raw), "sha256": None,
+                                "blob_id": hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()}
+        return result
+
+
+def test_remote_verification_uses_hub_hashes_instead_of_downloads(tmp_path):
+    from analysis.interpretability.pipeline.agentic_hour_sync import object_path
+    root = tmp_path / "source"
+    names = reports(root, 6, "h")
+    hub = HashHub()
+    exchange = Exchange(hub, tmp_path / "journal")
+    bundle = exchange.upload(root, names, outcomes={}, metadata={})
+    hub.reads.clear()
+    exchange.download(bundle, root, stripes=4, import_outcomes=False, verify_remote=True)
+    assert not [name for name in hub.reads if name.startswith("exchange/objects")]
+    # A corrupted Hub copy fails verification even though the local file is intact.
+    sha = exchange.manifest(bundle)["files"][names[0]]["sha256"]
+    hub.commit(hub.head(), {object_path(sha): b"tampered"}, "corrupt fixture")
+    with pytest.raises(ValueError, match="corrupt"):
+        exchange.download(bundle, root, stripes=4, import_outcomes=False, verify_remote=True)

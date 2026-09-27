@@ -160,6 +160,19 @@ class HubStore:
                 return None
         return with_network_retries(fetch)
 
+    def hashes(self, names: list[str], revision: str) -> dict[str, dict]:
+        """Server-side content hashes: git blob id for plain files, SHA-256 for LFS."""
+        result = {}
+        for offset in range(0, len(names), 100):
+            chunk = names[offset:offset + 100]
+            infos = with_network_retries(lambda chunk=chunk: self.api.get_paths_info(
+                self.repo_id, chunk, repo_type="dataset", revision=revision))
+            for info in infos:
+                lfs = getattr(info, "lfs", None)
+                result[info.path] = {"size": getattr(info, "size", None), "blob_id": getattr(info, "blob_id", None),
+                                     "sha256": getattr(lfs, "sha256", None) if lfs else None}
+        return result
+
     def exists(self, name: str, revision: str) -> bool:
         return with_network_retries(lambda: self.api.file_exists(
             self.repo_id, name, repo_type="dataset", revision=revision))
@@ -385,6 +398,17 @@ class Exchange:
                             for index, manifest in manifests.items()})
         return bundles, errors
 
+    def remote_hashes(self, shas: list[str], revision: str) -> dict[str, dict]:
+        """Hub hash records by object SHA-256, from the fanned-out or the legacy path."""
+        wanted = sorted(set(shas))
+        found = self.store.hashes([object_path(sha) for sha in wanted], revision)
+        result = {sha: found[object_path(sha)] for sha in wanted if object_path(sha) in found}
+        missing = [sha for sha in wanted if sha not in result]
+        if missing:
+            legacy = self.store.hashes([legacy_object_path(sha) for sha in missing], revision)
+            result.update({sha: legacy[legacy_object_path(sha)] for sha in missing if legacy_object_path(sha) in legacy})
+        return result
+
     def read_object(self, sha: str, revision: str) -> bytes | None:
         raw = self.store.read(object_path(sha), revision)
         return self.store.read(legacy_object_path(sha), revision) if raw is None else raw
@@ -412,6 +436,10 @@ class Exchange:
         revision = revision or self.store.head()
         value = self.manifest(bundle_id, revision)
         from .agentic_verification_cache import VerificationCache
+        # Where the store reports content hashes, a forced check compares them with
+        # freshly re-hashed local files instead of downloading every object again.
+        remote = (self.remote_hashes([entry["sha256"] for entry in value["files"].values()], revision)
+                  if verify_remote and hasattr(self.store, "hashes") else None)
         with VerificationCache(root, force=verify_remote) as verification:
             for name, expected in value["files"].items():
                 relative_path(name)
@@ -420,6 +448,12 @@ class Exchange:
                     raise ValueError("download path escapes dataset")
                 if target.exists() and not verify_remote:
                     if not verification.file(target, expected):
+                        raise ValueError(f"missing, corrupt, or conflicting artifact: {name}")
+                    continue
+                if remote is not None and target.exists():
+                    if not verification.file(target, expected):
+                        raise ValueError(f"conflicting local artifact: {name}")
+                    if not remote_matches(remote.get(expected["sha256"]), expected, target):
                         raise ValueError(f"missing, corrupt, or conflicting artifact: {name}")
                     continue
                 raw = self.read_object(expected["sha256"], revision)
@@ -444,6 +478,18 @@ class Exchange:
         if self._session:
             self._downloaded[key] = (import_outcomes or bool(prior and prior[0]), value)
         return value
+
+
+def remote_matches(record: dict | None, expected: dict, local: Path) -> bool:
+    """True when the Hub's own hash of an object equals the verified local content."""
+    if not record or record.get("size") != expected["bytes"]:
+        return False
+    if record.get("sha256"):
+        return record["sha256"] == expected["sha256"]
+    if record.get("blob_id"):
+        raw = local.read_bytes()
+        return hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest() == record["blob_id"]
+    return False
 
 
 def import_events(root: Path, outcomes: dict, *, stripes: int) -> None:
