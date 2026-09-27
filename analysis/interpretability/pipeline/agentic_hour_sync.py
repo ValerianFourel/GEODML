@@ -141,12 +141,12 @@ class HubStore:
         from huggingface_hub import HfApi
         self.repo_id = repo_id
         self.api = HfApi()  # HF_TOKEN or the host's saved login; never persisted.
-        info = self.api.repo_info(repo_id, repo_type="dataset")
+        info = with_network_retries(lambda: self.api.repo_info(repo_id, repo_type="dataset"))
         if info.private is not True:
             raise ValueError("shared-hour repository must already exist and be private")
 
     def head(self) -> str:
-        return self.api.repo_info(self.repo_id, repo_type="dataset").sha
+        return with_network_retries(lambda: self.api.repo_info(self.repo_id, repo_type="dataset").sha)
 
     def read(self, name: str, revision: str) -> bytes | None:
         import huggingface_hub
@@ -168,12 +168,14 @@ class HubStore:
         from huggingface_hub import CommitOperationAdd
         from huggingface_hub.errors import HfHubHTTPError
         try:
-            result = commit_with_cooldown(lambda: self.api.create_commit(
+            # Safe to retry: parent_commit makes a duplicate of an accepted commit fail
+            # as a conflict, which callers resolve by re-reading, never by applying twice.
+            result = with_network_retries(lambda: commit_with_cooldown(lambda: self.api.create_commit(
                 repo_id=self.repo_id, repo_type="dataset", revision="main",
                 parent_commit=revision, commit_message=message,
                 operations=[CommitOperationAdd(path_in_repo=name, path_or_fileobj=raw)
                             for name, raw in files.items()],
-            ))
+            )))
         except HfHubHTTPError as error:
             if getattr(error.response, "status_code", None) in {409, 412}:
                 raise ConflictError("repository advanced") from error
