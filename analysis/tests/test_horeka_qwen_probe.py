@@ -56,7 +56,7 @@ def test_compute_boundary_failure_precedes_config_read_and_model_loading(tmp_pat
         probe.execute(tmp_path / 'does-not-exist.json')
 
 
-def test_submit_once_records_one_hour_budget_and_refuses_repeat(tmp_path, monkeypatch):
+def _prepare_fixture(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
     from analysis.interpretability.pipeline import agentic_hour_runtime, agentic_hours
@@ -95,6 +95,11 @@ def test_submit_once_records_one_hour_budget_and_refuses_repeat(tmp_path, monkey
     args = SimpleNamespace(workspace=workspace, dataset=root, plan=plan, output=tmp_path / 'attempt',
                            account='project', partition='accelerated', reservation=None,
                            since='2026-09-01', approval='User approved one hour', approved_walltime='01:00:00')
+    return args, submissions
+
+
+def test_submit_once_records_one_hour_budget_and_refuses_repeat(tmp_path, monkeypatch):
+    args, submissions = _prepare_fixture(tmp_path, monkeypatch)
     probe.prepare(args)
     assert len(submissions) == 1
     command = submissions[0]
@@ -103,3 +108,28 @@ def test_submit_once_records_one_hour_budget_and_refuses_repeat(tmp_path, monkey
     with pytest.raises(ValueError, match='already exists'):
         probe.prepare(args)
     assert len(submissions) == 1
+
+
+def test_no_submit_prepares_interactive_request_without_sbatch(tmp_path, monkeypatch):
+    args, submissions = _prepare_fixture(tmp_path, monkeypatch)
+    args.partition, args.no_submit = 'dev_accelerated', True
+    probe.prepare(args)
+    assert submissions == []
+    assert not (args.output / 'SUBMISSION_ATTEMPTED').exists()
+    assert (args.output / 'config.json').is_file() and (args.output / 'cells.jsonl').is_file()
+    batch = probe.read(args.output / 'submission-command.json')
+    interactive = probe.read(args.output / 'interactive.json')
+    salloc = interactive['salloc']
+    assert salloc[0] == 'salloc'
+    # Identical resource request: only batch-only options and the script arguments differ.
+    assert salloc[1:] == [f for f in batch[1:-4] if not f.startswith(
+        ('--parsable', '--no-requeue', '--chdir=', '--output=', '--error='))]
+    for flag in ('--nodes=1', '--ntasks=1', '--gres=gpu:4', '--exclusive', '--cpus-per-task=32', '--mem=0',
+                 '--time=01:00:00', '--account=project', '--partition=dev_accelerated',
+                 '--job-name=geodml-qwen-horeka-compat'):
+        assert flag in salloc
+    assert interactive['execute'][2:] == ['execute', '--config', str(args.output / 'config.json')]
+    assert interactive['execute'][:2] == batch[-3:-1]
+    with pytest.raises(ValueError, match='already exists'):
+        probe.prepare(args)
+    assert submissions == []

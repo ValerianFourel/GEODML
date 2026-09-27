@@ -144,6 +144,23 @@ the actual Slurm end time, with admission/cleanup margins. Slurm output, driver
 inventory, profile, execution metadata and compatibility result remain in the
 attempt directory. No GPU compatibility has been established until that run passes.
 
+### Interactive compatibility run
+
+`submit --no-submit` performs the same checks and writes the same attempt
+directory, but never calls `sbatch` and writes no submission marker. It adds
+`interactive.json`: the `salloc` request (the batch request without batch-only
+options) and the unchanged `execute` command. Run it on the login node before
+allocating, so admission sees no fresh allocation; hold pending GEODML jobs first,
+because admission refuses unheld pending jobs. The approved allocation must keep
+the recorded job name and exactly `01:00:00`, which `execute` checks.
+
+Inside the allocation, confirm with `hostname` that the shell runs on the compute
+node; otherwise open one with `srun --jobid <job> --overlap --pty bash`. Use
+`--overlap` for monitoring shells too. `execute` can be repeated on the same
+attempt within the allocation: completed cells are reloaded, not repeated. A later
+batch canary uses `submit` without `--no-submit` and a new output directory, so
+interactive and batch runs share one entry point and configuration.
+
 
 ### Reusing verified inputs
 

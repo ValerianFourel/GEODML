@@ -215,6 +215,15 @@ def prepare(args):
         command.append('--reservation=' + args.reservation)
     command += [str(out / 'run.sh'), str(runtime), str(Path(__file__).resolve()), str(out / 'config.json')]
     atomic(out / 'submission-command.json', canonical(command))
+    if getattr(args, 'no_submit', False):
+        # The same allocation request and entry point, run by hand inside salloc.
+        batch_only = ('--parsable', '--no-requeue', '--chdir=', '--output=', '--error=')
+        interactive = {'salloc': ['salloc', *(f for f in command[1:-4] if not f.startswith(batch_only))],
+                       'execute': [str(runtime), str(Path(__file__).resolve()), 'execute', '--config', str(out / 'config.json')]}
+        atomic(out / 'interactive.json', canonical(interactive))
+        print(json.dumps({'attempt': str(out), 'cell_count': len(cells), 'walltime': '01:00:00',
+                          'maximum_gpu_hours': 4, 'purpose': 'compatibility_only', **interactive}, indent=2))
+        return
     # A durable marker survives an ambiguous sbatch response. Never automatically retry.
     with (out / 'SUBMISSION_ATTEMPTED').open('x') as stream:
         stream.write(str(time.time()))
@@ -241,6 +250,8 @@ def main():
     submit.add_argument('--approved-walltime', required=True, choices=['01:00:00'])
     submit.add_argument('--approval', required=True)
     submit.add_argument('--full-audit', action='store_true', help='Ignore local verification receipts and recheck all bytes')
+    submit.add_argument('--no-submit', action='store_true',
+                        help='Prepare the attempt and write interactive.json (salloc request, execute command); never call sbatch')
     args = parser.parse_args()
     return execute(args.config) if args.command == 'execute' else prepare(args)
 
