@@ -18,6 +18,7 @@ from analysis.interpretability.pipeline.agentic_hour_sync import (
     ConflictError,
     Exchange,
     checkpoint_files,
+    object_path,
 )
 from analysis.interpretability.pipeline.agentic_hours import (
     build_plan,
@@ -223,7 +224,7 @@ def test_transfer_rejects_corruption_and_conflicting_mirror(tmp_path):
         second.download(bundle, destination, stripes=4)
     manifest = first.manifest(bundle)
     sha = manifest["files"]["contract.json"]["sha256"]
-    first.store.commit(first.store.head(), {f"exchange/objects/{sha}": b"corrupt"}, "corrupt fixture")
+    first.store.commit(first.store.head(), {object_path(sha): b"corrupt"}, "corrupt fixture")
     with pytest.raises(ValueError, match="corrupt"):
         second.download(bundle, tmp_path / "another", stripes=4)
 

@@ -13,6 +13,7 @@ from analysis.interpretability.pipeline.agentic_hour_sync import (
     Exchange,
     HubStore,
     atomic,
+    object_path,
     relative_path,
 )
 from analysis.interpretability.pipeline.agentic_hours import digest
@@ -30,7 +31,7 @@ def repair(exchange, bundle, root, *, publish=False):
         raise ValueError('expected one frozen input descriptor')
     name = descriptors[0]
     entry = outer['files'][name]
-    raw = exchange.store.read('exchange/objects/' + entry['sha256'], revision)
+    raw = exchange.read_object(entry['sha256'], revision)
     if raw is None or len(raw) != entry['bytes'] or hashlib.sha256(raw).hexdigest() != entry['sha256']:
         raise ValueError('invalid frozen descriptor object')
     descriptor = json.loads(raw)
@@ -42,13 +43,13 @@ def repair(exchange, bundle, root, *, publish=False):
         path = root / name
         if path.is_symlink() or not path.resolve().is_relative_to(root):
             raise ValueError('repair path escapes dataset')
-        raw = path.read_bytes() if publish or path.exists() else exchange.store.read('exchange/objects/' + expected['sha256'], revision)
+        raw = path.read_bytes() if publish or path.exists() else exchange.read_object(expected['sha256'], revision)
         if raw is None or len(raw) != expected['bytes'] or hashlib.sha256(raw).hexdigest() != expected['sha256']:
             raise ValueError(f'missing or conflicting repair object: {name}; publish from JUPITER first')
         if SECRET_BYTES.search(raw):
             raise ValueError('credential-shaped repair rejected')
         if publish:
-            exchange.immutable({'exchange/objects/' + expected['sha256']: raw})
+            exchange.immutable({object_path(expected['sha256']): raw})
         elif not path.exists():
             atomic(path, raw)
     return {'status': 'repair_objects_published' if publish else 'local_files_repaired',

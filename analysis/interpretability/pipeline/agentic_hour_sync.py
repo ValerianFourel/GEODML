@@ -27,6 +27,20 @@ UPLOAD_BATCH_FILES = 32
 REGISTRY_CACHE_REVISIONS = 4
 
 
+def object_path(sha: str) -> str:
+    """Hub path of a content-addressed object, fanned out by hash prefix.
+
+    The Hub rejects directories holding more than 10,000 files, and the
+    original flat exchange/objects/<sha> directory is full. New objects use a
+    separate tree with 256 prefix directories; reads fall back to the old one.
+    """
+    return f"exchange/objects-v2/{sha[:2]}/{sha}"
+
+
+def legacy_object_path(sha: str) -> str:
+    return f"exchange/objects/{sha}"
+
+
 def atomic(path: Path, raw: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
@@ -284,7 +298,7 @@ class Exchange:
                     if SECRET_BYTES.search(raw):
                         raise ValueError("credential-shaped content rejected")
                     sha = hashlib.sha256(raw).hexdigest()
-                    object_name = f"exchange/objects/{sha}"
+                    object_name = object_path(sha)
                     if pending and (len(pending) >= UPLOAD_BATCH_FILES
                                     or sum(map(len, pending.values())) + len(raw) > UPLOAD_BATCH_BYTES):
                         flush()
@@ -321,6 +335,10 @@ class Exchange:
                             for index, manifest in manifests.items()})
         return bundles, errors
 
+    def read_object(self, sha: str, revision: str) -> bytes | None:
+        raw = self.store.read(object_path(sha), revision)
+        return self.store.read(legacy_object_path(sha), revision) if raw is None else raw
+
     def manifest(self, bundle_id: str, revision: str | None = None) -> dict:
         identifier(bundle_id)
         raw = self.store.read(f"exchange/bundles/{bundle_id}.json", revision or self.store.head())
@@ -354,7 +372,7 @@ class Exchange:
                     if not verification.file(target, expected):
                         raise ValueError(f"missing, corrupt, or conflicting artifact: {name}")
                     continue
-                raw = self.store.read(f"exchange/objects/{expected['sha256']}", revision)
+                raw = self.read_object(expected["sha256"], revision)
                 if raw is None or len(raw) != expected["bytes"] or hashlib.sha256(raw).hexdigest() != expected["sha256"]:
                     raise ValueError(f"missing, corrupt, or conflicting artifact: {name}")
                 if not target.exists():

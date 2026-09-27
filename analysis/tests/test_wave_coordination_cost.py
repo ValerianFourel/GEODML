@@ -302,3 +302,22 @@ def test_sync_llama_cli_needs_no_allocation_approval(tmp_path, monkeypatch):
                                       "--output", str(tmp_path / "out")])
     with pytest.raises(ValueError, match="approval required"):
         wave.main()
+
+
+def test_objects_fan_out_below_the_hub_directory_limit_and_old_bundles_still_download(tmp_path):
+    from analysis.interpretability.pipeline.agentic_hour_sync import legacy_object_path, object_path
+    root = tmp_path / "source"
+    names = reports(root, 3, "v")
+    hub = MemoryHub()
+    exchange = Exchange(hub, tmp_path / "journal")
+    bundle = exchange.upload(root, names, outcomes={}, metadata={})
+    objects = [name for name in hub.versions[-1] if name.startswith("exchange/objects")]
+    assert objects and all(name.startswith("exchange/objects-v2/") and name.count("/") == 3 for name in objects)
+    # A bundle published before the fan-out stored its objects flat; it must still download.
+    files = exchange.manifest(bundle)["files"]
+    moved = {legacy_object_path(entry["sha256"]): hub.versions[-1][object_path(entry["sha256"])]
+             for entry in files.values()}
+    hub.versions.append({**{k: v for k, v in hub.versions[-1].items() if k not in
+                            {object_path(e["sha256"]) for e in files.values()}}, **moved})
+    exchange.download(bundle, tmp_path / "mirror", stripes=4, import_outcomes=False)
+    assert sorted(p.name for p in (tmp_path / "mirror/reports").iterdir()) == sorted(Path(n).name for n in names)
