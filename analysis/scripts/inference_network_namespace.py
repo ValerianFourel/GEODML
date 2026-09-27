@@ -194,7 +194,8 @@ def _verify_multinode_step(executable: str, job_id: str, fields: dict, checks=No
     return host
 
 
-def _verify_exclusive_slurm_boundary(checks=None, *, allow_jupiter_full_node=True) -> dict:
+def _verify_exclusive_slurm_boundary(checks=None, *, allow_jupiter_full_node=True,
+                                     full_node_shape=None) -> dict:
     if sys.platform != "linux":
         raise EndpointSecurityError("exclusive Slurm node verification requires Linux")
     job_nodes = os.environ.get("SLURM_JOB_NUM_NODES", "")
@@ -233,10 +234,19 @@ def _verify_exclusive_slurm_boundary(checks=None, *, allow_jupiter_full_node=Tru
         and allocated_tres.get("node") == "1"
         and allocated_tres.get("cpu") == cpus_on_node
     )
+    # A cluster that reports exclusive nodes like JUPITER, but only with an
+    # explicitly configured shape: every CPU and every GPU of the node.
+    shaped_full_node_allocation = (
+        full_node_shape is not None
+        and jupiter_full_node_allocation
+        and int(cpus_on_node) == full_node_shape["cpus"]
+        and allocated_tres.get("gres/gpu") == str(full_node_shape["gpus"])
+    )
     whole_node_exclusive = (
         exclusive_disposition == "NODE"
         or (exclusive_disposition is None and fields.get("Shared") == "0")
         or (allow_jupiter_full_node and jupiter_full_node_allocation)
+        or shaped_full_node_allocation
     )
     for name, expected, observed in (
         ("job_id", job_id, fields.get("JobId")),

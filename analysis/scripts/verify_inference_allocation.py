@@ -34,8 +34,13 @@ def verify(cluster: str, boundary: str | None = None, *, profile: dict | None = 
     # This selection deliberately overrides inherited terminal/site settings.
     os.environ["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] = "1"
     os.environ.pop(MARKER, None)
+    shape = profile.get("full_node_representation") if cluster == "horeka" else None
+    if shape is not None and not (
+            isinstance(shape, dict) and all(type(shape.get(key)) is int and shape[key] > 0 for key in ("cpus", "gpus"))):
+        raise EndpointSecurityError("full-node representation needs positive integer cpus and gpus")
     receipt = _verify_exclusive_slurm_boundary(
         allow_jupiter_full_node=cluster == "jupiter" and profile.get("allow_jupiter_full_node_representation", True),
+        full_node_shape=shape,
     )
     try:
         hosts = subprocess.check_output(

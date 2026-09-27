@@ -138,3 +138,54 @@ def test_namespace_backend_requires_explicit_selection_and_command(monkeypatch, 
     assert boundary.main(["--cluster", "jupiter", "--boundary", "private-network-namespace", "--exec", "worker"]) == 0
     assert calls == [["worker"], ("worker", ["worker"])]
     assert os.environ["GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY"] == "0"
+
+
+HOREKA_RECORD = ('JobId=42 JobState=RUNNING NodeList=hkn0803 NumNodes=1 NumCPUs=152 OverSubscribe=NO '
+                 'AllocTRES=cpu=152,mem=497500M,node=1,billing=152,gres/gpu=4')
+
+
+def horeka_node(monkeypatch, record, cpus='152'):
+    monkeypatch.setattr(os, 'environ', dict(os.environ))
+    monkeypatch.delenv(network.MARKER, raising=False)
+    for key in ['SLURM_ARRAY_JOB_ID', 'SLURM_ARRAY_TASK_ID', 'SLURM_CPUS_ON_NODE']:
+        monkeypatch.delenv(key, raising=False)
+    for key, value in {'SLURM_JOB_ID': '42', 'SLURM_JOB_NUM_NODES': '1', 'SLURM_STEP_NUM_NODES': '1',
+                       'SLURM_JOB_NODELIST': 'hkn0803', 'SLURM_JOB_CPUS_PER_NODE': cpus}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(network.sys, 'platform', 'linux')
+    monkeypatch.setattr(network.shutil, 'which', lambda name: '/usr/bin/scontrol')
+    monkeypatch.setattr(network.subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=0, stdout=record, stderr=''))
+    monkeypatch.setattr(boundary.subprocess, 'check_output', lambda *a, **kw: 'hkn0803\n')
+    monkeypatch.setattr(boundary.socket, 'gethostname', lambda: 'hkn0803.localdomain')
+    monkeypatch.setattr(network, '_enter_private_namespace', lambda *a: pytest.fail('unshare invoked'))
+
+
+def test_horeka_whole_a100_node_verifies_with_its_configured_shape(monkeypatch):
+    # The record Slurm gave job 5162814, which the JUPITER-only rule rejected.
+    horeka_node(monkeypatch, HOREKA_RECORD)
+    receipt = boundary.verify('horeka')
+    assert receipt['exclusive_disposition'] == 'NODE'
+    shape = boundary.cluster_profile('horeka')['full_node_representation']
+    assert (shape['cpus'], shape['gpus']) == (152, 4)
+
+
+@pytest.mark.parametrize('record,cpus', [
+    (HOREKA_RECORD.replace('gres/gpu=4', 'gres/gpu=3'), '152'),            # not every GPU
+    (HOREKA_RECORD.replace('cpu=152,', 'cpu=76,').replace('NumCPUs=152', 'NumCPUs=76'), '76'),  # half a node
+    (HOREKA_RECORD.replace('OverSubscribe=NO', 'OverSubscribe=YES'), '152'),  # shareable
+    (HOREKA_RECORD + ' Shared=1', '152'),
+    (HOREKA_RECORD.replace(',gres/gpu=4', ''), '152'),                     # GPUs not recorded
+])
+def test_horeka_partial_or_shareable_allocations_fail_closed(monkeypatch, record, cpus):
+    horeka_node(monkeypatch, record, cpus)
+    with pytest.raises(EndpointSecurityError, match='whole_node_exclusivity'):
+        boundary.verify('horeka')
+
+
+def test_horeka_needs_the_explicit_shape_and_jupiter_rule_stays_jupiter_only(monkeypatch):
+    horeka_node(monkeypatch, HOREKA_RECORD)
+    profile = {k: v for k, v in boundary.cluster_profile('horeka').items() if k != 'full_node_representation'}
+    with pytest.raises(EndpointSecurityError, match='whole_node_exclusivity'):
+        boundary.verify('horeka', profile=profile)
+    with pytest.raises(EndpointSecurityError, match='positive integer'):
+        boundary.verify('horeka', profile={**profile, 'full_node_representation': {'cpus': '152', 'gpus': 4}})

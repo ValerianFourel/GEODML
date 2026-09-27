@@ -1,5 +1,10 @@
 {
   "cluster": "horeka",
   "execution_boundary": "exclusive-slurm-node",
-  "allow_jupiter_full_node_representation": false
+  "allow_jupiter_full_node_representation": false,
+  "full_node_representation": {
+    "cpus": 152,
+    "gpus": 4,
+    "evidence": "Job 5162814 (exclusive, accelerated, hkn0803): scontrol reported no Exclusive/Shared field, OverSubscribe=NO, NumCPUs=152, AllocTRES cpu=152,mem=497500M,node=1,billing=152,gres/gpu=4; SLURM_JOB_CPUS_PER_NODE=152. HoreKa accelerated nodes have 152 hardware threads and 4 A100 GPUs."
+  }
 }
