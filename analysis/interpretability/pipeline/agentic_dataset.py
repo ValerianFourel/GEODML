@@ -481,21 +481,45 @@ def verify_record_reference(root: Path, reference: Mapping[str, Any], *, verific
     if verification is not None:
         return verification.reference(reference, manifest_path, shard,
                                       lambda: verify_record_reference(root, reference))
+    index = _sealed_shard_index(root, manifest_path, shard)
+    if index is None or line_number > len(index):
+        return False
+    return index[line_number - 1] == (record_id, reference.get("transaction_id"))
+
+
+# Verified sealed shards, keyed by both files' identity and change metadata, so a
+# rewritten file is verified again. One verification per shard per process instead
+# of one full read and hash per record reference.
+_SHARD_INDEX: dict[tuple, list | None] = {}
+_SHARD_INDEX_LIMIT = 8192
+
+
+def _sealed_shard_index(root: Path, manifest_path: Path, shard: Path) -> list | None:
+    signature = tuple(
+        (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        for value in (manifest_path.stat(), shard.stat())
+    )
+    key = (str(shard), signature)
+    if key in _SHARD_INDEX:
+        return _SHARD_INDEX[key]
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     raw = shard.read_bytes()
+    index = None
     if (
-        manifest.get("path") != str(shard.relative_to(root))
-        or manifest.get("sha256") != hashlib.sha256(raw).hexdigest()
+        manifest.get("path") == str(shard.relative_to(root))
+        and manifest.get("sha256") == hashlib.sha256(raw).hexdigest()
     ):
-        return False
-    lines = raw.splitlines()
-    if len(lines) != manifest.get("rows") or line_number > len(lines):
-        return False
-    envelope = json.loads(lines[line_number - 1])
-    return (
-        envelope.get("record_id") == record_id
-        and envelope.get("transaction_id") == reference.get("transaction_id")
-    )
+        lines = raw.splitlines()
+        if len(lines) == manifest.get("rows"):
+            try:
+                index = [(envelope.get("record_id"), envelope.get("transaction_id"))
+                         for envelope in map(json.loads, lines)]
+            except (ValueError, AttributeError):
+                index = None
+    if len(_SHARD_INDEX) >= _SHARD_INDEX_LIMIT:
+        _SHARD_INDEX.clear()
+    _SHARD_INDEX[key] = index
+    return index
 
 
 def iter_sealed_rows(

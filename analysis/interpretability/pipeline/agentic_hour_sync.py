@@ -495,11 +495,14 @@ def remote_matches(record: dict | None, expected: dict, local: Path) -> bool:
 def import_events(root: Path, outcomes: dict, *, stripes: int) -> None:
     from .agentic_task_ledger import identity_fingerprint
     ledger = StripedTaskLedger(root / "control/task-ledger", stripe_count=stripes)
+    # One ledger read for the whole bundle, not one stripe read per cell. Cells that
+    # still need importing go through claim(), which re-checks under the stripe lock.
+    latest = ledger.snapshot()["latest"] if outcomes else {}
     for fp, event in outcomes.items():
         identity = ClaimIdentity(**event["identity"])
         if fp != identity_fingerprint(identity):
             raise ValueError("imported task fingerprint mismatch")
-        prior = ledger.inspect(identity)
+        prior = latest.get(fp)
         if prior and prior["state"] in {"completed", "terminal_failed"}:
             if prior["state"] != event["state"] or prior["record_references"] != event["record_references"]:
                 raise ValueError("conflicting terminal result; reconciliation required")

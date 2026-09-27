@@ -399,3 +399,23 @@ def test_remote_verification_uses_hub_hashes_instead_of_downloads(tmp_path):
     hub.commit(hub.head(), {object_path(sha): b"tampered"}, "corrupt fixture")
     with pytest.raises(ValueError, match="corrupt"):
         exchange.download(bundle, root, stripes=4, import_outcomes=False, verify_remote=True)
+
+
+def test_each_sealed_shard_is_read_once_and_rechecked_after_a_change(tmp_path, monkeypatch):
+    from analysis.interpretability.pipeline import agentic_dataset
+    from analysis.interpretability.pipeline.agentic_dataset import FinalDatasetWriter, initialize_dataset
+    root = tmp_path / "ds"
+    initialize_dataset(root, population_id="p", acceptance_policy_id="a")
+    writer = FinalDatasetWriter(root, writer_id="w")
+    refs = [writer.append("generations", {"answer": f"a{i}"}, transaction_id=f"t{i}") for i in range(50)]
+    writer.seal()
+    reads = []
+    real = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda self: (reads.append(self.name), real(self))[1])
+    agentic_dataset._SHARD_INDEX.clear()
+    assert all(agentic_dataset.verify_record_reference(root, dict(ref)) for ref in refs)
+    assert len([name for name in reads if name.endswith(".jsonl")]) == 1
+    shard = next((root / "data/generations").glob("*.jsonl"))
+    shard.chmod(0o644)
+    shard.write_bytes(shard.read_bytes().replace(b"a1", b"b1", 1))
+    assert not agentic_dataset.verify_record_reference(root, dict(refs[0]))
