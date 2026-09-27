@@ -905,23 +905,25 @@ def test_sweep_groups_reserve_every_package_in_balanced_contiguous_groups():
         wave.groups(few, 4, budget=None)
 
 
-def test_admission_supports_the_one_hour_wave(tmp_path, monkeypatch):
+@pytest.mark.parametrize('walltime,hours', [('01:00:00', 1), ('07:00:00', 7)])
+def test_admission_supports_the_one_and_seven_hour_waves(tmp_path, monkeypatch, walltime, hours):
     state, attempts, snapshot, storage = fixture()
     options = args(tmp_path)
-    options.walltime = '01:00:00'
+    options.walltime = walltime
     monkeypatch.setattr(wave.time, 'time', lambda: 1001)
     for a in attempts:
-        a['request']['approval'] = wave.approval(options, 'one-hour estimate')
+        a['request']['approval'] = wave.approval(options, 'sweep estimate')
     result = wave.admit(state, attempts, snapshot, storage, options)
-    assert result['admission']['jupiter']['finite_wave']['maximum_gpu_hours'] == 20
+    assert result['admission']['jupiter']['finite_wave']['maximum_gpu_hours'] == 20 * hours
     attempts[0]['request']['approval'] = wave.approval(args(tmp_path), 'three-hour estimate')
-    with pytest.raises(ValueError, match='1-hour'):
+    with pytest.raises(ValueError, match=f'{hours}-hour'):
         wave.admit(state, attempts, snapshot, storage, options)
 
 
-def test_llama_one_hour_sweep_reserves_everything(tmp_path, monkeypatch):
+@pytest.mark.parametrize('walltime', ['01:00:00', '07:00:00'])
+def test_llama_sweep_reserves_everything(tmp_path, monkeypatch, walltime):
     options = args(tmp_path)
-    options.walltime = '01:00:00'
+    options.walltime = walltime
     options.sweep = True
     options.members = 6
     options.fingerprints_per_hour = 1600

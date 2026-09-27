@@ -424,8 +424,8 @@ def sync_llama(args, pin, exchange):
 
 def llama(args, pin, exchange):
     walltime = getattr(args, 'walltime', '03:00:00')
-    if walltime not in ('01:00:00', '03:00:00', '05:00:00', '08:00:00'):
-        raise ValueError('Llama shared-hour waves support only the approved one-, three-, five- and eight-hour wall-times')
+    if walltime not in ('01:00:00', '03:00:00', '05:00:00', '07:00:00', '08:00:00'):
+        raise ValueError('Llama shared-hour waves support only the approved one-, three-, five-, seven- and eight-hour wall-times')
     hours = int(walltime[:2])
     members = getattr(args, 'members', 5)
     hold = getattr(args, 'hold_queue', False)
@@ -771,10 +771,10 @@ def main():
     for key in ('existing-qwen-job', 'repo-id'):
         p.add_argument('--' + key)
     p.add_argument('--maximum-concurrent', type=int, choices=[5, 10, 20, 30, 40, 50], default=5)
-    p.add_argument('--walltime', choices=['01:00:00', '03:00:00', '04:00:00', '05:00:00', '08:00:00'],
+    p.add_argument('--walltime', choices=['01:00:00', '03:00:00', '04:00:00', '05:00:00', '07:00:00', '08:00:00'],
                    default='03:00:00',
                    help='approved per-member wall-time; 04:00:00 only for qwen continuation rounds, '
-                        '01:00:00, 05:00:00 and 08:00:00 only for llama rounds')
+                        '01:00:00, 05:00:00, 07:00:00 and 08:00:00 only for llama rounds')
     p.add_argument('--fingerprints-per-hour', type=int, default=3000,
                    help='llama reservation budget per wall-hour per member; 3000 preserves the '
                         'historical three-hour waves, measured llama4 rates are 1100-1560 cells/node-hour')
