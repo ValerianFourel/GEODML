@@ -18,6 +18,14 @@ and shuffled document conditions.
 - Preserve deterministic seeds, stable identifiers, source hashes, and model revisions.
 - Preserve the historical neutral and biased prompt pipelines.
 
+## Session start and end
+
+- At the start of every session, read the last three handoffs in the index of
+  `analysis/docs/handoff/README.md` (newest last) before planning or acting,
+  and recheck their cluster facts; they are pasted evidence, not live state.
+- At the end of every session, write a new dated handoff in that folder
+  (`YYYY-MM-DD_<topic>_handoff.md`) and append it to the index.
+
 ## Working rules
 
 - Inspect relevant code before editing.
