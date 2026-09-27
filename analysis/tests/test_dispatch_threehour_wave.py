@@ -883,3 +883,75 @@ def test_llama_five_hour_wave_passes_the_guard_with_its_budget(tmp_path, monkeyp
     with pytest.raises(RuntimeError, match='probe'):
         wave.llama(options, 'a' * 40, exchange)
     assert captured['budget'] == 8000
+
+
+def test_sweep_groups_reserve_every_package_in_balanced_contiguous_groups():
+    sizes = [300, 310, 290, 305, 120, 330, 300, 295, 310, 60, 300, 305, 290, 300, 280, 310, 300, 305]
+    state = {'hours': {}}
+    for i, size in enumerate(sizes):
+        state['hours'][f'p{i:02d}'] = {'model': 'llama4', 'owner': None, 'status': 'partial',
+            'task_fingerprints': [f'{i}-{n}' for n in range(size + 2)], 'completed': [f'{i}-0'],
+            'failed': [f'{i}-1'], 'priority_rank': i}
+    state['hours']['owned'] = {**state['hours']['p00'], 'owner': {'attempt_id': 'live'}, 'priority_rank': -1}
+    result = wave.groups(state, 6, budget=None)
+    assert len(result) == 6 and all(result)
+    assert [key for group in result for key in group] == [f'p{i:02d}' for i in range(len(sizes))]
+    cells = [sum(sizes[int(key[1:])] for key in group) for group in result]
+    assert max(cells) - min(cells) <= 2 * max(sizes)
+    # Exactly as many packages as members: one each, nothing left over.
+    few = {'hours': {k: v for k, v in state['hours'].items() if k in {'p00', 'p01', 'p02'}}}
+    assert wave.groups(few, 3, budget=None) == [['p00'], ['p01'], ['p02']]
+    with pytest.raises(ValueError, match='Fewer than 4 eligible'):
+        wave.groups(few, 4, budget=None)
+
+
+def test_admission_supports_the_one_hour_wave(tmp_path, monkeypatch):
+    state, attempts, snapshot, storage = fixture()
+    options = args(tmp_path)
+    options.walltime = '01:00:00'
+    monkeypatch.setattr(wave.time, 'time', lambda: 1001)
+    for a in attempts:
+        a['request']['approval'] = wave.approval(options, 'one-hour estimate')
+    result = wave.admit(state, attempts, snapshot, storage, options)
+    assert result['admission']['jupiter']['finite_wave']['maximum_gpu_hours'] == 20
+    attempts[0]['request']['approval'] = wave.approval(args(tmp_path), 'three-hour estimate')
+    with pytest.raises(ValueError, match='1-hour'):
+        wave.admit(state, attempts, snapshot, storage, options)
+
+
+def test_llama_one_hour_sweep_reserves_everything(tmp_path, monkeypatch):
+    options = args(tmp_path)
+    options.walltime = '01:00:00'
+    options.sweep = True
+    options.members = 6
+    options.fingerprints_per_hour = 1600
+    options.account = 'scifi'
+    options.partition = 'booster'
+    monkeypatch.setattr(wave.time, 'time', lambda: 1001)
+    monkeypatch.setattr(wave.first, 'current_scheduler', lambda *a: {
+        'complete': True, 'captured_at_epoch': int(wave.time.time()), 'jobs': []})
+    monkeypatch.setattr(wave, 'health', lambda *a: {})
+    a1 = tmp_path / 'old1' / 'attempt.json'
+    wave.save(a1, {'attempt_id': 'old-1', 'writer_id': 'w1', 'model': 'llama4',
+                   'owners': {'h1': {}}, 'cluster_profile': {'cluster': 'jupiter'}})
+    wave.save(tmp_path / 'old1' / 'sync.json', {'status': 'released', 'bundle': 'b1'})
+    s1 = tmp_path / 'site1.json'
+    wave.save(s1, {'dataset_root': str(tmp_path), 'attempts': [str(a1)]})
+    options.llama_site = [s1]
+    rt = tmp_path / 'runtime.json'
+    wave.save(rt, {'GEODML_CACHE_ROOT': str(tmp_path / 'cache'),
+                   'SEARCH_AGENTIC_PROFILE': str(tmp_path / 'profile.json')})
+    options.llama_runtime = rt
+    monkeypatch.setattr(wave, 'setup', lambda a, r: tmp_path / 'env.sh')
+    state = {'hours': {'h1': {'checkpoints': ['b1'], 'owner': None}}}
+    exchange = SimpleNamespace(snapshot=lambda: ('rev', state))
+    captured = {}
+
+    def probe(ready, count, budget=0):
+        captured.update(count=count, budget=budget)
+        raise RuntimeError('probe')
+
+    monkeypatch.setattr(wave, 'groups', probe)
+    with pytest.raises(RuntimeError, match='probe'):
+        wave.llama(options, 'a' * 40, exchange)
+    assert captured == {'count': 6, 'budget': None}

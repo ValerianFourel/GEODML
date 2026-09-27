@@ -264,12 +264,31 @@ def qwen(args, pin, exchange):
 
 
 def groups(state, count=5, budget=9000):
+    """Contiguous keyword-priority groups of eligible Llama packages.
+
+    With ``budget=None`` (a sweep) every eligible package is reserved and the
+    cut points fall at equal shares of the remaining cells.
+    """
+    left = lambda row: len(set(row['task_fingerprints']) - set(row['completed']) - set(row['failed']))
     rows = [(key, row) for key, row in state['hours'].items()
             if row['model'] == 'llama4' and not row['owner'] and row['status'] in {'available', 'partial'}
-            and set(row['task_fingerprints']) - set(row['completed']) - set(row['failed'])]
+            and left(row)]
     rows.sort(key=lambda item: (item[1]['priority_rank'], item[0]))
     if len(rows) < count:
         raise ValueError(f'Fewer than {count} eligible Llama packages; JUPITER must replan released work first')
+    if budget is None:
+        total = sum(left(row) for _, row in rows)
+        result, cursor, done = [], 0, 0
+        for number in range(1, count + 1):
+            selected = []
+            # Every later group keeps at least one package; the last takes the rest.
+            while cursor < len(rows) - (count - number) and (not selected or done < total * number / count):
+                key, row = rows[cursor]
+                selected.append(key)
+                done += left(row)
+                cursor += 1
+            result.append(selected)
+        return result
     # Reserve about twice the observed upper throughput for the approved
     # wall-time (3000 fingerprints per node-hour). Keep each group contiguous
     # in keyword priority; remaining packages stay available.
@@ -279,7 +298,7 @@ def groups(state, count=5, budget=9000):
         while cursor < len(rows) and size < budget:
             key, row = rows[cursor]
             selected.append(key)
-            size += len(set(row['task_fingerprints']) - set(row['completed']) - set(row['failed']))
+            size += left(row)
             cursor += 1
         if not selected:
             raise ValueError(f'Insufficient eligible Llama work for {count} allocations')
@@ -405,8 +424,8 @@ def sync_llama(args, pin, exchange):
 
 def llama(args, pin, exchange):
     walltime = getattr(args, 'walltime', '03:00:00')
-    if walltime not in ('03:00:00', '05:00:00', '08:00:00'):
-        raise ValueError('Llama shared-hour waves support only the approved three-, five- and eight-hour wall-times')
+    if walltime not in ('01:00:00', '03:00:00', '05:00:00', '08:00:00'):
+        raise ValueError('Llama shared-hour waves support only the approved one-, three-, five- and eight-hour wall-times')
     hours = int(walltime[:2])
     members = getattr(args, 'members', 5)
     hold = getattr(args, 'hold_queue', False)
@@ -433,15 +452,18 @@ def llama(args, pin, exchange):
     serving = {k: v for k, v in runtime.items() if k in FILE_KEYS | SETTING_KEYS
                and k != 'GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY'}
     attempts = []
-    budget = getattr(args, 'fingerprints_per_hour', 3000) * hours
+    sweep = getattr(args, 'sweep', False)
+    budget = None if sweep else getattr(args, 'fingerprints_per_hour', 3000) * hours
+    reservation = (f'Sweep: every eligible package, split into {members} contiguous groups of about equal cells'
+                   if sweep else f'Reservation budget {budget} fingerprints per member '
+                                 '(approved fingerprints-per-hour x wall-hours)')
     estimate = (f'Approved wave of {members} {hours}-hour JUPITER Llama members. Each allocation runs '
                 f'{hours} consecutive one-hour bouts, consuming its owned frozen packages in keyword-'
                 'priority order with per-cell checkpoints, so every hour boundary is a valid stop point. '
                 'Previous 55-minute Llama runs committed 1042-1395 cells each (~1100-1400 cells per '
                 f'node-hour, with round-two members reaching 1560); rough {hours}-hour range '
                 f'{1100 * hours}-{1560 * hours} cells per member, '
-                f'workload-dependent. Reservation budget {budget} fingerprints per member '
-                f'(approved fingerprints-per-hour x wall-hours). {hours} hours approved, actual allocation deadline with '
+                f'workload-dependent. {reservation}. {hours} hours approved, actual allocation deadline with '
                 f'drain margin, {4 * hours} GPU-hours each; maximum {4 * hours * members} GPU-hours. '
                 'Frozen remaining packages only: released unfinished work, never completed cells.')
     duration = 'threehour' if hours == 3 else f'{hours}hour'
@@ -749,12 +771,16 @@ def main():
     for key in ('existing-qwen-job', 'repo-id'):
         p.add_argument('--' + key)
     p.add_argument('--maximum-concurrent', type=int, choices=[5, 10, 20, 30, 40, 50], default=5)
-    p.add_argument('--walltime', choices=['03:00:00', '04:00:00', '05:00:00', '08:00:00'], default='03:00:00',
+    p.add_argument('--walltime', choices=['01:00:00', '03:00:00', '04:00:00', '05:00:00', '08:00:00'],
+                   default='03:00:00',
                    help='approved per-member wall-time; 04:00:00 only for qwen continuation rounds, '
-                        '05:00:00 and 08:00:00 only for llama rounds')
+                        '01:00:00, 05:00:00 and 08:00:00 only for llama rounds')
     p.add_argument('--fingerprints-per-hour', type=int, default=3000,
                    help='llama reservation budget per wall-hour per member; 3000 preserves the '
                         'historical three-hour waves, measured llama4 rates are 1100-1560 cells/node-hour')
+    p.add_argument('--sweep', action='store_true',
+                   help='llama: reserve every eligible package, split evenly across the members '
+                        '(replaces --fingerprints-per-hour)')
     p.add_argument('--round', type=int, default=1,
                    help='explicitly approved wave round; round >= 2 requires a fresh output directory')
     p.add_argument('--members', type=int, default=5,
