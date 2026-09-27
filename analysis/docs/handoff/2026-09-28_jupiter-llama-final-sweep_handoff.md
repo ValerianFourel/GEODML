@@ -26,7 +26,7 @@ shared-hour reservation and scheduler owners): 107 passed on the Mac.
 `/Users/valerianfourel/Hamburg/GEODML_Unified/jupiter-llama-sweep.html` replaces
 the four older JUPITER pages (`llama-next-runs.html`, `llama-status-next.html`,
 `qwen-publish.html`, `qwen-results-to-hf.html`; deleted at Valerian's request).
-Steps: 0 setup (`audits/llama-prep/sweep-env.sh`, pin `11587e0`), 1 is round 6
+Steps: 0 setup (`audits/llama-prep/sweep-env.sh`, pin `71ace0c`), 1 is round 6
 over, 2 publish every finished wave (writes `llama-sites.txt`, `next-round.txt`;
 a round whose dispatch never submitted keeps its number), 3 audit with the
 dispatcher's own sweep split, 4 the sweep, 5 finite watch loop (5 min, ≤100
