@@ -134,6 +134,9 @@ def summarize(records: list[dict], cells: list[dict]) -> dict:
             "requests": len(rows), "ok": sum(bool(row.get("ok")) for row in rows),
             "failure_categories": dict(collections.Counter(
                 c for row in rows for c in row.get("failure_categories", []))),
+            "final_failures": dict(collections.Counter(
+                row.get("failure_category") for row in rows if not row.get("ok"))),
+            "first_error": next((row["error"] for row in rows if row.get("error")), None),
             "finish_reasons": dict(collections.Counter(row.get("usage", {}).get("finish_reason") for row in rows)),
             "completion_tokens_median": statistics.median(tokens) if tokens else None,
             "completion_tokens_max": max(tokens) if tokens else None,

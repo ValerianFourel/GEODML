@@ -297,3 +297,23 @@ def test_v3_outputs_are_not_accepted_as_v1_judgments_and_vice_versa():
     with pytest.raises(JudgeOutputSchemaError):
         validate_attribution(v1, claim_ids=["C001"], evidence_ids=["E1"])
     assert CLAIMS_PROTOCOL not in judging.SUPPORTED_FORMAT_VERSIONS
+
+
+def test_v3_schemas_avoid_keywords_the_vllm_grammar_rejects():
+    # vLLM/xgrammar answers HTTP 400 to uniqueItems/prefixItems; validators enforce uniqueness instead.
+    def keys(value):
+        if isinstance(value, dict):
+            yield from value
+            for child in value.values():
+                yield from keys(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from keys(child)
+
+    schemas = [judging.claim_extraction_schema(["S001"]), judging.fulfilment_schema(),
+               judging.attribution_schema(["C001"], ["E1", "E2"]), judging.attribution_schema(["C001"], []),
+               judging.relevance_schema(["E1", "E2"]), judging.relevance_schema([])]
+    for schema in schemas:
+        assert not {"uniqueItems", "prefixItems"} & set(keys(schema))
+    with pytest.raises(judging.JudgeOutputError, match="duplicate"):
+        judging.validate_relevance({"ideal_relevance_ranking": ["E1", "E1"]}, evidence_ids=["E1", "E2"])

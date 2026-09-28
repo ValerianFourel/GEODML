@@ -1302,8 +1302,9 @@ _SUPPORT_FIELDS = ("full_support_evidence_ids", "partial_support_evidence_ids", 
 
 
 def attribution_schema(claim_ids: Sequence[str], evidence_ids: Sequence[str]) -> dict[str, Any]:
+    # vLLM/xgrammar rejects uniqueItems (HTTP 400); validate_attribution enforces uniqueness.
     ids = ({"type": "array", "items": {"type": "string", "enum": list(evidence_ids)},
-            "maxItems": len(evidence_ids), "uniqueItems": True}
+            "maxItems": len(evidence_ids)}
            if evidence_ids else {"type": "array", "maxItems": 0})
     return {
         "type": "object", "additionalProperties": False, "required": ["claims"],
@@ -1364,10 +1365,11 @@ def validate_attribution(
 # J3 ideal relevance (request + evidence with URLs, no answer) ----------------------------
 
 def relevance_schema(evidence_ids: Sequence[str]) -> dict[str, Any]:
+    # vLLM/xgrammar rejects uniqueItems (HTTP 400); validate_relevance enforces uniqueness.
     items = {"type": "string", "enum": list(evidence_ids)} if evidence_ids else {"type": "string"}
     return {"type": "object", "additionalProperties": False, "required": ["ideal_relevance_ranking"],
             "properties": {"ideal_relevance_ranking": {
-                "type": "array", "items": items, "uniqueItems": True,
+                "type": "array", "items": items,
                 "minItems": len(evidence_ids), "maxItems": len(evidence_ids)}}}
 
 
