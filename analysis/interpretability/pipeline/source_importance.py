@@ -274,6 +274,7 @@ def prepare_source_task(
         "base": {"judge_task_id": task_id, "protocol": PROTOCOL, "task": "source_importance",
                  "task_version": TASK_VERSION, "fake_backend": False, "units": units,
                  "mask_spans": mask_spans, "source_url": source.get("url"),
+                 "request": request, "source_title": title, "source_text": text,
                  "answer_names_source_url": bool(host) and any(
                      span["kind"] == "source_link" and source_host(span["original"]) == host
                      for span in mask_spans)},
@@ -289,6 +290,69 @@ def prepare_source_task(
         "maximum_validation_attempts": 2,
         "validation_feedback_contract": RETRY_CONTRACT,
     }
+
+
+# Storable task records -----------------------------------------------------------------------
+
+def task_record(item: Mapping[str, Any]) -> dict[str, Any]:
+    """Serializable form of a prepared item: the judge-visible inputs plus hashes.
+
+    Prompt and schema are rebuilt from these inputs at run time and must reproduce
+    the recorded hashes, so a stored task can never drift from what was frozen.
+    """
+
+    base = item["base"]
+    common = {"judge_task_id": base["judge_task_id"], "task": base["task"],
+              "task_version": base["task_version"], "protocol": base["protocol"],
+              "max_tokens": item["max_tokens"], "prompt_sha256": item["prompt_sha256"],
+              "schema_sha256": item["schema_sha256"], "seed": item["seed"]}
+    if base["task"] == "source_importance":
+        return {**common, "request": base["request"], "units": base["units"],
+                "source_title": base["source_title"], "source_text": base["source_text"]}
+    if base["task"] == "fulfilment":
+        return {**common, "request": base["request"], "answer": base["answer"]}
+    raise ValueError(f"unsupported task: {base['task']}")
+
+
+def prepare_fulfilment_task(*, request: str, answer: str, max_tokens: int = 64) -> dict[str, Any]:
+    """Secondary J1: the unchanged claims-v3 fulfilment prompt (request and answer only)."""
+
+    from .agentic_judging import prepare_fulfilment
+
+    prepared = prepare_fulfilment(prompt_text=request, answer=answer, max_tokens=max_tokens)
+    # Same prompt and identity as claims-v3 J1; stored under the SI protocol namespace.
+    prepared["base"].update(protocol=PROTOCOL, request=request, answer=answer)
+    return prepared
+
+
+def item_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebuild a runnable item (with validator) and prove it matches the frozen record."""
+
+    if record.get("task") == "source_importance":
+        units = [dict(unit) for unit in record["units"]]
+        title, text = record["source_title"], record["source_text"]
+        schema = source_importance_schema([unit["unit_id"] for unit in units])
+        prompt = render_source_prompt(request=record["request"], units=units, title=title, text=text)
+        item = {
+            "base": {"judge_task_id": record["judge_task_id"], "protocol": PROTOCOL,
+                     "task": "source_importance", "task_version": TASK_VERSION, "fake_backend": False},
+            "prompt": prompt, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+            "schema_name": TASK_VERSION.replace("-", "_"), "schema": schema, "schema_sha256": _digest(schema),
+            "validator": lambda raw: validate_source_importance(raw, units=units, title=title, text=text),
+            "temperature": 0.0, "max_tokens": record["max_tokens"], "seed": record["seed"],
+            "maximum_validation_attempts": 2, "validation_feedback_contract": RETRY_CONTRACT,
+        }
+    elif record.get("task") == "fulfilment":
+        item = prepare_fulfilment_task(request=record["request"], answer=record["answer"],
+                                       max_tokens=record["max_tokens"])
+    else:
+        raise ValueError(f"unsupported task record: {record.get('task')!r}")
+    for key in ("prompt_sha256", "schema_sha256", "seed"):
+        if item[key] != record[key]:
+            raise ValueError(f"stored task {record['judge_task_id']} no longer reproduces its {key}")
+    if item["base"]["judge_task_id"] != record["judge_task_id"]:
+        raise ValueError("stored task identity does not reproduce")
+    return item
 
 
 # Code-derived rankings and alignment metrics -----------------------------------------------
