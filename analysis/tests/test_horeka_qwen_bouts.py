@@ -205,3 +205,43 @@ def test_divide_writes_every_remaining_cell_once_and_refuses_overwrite(tmp_path,
     assert len((tmp_path / 'division/bouts/bout-0001/cells.jsonl').read_text().splitlines()) == 36
     with pytest.raises(ValueError, match='already exists'):
         bouts.divide(args)
+
+
+def test_submit_frees_only_bouts_whose_sbatch_was_refused(tmp_path, monkeypatch):
+    args, submissions, _, division = _submit_fixture(tmp_path, monkeypatch, count=4)
+    args.dry_run = False
+    def limited(command, **kw):
+        submissions.append(command)
+        if len(submissions) == 3:
+            return SimpleNamespace(returncode=1, stdout='', stderr='sbatch: error: AssocGrpSubmitJobsLimit')
+        return SimpleNamespace(returncode=0, stdout=f'{1000 + len(submissions)}\n', stderr='')
+    monkeypatch.setattr(bouts.subprocess, 'run', limited)
+    with pytest.raises(RuntimeError, match='bout 3: sbatch failed'):
+        bouts.submit(args)
+    first = json.loads((division / 'submissions/submitted-0001-0004.json').read_text())
+    assert [(r['bout'], r['returncode']) for r in first] == [(1, 0), (2, 0), (3, 1)]
+    third = division / 'bouts/bout-0003'
+    assert bouts.refused_submission(third) and not bouts.refused_submission(division / 'bouts/bout-0002')
+    args.first, args.count = 2, 3
+    with pytest.raises(ValueError, match='already submitted'):
+        bouts.submit(args)                      # bout 2 has a real job
+    args.first, args.count = 3, 2
+    bouts.submit(args)                          # bout 3 was refused: sent again, bout 4 for the first time
+    assert len(submissions) == 5
+    assert (third / 'SUBMISSION_ATTEMPTED').exists()
+    assert json.loads((third / 'submission.json').read_text())['stdout'].strip() == '1004'
+    assert len(list(third.glob('submission-refused-*.json'))) == 1 and len(list(third.glob('SUBMISSION_REFUSED-*'))) == 1
+    second = json.loads((division / 'submissions/submitted-0003-0004.json').read_text())
+    assert [r['job_id'] for r in second] == ['1004', '1005']
+    assert json.loads((division / 'submissions/submitted-0001-0004.json').read_text()) == first
+    with pytest.raises(ValueError, match='already submitted'):
+        bouts.submit(args)
+
+
+def test_submit_without_reservation_targets_the_whole_partition(tmp_path, monkeypatch):
+    args, _, reservations, division = _submit_fixture(tmp_path, monkeypatch)
+    args.reservation = None
+    bouts.submit(args)
+    command = json.loads((division / 'bouts/bout-0001/submission-command.json').read_text())
+    assert '--partition=accelerated' in command and not any(c.startswith('--reservation') for c in command)
+    assert reservations[0]['reservation'] is None

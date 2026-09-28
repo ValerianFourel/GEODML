@@ -151,6 +151,15 @@ def bout_config(division, bout_dir, *, repo, pin, workspace, runtime, checked, s
                             'PYTHONPATH': str(repo), 'PYTHONDONTWRITEBYTECODE': '1'}}
 
 
+def refused_submission(directory):
+    """True only when the saved sbatch receipt proves Slurm created no job for this bout."""
+    receipt = directory / 'submission.json'
+    if not (directory / 'SUBMISSION_ATTEMPTED').exists() or not receipt.is_file():
+        return False
+    saved = read(receipt)
+    return saved.get('returncode') not in (0, None) and not str(saved.get('stdout', '')).strip()
+
+
 def submit(args):
     from analysis.interpretability.pipeline.agentic_hour_runtime import validate_reservation
     from analysis.scripts.manage_agentic_hours import health
@@ -172,7 +181,8 @@ def submit(args):
     missing = [str(d) for d in dirs if not (d / 'bout.json').is_file()]
     if missing:
         raise ValueError(f'bouts not in division: {missing[:3]}')
-    done = [d.name for d in dirs if (d / 'SUBMISSION_ATTEMPTED').exists()]
+    refused = [d for d in dirs if refused_submission(d)]
+    done = [d.name for d in dirs if (d / 'SUBMISSION_ATTEMPTED').exists() and d not in refused]
     if done:
         raise ValueError(f'already submitted; inspect their receipts instead of resubmitting: {done[:5]}')
     root = Path(division['dataset_root'])
@@ -222,8 +232,17 @@ def submit(args):
         atomic(directory / 'submission-command.json', canonical(command))
         planned.append((number, directory, command))
     if args.dry_run:
-        print(json.dumps({'dry_run': True, 'bouts': numbers, 'first_command': planned[0][2]}, indent=2))
+        print(json.dumps({'dry_run': True, 'bouts': numbers, 'first_command': planned[0][2],
+                          'previously_refused': [d.name for d in refused]}, indent=2))
         return
+    stamp = int(time.time())
+    for directory in refused:
+        # Slurm rejected this sbatch outright (no job exists); keep its evidence, free the bout.
+        (directory / 'submission.json').rename(directory / f'submission-refused-{stamp}.json')
+        (directory / 'SUBMISSION_ATTEMPTED').rename(directory / f'SUBMISSION_REFUSED-{stamp}')
+    receipt_path = receipts / f'submitted-{numbers[0]:04d}-{numbers[-1]:04d}.json'
+    if receipt_path.exists():
+        receipt_path = receipt_path.with_name(f'{receipt_path.stem}-{stamp}.json')
     results = []
     for number, directory, command in planned:
         # A durable marker survives an ambiguous sbatch response. Never automatically retry.
@@ -234,9 +253,9 @@ def submit(args):
         atomic(directory / 'submission.json', canonical(receipt))
         results.append({'bout': number, 'job_id': result.stdout.strip(), 'returncode': result.returncode})
         if result.returncode:
-            atomic(receipts / f'submitted-{numbers[0]:04d}-{numbers[-1]:04d}.json', canonical(results))
+            atomic(receipt_path, canonical(results))
             raise RuntimeError(f'bout {number}: sbatch failed; later bouts were not submitted: {result.stderr}')
-    atomic(receipts / f'submitted-{numbers[0]:04d}-{numbers[-1]:04d}.json', canonical(results))
+    atomic(receipt_path, canonical(results))
     print(json.dumps(results, indent=2))
 
 
