@@ -37,11 +37,11 @@ def selected(name: str) -> bool:
     return path.suffix in {'.json', '.safetensors', '.model', '.txt', '.py', '.jinja', '.tiktoken'}
 
 
-def validate_manifest(value: dict) -> None:
+def validate_manifest(value: dict, models=MODELS) -> None:
     if value.get('format_version') != FORMAT or [
         (m.get('repo_id'), m.get('revision')) for m in value.get('models', [])
-    ] != list(MODELS):
-        raise ValueError('manifest must contain exactly the two pinned models')
+    ] != list(models):
+        raise ValueError('manifest must contain exactly the pinned models')
     for model in value['models']:
         files = model['files']
         if not {'config.json', 'tokenizer_config.json'} <= files.keys():
@@ -59,9 +59,9 @@ def validate_manifest(value: dict) -> None:
                 raise ValueError('model file has no verifiable remote checksum')
 
 
-def model_inventory(api) -> dict:
+def model_inventory(api, pinned=MODELS) -> dict:
     models = []
-    for repo, revision in MODELS:
+    for repo, revision in pinned:
         info = api.model_info(repo, revision=revision, files_metadata=True)
         if info.sha != revision:
             raise ValueError('Hub returned a different pinned revision')
@@ -76,7 +76,7 @@ def model_inventory(api) -> dict:
             }
         models.append({'repo_id': repo, 'revision': revision, 'files': dict(sorted(files.items()))})
     value = {'format_version': FORMAT, 'models': models}
-    validate_manifest(value)
+    validate_manifest(value, pinned)
     return value
 
 
@@ -105,8 +105,8 @@ def snapshot(cache: Path, model: dict) -> Path:
     return cache / ('models--' + model['repo_id'].replace('/', '--')) / 'snapshots' / model['revision']
 
 
-def verify_models(manifest: dict, cache: Path) -> dict:
-    validate_manifest(manifest)
+def verify_models(manifest: dict, cache: Path, models=MODELS) -> dict:
+    validate_manifest(manifest, models)
     records = []
     for model in manifest['models']:
         root = snapshot(cache, model)
@@ -140,8 +140,8 @@ def check_storage(cache: Path, quota: dict, required_bytes: int, required_files:
         raise ValueError('insufficient quota/filesystem byte or file headroom')
 
 
-def download_models(manifest: dict, cache: Path, quota: dict, *, download=None) -> dict:
-    validate_manifest(manifest)
+def download_models(manifest: dict, cache: Path, quota: dict, *, download=None, models=MODELS) -> dict:
+    validate_manifest(manifest, models)
     missing = [(m, name, entry) for m in manifest['models'] for name, entry in m['files'].items()
                if not (snapshot(cache, m) / name).exists()]
     # Include room for partial downloads and the largest transient file.
@@ -162,7 +162,7 @@ def download_models(manifest: dict, cache: Path, quota: dict, *, download=None) 
             if not path.resolve().is_relative_to(cache.resolve()):
                 raise ValueError('model cache link escapes configured cache')
             verify_file(path, entry)
-    return verify_models(manifest, cache)
+    return verify_models(manifest, cache, models)
 
 
 def parse_quota(raw: str, kind: str) -> dict:
