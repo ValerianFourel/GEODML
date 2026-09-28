@@ -123,6 +123,15 @@ def submit(args) -> int:
                             f"{shlex.quote(str(Path(__file__).resolve()))} execute "
                             f"--config {shlex.quote(str(out / 'config.json'))}\n").encode())
     os.chmod(out / "run.sh", 0o755)
+    if args.no_submit:
+        # Interactive: the same frozen run, started by hand inside the salloc shell on the node.
+        salloc = ["salloc", *[flag for flag in command[2:-1]
+                              if not flag.startswith(("--output=", "--error=", "--chdir="))]]
+        atomic(out / "interactive.json", canonical({"salloc": salloc, "run": str(out / "run.sh"),
+                                                    "approval": args.approval}))
+        print(json.dumps({"interactive": True, "run": str(out), "salloc": shlex.join(salloc),
+                          "then_inside_the_salloc_shell": "bash " + shlex.quote(str(out / "run.sh"))}, indent=2))
+        return 0
     with (out / "SUBMISSION_ATTEMPTED").open("x") as marker:  # never resubmit an ambiguous receipt
         marker.write(str(time.time()))
     result = subprocess.run(command, text=True, capture_output=True, check=False)
@@ -221,6 +230,8 @@ def main(argv=None) -> int:
     s.add_argument("--count", type=int, default=12)
     s.add_argument("--max-tokens", type=int, default=4096)
     s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--no-submit", action="store_true",
+                   help="prepare the run and print the salloc command for an interactive node")
     e = sub.add_parser("execute")
     e.add_argument("--config", type=Path, required=True)
     args = parser.parse_args(argv)

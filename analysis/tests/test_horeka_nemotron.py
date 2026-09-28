@@ -40,7 +40,7 @@ def workspace(tmp_path, verified=True):
 def submit_args(tmp_path, ws, ds, **overrides):
     values = dict(workspace=ws, dataset=ds, output=tmp_path / "run", account="acct", partition="accelerated",
                   reservation="casualnet", walltime="01:00:00", approval="approved: 1 node, 1 h",
-                  count=12, max_tokens=4096, dry_run=True)
+                  count=12, max_tokens=4096, dry_run=True, no_submit=False)
     values.update(overrides)
     return SimpleNamespace(**values)
 
@@ -93,3 +93,17 @@ def test_nemotron_inventory_uses_only_the_pinned_revision():
     bad = SimpleNamespace(model_info=lambda repo, revision, files_metadata: SimpleNamespace(sha="0" * 40, siblings=siblings))
     with pytest.raises(ValueError, match="different pinned revision"):
         model_inventory(bad, nemo.NEMOTRON)
+
+
+def test_interactive_mode_prepares_the_same_run_and_prints_salloc(tmp_path, clean_git, capsys):
+    ws, ds = workspace(tmp_path)
+    assert nemo.submit(submit_args(tmp_path, ws, ds, dry_run=False, no_submit=True, reservation=None,
+                                   partition="dev_accelerated")) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["salloc"].startswith("salloc --no-requeue --nodes=1 --ntasks=1 --gres=gpu:4 --exclusive")
+    for flag in ("--time=01:00:00", "--partition=dev_accelerated", "--job-name=geodml-nemotron-horeka-trial"):
+        assert flag in out["salloc"]
+    assert "--output=" not in out["salloc"] and "run.sh" not in out["salloc"]
+    run = tmp_path / "run"
+    assert (run / "config.json").is_file() and (run / "run.sh").is_file() and (run / "interactive.json").is_file()
+    assert not (run / "SUBMISSION_ATTEMPTED").exists() and not (run / "submission.json").exists()
