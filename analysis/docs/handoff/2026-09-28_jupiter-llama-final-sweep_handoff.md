@@ -30,7 +30,9 @@ Steps: 0 setup (`audits/llama-prep/sweep-env.sh`, pin `71ace0c`), 1 is round 6
 over, 2 publish every finished wave (writes `llama-sites.txt`, `next-round.txt`;
 a round whose dispatch never submitted keeps its number), 3 audit with the
 dispatcher's own sweep split, 4 the sweep, 5 finite watch loop (5 min, ≤100
-rounds), 6 publish the sweep, per-job yields, `LLAMA_DONE=yes|no`.
+rounds), 6 how each job did (Slurm, ledger counts, error tails), 7 publish
+the sweep and `LLAMA_DONE=yes|no`, 8 why job 1 failed and what is left, 9 the
+1 × 5 h relaunch of the leftover.
 
 ## 3. What ran and the approved allocation
 
@@ -49,15 +51,25 @@ rounds), 6 publish the sweep, per-job yields, `LLAMA_DONE=yes|no`.
   1,460–1,490 cells/h, so each job needs about 3.2 h (4.3 h at the slowest 1,100
   cells/h) and ends by itself on `queue_exhausted`; expected use ≈20–26
   node-hours. The agent recommended 5 h as sufficient; Valerian chose 7 h.
-- **Not yet submitted** at handoff.
+- **Round 7 (the sweep)**: jobs 2097459, 2097464, 2097468, 2097473, 2097475,
+  2097476 (`audits/llama-round7`, reserved in one commit after a quiet
+  preparation). Started 27 Sep 22:06–22:11. Members 2–6 COMPLETED in 2:29–3:00
+  (4,199–4,511 cells each, about 1,500–1,700 cells/h including startup, so the
+  7 h ceiling was far from used). **Member 1 (2097459, 4,602 cells) FAILED after
+  18 min, exit 1; cause not yet read.** Page step 7 (sync) was running at handoff.
+- Relaunch of the leftover approved by Valerian on 2026-09-28: **1 × 1 node × 4
+  GH200 × 05:00:00 = at most 5 node-hours / 20 GPU-hours** (he first proposed
+  3 h; ≈4,600 cells need ≈2.8–3.2 h, so 5 h was chosen as the ceiling), every
+  eligible package via `--sweep --members 1`, stale-quota exception, no retries.
+  Not yet submitted.
 
 ## 4. Next actions, in order
 
-1. Page step 0 again (new pin `71ace0c`), then step 4. Read round 6's two
-   FAILED error logs.
-2. Watch with step 5.
-3. After all six end: step 6. `LLAMA_DONE=no` means a leftover that needs its own
-   estimate and approval.
+1. Let page step 7 finish (publishes round 7, including member 1's partial work).
+2. Page step 8: read why 2097459 failed and the leftover size. Relaunch only if
+   the cause is transient (node, GPU, NCCL, network); otherwise diagnose first.
+3. Page step 2 (adds round 7, next round 8), then step 9 (1 × 5 h), then steps
+   5, 6 and 7. Read round 6's two FAILED error logs as well.
 4. After Llama is done on JUPITER: refresh `coordination/progress.json`, the axis
    report `--registration` work, and the JUPITER home quota diagnosis remain open
    (see the 2026-09-27 handoffs).
