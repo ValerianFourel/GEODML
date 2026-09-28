@@ -68,7 +68,9 @@ from analysis.interpretability.pipeline.agentic_judging import (
     SUPPORTED_FORMAT_VERSIONS as AGENTIC_JUDGE_FORMAT_VERSIONS,
 )
 from analysis.interpretability.pipeline.agentic_judging import (
+    CLAIMS_RETRY_CONTRACT,
     AgenticJudgeTask,
+    JudgeOutputTruncatedError,
     agentic_judge_schema,
     render_agentic_judge_prompt,
     validate_agentic_judgment,
@@ -469,7 +471,10 @@ class VllmChatClient:
                 if not isinstance(content, str):
                     raise TypeError("vLLM response content is not text")
                 usage = value.get("usage", {})
-                usage = usage if isinstance(usage, dict) else {}
+                usage = dict(usage) if isinstance(usage, dict) else {}
+                finish_reason = value["choices"][0].get("finish_reason")
+                if isinstance(finish_reason, str):
+                    usage["finish_reason"] = finish_reason
             except Exception as exc:  # noqa: BLE001 - record any request failure
                 last_error = exc
                 error = f"{type(exc).__name__}: {exc}"
@@ -533,8 +538,12 @@ async def _execute_one(item, *, client, fake):
     feedback_contract = item.get("validation_feedback_contract")
     if type(maximum_validation_attempts) is not int or maximum_validation_attempts <= 0:
         raise ValueError("maximum validation attempts must be a positive integer")
-    if maximum_validation_attempts > 1 and feedback_contract != "search-experience-validation-feedback-v1":
+    if maximum_validation_attempts > 1 and feedback_contract not in {
+            "search-experience-validation-feedback-v1", CLAIMS_RETRY_CONTRACT}:
         raise ValueError("unknown validation feedback contract")
+    # Claims v3: retry with the identical prompt (only the seed differs), treat a
+    # cut-off output as a failure, and record the failure category of every attempt.
+    identical_retry = feedback_contract == CLAIMS_RETRY_CONTRACT
     with inference_task_context(item["base"]):
         try:
             prompt = str(item["prompt"])
@@ -570,15 +579,21 @@ async def _execute_one(item, *, client, fake):
                     rejected_output_sha256=list(rejected_hashes),
                 )
                 try:
+                    if identical_retry and usage.get("finish_reason") == "length":
+                        raise JudgeOutputTruncatedError("output reached max_tokens")
                     parsed = item["validator"](raw)
                 except Exception as exc:
                     rejected_hashes.append(hashlib.sha256(raw.encode()).hexdigest())
                     result["rejected_output_sha256"] = list(rejected_hashes)
+                    if identical_retry:
+                        result.setdefault("failure_categories", []).append(
+                            getattr(exc, "category", "semantic"))
                     if validation_attempt == maximum_validation_attempts:
                         raise
-                    prompt = _validation_feedback_prompt(
-                        str(item["prompt"]), exc, validation_attempt
-                    )
+                    if not identical_retry:
+                        prompt = _validation_feedback_prompt(
+                            str(item["prompt"]), exc, validation_attempt
+                        )
                     continue
                 result.update(parsed_output=parsed, ok=True)
                 break
@@ -586,6 +601,8 @@ async def _execute_one(item, *, client, fake):
             raise
         except Exception as exc:  # noqa: BLE001 - task failures are durable outcomes
             result.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+            if identical_retry:
+                result["failure_category"] = getattr(exc, "category", "transport")
     result.update(finished_at=_now(), duration_seconds=time.monotonic() - started)
     return result
 
