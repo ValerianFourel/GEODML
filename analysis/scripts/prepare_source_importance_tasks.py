@@ -51,27 +51,44 @@ def generator_output_record(trace: dict) -> dict:
     }
 
 
-def build_cell(cell: dict, *, max_tokens: int, j1_max_tokens: int) -> tuple[dict, list[dict]]:
-    generation = cell["generation"]
-    record = {"fingerprint": cell["fingerprint"], "model": cell["model"],
-              **{k: generation.get(k) for k in ("cell_id", "prompt_id", "method", "engine", "condition")},
-              "condition_audit": generation.get("condition_audit"),
-              "generation_record_id": cell["generation_ref"]["record_id"],
-              "trace_record_id": cell["trace_ref"]["record_id"]}
-    tasks: list[dict] = []
-    request, answer = cell.get("prompt_text"), generation.get("answer")
-    if not request or not answer:
-        return {**record, "status": "missing_request_or_answer"}, tasks
-    evidence, raw_count = _trace_evidence(cell["trace"], generation["method"])
-    if raw_count != generation.get("final_snippet_count"):
-        return {**record, "status": "evidence_count_mismatch"}, tasks
-    presented = [row["url"] for row in evidence]
-    ranking = list(generation.get("ranking") or [])
-    if len(ranking) != len(set(ranking)) or not set(ranking) <= set(presented):
-        return {**record, "status": "ranking_outside_evidence"}, tasks
-    j1 = si.prepare_fulfilment_task(request=request, answer=answer, max_tokens=j1_max_tokens)
-    tasks.append(si.task_record(j1))
-    sources = []
+SENSITIVITY_SALT = "si-truncation-sensitivity-v1"
+
+
+def judged_answer(trace: dict, stored: str) -> tuple[str | None, str]:
+    """The complete answer the generator wrote, and where it came from.
+
+    The controller stores answers cut to 1,200 characters when the model's valid
+    JSON answer was longer; the full text is still the final attempt's raw output.
+    Returns (answer, source): ``stored`` (not cut), ``trace_full`` (recovered in
+    full and verified to start with the stored text), ``trace_prefix`` (the model
+    output was broken JSON, only the stored prefix exists) or (None,
+    ``trace_answer_mismatch``) when the trace does not reproduce the stored text.
+    """
+
+    events = trace.get("events", [])
+    repairs = [e["payload"] for e in events if e.get("event_type") == "controller_repair"]
+    if not any(r.get("answer_truncated") for r in repairs):
+        return stored, "stored"
+    if any(r.get("malformed_json_recovered") for r in repairs):
+        return stored, "trace_prefix"
+    finals = [e["payload"] for e in events
+              if e.get("event_type") == "llm_call" and e["payload"].get("purpose") in FINAL_PURPOSES]
+    try:
+        full = json.loads(finals[-1]["raw_output"])["answer"]
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None, "trace_answer_mismatch"
+    if not isinstance(full, str) or not full.startswith(stored) or len(full) <= len(stored):
+        return None, "trace_answer_mismatch"
+    return full, "trace_full"
+
+
+def in_sensitivity_subset(cell_id: str, fraction: float) -> bool:
+    value = int(hashlib.sha256(f"{SENSITIVITY_SALT}:{cell_id}".encode()).hexdigest()[:8], 16) / 16**8
+    return value < fraction
+
+
+def source_tasks(request: str, answer: str, evidence: list, presented: list, max_tokens: int):
+    entries, tasks = [], []
     for position, row in enumerate(evidence):
         entry = {"url": row["url"], "presented_position": position}
         if not si.is_assessable(row):
@@ -83,7 +100,46 @@ def build_cell(cell: dict, *, max_tokens: int, j1_max_tokens: int) -> tuple[dict
             entry.update(judge_task_id=item["base"]["judge_task_id"],
                          answer_names_source_url=item["base"]["answer_names_source_url"],
                          answer_masked=bool(item["base"]["mask_spans"]))
-        sources.append(entry)
+        entries.append(entry)
+    return entries, tasks
+
+
+def build_cell(cell: dict, *, max_tokens: int, j1_max_tokens: int,
+               sensitivity_fraction: float = 0.1) -> tuple[dict, list[dict]]:
+    generation = cell["generation"]
+    record = {"fingerprint": cell["fingerprint"], "model": cell["model"],
+              **{k: generation.get(k) for k in ("cell_id", "prompt_id", "method", "engine", "condition")},
+              "condition_audit": generation.get("condition_audit"),
+              "generation_record_id": cell["generation_ref"]["record_id"],
+              "trace_record_id": cell["trace_ref"]["record_id"]}
+    tasks: list[dict] = []
+    request, stored = cell.get("prompt_text"), generation.get("answer")
+    if not request or not stored:
+        return {**record, "status": "missing_request_or_answer"}, tasks
+    answer, answer_source = judged_answer(cell["trace"], stored)
+    record.update(answer_source=answer_source, truncated=answer_source != "stored",
+                  stored_answer_chars=len(stored), judged_answer_chars=len(answer) if answer else None)
+    if answer is None:
+        return {**record, "status": answer_source}, tasks
+    evidence, raw_count = _trace_evidence(cell["trace"], generation["method"])
+    if raw_count != generation.get("final_snippet_count"):
+        return {**record, "status": "evidence_count_mismatch"}, tasks
+    presented = [row["url"] for row in evidence]
+    ranking = list(generation.get("ranking") or [])
+    if len(ranking) != len(set(ranking)) or not set(ranking) <= set(presented):
+        return {**record, "status": "ranking_outside_evidence"}, tasks
+    # Primary: the complete answer the generator wrote (J1 sees the same text).
+    j1 = si.prepare_fulfilment_task(request=request, answer=answer, max_tokens=j1_max_tokens)
+    tasks.append(si.task_record(j1))
+    sources, primary = source_tasks(request, answer, evidence, presented, max_tokens)
+    tasks += primary
+    if answer_source == "trace_full" and in_sensitivity_subset(record["cell_id"], sensitivity_fraction):
+        # Sensitivity: the stored 1,200-character version, on a fixed random subset.
+        stored_sources, stored_tasks = source_tasks(request, stored, evidence, presented, max_tokens)
+        stored_j1 = si.prepare_fulfilment_task(request=request, answer=stored, max_tokens=j1_max_tokens)
+        tasks += stored_tasks + [si.task_record(stored_j1)]
+        record["stored_answer_sensitivity"] = {"sources": stored_sources,
+                                               "j1_task_id": stored_j1["base"]["judge_task_id"]}
     return {**record, "status": "no_observed_sources" if not evidence else "ok",
             "presented": presented, "generator_ranking": ranking,
             "generator_output": generator_output_record(cell["trace"]),
@@ -99,6 +155,8 @@ def main(argv=None) -> int:
     parser.add_argument("--max-tokens", type=int, default=si.DEFAULT_MAX_TOKENS)
     parser.add_argument("--j1-max-tokens", type=int, default=64)
     parser.add_argument("--limit", type=int, help="at most this many cells per source (development only)")
+    parser.add_argument("--truncation-sensitivity-fraction", type=float, default=0.1,
+                        help="share of truncated cells whose stored 1,200-character answer is also judged")
     args = parser.parse_args(argv)
     if args.output.exists():
         parser.error("output already exists; use a new folder")
@@ -121,7 +179,10 @@ def main(argv=None) -> int:
             inputs.append({"dataset_root": str(root), "model": model, "cell_selection": dict(ref_counts),
                            "cells_used": len(refs)})
             for cell in iter_cells(root, refs):
-                record, tasks = build_cell(cell, max_tokens=args.max_tokens, j1_max_tokens=args.j1_max_tokens)
+                record, tasks = build_cell(cell, max_tokens=args.max_tokens, j1_max_tokens=args.j1_max_tokens,
+                                           sensitivity_fraction=args.truncation_sensitivity_fraction)
+                counts[f"answer_{record.get('answer_source', 'none')}"] += 1
+                counts["stored_answer_sensitivity_cells"] += "stored_answer_sensitivity" in record
                 counts[f"cells_{record['status']}"] += 1
                 counts["source_tasks_referenced"] += sum("judge_task_id" in s for s in record.get("sources", []))
                 counts["sources_unassessable"] += sum(s.get("status") == "unassessable_input"
@@ -137,6 +198,9 @@ def main(argv=None) -> int:
     manifest = {"format_version": "source-importance-task-freeze-v1", "protocol": si.PROTOCOL,
                 "task_version": si.TASK_VERSION, "retry_contract": si.RETRY_CONTRACT,
                 "max_tokens": args.max_tokens, "j1_max_tokens": args.j1_max_tokens, "inputs": inputs,
+                "judged_answer": "complete generator answer (trace-recovered when stored truncated)",
+                "truncation_sensitivity": {"fraction": args.truncation_sensitivity_fraction,
+                                           "salt": SENSITIVITY_SALT},
                 "prompt_ids_sha256": hashlib.sha256(args.prompt_ids.read_bytes()).hexdigest()
                 if args.prompt_ids else None, "limit": args.limit, "counts": dict(counts),
                 "files": {name: hashlib.sha256((partial / name).read_bytes()).hexdigest()

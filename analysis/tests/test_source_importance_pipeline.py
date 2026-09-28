@@ -151,3 +151,58 @@ def test_keyword_cluster_bootstrap_resamples_keywords_not_rows():
     assert paired_difference("a", "f")(rows) == pytest.approx((0 + 1 + 0) / 3)
     flat = cluster_bootstrap([{"kw": k, "v": 1} for k in "abc"], cluster="kw", statistic=mean_of("v"))
     assert flat["low"] == flat["high"] == 1.0
+
+
+# Truncated answers: the judge sees the complete answer the generator wrote --------------------
+
+FULL = ANSWER + " Both tools also have paid tiers for larger teams."
+STORED = FULL[:30]
+
+
+def truncated_trace(*, malformed=False, raw_answer=FULL):
+    events = trace([A, B], [A, B])["events"]
+    events[-1]["payload"]["raw_output"] = json.dumps({"ranking": ["S1"], "answer": raw_answer})
+    events.append({"event_type": "controller_repair", "payload": {
+        "purpose": "parallel_final", "answer_truncated": True, "dropped_ranking_references": [],
+        **({"malformed_json_recovered": True} if malformed else {})}})
+    return {"events": events}
+
+
+def test_judged_answer_recovers_the_full_text_only_when_the_trace_reproduces_it():
+    assert prepare.judged_answer(trace([A], [A]), ANSWER) == (ANSWER, "stored")
+    assert prepare.judged_answer(truncated_trace(), STORED) == (FULL, "trace_full")
+    assert prepare.judged_answer(truncated_trace(malformed=True), STORED) == (STORED, "trace_prefix")
+    assert prepare.judged_answer(truncated_trace(raw_answer="Something else entirely, longer than stored."),
+                                 STORED) == (None, "trace_answer_mismatch")
+
+
+def cell_for(generation_answer, trace_value, cell_id="c1"):
+    return {"fingerprint": "f", "model": "qwen38", "prompt_text": "Free project tools?",
+            "generation_ref": {"record_id": "g"}, "trace_ref": {"record_id": "t"}, "trace": trace_value,
+            "generation": {"cell_id": cell_id, "prompt_id": "q1", "method": "Parallel-Expansion-v1", "engine": "ddg",
+                           "condition": "natural", "answer": generation_answer, "ranking": [A["url"]],
+                           "final_snippet_count": 2}}
+
+
+def test_truncated_cells_are_judged_in_full_with_a_fixed_stored_answer_subset():
+    record, tasks = prepare.build_cell(cell_for(STORED, truncated_trace()), max_tokens=640, j1_max_tokens=64,
+                                       sensitivity_fraction=1.0)
+    assert record["status"] == "ok" and record["truncated"] is True and record["answer_source"] == "trace_full"
+    assert record["judged_answer_chars"] == len(FULL) and record["stored_answer_chars"] == len(STORED)
+    j1 = next(t for t in tasks if t["judge_task_id"] == record["j1_task_id"])
+    assert j1["answer"] == FULL
+    primary = {s["judge_task_id"] for s in record["sources"]}
+    stored = {s["judge_task_id"] for s in record["stored_answer_sensitivity"]["sources"]}
+    assert primary and stored and not primary & stored
+    none, _ = prepare.build_cell(cell_for(STORED, truncated_trace()), max_tokens=640, j1_max_tokens=64,
+                                 sensitivity_fraction=0.0)
+    assert "stored_answer_sensitivity" not in none
+    chosen = [prepare.in_sensitivity_subset(f"cell-{i}", 0.1) for i in range(2000)]
+    assert 0.07 < sum(chosen) / len(chosen) < 0.13 and chosen == [prepare.in_sensitivity_subset(f"cell-{i}", 0.1)
+                                                                    for i in range(2000)]
+
+
+def test_unreproducible_traces_get_a_status_not_tasks():
+    record, tasks = prepare.build_cell(cell_for(STORED, truncated_trace(raw_answer="Unrelated text, quite long.")),
+                                       max_tokens=640, j1_max_tokens=64)
+    assert record["status"] == "trace_answer_mismatch" and tasks == []
