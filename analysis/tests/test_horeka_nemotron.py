@@ -100,7 +100,8 @@ def test_interactive_mode_prepares_the_same_run_and_prints_salloc(tmp_path, clea
     assert nemo.submit(submit_args(tmp_path, ws, ds, dry_run=False, no_submit=True, reservation=None,
                                    partition="dev_accelerated")) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["salloc"].startswith("salloc --no-requeue --nodes=1 --ntasks=1 --gres=gpu:4 --exclusive")
+    assert out["salloc"].startswith("salloc --nodes=1 --ntasks=1 --gres=gpu:4 --exclusive")
+    assert "--no-requeue" not in out["salloc"]  # salloc rejects this sbatch-only option
     for flag in ("--time=01:00:00", "--partition=dev_accelerated", "--job-name=geodml-nemotron-horeka-trial"):
         assert flag in out["salloc"]
     assert "--output=" not in out["salloc"] and "run.sh" not in out["salloc"]

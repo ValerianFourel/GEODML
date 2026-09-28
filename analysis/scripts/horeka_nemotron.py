@@ -126,7 +126,8 @@ def submit(args) -> int:
     if args.no_submit:
         # Interactive: the same frozen run, started by hand inside the salloc shell on the node.
         salloc = ["salloc", *[flag for flag in command[2:-1]
-                              if not flag.startswith(("--output=", "--error=", "--chdir="))]]
+                              if not flag.startswith(("--output=", "--error=", "--chdir="))
+                              and flag != "--no-requeue"]]  # sbatch-only options
         atomic(out / "interactive.json", canonical({"salloc": salloc, "run": str(out / "run.sh"),
                                                     "approval": args.approval}))
         print(json.dumps({"interactive": True, "run": str(out), "salloc": shlex.join(salloc),
