@@ -64,6 +64,9 @@ from analysis.interpretability.pipeline.acl_arr_document_experiment import (
 from analysis.interpretability.pipeline.agentic_dataset import (
     FinalDatasetWriter,
 )
+from analysis.interpretability.pipeline.source_importance import (
+    RETRY_CONTRACT as SOURCE_IMPORTANCE_RETRY_CONTRACT,
+)
 from analysis.interpretability.pipeline.agentic_judging import (
     SUPPORTED_FORMAT_VERSIONS as AGENTIC_JUDGE_FORMAT_VERSIONS,
 )
@@ -539,11 +542,12 @@ async def _execute_one(item, *, client, fake):
     if type(maximum_validation_attempts) is not int or maximum_validation_attempts <= 0:
         raise ValueError("maximum validation attempts must be a positive integer")
     if maximum_validation_attempts > 1 and feedback_contract not in {
-            "search-experience-validation-feedback-v1", CLAIMS_RETRY_CONTRACT}:
+            "search-experience-validation-feedback-v1", CLAIMS_RETRY_CONTRACT,
+            SOURCE_IMPORTANCE_RETRY_CONTRACT}:
         raise ValueError("unknown validation feedback contract")
-    # Claims v3: retry with the identical prompt (only the seed differs), treat a
-    # cut-off output as a failure, and record the failure category of every attempt.
-    identical_retry = feedback_contract == CLAIMS_RETRY_CONTRACT
+    # Claims v3 and source importance: retry with the identical prompt (only the seed
+    # differs), treat a cut-off output as a failure, and record every attempt's category.
+    identical_retry = feedback_contract in {CLAIMS_RETRY_CONTRACT, SOURCE_IMPORTANCE_RETRY_CONTRACT}
     with inference_task_context(item["base"]):
         try:
             prompt = str(item["prompt"])
