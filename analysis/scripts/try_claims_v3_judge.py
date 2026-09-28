@@ -44,8 +44,14 @@ def _record(root: Path, reference: dict) -> dict:
     raise ValueError("record line missing")
 
 
-def select_cells(root: Path, *, count: int, seed: int, model: str | None, stripes: int = 256) -> list[dict]:
-    """Deterministic sample of verified completed generator cells with their trace and prompt."""
+def select_cells(root: Path, *, count: int, seed: int, model: str | None, stripes: int = 256,
+                 skipped: list | None = None) -> list[dict]:
+    """Deterministic sample of verified completed generator cells with their trace and prompt.
+
+    Cells whose record references do not verify (e.g. shards a live writer has not
+    sealed yet) are skipped, like the other dataset readers do; their record IDs go
+    to `skipped` when given.
+    """
     tasks = {identity_fingerprint(ClaimIdentity(**row["claim_identity"])): row
              for row in iter_sealed_rows(root, "task_definitions", required=True)
              if row.get("model") in {"qwen38", "llama4"} and (model is None or row.get("model") == model)}
@@ -57,6 +63,12 @@ def select_cells(root: Path, *, count: int, seed: int, model: str | None, stripe
     for fp in done:
         refs = {ref["table"]: ref for ref in latest[fp].get("record_references", [])}
         if "generations" not in refs or "traces" not in refs:
+            continue
+        unverified = [ref.get("record_id") for ref in (refs["generations"], refs["traces"])
+                      if not verify_record_reference(root, ref)]
+        if unverified:
+            if skipped is not None:
+                skipped.extend(unverified)
             continue
         generation, trace = _record(root, refs["generations"]), _record(root, refs["traces"])
         prompt = prompts.get(generation.get("prompt_id"), {})
@@ -138,8 +150,11 @@ def summarize(records: list[dict], cells: list[dict]) -> dict:
 
 async def main_async(args) -> int:
     from analysis.scripts.run_acl_arr_vllm import VllmChatClient, _execute_one
-    cells = select_cells(args.dataset_root, count=args.count, seed=args.seed, model=args.model)
-    print(f"SELECTED {len(cells)} cells", flush=True)
+    skipped: list = []
+    cells = select_cells(args.dataset_root, count=args.count, seed=args.seed, model=args.model, skipped=skipped)
+    print(f"SELECTED {len(cells)} cells; SKIPPED {len(skipped)} unverified references {skipped[:3]}", flush=True)
+    if not cells:
+        raise SystemExit("no verified completed cells to judge")
     args.output.mkdir(parents=True)
     records: list[dict] = []
     audit = (args.output / "audit.jsonl").open("a", encoding="utf-8")
@@ -168,6 +183,7 @@ async def main_async(args) -> int:
     audit.close()
     results.close()
     report = {**summarize(records, summaries), "seconds": round(time.time() - started, 1),
+              "skipped_unverified_references": skipped,
               "settings": {"master_seed": args.master_seed, "seed": args.seed, "max_tokens": args.max_tokens,
                            "concurrency": args.concurrency, "model_filter": args.model,
                            "server_model_name": args.server_model_name, "temperature": 0.0,

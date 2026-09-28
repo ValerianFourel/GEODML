@@ -51,6 +51,26 @@ def test_selection_is_deterministic_and_reads_trace_and_prompt(tmp_path):
     assert trial.select_cells(root, count=2, seed=1, model="qwen38") == []
 
 
+
+def test_selection_skips_cells_whose_records_do_not_verify(tmp_path):
+    root = dataset(tmp_path, cells=2)
+    ledger = StripedTaskLedger(root / "control/task-ledger", stripe_count=256)
+    latest = ledger.snapshot()["latest"]
+    good = next(iter(latest.values()))["record_references"]
+    identity = ClaimIdentity(task_id="unsealed", model_id="m", model_revision="a" * 40, protocol="p",
+                             request_sha256=hashlib.sha256(b"unsealed").hexdigest())
+    writer = FinalDatasetWriter(root, writer_id="late")
+    writer.append("task_definitions", {"task_id": "unsealed", "prompt_id": "q1", "model": "llama4",
+                                       "claim_identity": asdict(identity)}, transaction_id="dunsealed")
+    writer.seal()
+    unsealed = [{**ref, "shard_sequence": ref["shard_sequence"] + 99} for ref in good]
+    ledger.transition(ledger.claim(identity, owner_id="fixture").claim, state="completed",
+                      record_references=unsealed)
+    skipped = []
+    cells = trial.select_cells(root, count=5, seed=1, model="llama4", skipped=skipped)
+    assert len(cells) == 2 and "unsealed" not in {c["generation"]["cell_id"] for c in cells}
+    assert sorted(skipped) == sorted(ref["record_id"] for ref in unsealed)
+
 class Scripted:
     """Answers each v3 task by its schema name, like a well-behaved judge."""
 
