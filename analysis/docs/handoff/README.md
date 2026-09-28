@@ -25,3 +25,4 @@ supersede them with a new dated document that links back.
 - 2026-09-27 — [Llama round 6 and Qwen publication](2026-09-27_llama-round6-qwen-published_handoff.md)
 - 2026-09-27 — [HoreKa A100 compatibility and the first 30 Qwen bouts](2026-09-27_horeka-a100-bouts_handoff.md)
 - 2026-09-28 — [JUPITER final Llama sweep (6 × 1 h)](2026-09-28_jupiter-llama-final-sweep_handoff.md)
+- 2026-09-28 — [HoreKa Qwen sender (bouts 326–430)](2026-09-28_horeka-qwen-sender_handoff.md)
