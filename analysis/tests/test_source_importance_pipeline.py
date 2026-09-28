@@ -206,3 +206,45 @@ def test_unreproducible_traces_get_a_status_not_tasks():
     record, tasks = prepare.build_cell(cell_for(STORED, truncated_trace(raw_answer="Unrelated text, quite long.")),
                                        max_tokens=640, j1_max_tokens=64)
     assert record["status"] == "trace_answer_mismatch" and tasks == []
+
+
+class ScriptedServer:
+    """Stands in for VllmChatClient: supports Asana claims, grades everything else 0."""
+
+    def __init__(self, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def complete(self, *, prompt, schema_name, schema, temperature, max_tokens, seed):
+        if "request_fulfillment" in json.dumps(schema):
+            return json.dumps({"request_fulfillment": 4}), {"completion_tokens": 9, "finish_reason": "stop"}
+        if "Text: Asana has a free plan." in prompt:
+            out = {"matches": [{"answer_unit_id": "a1", "answer_quote": "Asana has a free plan",
+                                "evidence_field": "text", "evidence_quote": "Asana has a free plan"}], "importance": 4}
+        else:
+            out = {"matches": [], "importance": 0}
+        return json.dumps(out), {"completion_tokens": 30, "finish_reason": "stop"}
+
+
+def test_smoke_driver_runs_every_source_and_derives_metrics(tmp_path, monkeypatch, capsys):
+    from analysis.scripts import run_acl_arr_vllm
+    from analysis.scripts import try_source_importance_judge as smoke
+    monkeypatch.setattr(run_acl_arr_vllm, "VllmChatClient", ScriptedServer)
+    root = dataset(tmp_path)
+    out = tmp_path / "smoke"
+    assert smoke.main(["--dataset-root", str(root), "--output", str(out), "--base-url", "http://x/v1",
+                       "--server-model-name", "m", "--count", "3"]) == 0
+    cells = {c["condition"]: c for c in map(json.loads, (out / "cells.jsonl").read_text().splitlines())}
+    natural = cells["natural"]
+    assert natural["grades"] == {A["url"]: 4, B["url"]: 0}
+    assert natural["metrics"]["top_source_alignment"] is False  # generator listed B first
+    assert natural["metrics"]["first_presented_alignment"] is True and natural["j1"] == 4
+    assert cells["ablated"]["metrics"]["reasons"]["top"] == "all_grades_zero"
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["grade_distribution"] == {"0": 2, "4": 1} or summary["grade_distribution"] == {0: 2, 4: 1}
+    assert "EXAMPLE_REQUEST_CASE_BLOCK" in capsys.readouterr().out

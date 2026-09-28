@@ -4,8 +4,9 @@
 Same model, revision and scientific serving settings as the JUPITER pilot
 (bf16, four-way tensor parallel, 73,728-token window, 0.85 GPU memory,
 eager mode, four concurrent requests, thinking off, temperature 0); only the
-accelerator differs. `execute` runs the claims-v3 trial driver on finished Qwen
-cells of the HoreKa dataset: a diagnostic compatibility run, never results.
+accelerator differs. `execute` runs a trial driver on finished Qwen cells of the
+HoreKa dataset (source importance SI-v1 by default, or the older claims-v3): a
+diagnostic compatibility run, never results.
 """
 from __future__ import annotations
 
@@ -31,6 +32,10 @@ SERVING = {"tensor_parallel_size": 4, "data_parallel_size": 1, "dtype": "bfloat1
            "gpu_memory_utilization": 0.85, "request_concurrency": 4, "enforce_eager": True}
 JOB_NAME = "geodml-nemotron-horeka-trial"
 CLEANUP_MARGIN = 120
+TRIALS = {  # trial name -> (driver script, stage name, default output-token cap)
+    "source-importance": ("try_source_importance_judge.py", "nemotron-source-importance-horeka-trial", 640),
+    "claims-v3": ("try_claims_v3_judge.py", "nemotron-claims-v3-horeka-trial", 4096),
+}
 
 
 def read(path):
@@ -62,9 +67,10 @@ def download(args) -> int:
 def stage_commands(config: dict, *, python: str, attempt: Path, cache: Path) -> tuple[list[str], list[str]]:
     """The two stage-runner calls, with the frozen pilot settings and an A100 check."""
     repo = Path(config["repository"])
+    script, stage, _ = TRIALS[config.get("trial", "claims-v3")]  # configs written before SI were claims-v3
     profile = attempt / "serving-profile.json"
     prepare = [python, str(repo / "analysis/scripts/search_vllm_stage.py"), "prepare",
-               "--profile", str(profile), "--stage", "nemotron-claims-v3-horeka-trial",
+               "--profile", str(profile), "--stage", stage,
                "--model-id", MODEL_ID, "--model-revision", MODEL_REVISION,
                "--vllm-executable", str(Path(python).parent / "vllm"), "--cache-base", str(cache),
                "--expected-gpu-name-pattern", "A100",
@@ -76,7 +82,7 @@ def stage_commands(config: dict, *, python: str, attempt: Path, cache: Path) -> 
     run = [python, str(repo / "analysis/scripts/search_vllm_stage.py"), "run",
            "--profile", str(profile), "--server-log", str(attempt / "server.log"),
            "--cache-base", str(cache), "--startup-timeout-seconds", "1200", "--",
-           python, str(repo / "analysis/scripts/try_claims_v3_judge.py"),
+           python, str(repo / "analysis/scripts" / script),
            "--dataset-root", config["dataset_root"], "--output", str(attempt / "trial"),
            "--model", "qwen38", "--count", str(config["count"]),
            "--base-url", "http://127.0.0.1:8010/v1", "--server-model-name", MODEL_ID,
@@ -105,7 +111,8 @@ def submit(args) -> int:
         raise ValueError("dataset root has no contract.json")
     config = {"repository": str(repo), "git_commit": pin, "job_name": JOB_NAME, "walltime": args.walltime,
               "workspace": str(workspace), "dataset_root": str(args.dataset.resolve()), "count": args.count,
-              "max_tokens": args.max_tokens, "model_id": MODEL_ID, "model_revision": MODEL_REVISION,
+              "trial": args.trial,
+              "max_tokens": args.max_tokens if args.max_tokens is not None else TRIALS[args.trial][2], "model_id": MODEL_ID, "model_revision": MODEL_REVISION,
               "serving": SERVING, "approval": args.approval, "scientific_result": False}
     command = ["sbatch", "--parsable", "--no-requeue", "--nodes=1", "--ntasks=1", "--gres=gpu:4", "--exclusive",
                "--cpus-per-task=32", "--mem=0", "--time=" + args.walltime, "--account=" + args.account,
@@ -228,8 +235,9 @@ def main(argv=None) -> int:
     s.add_argument("--walltime", required=True, choices=["01:00:00"],
                    help="approved wall-time; this trial allows only one hour")
     s.add_argument("--approval", required=True)
+    s.add_argument("--trial", choices=sorted(TRIALS), default="source-importance")
     s.add_argument("--count", type=int, default=12)
-    s.add_argument("--max-tokens", type=int, default=4096)
+    s.add_argument("--max-tokens", type=int, help="default: 640 for source-importance, 4096 for claims-v3")
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--no-submit", action="store_true",
                    help="prepare the run and print the salloc command for an interactive node")
