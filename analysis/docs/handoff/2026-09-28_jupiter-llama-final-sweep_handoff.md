@@ -91,3 +91,20 @@ the sweep and `LLAMA_DONE=yes|no`, 8 why job 1 failed and what is left, 9 the
   3 send, 4 watch, 5 results of every submitted bout (one sacct call, ledger per
   writer `horeka-bout<NNNN>-job<id>`, only bouts needing attention), 6 stop
   pending (Valerian's decision). **Not yet submitted** at this entry.
+- **Sent**: the 31–430 send stopped at bout 325 with `AssocGrpSubmitJobsLimit`
+  (account cap on queued jobs, apparently ≈300 including the 4 held diagnostic
+  jobs): **bouts 31–324 = 294 jobs queued with `--reservation=casualnet`** (so
+  16 at a time). Receipt `submitted-0031-0430.json`; bout 325 carries a marker
+  with a refused sbatch receipt (no job).
+- `d3b49f9` (**new HoreKa pin**): a bout whose saved sbatch receipt shows a
+  non-zero return code and no job ID counts as unsent; its marker and receipt
+  are renamed (`SUBMISSION_REFUSED-<ts>`, `submission-refused-<ts>.json`); range
+  receipts never overwrite. 63 HoreKa tests pass.
+- Valerian decided (28 Sep) to send the remaining bouts **325–430 (106) on the
+  general `accelerated` partition without the reservation** (same 5 h, within
+  the 400-bout approval), in pieces as the submit limit allows. Bouts do not
+  check their reservation at start, only job name and time limit. Page steps:
+  0 setup (pin), 1 room left and next bout, 2 dry run, 3 send next (rerunnable),
+  4 watch, 5 results, 6 stop. Not yet run. Open idea: clearing the reservation
+  of pending casualnet bouts so they can use the whole partition (Valerian's
+  decision; syntax not yet verified).
