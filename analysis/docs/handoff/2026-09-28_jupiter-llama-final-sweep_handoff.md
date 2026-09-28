@@ -73,3 +73,21 @@ the sweep and `LLAMA_DONE=yes|no`, 8 why job 1 failed and what is left, 9 the
 4. After Llama is done on JUPITER: refresh `coordination/progress.json`, the axis
    report `--registration` work, and the JUPITER home quota diagnosis remain open
    (see the 2026-09-27 handoffs).
+
+## 5. HoreKa Qwen bouts (same day)
+
+- Bouts 1–30 (jobs 5167563–5167592, casualnet, 16 nodes): 29 COMPLETED in
+  2:16–4:42 (typically ≈3.5 h for ≈400 cells, ≈30 s per cell against the 52.5 s
+  the division assumed); **bout 1 (5167563) FAILED with exit 124 at 4:58**, the
+  bout tool's deadline code, so its unfinished primary cells need a later
+  leftover sweep. Per-bout ledger counts not yet read (page step 5).
+- Valerian approved on 2026-09-28: **bouts 31–430, 400 × 1 node × 4 A100 ×
+  05:00:00 in casualnet**, at most 2,000 node-hours / 8,000 GPU-hours (expected
+  ≈1,450 node-hours; ≈3.5–4 days at 16 nodes); exceptions to the five-allocation
+  cap and ten-minute start gap; no retries; no Hugging Face publication for now.
+  Same division (`division-20260927-1813`) and pin `184d038`; re-sizing to the
+  faster measured rate was not done (bouts simply end early).
+- Page `horeka-qwen-bouts.html` rewritten: 0 check, 1 setup, 2 dry run 31–430,
+  3 send, 4 watch, 5 results of every submitted bout (one sacct call, ledger per
+  writer `horeka-bout<NNNN>-job<id>`, only bouts needing attention), 6 stop
+  pending (Valerian's decision). **Not yet submitted** at this entry.
