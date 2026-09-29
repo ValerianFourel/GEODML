@@ -136,3 +136,19 @@ weight exclusion, restricted gate, transient-error retry, resume skip,
 byte-identical restore including symlinks); all page blocks pass `bash -n`,
 embedded Python parses, the embedded script is identical to the tested one,
 and the generated tmux `run.sh` passes `bash -n`. Not run on JUPITER.
+
+## Old tmux session and the project1 filesystem
+
+`geodml-agentic-resume` on jpbl-s02-01 is the idle shell of `salloc` job
+1776656 (13 Sep). Its allocation was revoked at its time limit ("exceeded its
+time limit and its allocation has been revoked"); its last Qwen/Llama retry
+steps exited 1 (5 and 10 cells failed after bounded retry). There is no live
+allocation (`squeue --me` empty), so closing the session releases nothing.
+
+That job ran from `/e/project1/scifi/fourel1/geodml/src/...`, so data also
+lives on the project1 filesystem. Page changes: step 6 now plans `home` plus
+every `/e/<fs>/<project>/$USER` root (label `<fs>-<project>`, e.g.
+`fscratch-scifi`, `project1-scifi`), excluding `geodml/src`, `geodml/python`,
+`geodml/huggingface-acl-arr` and `geodml/audits/leave-jupiter` on each. The
+checklist's checkout check now covers `/e/*/*/$USER/geodml/src/*`. Multi-root
+planning was tested locally on a synthetic tree.
