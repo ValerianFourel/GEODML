@@ -259,3 +259,45 @@ Page `geoaxis-readiness-axis.html`: steps 0 setup, 1 discovery (done), 2 dry run
 - **manifests-only packs:** judge slurm; phase1, expansion and base-axis acquisition runs; readiness-axis-reports / validation / factor-stress; the fscratch HF export 141c9c0b
 
 The generated script was simulated and passes `bash -n`. Nothing has run on JUPITER.
+
+## Publication audit before leaving (read-only page `jupiter-publication-audit.html`)
+
+Valerian's professor asked him to stop using JUPITER. Before anything expires,
+we check what a publication could need that exists only on JUPITER.
+
+Already safe (Hub listing from the Mac, 29 Sep):
+- `geodml-papersize` (public, 37.8 GB, 305 commits; last JUPITER sync
+  2026-05-24; runs with 12 HTML-cache tarballs, rag_index 6.1 GB, order_probe
+  953 MB, interpretability/output 5.8 GB)
+- `geodml-emnlp-2026` (public, 1.9 GB, the reproducibility set, 20 Jul)
+- `geodml-semantic-readiness` (public, v1 pilot), `-20k` and `-all-results` (private)
+- `geodml-experiment-v2-paper-private` (coordination, exchange, recovery snapshot)
+- `geoaxis-prompts-generation-26k`
+- `AxisGEO` does not exist.
+
+The Mac's `~/Hamburg/{GEODML,geodml-dataset,GEODML_Analysis}` hold about 100 GB of
+the EMNLP work (see `DATA_POINTERS.md`).
+
+At risk on JUPITER:
+- `/e/scratch/scifi/$USER/data` (26 GB): the bf16 EMNLP dataset from May. It
+  falls under the 90-day scratch retention; cleanup starts 2026-10-01.
+- `GEODML_Analysis` on project1 (955 GB): interpretability 515 GB versus 5.8 GB
+  on the Hub, hf_cache 429 GB of model downloads, logs 763 MB, hf_stage 5.4 GB.
+- The 24 May session log said the Stage F probing (8 jobs) and 24 order-probe
+  top-off jobs were still running, with a re-push planned afterwards; nothing
+  confirms that re-push.
+- The ACL ARR document pilot and search-experience pilots on project1 have no
+  confirmed export.
+- The Slurm accounting history.
+
+The audit page covers these in five steps:
+- setup writes `audits/publication-audit/pub_audit.py` (tested on the Mac
+  against the real public repos and fake folders)
+- `hub`: per-file comparison of `$SCRATCH/data` and `interpretability/output`
+  with both EMNLP repos; HTML caches matched by prefix to the per-cell tarballs
+- `interp`: breakdown of the 515 GB by folder and file type, plus the
+  `GEODML_Analysis` git state, `hf_stage`, logs, and `exports`/`staging`/`manifests`
+- `runs`: the pilots and every fscratch run not yet archived
+- `sacct`: exports 2026 jobs to `audits/slurm-accounting/` with a GPU-hour summary
+
+No decisions about further uploads until the output is back.
