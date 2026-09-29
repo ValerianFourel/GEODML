@@ -5,12 +5,13 @@ Same model, revision and scientific serving settings as the JUPITER pilot
 (bf16, four-way tensor parallel, 73,728-token window, 0.85 GPU memory,
 eager mode, four concurrent requests, thinking off, temperature 0); only the
 accelerator differs. `execute` runs a trial driver on finished Qwen cells of the
-HoreKa dataset (source importance SI-v1 by default, or the older claims-v3): a
+HoreKa dataset (source importance SI-v2 by default, or the older claims-v3): a
 diagnostic compatibility run, never results.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -84,9 +85,11 @@ def stage_commands(config: dict, *, python: str, attempt: Path, cache: Path) -> 
            "--cache-base", str(cache), "--startup-timeout-seconds", "1200", "--",
            python, str(repo / "analysis/scripts" / script),
            "--dataset-root", config["dataset_root"], "--output", str(attempt / "trial"),
-           "--model", "qwen38", "--count", str(config["count"]),
+           "--model", config.get("generator_model", "qwen38"), "--count", str(config["count"]),
            "--base-url", "http://127.0.0.1:8010/v1", "--server-model-name", MODEL_ID,
            "--max-tokens", str(config["max_tokens"]), "--concurrency", str(SERVING["request_concurrency"])]
+    if config.get("cells_from"):
+        run += ["--cells-from", config["cells_from"], "--cells-from-sha256", config["cells_from_sha256"]]
     return prepare, run
 
 
@@ -109,11 +112,23 @@ def submit(args) -> int:
         raise ValueError("HoreKa runtime missing")
     if not (args.dataset.resolve() / "contract.json").is_file():
         raise ValueError("dataset root has no contract.json")
+    cells_from = getattr(args, "cells_from", None)
+    if cells_from and args.trial != "source-importance":
+        raise ValueError("--cells-from is only supported by the source-importance trial")
+    if args.count <= 0:
+        raise ValueError("count must be positive")
     config = {"repository": str(repo), "git_commit": pin, "job_name": JOB_NAME, "walltime": args.walltime,
               "workspace": str(workspace), "dataset_root": str(args.dataset.resolve()), "count": args.count,
               "trial": args.trial,
               "max_tokens": args.max_tokens if args.max_tokens is not None else TRIALS[args.trial][2], "model_id": MODEL_ID, "model_revision": MODEL_REVISION,
               "serving": SERVING, "approval": args.approval, "scientific_result": False}
+    config["generator_model"] = getattr(args, "model", "qwen38")
+    if args.trial == "source-importance":
+        from analysis.interpretability.pipeline.source_importance import PROTOCOL
+        config["judge_protocol"] = PROTOCOL
+    if cells_from:
+        config.update(cells_from=str(cells_from.resolve()),
+                      cells_from_sha256=hashlib.sha256(cells_from.read_bytes()).hexdigest())
     command = ["sbatch", "--parsable", "--no-requeue", "--nodes=1", "--ntasks=1", "--gres=gpu:4", "--exclusive",
                "--cpus-per-task=32", "--mem=0", "--time=" + args.walltime, "--account=" + args.account,
                "--partition=" + args.partition, "--job-name=" + JOB_NAME, "--chdir=" + str(repo),
@@ -187,6 +202,17 @@ def execute(config_path: Path) -> int:
     end = int(datetime.fromisoformat(fields["EndTime"]).timestamp())
     cache = workspace / "serving-cache" / f"nemotron-job{job}"
     prepare, run = stage_commands(config, python=sys.executable, attempt=attempt, cache=cache)
+    if config.get("trial") == "source-importance":
+        from analysis.interpretability.pipeline.source_importance import PROTOCOL
+        if config.get("judge_protocol") != PROTOCOL:
+            raise ValueError("SI protocol mismatch; use the original checkout for historical runs")
+        # Fail before server/model startup if this runtime rejects the SI-v2 schema.
+        check = subprocess.run([sys.executable, str(repo / "analysis/scripts/try_source_importance_judge.py"),
+                                "--check-schema"], cwd=repo, env=env, text=True, capture_output=True)
+        atomic(attempt / "schema-check.json", canonical({"returncode": check.returncode,
+               "stdout": check.stdout, "stderr": check.stderr}))
+        if check.returncode:
+            raise RuntimeError(f"SI schema check failed; inspect {attempt / 'schema-check.json'}")
     atomic(attempt / "nvidia-smi.txt", subprocess.check_output(["nvidia-smi"], text=True).encode())
     atomic(attempt / "execution.json", canonical({"job_id": job, "started_at": time.time(), "prepare": prepare,
            "run": run, "git_commit": config["git_commit"], "compiler": compiler_environment(),
@@ -236,6 +262,8 @@ def main(argv=None) -> int:
                    help="approved wall-time; this trial allows only one hour")
     s.add_argument("--approval", required=True)
     s.add_argument("--trial", choices=sorted(TRIALS), default="source-importance")
+    s.add_argument("--model", choices=["qwen38", "llama4"], default="qwen38", help="generator corpus to judge")
+    s.add_argument("--cells-from", type=Path, help="replay the exact cells from a saved smoke cells.jsonl")
     s.add_argument("--count", type=int, default=12)
     s.add_argument("--max-tokens", type=int, help="default: 640 for source-importance, 4096 for claims-v3")
     s.add_argument("--dry-run", action="store_true")

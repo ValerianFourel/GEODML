@@ -71,6 +71,22 @@ def test_dry_run_prints_one_exclusive_four_gpu_hour(tmp_path, clean_git, capsys)
     assert not (tmp_path / "run").exists()
 
 
+def test_replay_selection_and_llama_model_reach_the_frozen_command(tmp_path, clean_git):
+    import hashlib
+    ws, ds = workspace(tmp_path)
+    cells = tmp_path / "cells.jsonl"
+    cells.write_text('{"fingerprint":"example"}\n')
+    args = submit_args(tmp_path, ws, ds, model="llama4", cells_from=cells, dry_run=False, no_submit=True)
+    assert nemo.submit(args) == 0
+    config = json.loads((args.output / "config.json").read_text())
+    assert config["judge_protocol"] == "agentic-source-importance-v2"
+    assert config["cells_from_sha256"] == hashlib.sha256(cells.read_bytes()).hexdigest()
+    _, command = nemo.stage_commands(config, python="/rt/bin/python", attempt=tmp_path, cache=tmp_path / "cache")
+    assert command[command.index("--model") + 1] == "llama4"
+    assert command[command.index("--cells-from") + 1] == str(cells)
+    assert command[command.index("--cells-from-sha256") + 1] == config["cells_from_sha256"]
+
+
 def test_submit_refuses_without_verified_weights_or_approval(tmp_path, clean_git):
     ws, ds = workspace(tmp_path, verified=False)
     with pytest.raises(ValueError, match="download and verify"):
@@ -81,6 +97,38 @@ def test_submit_refuses_without_verified_weights_or_approval(tmp_path, clean_git
     (tmp_path / "second/run").mkdir()
     with pytest.raises(ValueError, match="already exists"):
         nemo.submit(submit_args(tmp_path / "second", ws2, ds2))
+
+
+def test_rejected_native_schema_stops_execution_before_model_start(tmp_path, clean_git, monkeypatch):
+    from analysis.scripts import horeka_qwen_bouts, verify_inference_allocation
+
+    ws, ds = workspace(tmp_path)
+    args = submit_args(tmp_path, ws, ds, dry_run=False, no_submit=True)
+    assert nemo.submit(args) == 0
+    monkeypatch.setenv("SLURM_JOB_ID", "123")
+    monkeypatch.setattr(verify_inference_allocation, "verify", lambda cluster: {"verified": True})
+    monkeypatch.setattr(horeka_qwen_bouts, "compiler_environment", lambda: {})
+
+    def command_output(command, **kwargs):
+        if command[0] == "scontrol":
+            return f"JobName={nemo.JOB_NAME} TimeLimit=01:00:00 EndTime=2026-09-29T10:00:00"
+        if "rev-parse" in command:
+            return "a" * 40 + "\n"
+        if "status" in command:
+            return ""
+        pytest.fail(f"unexpected command before schema acceptance: {command}")
+
+    def reject_schema(command, **kwargs):
+        if "--check-schema" not in command:
+            pytest.fail(f"model preparation started despite rejected schema: {command}")
+        return SimpleNamespace(returncode=1, stdout="", stderr="unsupported schema")
+
+    monkeypatch.setattr(nemo.subprocess, "check_output", command_output)
+    monkeypatch.setattr(nemo.subprocess, "run", reject_schema)
+    with pytest.raises(RuntimeError, match="SI schema check failed"):
+        nemo.execute(args.output / "config.json")
+    diagnostic = json.loads((args.output / "attempts/job123/schema-check.json").read_text())
+    assert diagnostic == {"returncode": 1, "stdout": "", "stderr": "unsupported schema"}
 
 
 def test_walltime_is_limited_to_the_approved_hour():

@@ -543,11 +543,13 @@ async def _execute_one(item, *, client, fake):
         raise ValueError("maximum validation attempts must be a positive integer")
     if maximum_validation_attempts > 1 and feedback_contract not in {
             "search-experience-validation-feedback-v1", CLAIMS_RETRY_CONTRACT,
-            SOURCE_IMPORTANCE_RETRY_CONTRACT}:
+            "si-identical-retry-v1", SOURCE_IMPORTANCE_RETRY_CONTRACT}:
         raise ValueError("unknown validation feedback contract")
-    # Claims v3 and source importance: retry with the identical prompt (only the seed
-    # differs), treat a cut-off output as a failure, and record every attempt's category.
-    identical_retry = feedback_contract in {CLAIMS_RETRY_CONTRACT, SOURCE_IMPORTANCE_RETRY_CONTRACT}
+    # Legacy contracts keep identical prompts. SI-v2 corrects the precise rejected
+    # quotation, but retains the same attempt bounds and failure classifications.
+    si_corrective = feedback_contract == SOURCE_IMPORTANCE_RETRY_CONTRACT
+    identical_retry = feedback_contract in {CLAIMS_RETRY_CONTRACT, "si-identical-retry-v1"}
+    categorized = identical_retry or si_corrective
     with inference_task_context(item["base"]):
         try:
             prompt = str(item["prompt"])
@@ -582,16 +584,24 @@ async def _execute_one(item, *, client, fake):
                     validation_attempt_count=validation_attempt,
                     rejected_output_sha256=list(rejected_hashes),
                 )
+                if si_corrective:
+                    attempt_record = {"attempt": validation_attempt, "seed": seed,
+                                      "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+                                      "raw_output": raw, "usage": dict(usage), "ok": False}
+                    result.setdefault("validation_attempts", []).append(attempt_record)
                 try:
-                    if identical_retry and usage.get("finish_reason") == "length":
+                    if categorized and usage.get("finish_reason") == "length":
                         raise JudgeOutputTruncatedError("output reached max_tokens")
                     parsed = item["validator"](raw)
                 except Exception as exc:
                     rejected_hashes.append(hashlib.sha256(raw.encode()).hexdigest())
                     result["rejected_output_sha256"] = list(rejected_hashes)
-                    if identical_retry:
+                    if categorized:
                         result.setdefault("failure_categories", []).append(
                             getattr(exc, "category", "semantic"))
+                    if si_corrective:
+                        attempt_record.update(error=f"{type(exc).__name__}: {exc}",
+                                              failure_category=getattr(exc, "category", "semantic"))
                     if validation_attempt == maximum_validation_attempts:
                         raise
                     if not identical_retry:
@@ -600,12 +610,14 @@ async def _execute_one(item, *, client, fake):
                         )
                     continue
                 result.update(parsed_output=parsed, ok=True)
+                if si_corrective:
+                    attempt_record["ok"] = True
                 break
         except AuditWriteError:
             raise
         except Exception as exc:  # noqa: BLE001 - task failures are durable outcomes
             result.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-            if identical_retry:
+            if categorized:
                 result["failure_category"] = getattr(exc, "category", "transport")
     result.update(finished_at=_now(), duration_seconds=time.monotonic() - started)
     return result

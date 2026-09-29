@@ -1,4 +1,4 @@
-"""Source-importance judge (SI-v1): one completed answer x one observed source.
+"""Source-importance judge (SI-v2): one completed answer x one observed source.
 
 The judge grades 0-5 how central the answer content supported by ONE source is
 within the answer the generator actually wrote, with exact answer and source
@@ -33,9 +33,9 @@ from .agentic_judging import (
 )
 from .search_experience import _source_alignment_form
 
-PROTOCOL = "agentic-source-importance-v1"
-TASK_VERSION = "source-importance-task-v1"
-RETRY_CONTRACT = "si-identical-retry-v1"
+PROTOCOL = "agentic-source-importance-v2"
+TASK_VERSION = "source-importance-task-v2"
+RETRY_CONTRACT = "si-corrective-retry-v2"
 MAXIMUM_MATCHES = 3
 QUOTE_MAXIMUM_CHARACTERS = 320
 DEFAULT_MAX_TOKENS = 640
@@ -76,7 +76,14 @@ result; do not assume this source must support something.
 Return JSON only. First list the matches, then the grade. For grade 0 the matches
 list is empty. For grades 1-5 give 1 to 3 matches, most important first. Each match
 copies an exact passage from one answer unit and an exact passage from the source
-(its title or its text) that supports it, 3 to 40 words each, without paraphrasing."""
+(its title or its text) that supports it. Copy the shortest sufficient contiguous
+passage, normally 3 to 15 words and at most 40 words. Preserve qualifications and
+negation: shorten a passage only when its meaning remains clear in its full unit.
+Copy character-for-character from the named answer unit and named source field.
+Do not paraphrase, join separated passages, invent ellipses, change spacing or
+Markdown, or copy title text while naming the text field (or vice versa).
+Before returning, check that each quotation actually occurs in the named input.
+If nothing is supported, return exactly {"matches": [], "importance": 0}."""
 
 
 # Deterministic preprocessing ---------------------------------------------------------------
@@ -86,7 +93,7 @@ def source_host(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
-_GENERATOR_ID_MARKER = re.compile(r"\[S\d+\]|\(S\d+\)")
+_GENERATOR_ID_MARKER = re.compile(r"\[\s*S\d+(?:\s*,\s*S\d+)*\s*\]|\(\s*S\d+(?:\s*,\s*S\d+)*\s*\)")
 
 
 def mask_answer_citations(answer: str, source_urls: Sequence[str]) -> tuple[str, list[dict[str, Any]]]:
@@ -162,21 +169,24 @@ def render_source_prompt(*, request: str, units: Sequence[Mapping[str, Any]], ti
 def source_importance_schema(unit_ids: Sequence[str]) -> dict[str, Any]:
     # xgrammar rejects uniqueItems/prefixItems; the validator enforces the rest.
     quote = {"type": "string", "minLength": 1, "maxLength": QUOTE_MAXIMUM_CHARACTERS}
-    return {
-        "type": "object", "additionalProperties": False, "required": ["matches", "importance"],
+    match = {
+        "type": "object", "additionalProperties": False,
+        "required": ["answer_unit_id", "answer_quote", "evidence_field", "evidence_quote"],
         "properties": {
-            "matches": {"type": "array", "maxItems": MAXIMUM_MATCHES, "items": {
-                "type": "object", "additionalProperties": False,
-                "required": ["answer_unit_id", "answer_quote", "evidence_field", "evidence_quote"],
-                "properties": {
-                    "answer_unit_id": {"type": "string", "enum": list(unit_ids)},
-                    "answer_quote": quote,
-                    "evidence_field": {"type": "string", "enum": list(EVIDENCE_FIELDS)},
-                    "evidence_quote": quote,
-                }}},
-            "importance": {"type": "integer", "enum": [0, 1, 2, 3, 4, 5]},
-        },
-    }
+            "answer_unit_id": {"type": "string", "enum": list(unit_ids)},
+            "answer_quote": quote,
+            "evidence_field": {"type": "string", "enum": list(EVIDENCE_FIELDS)},
+            "evidence_quote": quote,
+        }}
+    # Disjoint branches keep the grade/matches contract inside constrained decoding.
+    # Keep matches first in each branch, as in SI-v1.
+    return {"anyOf": [
+        {"type": "object", "additionalProperties": False, "required": ["matches", "importance"],
+         "properties": {
+             "matches": {"type": "array", "minItems": minimum, "maxItems": maximum, "items": match},
+             "importance": {"type": "integer", "enum": grades}}}
+        for minimum, maximum, grades in ((0, 0, [0]), (1, MAXIMUM_MATCHES, [1, 2, 3, 4, 5]))
+    ]}
 
 
 def locate_quote(haystack: str, quote: str) -> tuple[int, int] | None:
@@ -214,7 +224,7 @@ def validate_source_importance(
     unit_text = {unit["unit_id"]: unit["text"] for unit in units}
     fields = {"title": title, "text": text}
     result, seen = [], set()
-    for match in matches:
+    for index, match in enumerate(matches, 1):
         if not isinstance(match, Mapping):
             raise JudgeOutputSchemaError("each match must be an object")
         _exact_keys(match, {"answer_unit_id", "answer_quote", "evidence_field", "evidence_quote"}, "match")
@@ -226,13 +236,13 @@ def validate_source_importance(
                    for q in (answer_quote, evidence_quote)):
             raise JudgeOutputSchemaError("quotes must be non-empty strings within the length limit")
         if unit_id not in unit_text:
-            raise JudgeOutputError(f"unknown answer unit: {unit_id!r}")
+            raise JudgeOutputError(f"match {index}: unknown answer unit: {unit_id!r}")
         answer_span = locate_quote(unit_text[unit_id], answer_quote)
         if answer_span is None:
-            raise JudgeOutputError(f"answer quote not found in {unit_id}")
+            raise JudgeOutputError(f"match {index}: answer quote not found in {unit_id}: {answer_quote!r}")
         evidence_span = locate_quote(fields[field], evidence_quote)
         if evidence_span is None:
-            raise JudgeOutputError(f"evidence quote not found in source {field}")
+            raise JudgeOutputError(f"match {index}: evidence quote not found in source {field}: {evidence_quote!r}")
         key = (unit_id, answer_span, field, evidence_span)
         if key in seen:
             raise JudgeOutputError("duplicate match")
@@ -262,24 +272,38 @@ def prepare_source_task(
     title, text = str(source.get("title") or ""), str(source.get("text") or "")
     masked, mask_spans = mask_answer_citations(answer, observed_urls)
     units = unitize_answer(masked)
+    item = _source_item(request=request, units=units, title=title, text=text, max_tokens=max_tokens)
+    host = source_host(str(source.get("url") or ""))
+    item["base"].update(mask_spans=mask_spans, source_url=source.get("url"),
+                        answer_names_source_url=bool(host) and any(
+                            span["kind"] == "source_link" and source_host(span["original"]) == host
+                            for span in mask_spans))
+    return item
+
+
+def _source_item(*, request: str, units: Sequence[Mapping[str, Any]], title: str, text: str,
+                 max_tokens: int) -> dict[str, Any]:
+    """One owner for preparation and replay: recompute prompt, identity and seed."""
+    _required_text(request, "request")
+    if type(max_tokens) is not int or max_tokens <= 0:
+        raise ValueError("max_tokens must be a positive integer")
+    if not units or [u["unit_id"] for u in units] != [f"a{i}" for i in range(1, len(units) + 1)]:
+        raise ValueError("answer units must be nonempty and numbered a1..aN")
+    for unit in units:
+        _required_text(unit["text"], "answer unit text")
     schema = source_importance_schema([unit["unit_id"] for unit in units])
     prompt = render_source_prompt(request=request, units=units, title=title, text=text)
+    prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
     identity = {"protocol": PROTOCOL, "task_version": TASK_VERSION,
-                "request_sha256": hashlib.sha256(request.encode()).hexdigest(),
-                "units": [unit["text"] for unit in units], "title": title, "text": text,
-                "schema_sha256": _digest(schema), "max_tokens": max_tokens}
+                "prompt_sha256": prompt_hash, "schema_sha256": _digest(schema),
+                "max_tokens": max_tokens, "temperature": 0.0, "retry_contract": RETRY_CONTRACT}
     task_id = f"{TASK_VERSION}-" + _digest(identity)[:24]
-    host = source_host(str(source.get("url") or ""))
     return {
         "base": {"judge_task_id": task_id, "protocol": PROTOCOL, "task": "source_importance",
                  "task_version": TASK_VERSION, "fake_backend": False, "units": units,
-                 "mask_spans": mask_spans, "source_url": source.get("url"),
-                 "request": request, "source_title": title, "source_text": text,
-                 "answer_names_source_url": bool(host) and any(
-                     span["kind"] == "source_link" and source_host(span["original"]) == host
-                     for span in mask_spans)},
+                 "request": request, "source_title": title, "source_text": text},
         "prompt": prompt,
-        "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+        "prompt_sha256": prompt_hash,
         "schema_name": TASK_VERSION.replace("-", "_"),
         "schema": schema,
         "schema_sha256": _digest(schema),
@@ -305,7 +329,8 @@ def task_record(item: Mapping[str, Any]) -> dict[str, Any]:
     common = {"judge_task_id": base["judge_task_id"], "task": base["task"],
               "task_version": base["task_version"], "protocol": base["protocol"],
               "max_tokens": item["max_tokens"], "prompt_sha256": item["prompt_sha256"],
-              "schema_sha256": item["schema_sha256"], "seed": item["seed"]}
+              "schema_sha256": item["schema_sha256"], "seed": item["seed"],
+              "retry_contract": item.get("validation_feedback_contract")}
     if base["task"] == "source_importance":
         return {**common, "request": base["request"], "units": base["units"],
                 "source_title": base["source_title"], "source_text": base["source_text"]}
@@ -328,20 +353,13 @@ def prepare_fulfilment_task(*, request: str, answer: str, max_tokens: int = 64) 
 def item_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
     """Rebuild a runnable item (with validator) and prove it matches the frozen record."""
 
+    if record.get("protocol") != PROTOCOL:
+        raise ValueError("incompatible SI protocol; replay SI-v1 with its original pinned checkout")
     if record.get("task") == "source_importance":
         units = [dict(unit) for unit in record["units"]]
         title, text = record["source_title"], record["source_text"]
-        schema = source_importance_schema([unit["unit_id"] for unit in units])
-        prompt = render_source_prompt(request=record["request"], units=units, title=title, text=text)
-        item = {
-            "base": {"judge_task_id": record["judge_task_id"], "protocol": PROTOCOL,
-                     "task": "source_importance", "task_version": TASK_VERSION, "fake_backend": False},
-            "prompt": prompt, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
-            "schema_name": TASK_VERSION.replace("-", "_"), "schema": schema, "schema_sha256": _digest(schema),
-            "validator": lambda raw: validate_source_importance(raw, units=units, title=title, text=text),
-            "temperature": 0.0, "max_tokens": record["max_tokens"], "seed": record["seed"],
-            "maximum_validation_attempts": 2, "validation_feedback_contract": RETRY_CONTRACT,
-        }
+        item = _source_item(request=record["request"], units=units, title=title, text=text,
+                            max_tokens=record["max_tokens"])
     elif record.get("task") == "fulfilment":
         item = prepare_fulfilment_task(request=record["request"], answer=record["answer"],
                                        max_tokens=record["max_tokens"])
@@ -350,8 +368,11 @@ def item_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
     for key in ("prompt_sha256", "schema_sha256", "seed"):
         if item[key] != record[key]:
             raise ValueError(f"stored task {record['judge_task_id']} no longer reproduces its {key}")
-    if item["base"]["judge_task_id"] != record["judge_task_id"]:
-        raise ValueError("stored task identity does not reproduce")
+    for key in ("judge_task_id", "task_version"):
+        if item["base"][key] != record[key]:
+            raise ValueError(f"stored task {key} does not reproduce")
+    if item.get("validation_feedback_contract") != record.get("retry_contract"):
+        raise ValueError("stored task retry contract does not reproduce")
     return item
 
 

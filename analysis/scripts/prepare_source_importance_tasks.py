@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze SI-v1 judge tasks (one answer x one source, plus J1) from sealed generator cells.
+"""Freeze SI-v2 judge tasks (one answer x one source, plus J1) from sealed generator cells.
 
 Read-only on the generator datasets. Writes a new output folder:
 - tasks.jsonl.gz: unique task records (identical semantic tasks appear once);
@@ -128,6 +128,10 @@ def build_cell(cell: dict, *, max_tokens: int, j1_max_tokens: int,
     ranking = list(generation.get("ranking") or [])
     if len(ranking) != len(set(ranking)) or not set(ranking) <= set(presented):
         return {**record, "status": "ranking_outside_evidence"}, tasks
+    masked, mask_spans = si.mask_answer_citations(answer, presented)
+    record.update(answer_mask_spans=mask_spans,
+                  judged_answer_sha256=hashlib.sha256(answer.encode()).hexdigest(),
+                  masked_answer_sha256=hashlib.sha256(masked.encode()).hexdigest())
     # Primary: the complete answer the generator wrote (J1 sees the same text).
     j1 = si.prepare_fulfilment_task(request=request, answer=answer, max_tokens=j1_max_tokens)
     tasks.append(si.task_record(j1))
@@ -139,6 +143,7 @@ def build_cell(cell: dict, *, max_tokens: int, j1_max_tokens: int,
         stored_j1 = si.prepare_fulfilment_task(request=request, answer=stored, max_tokens=j1_max_tokens)
         tasks += stored_tasks + [si.task_record(stored_j1)]
         record["stored_answer_sensitivity"] = {"sources": stored_sources,
+                                               "answer_mask_spans": si.mask_answer_citations(stored, presented)[1],
                                                "j1_task_id": stored_j1["base"]["judge_task_id"]}
     return {**record, "status": "no_observed_sources" if not evidence else "ok",
             "presented": presented, "generator_ranking": ranking,

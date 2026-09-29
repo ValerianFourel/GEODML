@@ -42,6 +42,13 @@ def test_masking_hides_only_source_identifying_markers_and_is_reversible():
     assert si.mask_answer_citations("No citations here.", URLS) == ("No citations here.", [])
 
 
+def test_grouped_citations_are_masked_without_removing_substantive_text():
+    answer = "Advice (S1, S2, S5); [S3, S7]. Keep S1 model and (2026, 2027)."
+    masked, spans = si.mask_answer_citations(answer, [])
+    assert masked == "Advice [ref]; [ref]. Keep S1 model and (2026, 2027)."
+    assert si.unmask_answer(masked, spans) == answer
+
+
 def test_prompt_is_blind_to_the_source_url_and_cell_metadata():
     prepared = item()
     prompt = prepared["prompt"]
@@ -69,8 +76,18 @@ def test_schema_avoids_rejected_keywords_and_enumerates_units():
     schema = item()["schema"]
     text = json.dumps(schema)
     assert "uniqueItems" not in text and "prefixItems" not in text
-    assert schema["properties"]["matches"]["items"]["properties"]["answer_unit_id"]["enum"][0] == "a1"
-    assert list(schema["properties"]) == ["matches", "importance"]
+    for branch in schema["anyOf"]:
+        assert branch["properties"]["matches"]["items"]["properties"]["answer_unit_id"]["enum"][0] == "a1"
+        assert list(branch["properties"]) == ["matches", "importance"]
+
+
+def test_schema_enforces_grade_match_consistency():
+    jsonschema = pytest.importorskip("jsonschema")
+    validator = jsonschema.Draft202012Validator(item()["schema"])
+    assert validator.is_valid({"matches": [], "importance": 0})
+    assert validator.is_valid({"matches": [match()], "importance": 3})
+    assert not validator.is_valid({"matches": [match()], "importance": 0})
+    assert not validator.is_valid({"matches": [], "importance": 3})
 
 
 def test_empty_source_is_unassessable_not_zero():
@@ -142,15 +159,21 @@ def run(prepared, client):
     return asyncio.run(runner._execute_one(prepared, client=client, fake=False))
 
 
-def test_one_identical_retry_after_a_bad_quote_then_success():
+def test_one_corrective_retry_after_a_bad_quote_then_success():
     prepared = item()
     bad = json.dumps({"matches": [match(evidence_quote="not in source")], "importance": 3})
     good = json.dumps({"matches": [match()], "importance": 4})
     client = FakeClient([(bad, "stop"), (good, "stop")])
     result = run(prepared, client)
     assert result["ok"] is True and result["parsed_output"]["importance"] == 4
-    assert client.prompts == [prepared["prompt"]] * 2 and client.seeds[0] != client.seeds[1]
+    assert client.prompts[0] == prepared["prompt"]
+    assert client.prompts[1].startswith(prepared["prompt"])
+    assert "not in source" in client.prompts[1] and "match 1" in client.prompts[1]
+    assert client.seeds[0] != client.seeds[1]
     assert result["failure_categories"] == ["semantic"]
+    assert [a["raw_output"] for a in result["validation_attempts"]] == [bad, good]
+    assert [a["ok"] for a in result["validation_attempts"]] == [False, True]
+    assert len({a["prompt_sha256"] for a in result["validation_attempts"]}) == 2
 
 
 def test_failures_stay_failures_and_are_never_scored_zero():
@@ -160,6 +183,48 @@ def test_failures_stay_failures_and_are_never_scored_zero():
     assert "parsed_output" not in truncated
     transport = run(item(), FakeClient([(ConnectionError("down"), None)]))
     assert transport["ok"] is False and transport["failure_category"] == "transport"
+
+
+def test_pasted_paraphrase_is_rejected_but_its_exact_supported_span_is_accepted():
+    answer = ("2. **Forecasting & Demand Planning**: Look for capabilities in forecasting future demand "
+              "and managing supply chain logistics, as these are critical facets of modern inventory control.")
+    prepared = item(answer=answer, source={"title": "Inventory", "text": "forecasting future demand"})
+    bad = {"answer_unit_id": "a1", "answer_quote": "It should support forecasting future demand",
+           "evidence_field": "text", "evidence_quote": "forecasting future demand"}
+    with pytest.raises(JudgeOutputError, match="match 1: answer quote not found in a1"):
+        prepared["validator"]({"matches": [bad], "importance": 2})
+    good = {**bad, "answer_quote": "forecasting future demand"}
+    assert prepared["validator"]({"matches": [good], "importance": 2})["matches"][0]["answer_quote"] == \
+        "forecasting future demand"
+
+
+def test_corrective_retry_exhaustion_preserves_both_failures():
+    bad = json.dumps({"matches": [match(answer_quote="Made up advice")], "importance": 4})
+    client = FakeClient([(bad, "stop"), (bad, "stop")])
+    result = run(item(), client)
+    assert result["ok"] is False and "parsed_output" not in result
+    assert result["failure_categories"] == ["semantic", "semantic"]
+    assert [a["ok"] for a in result["validation_attempts"]] == [False, False]
+    assert len(client.prompts) == 2
+
+
+@pytest.mark.parametrize("contract", ["claims-v3-identical-retry-v1", "si-identical-retry-v1"])
+def test_legacy_retry_contracts_keep_the_original_prompt(contract):
+    from analysis.interpretability.pipeline.agentic_judging import CLAIMS_RETRY_CONTRACT
+    prepared = item()
+    prepared["validation_feedback_contract"] = CLAIMS_RETRY_CONTRACT if contract.startswith("claims") else contract
+    bad = json.dumps({"matches": [match(evidence_quote="missing")], "importance": 3})
+    good = json.dumps({"matches": [], "importance": 0})
+    client = FakeClient([(bad, "stop"), (good, "stop")])
+    result = run(prepared, client)
+    assert result["ok"] and result["parsed_output"] == {"matches": [], "importance": 0}
+    assert client.prompts == [prepared["prompt"], prepared["prompt"]]
+
+
+def test_rubric_change_invalidates_task_identity(monkeypatch):
+    original = item()
+    monkeypatch.setattr(si, "INSTRUCTIONS", si.INSTRUCTIONS + "\nChanged rubric.")
+    assert item()["base"]["judge_task_id"] != original["base"]["judge_task_id"]
 
 
 # Code-derived metrics ------------------------------------------------------------------------

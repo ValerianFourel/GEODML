@@ -1,4 +1,4 @@
-"""SI-v1 task freezing, condition-manipulation audit and keyword-cluster bootstrap on fixture data."""
+"""SI-v2 task freezing, condition-manipulation audit and keyword-cluster bootstrap on fixture data."""
 
 import gzip
 import hashlib
@@ -42,7 +42,7 @@ CELLS = {  # condition -> (incoming order after the hook, selected evidence, ans
 }
 
 
-def dataset(tmp_path):
+def dataset(tmp_path, model="qwen38"):
     root = tmp_path / "dataset"
     initialize_dataset(root, population_id="p", acceptance_policy_id="a")
     writer = FinalDatasetWriter(root, writer_id="fixture")
@@ -53,7 +53,7 @@ def dataset(tmp_path):
         task_id = f"cell-{condition}"
         identity = ClaimIdentity(task_id=task_id, model_id="m", model_revision="a" * 40, protocol="p",
                                  request_sha256=hashlib.sha256(task_id.encode()).hexdigest())
-        writer.append("task_definitions", {"task_id": task_id, "prompt_id": "q1", "model": "qwen38",
+        writer.append("task_definitions", {"task_id": task_id, "prompt_id": "q1", "model": model,
                                            "stage": "generation", "method": "Parallel-Expansion-v1",
                                            "engine": "ddg", "condition": condition,
                                            "claim_identity": asdict(identity)}, transaction_id="d" + task_id)
@@ -107,6 +107,17 @@ def test_stored_task_records_refuse_to_drift(tmp_path):
     assert si.item_from_record(record)["prompt"] == item["prompt"]
     with pytest.raises(ValueError, match="reproduce"):
         si.item_from_record({**record, "source_text": "Asana is paid only."})
+
+
+@pytest.mark.parametrize("change", [
+    {"judge_task_id": "wrong-identity"}, {"seed": 42},
+    {"protocol": "agentic-source-importance-v1"}, {"task_version": "source-importance-task-v1"},
+])
+def test_frozen_source_tasks_reject_identity_seed_and_version_changes(change):
+    record = si.task_record(si.prepare_source_task(request="Q?", answer=ANSWER, source=A,
+                                                  observed_urls=[A["url"]]))
+    with pytest.raises(ValueError):
+        si.item_from_record({**record, **change})
 
 
 def test_audit_classifies_erased_shuffle_and_ablation_exposure(tmp_path):
@@ -248,3 +259,90 @@ def test_smoke_driver_runs_every_source_and_derives_metrics(tmp_path, monkeypatc
     summary = json.loads((out / "summary.json").read_text())
     assert summary["grade_distribution"] == {"0": 2, "4": 1} or summary["grade_distribution"] == {0: 2, 4: 1}
     assert "EXAMPLE_REQUEST_CASE_BLOCK" in capsys.readouterr().out
+    assert summary["status"] == "passed" and summary["complete_cells"] == 3
+    frozen = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
+    assert all(si.item_from_record(task)["base"]["judge_task_id"] == task["judge_task_id"] for task in frozen)
+
+
+def test_frozen_cell_preserves_the_citation_mask_mapping():
+    answer = ANSWER + " (S1, S2)."
+    record, tasks = prepare.build_cell(cell_for(answer, trace([A, B], [A, B])), max_tokens=640, j1_max_tokens=64)
+    masked, spans = si.mask_answer_citations(answer, [A["url"], B["url"]])
+    assert record["answer_mask_spans"] == spans and len(spans) == 1
+    assert si.unmask_answer(masked, record["answer_mask_spans"]) == answer
+    assert record["judged_answer_sha256"] == hashlib.sha256(answer.encode()).hexdigest()
+    assert all("(S1, S2)" not in si.item_from_record(t)["prompt"]
+               for t in tasks if t["task"] == "source_importance")
+
+
+def test_smoke_replays_exact_llama_cells_with_different_sampling_seed(tmp_path, monkeypatch):
+    from analysis.scripts import run_acl_arr_vllm, try_source_importance_judge as smoke
+    monkeypatch.setattr(run_acl_arr_vllm, "VllmChatClient", ScriptedServer)
+    root = dataset(tmp_path, model="llama4")
+    out, replay = tmp_path / "original", tmp_path / "replay"
+    argv = ["--dataset-root", str(root), "--base-url", "http://x/v1", "--server-model-name", "m",
+            "--count", "3", "--model", "llama4"]
+    assert smoke.main([*argv, "--output", str(out)]) == 0
+    saved = out / "cells.jsonl"
+    assert smoke.main([*argv, "--output", str(replay), "--seed", "999", "--cells-from", str(saved),
+                       "--cells-from-sha256", hashlib.sha256(saved.read_bytes()).hexdigest()]) == 0
+    original = [json.loads(line) for line in saved.read_text().splitlines()]
+    repeated = [json.loads(line) for line in (replay / "cells.jsonl").read_text().splitlines()]
+    assert [r["fingerprint"] for r in repeated] == [r["fingerprint"] for r in original]
+    assert all(r["model"] == "llama4" for r in repeated)
+    assert (out / "tasks.jsonl").read_bytes() == (replay / "tasks.jsonl").read_bytes()
+
+
+@pytest.mark.parametrize("field", ["fingerprint", "generation_record_id", "trace_record_id", "model", "checksum"])
+def test_smoke_refuses_changed_replay_records(tmp_path, monkeypatch, field):
+    from analysis.scripts import run_acl_arr_vllm, try_source_importance_judge as smoke
+    monkeypatch.setattr(run_acl_arr_vllm, "VllmChatClient", ScriptedServer)
+    root = dataset(tmp_path)
+    out = tmp_path / "original"
+    argv = ["--dataset-root", str(root), "--base-url", "http://x/v1", "--server-model-name", "m", "--count", "3"]
+    assert smoke.main([*argv, "--output", str(out)]) == 0
+    original = (out / "cells.jsonl").read_bytes()
+    saved = [json.loads(line) for line in original.splitlines()]
+    if field != "checksum":
+        saved[0][field] = "changed"
+    selection = tmp_path / "changed.jsonl"
+    selection.write_text("".join(json.dumps(r) + "\n" for r in saved) + "\n")
+    replay = tmp_path / "replay"
+    checksum_args = ["--cells-from-sha256", hashlib.sha256(original).hexdigest()] if field == "checksum" else []
+    assert smoke.main([*argv, "--output", str(replay), "--cells-from", str(selection), *checksum_args]) == 1
+    assert "replay" in json.loads((replay / "summary.json").read_text())["error"]
+    assert not (replay / "results.jsonl").exists()
+
+
+@pytest.mark.parametrize("failure", ["source", "j1", "connection", "insufficient"])
+def test_smoke_failure_is_nonzero_and_preserves_diagnostics(tmp_path, monkeypatch, failure):
+    from analysis.scripts import run_acl_arr_vllm, try_source_importance_judge as smoke
+    root, out = dataset(tmp_path), tmp_path / "smoke"
+
+    class FailingServer(ScriptedServer):
+        async def __aenter__(self):
+            # These real files must already exist even if connecting to the model fails.
+            assert (out / "tasks.jsonl").is_file() and (out / "cells.jsonl").is_file()
+            if failure == "connection":
+                raise ConnectionError("server unavailable")
+            return self
+
+        async def complete(self, **kwargs):
+            j1 = "request_fulfillment" in json.dumps(kwargs["schema"])
+            if (failure == "j1" and j1) or (failure == "source" and not j1):
+                return "{}", {"finish_reason": "stop"}
+            return await super().complete(**kwargs)
+
+    monkeypatch.setattr(run_acl_arr_vllm, "VllmChatClient", FailingServer)
+    assert smoke.main(["--dataset-root", str(root), "--output", str(out), "--base-url", "http://x/v1",
+                       "--server-model-name", "m", "--count", "4" if failure == "insufficient" else "3"]) == 1
+    report = json.loads((out / "summary.json").read_text())
+    assert report["status"] == "failed"
+    if failure == "insufficient":
+        assert "requested 4 cells, only 3 available" in report["error"]
+    elif failure == "connection":
+        assert "server unavailable" in report["execution_error"]
+    else:
+        failed = report["tasks"]["fulfilment" if failure == "j1" else "source_importance"]
+        assert failed["requests"] > 0 and failed["ok"] == 0
+        assert (out / "results.jsonl").read_text()
