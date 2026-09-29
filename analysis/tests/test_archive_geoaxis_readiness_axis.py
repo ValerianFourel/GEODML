@@ -78,6 +78,24 @@ def test_apply_uploads_privately_and_verifies(tmp_path, tree, monkeypatch, capsy
         axis.main(argv(tmp_path, "--apply"))
 
 
+def test_pack_keeps_many_files_in_one_verified_tarball(tmp_path, tree, monkeypatch):
+    import tarfile
+    for index in range(30):
+        (tree / "judge-queue/primary-frontier" / f"t{index}.json").write_text(str(index))
+    monkeypatch.setattr("analysis.scripts.archive_geoaxis_prompts_26k.MANIFEST_MAX_BYTES", 50)
+    assert axis.main(["--staging", str(tmp_path / "staging"), "--pack", f"judges/queue={tree / 'judge-queue'}",
+                      "--pack-manifests", f"acquisition/phase1={tree / 'phase1'}"]) == 0
+    with tarfile.open(tmp_path / "staging/judges/queue.tar.gz") as tar:
+        names = set(tar.getnames())
+    assert "primary-frontier/t29.json" in names and "env.sh" not in names and len(names) == 31
+    members = (tmp_path / "staging/judges/queue.members.tsv").read_text().splitlines()
+    assert len(members) == 32  # header + 31 members
+    with tarfile.open(tmp_path / "staging/acquisition/phase1.tar.gz") as tar:
+        assert sorted(tar.getnames()) == ["job.log", "run_manifest.json"]
+    manifest = (tmp_path / "staging/MANIFEST.tsv").read_text()
+    assert "judges/queue.tar.gz" in manifest and "judges/queue.members.tsv" in manifest
+
+
 def test_rejects_group_destinations_that_escape_the_repo(tmp_path, tree):
     with pytest.raises(SystemExit, match="bad group"):
         axis.main(["--staging", str(tmp_path / "s"), "--group", f"../x={tmp_path / 'subspace'}"])

@@ -19,13 +19,15 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 import sys
+import tarfile
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.scripts.archive_geoaxis_prompts_26k import (  # noqa: E402
-    stage, upload_private, write_manifest)
+    allowed, sha256_file, stage, upload_private, write_manifest)
 
 DEFAULT_REPO = "ValerianFourel/geoaxis-readiness-axis"
 
@@ -48,6 +50,31 @@ def parse_groups(values, manifests_only):
             raise SystemExit(f"bad group {value!r}; use DEST/FOLDER=/source/path")
         items.append((dest.strip("/"), path, Path(path).is_dir(), (), manifests_only))
     return items
+
+
+def pack(staging, dest, source, manifests_only, max_bytes, left_out):
+    """Pack a file-heavy folder into DEST.tar.gz plus DEST.members.tsv (the Hub limits files per folder)."""
+    out = staging / f"{dest}.tar.gz"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    members = []
+    with tarfile.open(out, "w:gz") as tar:
+        for folder, dirs, names in os.walk(source):
+            dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "__pycache__")
+            for name in sorted(names):
+                path = os.path.join(folder, name)
+                if os.path.islink(path) or not os.path.isfile(path):
+                    continue
+                rel = os.path.normpath(os.path.relpath(path, source))
+                size = os.path.getsize(path)
+                if not allowed(dest, rel, path, size, max_bytes, left_out, lambda group, rel: True, manifests_only):
+                    continue
+                tar.add(path, arcname=rel, recursive=False)
+                members.append((rel, size, sha256_file(path)))
+    listing = staging / f"{dest}.members.tsv"
+    listing.write_text("path\tbytes\tsha256\n" + "".join(f"{r}\t{s}\t{d}\n" for r, s, d in members))
+    source = os.path.realpath(source)
+    return [(f"{dest}.tar.gz", out.stat().st_size, sha256_file(out), source),
+            (f"{dest}.members.tsv", listing.stat().st_size, sha256_file(listing), source)], len(members)
 
 
 def readme(rows, left_out):
@@ -79,7 +106,9 @@ the private codebook), `judges/` (raw judge outputs), `subspace/bundle/`
 `subspace/maps/` (fitted maps, diagnostics, coordinates),
 `subspace/robustness|comparisons|confirmations/`, and `acquisition/` (manifests
 and logs of the source-sampling runs). `MANIFEST.tsv` lists every file with its
-sha256 and original cluster path.
+sha256 and original cluster path. File-heavy folders (for example the judge
+queue) are packed as `<name>.tar.gz` with `<name>.members.tsv` listing every
+member with its sha256; unpack with `tar -xzf <name>.tar.gz`.
 
 Code: `analysis/scripts/build_readiness_hf_dataset.py` (assemble, embed,
 fit-subspace, robustness-battery, finalize) and
@@ -105,15 +134,28 @@ def main(argv=None):
     parser.add_argument("--group", action="append", default=[], help="DEST=/path: file or folder, stored under DEST")
     parser.add_argument("--manifests-only", action="append", default=[],
                         help="DEST=/path: only manifests, logs and small text files (<=50 MB) of this folder")
+    parser.add_argument("--pack", action="append", default=[],
+                        help="DEST=/folder: pack the whole folder as DEST.tar.gz (for folders with many files)")
+    parser.add_argument("--pack-manifests", action="append", default=[],
+                        help="DEST=/folder: pack only its manifests, logs and small text files as DEST.tar.gz")
     parser.add_argument("--max-file-gb", type=float, default=5.0)
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--apply", action="store_true", help="upload; without it only the staging tree is built")
     args = parser.parse_args(argv)
     items = parse_groups(args.group, False) + parse_groups(args.manifests_only, True)
-    if not items:
-        raise SystemExit("nothing to archive: pass --group or --manifests-only")
+    packs = parse_groups(args.pack, False) + parse_groups(args.pack_manifests, True)
+    if not items and not packs:
+        raise SystemExit("nothing to archive: pass --group, --manifests-only, --pack or --pack-manifests")
+    for dest, path, is_dir, _, _ in packs:
+        if not is_dir:
+            raise SystemExit(f"missing folder for pack {dest}: {path}")
     staging = Path(args.staging)
-    rows, left_out = stage(staging, items, int(args.max_file_gb * 1e9), restricted_ok=lambda group, rel: True)
+    max_bytes = int(args.max_file_gb * 1e9)
+    rows, left_out = stage(staging, items, max_bytes, restricted_ok=lambda group, rel: True)
+    for dest, path, _, _, manifests_only in packs:
+        packed, count = pack(staging, dest, path, manifests_only, max_bytes, left_out)
+        rows += packed
+        print(f"PACKED {dest}: {count} files into {packed[0][1] / 1e6:.1f} MB")
     rows = write_manifest(staging, rows, readme(rows, left_out))
 
     groups = collections.defaultdict(lambda: [0, 0])
