@@ -344,3 +344,22 @@ cited baseline.
   of upload. A script was drafted and tested with a fake Hub. Adding it to the page
   was blocked by the permission system as creating a public surface, so it needs
   Valerian's explicit permission or a private alternative.
+
+Valerian approved the **public** mirror on 30 Sep ("make it public"). The audit
+page gained step 5 and step 6:
+
+- **Step 5** writes `audits/publication-audit/activations_upload.py` and starts
+  tmux `emnlp-activations`. It creates the public dataset
+  `ValerianFourel/geodml-emnlp-2026-probing-activations` with a README
+  (provenance, companion repos, Llama/Qwen attribution) and runs
+  `upload_large_folder` over `GEODML_Analysis/interpretability/output`, 4 workers,
+  resumable. It then compares every file's size on the Hub with JUPITER and
+  ends with `ACTIVATIONS_UPLOAD_COMPLETE`.
+  - `SCOPE=without-t7-full` leaves out the 471 GB `t7_chunks_full` (about 80 GB).
+  - Expected 1.5–3 days for the full 548 GB.
+  - Start it after the general archive; `geodml-papersize` and
+    `geodml-emnlp-2026` stay untouched.
+- **Step 6** watches the upload.
+
+The script was tested with a fake Hub for both scopes; the generated tmux script
+passes `bash -n`.
