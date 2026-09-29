@@ -233,3 +233,29 @@ Next: push `062f06a`, then run geoaxis steps 2–4, then leave-jupiter step 6
   - **Code, commit `7cfd94f`:** new `archive_geoaxis_readiness_axis.py`, driven by `--group DEST=PATH` and `--manifests-only DEST=PATH` arguments. Staging, `MANIFEST.tsv` and private upload with verification are shared with the 26k archiver, refactored into `stage`, `write_manifest` and `upload_private` with no change in behaviour.
   - **Tests:** 11 archive tests pass.
 - Page `geoaxis-readiness-axis.html` has read-only step 1 so far. It prints the inputs recorded in each map, embedding and assembly manifest, the sizes of the readiness runs, and the 20k judge queue, task bank and codebook. The dry run and upload steps follow once that output is back.
+
+## Readiness-axis discovery and staging plan
+
+User-pasted discovery:
+- **Subspace root** `…/runs/semantic-readiness-subspace/7679b314…-20260820T104733Z`, 887 MB:
+  - `bundle` 222 MB (restricted-local 121, huggingface-safe 102)
+  - `embeddings` 321 MB (qwen3-8b 160 MB, mistral runtime-v3 161 MB)
+  - `maps` 31 MB, `huggingface-datasets` 223 MB, `question-populations` 91 MB, plus robustness, comparisons, confirmations
+- **Maps:** qwen v2 (commit 9ec2ff4) and mistral v3 (commit 116417e) were both fit on restricted-local `prompts.jsonl` sha256 `9cbefcc5…` and `annotations.jsonl` `965c1319…`, judges primary-frontier / replicate-frontier-a / -b, ridge 1.0.
+- **Bundle** (commit 7679b31) inputs:
+  - corpus `semantic-readiness-incremental/40527b0…/incremental-corpus/semantic_readiness_expanded_corpus.jsonl` `b4d6339d…`
+  - codebook `…/semantic-readiness-20k-abstention/4c9cd20…-four-judge-v2/task-bank-four-judge-v2/readiness_label_codebook_private.jsonl` `063e0fc4…`
+  - queue root `…/judge-queue` (121 MB, 85,955 files; judges gemma4-31b primary, qwen3-32b-a, ministral3-8b-b, llama3.3-70b-c)
+  - restricted sources: WildChat only (3,200 prompts)
+- **Other runs:**
+  - `fc361dd…` (an earlier aborted 20k root) is not archived.
+  - A stray directory `4c9cd20…-four-judge-\nv2` with a newline in its name is ignored.
+
+Code `9e4b2a0` (pushed): `--pack` / `--pack-manifests` store file-heavy folders as `DEST.tar.gz` plus `DEST.members.tsv` (per-member sha256), because the Hub allows at most 10,000 files per folder. 12 archive tests pass.
+
+Page `geoaxis-readiness-axis.html`: steps 0 setup, 1 discovery (done), 2 dry run, 3 upload in tmux `geoaxis-axis`, 4 check against the recorded input hashes. The dry run writes `audits/leave-jupiter/geoaxis-axis.sh`:
+- **groups:** subspace, task-bank, corpus, the judge run's `*.txt`
+- **packs:** judge-queue, the incremental run
+- **manifests-only packs:** judge slurm; phase1, expansion and base-axis acquisition runs; readiness-axis-reports / validation / factor-stress; the fscratch HF export 141c9c0b
+
+The generated script was simulated and passes `bash -n`. Nothing has run on JUPITER.
