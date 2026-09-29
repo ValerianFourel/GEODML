@@ -218,3 +218,18 @@ permission system; Valerian must push before running on JUPITER).**
 
 Next: push `062f06a`, then run geoaxis steps 2–4, then leave-jupiter step 6
 (replan), 7 and 8.
+
+## GeoAxis 26k upload started; readiness-axis archive prepared
+
+- GeoAxis 26k dry run (user-pasted), pin `062f06a`:
+  - 271 files, 9.66 GB staged; `EMBEDDING_SHARDS 16`, both contract hashes match, `DRY_RUN_OK`
+  - the plan (`…/question-populations/readiness-30k-v2-20260822T102133Z-58192518/plan-support-aware`) and the selection manifest (`/e/project1/…/runs/acl-arr-search-experience/pilot-500-axis-balanced-a559b7058277/selection-manifest.json`) were found
+  - `checkpoint/` is 8.7 GB: all ~740k candidates and their validation
+  - the upload started in tmux `geoaxis-26k` on jpbl-s03-01 at 16:21; completion is not yet confirmed
+- Pushed to GitHub: `961ad0b..9b6e5c7`, then `..7cfd94f`.
+- Readiness-axis construction:
+  - **Decisions (Valerian):** a new private repo `ValerianFourel/geoaxis-readiness-axis`. The restricted-local scope (about 3,200 WildChat, MS MARCO and LMSYS rows, with their grades and embeddings) is included by owner decision, against the runbook rule and LMSYS terms. Upstream content is the raw judge outputs, the corpus, task bank and codebook, and source-acquisition manifests and logs only. Earlier map variants are excluded.
+  - **Pipeline:** `semantic_readiness_hf_dataset_jupiter_runbook.md`. Everything is under project1 `$GEODML_RUNS_ROOT`. The subspace root (887 MB) holds `bundle`, `embeddings`, `maps`, `robustness`, `comparisons`, `confirmations`, `question-populations` and `huggingface-datasets`.
+  - **Code, commit `7cfd94f`:** new `archive_geoaxis_readiness_axis.py`, driven by `--group DEST=PATH` and `--manifests-only DEST=PATH` arguments. Staging, `MANIFEST.tsv` and private upload with verification are shared with the 26k archiver, refactored into `stage`, `write_manifest` and `upload_private` with no change in behaviour.
+  - **Tests:** 11 archive tests pass.
+- Page `geoaxis-readiness-axis.html` has read-only step 1 so far. It prints the inputs recorded in each map, embedding and assembly manifest, the sizes of the readiness runs, and the 20k judge queue, task bank and codebook. The dry run and upload steps follow once that output is back.
