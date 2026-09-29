@@ -90,3 +90,49 @@ depth with size/file thresholds. Output saved to
 Home contains many readiness/axis pointer files (`geodml-readiness-*`,
 `geodml-axis-v2-*`, `important_commands.txt`, `nltk_data`), per the user's `ls`.
 The HF upload design for non-result data waits on the inventory sizes.
+
+## Llama confirmed complete; Hugging Face archive replaces the local tar
+
+User-pasted results on 2026-09-29 (jpbl-s02-01):
+- Llama status: registry revision `64d79e59fd40`, 1,008 packages
+  (1,006 complete, 2 blocked), 310,374 of 310,380 cells completed, 6 terminal
+  failed, 0 left, 0 owned, 0 unpublished attempts: `LLAMA_FULLY_DONE=yes`.
+  Rounds: 1 (4 COMPLETED/1 FAILED), 5 (9/1), 6 (18/2), 7 (5/1), 8 (0/1, 4,578
+  cells), llama-five-872875d (5/0); rounds 2–4 never submitted.
+- Qwen: 24,218 verified on disk, 24,218 already published, `new_cells 0`.
+- Llama publish rerun: `already_synced 56`, nothing else to do.
+- Checklist: no Slurm jobs, lock free, no crontab. A tmux session
+  `geodml-agentic-resume` (created 13 Sep) is still running on jpbl-s02-01. Other
+  login nodes can't be reached by ssh (publickey). Token files:
+  `$BASE/huggingface-acl-arr/token`, `~/.cache/huggingface/token`, `~/.git-credentials`.
+- Old tar step: local-only 372 MB, audit files under 50 MB 58.7 GB, plus many
+  0.8–1.8 GB recovery forensics files (`audits/recovery-*`); over the 20 GB
+  guard, so it stopped.
+
+Valerian chose to put this data in a Hugging Face "jupiter archive" dataset.
+Page changes (steps now 0–9, all on JUPITER, no Mac step):
+- Fixes: the llama-done `tee` path (was `$PREP` outside the subshell);
+  "no crontab for USER" no longer counts as an entry; tmux sessions are now
+  flagged; the checklist knows the fscratch token path and checks archive
+  completion instead of a tar file.
+- Step 6 writes `audits/leave-jupiter/hf-archive/hf_archive.py` (embedded in the
+  page) and plans roots `fs=/e/fscratch/scifi/fourel1` and `home=$HOME`. It
+  excludes `geodml/src`, `geodml/python`, `geodml/huggingface-acl-arr`,
+  `geodml/audits/leave-jupiter`, and home's `.cache`, `.ssh`, `.local`, `.config`,
+  `nltk_data`, `.vscode-server`. Also excluded: secret file names, files ≤2 MB
+  containing token patterns, and `*.safetensors`/`*.gguf`. Files are grouped
+  into ~10 GB units. It reports mentions of LMSYS/WildChat, and the run refuses
+  them without `--accept-restricted`. 150 GB guard.
+- Step 7 uploads in tmux `hf-archive` (the token is typed inside tmux) to the
+  private dataset `ValerianFourel/geodml-jupiter-archive-private`: per unit,
+  `tar | gzip -1` into parts of ≤5 GB, members list, manifest, one commit, then
+  size/sha256 checked on the Hub before local parts are deleted. Resumable via
+  local done markers. It finishes with `index/` (file→unit TSVs, plan summary)
+  and a README.
+- Step 8 watches; step 9 removes tokens after `ARCHIVE_COMPLETE=yes`.
+
+Verification: archiver tested locally end to end with a fake Hub (secret and
+weight exclusion, restricted gate, transient-error retry, resume skip,
+byte-identical restore including symlinks); all page blocks pass `bash -n`,
+embedded Python parses, the embedded script is identical to the tested one,
+and the generated tmux `run.sh` passes `bash -n`. Not run on JUPITER.
