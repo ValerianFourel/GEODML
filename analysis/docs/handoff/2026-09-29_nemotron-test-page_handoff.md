@@ -30,3 +30,14 @@ no commit was pushed here. No native xgrammar or live SI-v2 results received yet
 Next: inspect returned schema/replay outputs before expanding to fresh Qwen/Llama
 samples or estimating production bouts. Earlier implementation handoff remains
 [here](2026-09-29_nemotron-si-v2-fix_handoff.md).
+
+## Follow-up in the same session
+
+Valerian then explicitly requested that Codex push the code and provide commands
+for one login shell and one node shell. Pushed successfully to
+`origin/codex/pilot-continuation` (remote advanced from `55b7a4a` to `a30ab00`,
+including tested code `1722926`). Simplified the page to three blocks: login
+checkout/schema check, existing-node replay, login results. Removed the Mac push
+and historical-job status steps. Rechecked all three saved shell blocks with
+`bash -n` and reopened the page in Safari. The page continues to pin `1722926`;
+later commits contain handoff documentation only. No remote execution occurred.
