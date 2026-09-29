@@ -301,3 +301,16 @@ The audit page covers these in five steps:
 - `sacct`: exports 2026 jobs to `audits/slurm-accounting/` with a GPU-hour summary
 
 No decisions about further uploads until the output is back.
+
+Scope decision (Valerian, 29 Sep): the publication is the **new, improved version**
+(Experiment V2 on the GeoAxis readiness axis), not the finished EMNLP/DML paper.
+The audit page is reordered to match:
+0. setup
+1. Experiment V2 pilots and other runs (priority)
+2. Slurm accounting (priority)
+3. EMNLP Hub comparison (optional legacy check)
+4. 515 GB interpretability (optional legacy check)
+
+EMNLP data is already public on the Hub. It only needs uploading if small final
+results (for example probing tables) turn out to be missing and are wanted as a
+cited baseline.
