@@ -52,3 +52,22 @@ owned packages. Output is saved to `$PREP/llama-done-<time>.txt`. Verdict
 0 cells left and 0 owned packages; terminal-failed cells are reported separately.
 All blocks pass `bash -n`/`ast.parse`; the verdict logic was exercised locally
 with synthetic yes/no inputs only. Not run on JUPITER.
+
+## Llama status from the user's JUPITER output (2026-09-29)
+
+Round 8 ran as job 2102836 (1 × 5 h, jpbo-037-48, 28 Sep 12:28–15:17, 02:49:02)
+and ended FAILED, exit 1. The cause is the runner's deliberate
+`RuntimeError: 3 agentic-search cells failed after bounded retry`; the
+EngineDeadError in the server log appears at shutdown. Ledger for writer
+`jupiter-llama-5hour-e3b2bb8d4e6e-1`: completed 4,578, terminal_failed 3,
+which accounts for all 4,581 cells the registry still listed as left. Before
+publishing, the registry showed 305,796 completed and 3 terminal failed of
+310,380 planned; the attempt was `not synced` and owned 17 packages. After
+page step 3 publishes it, expect about 310,374 completed and 6 terminal-failed
+cells. Valerian decided to leave those 6 stragglers for later; they are known
+failures, not a reason for automatic retries.
+
+JUPITER login banner: $FSCRATCH retention is 30 days, and cleanup starts on
+2026-10-01. The page now warns to finish publish/archive/download before then.
+Next, in order: page step 3, step 1 (want 0 unpublished, 0 owned, 0 left),
+step 4, step 5, step 6 on the Mac, step 7, then step 2.
