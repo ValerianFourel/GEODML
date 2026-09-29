@@ -179,3 +179,19 @@ Qwen cells. With zero fully measured cells, time to a complete valid corpus is
 unknown. Do not divide by the success rate and assume repeated retries will cure
 systematic quote failures. User still forbids implementation changes. No new
 allocation, benchmark, retry, or production launch was prepared or submitted.
+
+
+## Random generator-answer inspection command
+
+Valerian next requested the total compute calculation and five random Qwen and
+Llama answers with their prompts. Prepared a read-only HoreKa login-shell command
+using the existing `completed_generator_refs`, `iter_cells`, and `judged_answer`
+helpers from the pinned Nemotron checkout. Selects five cells **per model** with
+seed string `20260929:<model>`, prints original user prompts, full recoverable
+answers and method/engine/condition/answer-source metadata. Prefix-only answers
+remain labelled. Paths: Qwen `$DS`; Llama `$W/llama-hf/dataset`, confirmed from
+`llama-from-hub.html`. Missing datasets are reported without downloads. The block
+also totals verified local cells and applies the measured 27.68 seconds/cell.
+Command syntax was checked locally; cluster output is still to be supplied.
+No Opus source or tests changed. Full-population estimate remains 4,799.3 timed
+node-hours / about 1,011 five-hour bouts with assumed 15-minute overhead each.
