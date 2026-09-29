@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze SI-v2 judge tasks (one answer x one source, plus J1) from sealed generator cells.
+"""Freeze SI-v3 judge tasks (one answer x one source, plus J1) from sealed generator cells.
 
 Read-only on the generator datasets. Writes a new output folder:
 - tasks.jsonl.gz: unique task records (identical semantic tasks appear once);

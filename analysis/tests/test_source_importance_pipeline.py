@@ -1,4 +1,4 @@
-"""SI-v2 task freezing, condition-manipulation audit and keyword-cluster bootstrap on fixture data."""
+"""SI-v3 task freezing, condition-manipulation audit and keyword-cluster bootstrap on fixture data."""
 
 import gzip
 import hashlib
@@ -112,12 +112,22 @@ def test_stored_task_records_refuse_to_drift(tmp_path):
 @pytest.mark.parametrize("change", [
     {"judge_task_id": "wrong-identity"}, {"seed": 42},
     {"protocol": "agentic-source-importance-v1"}, {"task_version": "source-importance-task-v1"},
+    {"protocol": "agentic-source-importance-v2"}, {"retry_contract": "si-corrective-retry-v2"},
 ])
 def test_frozen_source_tasks_reject_identity_seed_and_version_changes(change):
     record = si.task_record(si.prepare_source_task(request="Q?", answer=ANSWER, source=A,
                                                   observed_urls=[A["url"]]))
     with pytest.raises(ValueError):
         si.item_from_record({**record, **change})
+
+
+@pytest.mark.parametrize("field", ["units", "evidence_units"])
+def test_frozen_tasks_recompute_passage_maps_and_reject_changed_offsets(field):
+    record = si.task_record(si.prepare_source_task(request="Q?", answer=ANSWER, source=A,
+                                                  observed_urls=[A["url"]]))
+    record[field][0]["start"] += 1
+    with pytest.raises(ValueError, match=f"{field} does not reproduce"):
+        si.item_from_record(record)
 
 
 def test_audit_classifies_erased_shuffle_and_ablation_exposure(tmp_path):
@@ -234,9 +244,8 @@ class ScriptedServer:
     async def complete(self, *, prompt, schema_name, schema, temperature, max_tokens, seed):
         if "request_fulfillment" in json.dumps(schema):
             return json.dumps({"request_fulfillment": 4}), {"completion_tokens": 9, "finish_reason": "stop"}
-        if "Text: Asana has a free plan." in prompt:
-            out = {"matches": [{"answer_unit_id": "a1", "answer_quote": "Asana has a free plan",
-                                "evidence_field": "text", "evidence_quote": "Asana has a free plan"}], "importance": 4}
+        if "[text1] Asana has a free plan." in prompt:
+            out = {"matches": [{"answer_unit_id": "a1", "evidence_unit_id": "text1"}], "importance": 4}
         else:
             out = {"matches": [], "importance": 0}
         return json.dumps(out), {"completion_tokens": 30, "finish_reason": "stop"}
@@ -262,6 +271,8 @@ def test_smoke_driver_runs_every_source_and_derives_metrics(tmp_path, monkeypatc
     assert summary["status"] == "passed" and summary["complete_cells"] == 3
     frozen = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
     assert all(si.item_from_record(task)["base"]["judge_task_id"] == task["judge_task_id"] for task in frozen)
+    example = json.loads((out / "example.json").read_text())
+    assert example["parsed_output"]["matches"][0]["evidence_quote"] == "Asana has a free plan."
 
 
 def test_frozen_cell_preserves_the_citation_mask_mapping():

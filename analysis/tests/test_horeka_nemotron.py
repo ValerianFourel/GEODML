@@ -79,7 +79,7 @@ def test_replay_selection_and_llama_model_reach_the_frozen_command(tmp_path, cle
     args = submit_args(tmp_path, ws, ds, model="llama4", cells_from=cells, dry_run=False, no_submit=True)
     assert nemo.submit(args) == 0
     config = json.loads((args.output / "config.json").read_text())
-    assert config["judge_protocol"] == "agentic-source-importance-v2"
+    assert config["judge_protocol"] == "agentic-source-importance-v3"
     assert config["cells_from_sha256"] == hashlib.sha256(cells.read_bytes()).hexdigest()
     _, command = nemo.stage_commands(config, python="/rt/bin/python", attempt=tmp_path, cache=tmp_path / "cache")
     assert command[command.index("--model") + 1] == "llama4"

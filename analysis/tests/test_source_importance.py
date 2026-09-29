@@ -1,4 +1,4 @@
-"""Source-importance judge (SI-v1): preprocessing, blinding, validation and code-derived metrics."""
+"""Source-importance judge (SI-v3): preprocessing, blinding, selection and code-derived metrics."""
 
 import asyncio
 import json
@@ -55,7 +55,7 @@ def test_prompt_is_blind_to_the_source_url_and_cell_metadata():
     for hidden in ("trello.com", "https://", "[S2]", "example.org", "Parallel", "Reactive", "qwen", "llama",
                    "shuffled", "ablated", "natural", "rank"):
         assert hidden.lower() not in prompt.split("ANSWER UNITS:")[1].lower()
-    assert "Title: Trello guide" in prompt and "[ref]" in prompt
+    assert "[title1] Trello guide" in prompt and "[ref]" in prompt
     assert prepared["base"]["answer_names_source_url"] is True
     assert prepared["base"]["source_url"] == SOURCE["url"]  # identity kept outside the prompt
 
@@ -78,6 +78,8 @@ def test_schema_avoids_rejected_keywords_and_enumerates_units():
     assert "uniqueItems" not in text and "prefixItems" not in text
     for branch in schema["anyOf"]:
         assert branch["properties"]["matches"]["items"]["properties"]["answer_unit_id"]["enum"][0] == "a1"
+        assert branch["properties"]["matches"]["items"]["properties"]["evidence_unit_id"]["enum"] == [
+            "title1", "text1", "text2"]
         assert list(branch["properties"]) == ["matches", "importance"]
 
 
@@ -88,6 +90,10 @@ def test_schema_enforces_grade_match_consistency():
     assert validator.is_valid({"matches": [match()], "importance": 3})
     assert not validator.is_valid({"matches": [match()], "importance": 0})
     assert not validator.is_valid({"matches": [], "importance": 3})
+    assert not validator.is_valid({"matches": [match(evidence="text99")], "importance": 3})
+    assert not validator.is_valid({"matches": [match(unit="a99")], "importance": 3})
+    assert not validator.is_valid({"matches": [match()] * 4, "importance": 3})
+    assert not validator.is_valid({"matches": [{**match(), "answer_quote": "invented"}], "importance": 3})
 
 
 def test_empty_source_is_unassessable_not_zero():
@@ -103,32 +109,48 @@ def validate(output):
     return prepared["base"]["units"], prepared["validator"](json.dumps(output))
 
 
-def match(unit="a2", answer_quote="Create a free Trello account", field="text",
-          evidence_quote="Trello's free plan lets you create boards"):
-    return {"answer_unit_id": unit, "answer_quote": answer_quote, "evidence_field": field,
-            "evidence_quote": evidence_quote}
+def match(unit="a2", evidence="text1"):
+    return {"answer_unit_id": unit, "evidence_unit_id": evidence}
 
 
-def test_positive_grade_with_exact_quotes_gets_offsets_and_tolerates_typography():
-    units, result = validate({"matches": [match()], "importance": 4})
+def test_selected_passages_resolve_exact_text_and_offsets():
+    units, result = validate({"matches": [{"answer_unit_id": "a2", "evidence_unit_id": "text1"}], "importance": 4})
     assert result["importance"] == 4
     row = result["matches"][0]
-    assert row["evidence_quote"] == "Trello’s free plan lets you create boards"  # canonical source text
+    assert row["evidence_quote"] == "Trello’s free plan lets you create boards and lists."
     assert SOURCE["text"][row["evidence_start"]:row["evidence_end"]] == row["evidence_quote"]
     unit = next(u for u in units if u["unit_id"] == "a2")
-    assert unit["text"][row["answer_start"]:row["answer_end"]] == "Create a free Trello account"
+    assert unit["text"][row["answer_start"]:row["answer_end"]] == "- Create a free Trello account."
+    assert row["evidence_unit_id"] == "text1" and row["evidence_field"] == "text"
+
+
+@pytest.mark.parametrize("field", ["title", "text"])
+def test_selection_retains_long_unicode_passages_and_distinguishes_repeated_text(field):
+    passage = "- **Café** is free only if " + "the qualified condition holds " * 20 + "and does not change."
+    original = "  " + passage + "\n\n" + passage + "  "
+    prepared = item(answer=passage, source={"title": "", "text": "", field: original})
+    result = prepared["validator"]({"matches": [{"answer_unit_id": "a1", "evidence_unit_id": field + "2"}],
+                                    "importance": 4})
+    row = result["matches"][0]
+    assert row["answer_quote"] == row["evidence_quote"] == passage
+    assert len(row["evidence_quote"]) > 320
+    assert row["evidence_field"] == field
+    assert row["evidence_start"] == 2 + len(passage) + 2
+    assert original[row["evidence_start"]:row["evidence_end"]] == passage
 
 
 @pytest.mark.parametrize("output, error", [
     ({"matches": [match()], "importance": 0}, JudgeOutputError),
     ({"matches": [], "importance": 3}, JudgeOutputError),
-    ({"matches": [match(answer_quote="Buy Premium now")], "importance": 2}, JudgeOutputError),
-    ({"matches": [match(evidence_quote="Premium is required")], "importance": 2}, JudgeOutputError),
+    ({"matches": [match(evidence="text99")], "importance": 2}, JudgeOutputError),
     ({"matches": [match(unit="a99")], "importance": 2}, JudgeOutputError),
     ({"matches": [match(), match()], "importance": 2}, JudgeOutputError),
     ({"matches": [], "importance": True}, JudgeOutputSchemaError),
     ({"matches": [], "importance": 6}, JudgeOutputSchemaError),
-    ({"matches": [match(field="url")], "importance": 2}, JudgeOutputSchemaError),
+    ({"matches": [match(evidence=[])], "importance": 2}, JudgeOutputSchemaError),
+    ({"matches": [match(unit=True)], "importance": 2}, JudgeOutputSchemaError),
+    ({"matches": [match()] * 4, "importance": 2}, JudgeOutputSchemaError),
+    ({"matches": [{**match(), "evidence_quote": "invented"}], "importance": 2}, JudgeOutputSchemaError),
     ({"matches": [], "importance": 0, "why": "x"}, JudgeOutputSchemaError),
 ])
 def test_invalid_outputs_are_rejected_with_their_category(output, error):
@@ -159,16 +181,18 @@ def run(prepared, client):
     return asyncio.run(runner._execute_one(prepared, client=client, fake=False))
 
 
-def test_one_corrective_retry_after_a_bad_quote_then_success():
+def test_one_corrective_retry_after_a_bad_selection_then_success():
     prepared = item()
-    bad = json.dumps({"matches": [match(evidence_quote="not in source")], "importance": 3})
+    bad = json.dumps({"matches": [match(evidence="text99")], "importance": 3})
     good = json.dumps({"matches": [match()], "importance": 4})
     client = FakeClient([(bad, "stop"), (good, "stop")])
     result = run(prepared, client)
     assert result["ok"] is True and result["parsed_output"]["importance"] == 4
     assert client.prompts[0] == prepared["prompt"]
     assert client.prompts[1].startswith(prepared["prompt"])
-    assert "not in source" in client.prompts[1] and "match 1" in client.prompts[1]
+    assert "text99" in client.prompts[1] and "match 1" in client.prompts[1]
+    assert "Choose only supplied passage IDs" in client.prompts[1]
+    assert "Do not repeat a rejected quote" not in client.prompts[1]
     assert client.seeds[0] != client.seeds[1]
     assert result["failure_categories"] == ["semantic"]
     assert [a["raw_output"] for a in result["validation_attempts"]] == [bad, good]
@@ -185,21 +209,21 @@ def test_failures_stay_failures_and_are_never_scored_zero():
     assert transport["ok"] is False and transport["failure_category"] == "transport"
 
 
-def test_pasted_paraphrase_is_rejected_but_its_exact_supported_span_is_accepted():
+def test_model_written_quotations_are_rejected_and_selection_resolves_original_passage():
     answer = ("2. **Forecasting & Demand Planning**: Look for capabilities in forecasting future demand "
               "and managing supply chain logistics, as these are critical facets of modern inventory control.")
     prepared = item(answer=answer, source={"title": "Inventory", "text": "forecasting future demand"})
     bad = {"answer_unit_id": "a1", "answer_quote": "It should support forecasting future demand",
            "evidence_field": "text", "evidence_quote": "forecasting future demand"}
-    with pytest.raises(JudgeOutputError, match="match 1: answer quote not found in a1"):
+    with pytest.raises(JudgeOutputSchemaError, match="incorrect keys"):
         prepared["validator"]({"matches": [bad], "importance": 2})
-    good = {**bad, "answer_quote": "forecasting future demand"}
+    good = match(unit="a1", evidence="text1")
     assert prepared["validator"]({"matches": [good], "importance": 2})["matches"][0]["answer_quote"] == \
-        "forecasting future demand"
+        answer
 
 
 def test_corrective_retry_exhaustion_preserves_both_failures():
-    bad = json.dumps({"matches": [match(answer_quote="Made up advice")], "importance": 4})
+    bad = json.dumps({"matches": [match(unit="a99")], "importance": 4})
     client = FakeClient([(bad, "stop"), (bad, "stop")])
     result = run(item(), client)
     assert result["ok"] is False and "parsed_output" not in result
@@ -213,7 +237,7 @@ def test_legacy_retry_contracts_keep_the_original_prompt(contract):
     from analysis.interpretability.pipeline.agentic_judging import CLAIMS_RETRY_CONTRACT
     prepared = item()
     prepared["validation_feedback_contract"] = CLAIMS_RETRY_CONTRACT if contract.startswith("claims") else contract
-    bad = json.dumps({"matches": [match(evidence_quote="missing")], "importance": 3})
+    bad = json.dumps({"matches": [match(evidence="text99")], "importance": 3})
     good = json.dumps({"matches": [], "importance": 0})
     client = FakeClient([(bad, "stop"), (good, "stop")])
     result = run(prepared, client)
@@ -225,6 +249,33 @@ def test_rubric_change_invalidates_task_identity(monkeypatch):
     original = item()
     monkeypatch.setattr(si, "INSTRUCTIONS", si.INSTRUCTIONS + "\nChanged rubric.")
     assert item()["base"]["judge_task_id"] != original["base"]["judge_task_id"]
+
+
+def test_original_text_and_offsets_affect_identity_even_when_rendered_passages_match():
+    original = item()
+    source_spaces = item(source={**SOURCE, "text": "  " + SOURCE["text"]})
+    answer_spaces = item(answer="  " + ANSWER)
+    for changed in (source_spaces, answer_spaces):
+        assert changed["prompt"] == original["prompt"]
+        assert changed["base"]["judge_task_id"] != original["base"]["judge_task_id"]
+
+
+def test_legacy_si_v2_keeps_quote_feedback_and_attempt_records():
+    prepared = item()
+    prepared["validation_feedback_contract"] = "si-corrective-retry-v2"
+
+    def old_validator(raw):
+        if raw == "bad":
+            raise JudgeOutputError("match 1: evidence quote not found in source text: 'invented'")
+        return {"importance": 0, "matches": []}
+
+    prepared["validator"] = old_validator
+    client = FakeClient([("bad", "stop"), ("good", "stop")])
+    result = run(prepared, client)
+    assert result["ok"] and [a["raw_output"] for a in result["validation_attempts"]] == ["bad", "good"]
+    assert client.prompts[1].startswith(prepared["prompt"])
+    assert "Do not repeat a rejected quote." in client.prompts[1] and "'invented'" in client.prompts[1]
+    assert "Choose only supplied passage IDs" not in client.prompts[1]
 
 
 # Code-derived metrics ------------------------------------------------------------------------

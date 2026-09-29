@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test SI-v2 on a few finished cells; diagnostic only, no scientific result.
+"""Smoke-test SI-v3 on a few finished cells; diagnostic only, no scientific result.
 
 Runs inside `search_vllm_stage.py run` (authenticated loopback Nemotron server).
 Reads a generator dataset read-only, picks cells deterministically (alternating
@@ -196,6 +196,7 @@ async def main_async(args) -> int:
         print("EXAMPLE_REQUEST_CASE_BLOCK\n" + example["prompt"].split("Return JSON only.")[1].split("\n\n", 1)[1],
               flush=True)
         print("EXAMPLE_RAW_OUTPUT " + str(example["raw_output"]), flush=True)
+        print("EXAMPLE_RESOLVED_OUTPUT " + json.dumps(example["parsed_output"], ensure_ascii=False), flush=True)
     print("SUMMARY " + json.dumps(report, default=str), flush=True)
     return 0 if passed else 1
 
@@ -219,7 +220,7 @@ def main(argv=None) -> int:
     if args.check_schema:
         import importlib.metadata
         import xgrammar
-        schema = si.source_importance_schema(["a1", "a2"])
+        schema = si.source_importance_schema(["a1", "a2"], ["title1", "text1", "text2"])
         xgrammar.Grammar.from_json_schema(json.dumps(schema))
         print(json.dumps({"status": "accepted", "protocol": si.PROTOCOL,
                           "xgrammar_version": importlib.metadata.version("xgrammar"),

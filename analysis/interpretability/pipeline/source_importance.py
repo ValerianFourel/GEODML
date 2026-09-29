@@ -1,10 +1,11 @@
-"""Source-importance judge (SI-v2): one completed answer x one observed source.
+"""Source-importance judge (SI-v3): one completed answer x one observed source.
 
 The judge grades 0-5 how central the answer content supported by ONE source is
 within the answer the generator actually wrote, with exact answer and source
-quotations as provenance. Rankings and alignment metrics are computed here in
-code; grades are never normalized into shares of use. This measures semantic
-support and its centrality in the completed answer, not internal model reliance,
+passages selected by ID and resolved to exact quotations as provenance. Rankings
+and alignment metrics are computed here in code; grades are never normalized into
+shares of use. This measures semantic support and its centrality in the completed
+answer, not internal model reliance,
 factual correctness, or answer-independent relevance.
 
 The judge sees only the request, the (citation-masked) answer split into
@@ -31,15 +32,12 @@ from .agentic_judging import (
     _required_text,
     segment_sentences,
 )
-from .search_experience import _source_alignment_form
 
-PROTOCOL = "agentic-source-importance-v2"
-TASK_VERSION = "source-importance-task-v2"
-RETRY_CONTRACT = "si-corrective-retry-v2"
+PROTOCOL = "agentic-source-importance-v3"
+TASK_VERSION = "source-importance-task-v3"
+RETRY_CONTRACT = "si-selection-retry-v3"
 MAXIMUM_MATCHES = 3
-QUOTE_MAXIMUM_CHARACTERS = 320
 DEFAULT_MAX_TOKENS = 640
-EVIDENCE_FIELDS = ("title", "text")
 MASK_TOKEN = "[ref]"
 
 INSTRUCTIONS = """You grade how important ONE source is to an answer that has already been written.
@@ -74,15 +72,16 @@ many passages match. Several sources can deserve the same grade. Zero is a norma
 result; do not assume this source must support something.
 
 Return JSON only. First list the matches, then the grade. For grade 0 the matches
-list is empty. For grades 1-5 give 1 to 3 matches, most important first. Each match
-copies an exact passage from one answer unit and an exact passage from the source
-(its title or its text) that supports it. Copy the shortest sufficient contiguous
-passage, normally 3 to 15 words and at most 40 words. Preserve qualifications and
-negation: shorten a passage only when its meaning remains clear in its full unit.
-Copy character-for-character from the named answer unit and named source field.
-Do not paraphrase, join separated passages, invent ellipses, change spacing or
-Markdown, or copy title text while naming the text field (or vice versa).
-Before returning, check that each quotation actually occurs in the named input.
+list is empty. For grades 1-5 select 1 to 3 representative supporting pairs, most
+important first. Each match contains only answer_unit_id (a1, a2, ...) and
+evidence_unit_id (title1, title2, ... or text1, text2, ...), chosen from the IDs
+shown below. Do not write quotations or invent IDs. Do not repeat a pair.
+Select a source passage only when it substantively supports content within the
+selected answer unit under matching qualifications, conditions and negations.
+Units may contain additional material: selecting a pair does not mean every
+clause in the answer unit is supported. Assess the supported content's importance
+in the complete answer using the full source, not the number or length of pairs.
+The program will save the exact selected passages and their character offsets.
 If nothing is supported, return exactly {"matches": [], "importance": 0}."""
 
 
@@ -158,25 +157,34 @@ def is_assessable(source: Mapping[str, Any]) -> bool:
     return bool(str(source.get("title") or "").strip() or str(source.get("text") or "").strip())
 
 
+def unitize_source(*, title: str, text: str) -> list[dict[str, Any]]:
+    """Number each field separately; offsets address the original source field."""
+    return [{"unit_id": f"{field}{index}", "field": field, "text": row["text"],
+             "start": row["start"], "end": row["end"]}
+            for field, original in (("title", title), ("text", text)) if original.strip()
+            for index, row in enumerate(segment_sentences(original), 1)]
+
+
 # Prompt, schema, validation ----------------------------------------------------------------
 
-def render_source_prompt(*, request: str, units: Sequence[Mapping[str, Any]], title: str, text: str) -> str:
+def render_source_prompt(*, request: str, units: Sequence[Mapping[str, Any]],
+                         evidence_units: Sequence[Mapping[str, Any]]) -> str:
     lines = "\n".join(f"[{unit['unit_id']}] {unit['text']}" for unit in units)
+    source = "\n".join(f"[{unit['unit_id']}] {unit['text']}" for unit in evidence_units)
     return (f"{INSTRUCTIONS}\n\nUSER REQUEST:\n{request}\n\nANSWER UNITS:\n{lines}\n\n"
-            f"SOURCE:\nTitle: {title}\nText: {text}")
+            f"SOURCE PASSAGES (title IDs refer to the title; text IDs to the snippet):\n{source}")
 
 
-def source_importance_schema(unit_ids: Sequence[str]) -> dict[str, Any]:
+def source_importance_schema(unit_ids: Sequence[str], evidence_unit_ids: Sequence[str]) -> dict[str, Any]:
     # xgrammar rejects uniqueItems/prefixItems; the validator enforces the rest.
-    quote = {"type": "string", "minLength": 1, "maxLength": QUOTE_MAXIMUM_CHARACTERS}
+    if not unit_ids or not evidence_unit_ids:
+        raise ValueError("source importance requires answer and source passages")
     match = {
         "type": "object", "additionalProperties": False,
-        "required": ["answer_unit_id", "answer_quote", "evidence_field", "evidence_quote"],
+        "required": ["answer_unit_id", "evidence_unit_id"],
         "properties": {
             "answer_unit_id": {"type": "string", "enum": list(unit_ids)},
-            "answer_quote": quote,
-            "evidence_field": {"type": "string", "enum": list(EVIDENCE_FIELDS)},
-            "evidence_quote": quote,
+            "evidence_unit_id": {"type": "string", "enum": list(evidence_unit_ids)},
         }}
     # Disjoint branches keep the grade/matches contract inside constrained decoding.
     # Keep matches first in each branch, as in SI-v1.
@@ -189,26 +197,11 @@ def source_importance_schema(unit_ids: Sequence[str]) -> dict[str, Any]:
     ]}
 
 
-def locate_quote(haystack: str, quote: str) -> tuple[int, int] | None:
-    """Exact span of ``quote`` in ``haystack`` (first occurrence), tolerating only
-    typographic quote/dash/space variants. Provenance only; never entailment."""
-
-    start = haystack.find(quote)
-    if start >= 0:
-        return start, start + len(quote)
-    normalized, offsets = _source_alignment_form(haystack)
-    needle, _ = _source_alignment_form(quote)
-    if not needle.strip():
-        return None
-    start = normalized.find(needle)
-    if start < 0:
-        return None
-    return offsets[start], offsets[start + len(needle) - 1] + 1
-
-
 def validate_source_importance(
-    raw: str | Mapping[str, Any], *, units: Sequence[Mapping[str, Any]], title: str, text: str,
+    raw: str | Mapping[str, Any], *, units: Sequence[Mapping[str, Any]],
+    evidence_units: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    """Resolve IDs to whole canonical passages. Valid selection is not entailment."""
     value = _load_output(raw)
     _exact_keys(value, {"matches", "importance"}, "source importance")
     importance = value["importance"]
@@ -222,36 +215,28 @@ def validate_source_importance(
     if importance > 0 and not matches:
         raise JudgeOutputError("a positive grade needs at least one match")
     unit_text = {unit["unit_id"]: unit["text"] for unit in units}
-    fields = {"title": title, "text": text}
+    evidence = {unit["unit_id"]: unit for unit in evidence_units}
     result, seen = [], set()
     for index, match in enumerate(matches, 1):
         if not isinstance(match, Mapping):
             raise JudgeOutputSchemaError("each match must be an object")
-        _exact_keys(match, {"answer_unit_id", "answer_quote", "evidence_field", "evidence_quote"}, "match")
-        unit_id, field = match["answer_unit_id"], match["evidence_field"]
-        answer_quote, evidence_quote = match["answer_quote"], match["evidence_quote"]
-        if field not in fields:
-            raise JudgeOutputSchemaError("evidence_field must be title or text")
-        if not all(isinstance(q, str) and 0 < len(q) <= QUOTE_MAXIMUM_CHARACTERS
-                   for q in (answer_quote, evidence_quote)):
-            raise JudgeOutputSchemaError("quotes must be non-empty strings within the length limit")
+        _exact_keys(match, {"answer_unit_id", "evidence_unit_id"}, "match")
+        unit_id, evidence_id = match["answer_unit_id"], match["evidence_unit_id"]
+        if not isinstance(unit_id, str) or not isinstance(evidence_id, str):
+            raise JudgeOutputSchemaError(f"match {index}: passage IDs must be strings")
         if unit_id not in unit_text:
             raise JudgeOutputError(f"match {index}: unknown answer unit: {unit_id!r}")
-        answer_span = locate_quote(unit_text[unit_id], answer_quote)
-        if answer_span is None:
-            raise JudgeOutputError(f"match {index}: answer quote not found in {unit_id}: {answer_quote!r}")
-        evidence_span = locate_quote(fields[field], evidence_quote)
-        if evidence_span is None:
-            raise JudgeOutputError(f"match {index}: evidence quote not found in source {field}: {evidence_quote!r}")
-        key = (unit_id, answer_span, field, evidence_span)
+        if evidence_id not in evidence:
+            raise JudgeOutputError(f"match {index}: unknown source passage: {evidence_id!r}")
+        key = (unit_id, evidence_id)
         if key in seen:
-            raise JudgeOutputError("duplicate match")
+            raise JudgeOutputError(f"match {index}: duplicate passage pair: {key!r}")
         seen.add(key)
-        result.append({"answer_unit_id": unit_id, "answer_start": answer_span[0], "answer_end": answer_span[1],
-                       "answer_quote": unit_text[unit_id][answer_span[0]:answer_span[1]],
-                       "evidence_field": field, "evidence_start": evidence_span[0],
-                       "evidence_end": evidence_span[1],
-                       "evidence_quote": fields[field][evidence_span[0]:evidence_span[1]]})
+        passage = evidence[evidence_id]
+        result.append({"answer_unit_id": unit_id, "answer_start": 0, "answer_end": len(unit_text[unit_id]),
+                       "answer_quote": unit_text[unit_id], "evidence_unit_id": evidence_id,
+                       "evidence_field": passage["field"], "evidence_start": passage["start"],
+                       "evidence_end": passage["end"], "evidence_quote": passage["text"]})
     return {"importance": importance, "matches": result}
 
 
@@ -271,8 +256,7 @@ def prepare_source_task(
         raise ValueError("source has neither title nor text; record it as unassessable input")
     title, text = str(source.get("title") or ""), str(source.get("text") or "")
     masked, mask_spans = mask_answer_citations(answer, observed_urls)
-    units = unitize_answer(masked)
-    item = _source_item(request=request, units=units, title=title, text=text, max_tokens=max_tokens)
+    item = _source_item(request=request, masked_answer=masked, title=title, text=text, max_tokens=max_tokens)
     host = source_host(str(source.get("url") or ""))
     item["base"].update(mask_spans=mask_spans, source_url=source.get("url"),
                         answer_names_source_url=bool(host) and any(
@@ -281,33 +265,36 @@ def prepare_source_task(
     return item
 
 
-def _source_item(*, request: str, units: Sequence[Mapping[str, Any]], title: str, text: str,
+def _source_item(*, request: str, masked_answer: str, title: str, text: str,
                  max_tokens: int) -> dict[str, Any]:
     """One owner for preparation and replay: recompute prompt, identity and seed."""
     _required_text(request, "request")
     if type(max_tokens) is not int or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
-    if not units or [u["unit_id"] for u in units] != [f"a{i}" for i in range(1, len(units) + 1)]:
-        raise ValueError("answer units must be nonempty and numbered a1..aN")
-    for unit in units:
-        _required_text(unit["text"], "answer unit text")
-    schema = source_importance_schema([unit["unit_id"] for unit in units])
-    prompt = render_source_prompt(request=request, units=units, title=title, text=text)
+    units = unitize_answer(masked_answer)
+    evidence_units = unitize_source(title=title, text=text)
+    schema = source_importance_schema([unit["unit_id"] for unit in units],
+                                      [unit["unit_id"] for unit in evidence_units])
+    prompt = render_source_prompt(request=request, units=units, evidence_units=evidence_units)
     prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
     identity = {"protocol": PROTOCOL, "task_version": TASK_VERSION,
                 "prompt_sha256": prompt_hash, "schema_sha256": _digest(schema),
+                "source_sha256": _digest({"title": title, "text": text}),
+                "masked_answer_sha256": hashlib.sha256(masked_answer.encode()).hexdigest(),
+                "passages_sha256": _digest({"units": units, "evidence_units": evidence_units}),
                 "max_tokens": max_tokens, "temperature": 0.0, "retry_contract": RETRY_CONTRACT}
     task_id = f"{TASK_VERSION}-" + _digest(identity)[:24]
     return {
         "base": {"judge_task_id": task_id, "protocol": PROTOCOL, "task": "source_importance",
                  "task_version": TASK_VERSION, "fake_backend": False, "units": units,
+                 "masked_answer": masked_answer, "evidence_units": evidence_units,
                  "request": request, "source_title": title, "source_text": text},
         "prompt": prompt,
         "prompt_sha256": prompt_hash,
         "schema_name": TASK_VERSION.replace("-", "_"),
         "schema": schema,
         "schema_sha256": _digest(schema),
-        "validator": lambda raw: validate_source_importance(raw, units=units, title=title, text=text),
+        "validator": lambda raw: validate_source_importance(raw, units=units, evidence_units=evidence_units),
         "temperature": 0.0,
         "max_tokens": max_tokens,
         "seed": int(hashlib.sha256(task_id.encode()).hexdigest()[:8], 16),
@@ -333,6 +320,7 @@ def task_record(item: Mapping[str, Any]) -> dict[str, Any]:
               "retry_contract": item.get("validation_feedback_contract")}
     if base["task"] == "source_importance":
         return {**common, "request": base["request"], "units": base["units"],
+                "masked_answer": base["masked_answer"], "evidence_units": base["evidence_units"],
                 "source_title": base["source_title"], "source_text": base["source_text"]}
     if base["task"] == "fulfilment":
         return {**common, "request": base["request"], "answer": base["answer"]}
@@ -354,12 +342,14 @@ def item_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
     """Rebuild a runnable item (with validator) and prove it matches the frozen record."""
 
     if record.get("protocol") != PROTOCOL:
-        raise ValueError("incompatible SI protocol; replay SI-v1 with its original pinned checkout")
+        raise ValueError("incompatible SI protocol; replay historical SI tasks with their original pinned checkout")
     if record.get("task") == "source_importance":
-        units = [dict(unit) for unit in record["units"]]
         title, text = record["source_title"], record["source_text"]
-        item = _source_item(request=record["request"], units=units, title=title, text=text,
+        item = _source_item(request=record["request"], masked_answer=record["masked_answer"], title=title, text=text,
                             max_tokens=record["max_tokens"])
+        for key in ("units", "evidence_units"):
+            if item["base"][key] != record[key]:
+                raise ValueError(f"stored task {key} does not reproduce")
     elif record.get("task") == "fulfilment":
         item = prepare_fulfilment_task(request=record["request"], answer=record["answer"],
                                        max_tokens=record["max_tokens"])

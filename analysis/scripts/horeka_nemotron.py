@@ -5,7 +5,7 @@ Same model, revision and scientific serving settings as the JUPITER pilot
 (bf16, four-way tensor parallel, 73,728-token window, 0.85 GPU memory,
 eager mode, four concurrent requests, thinking off, temperature 0); only the
 accelerator differs. `execute` runs a trial driver on finished Qwen cells of the
-HoreKa dataset (source importance SI-v2 by default, or the older claims-v3): a
+HoreKa dataset (source importance SI-v3 by default, or the older claims-v3): a
 diagnostic compatibility run, never results.
 """
 from __future__ import annotations
@@ -206,7 +206,7 @@ def execute(config_path: Path) -> int:
         from analysis.interpretability.pipeline.source_importance import PROTOCOL
         if config.get("judge_protocol") != PROTOCOL:
             raise ValueError("SI protocol mismatch; use the original checkout for historical runs")
-        # Fail before server/model startup if this runtime rejects the SI-v2 schema.
+        # Fail before server/model startup if this runtime rejects the SI schema.
         check = subprocess.run([sys.executable, str(repo / "analysis/scripts/try_source_importance_judge.py"),
                                 "--check-schema"], cwd=repo, env=env, text=True, capture_output=True)
         atomic(attempt / "schema-check.json", canonical({"returncode": check.returncode,
