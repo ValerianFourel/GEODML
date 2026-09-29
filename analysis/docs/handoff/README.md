@@ -26,3 +26,4 @@ supersede them with a new dated document that links back.
 - 2026-09-27 — [HoreKa A100 compatibility and the first 30 Qwen bouts](2026-09-27_horeka-a100-bouts_handoff.md)
 - 2026-09-28 — [JUPITER final Llama sweep (6 × 1 h)](2026-09-28_jupiter-llama-final-sweep_handoff.md)
 - 2026-09-28 — [HoreKa Qwen sender (bouts 326–430)](2026-09-28_horeka-qwen-sender_handoff.md)
+- 2026-09-29 — [Nemotron SI-v1 review and production-bout gaps](2026-09-29_nemotron-si-review_handoff.md)
