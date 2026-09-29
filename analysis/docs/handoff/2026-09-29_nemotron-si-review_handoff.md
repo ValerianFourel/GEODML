@@ -145,3 +145,37 @@ current concurrency is 4. Those numbers are scenarios, not a measured budget.
 One five-hour four-A100 bout has a ceiling of 5 node-hours/20 GPU-hours; actual
 number of bouts, runtime margin, concurrency and admission exceptions need fresh
 evidence and explicit approval. No allocating commands prepared in this review.
+
+
+## Subsequent smoke result and runtime estimate
+
+This update supersedes the awaiting-output status above. Valerian pasted the
+finished smoke from job 5169925: 5 cells selected from 48,706 completed Qwen
+cells; 138.4 seconds in the timed judging section; J1 5/5 valid; SI 10/29 valid,
+19/29 terminal semantic failures after 38 semantic failure attempts. Every final
+response ended with `stop`; maximum SI output 444 tokens, below the 640 cap.
+First error: `JudgeOutputError: answer quote not found in a3`. No cell has all
+source grades, so all five alignment results are undefined. Exit zero confirms
+that the diagnostic ran to completion, not that the source judgments passed.
+The example also retains compound citation markers such as `(S3, S5, S7)`;
+previous blanket blinding claims do not cover that observed form. No code changed.
+
+At the observed mix and concurrency 4: 138.4 / 5 = 27.68 node-seconds per cell,
+about 130 cells/hour, including J1 and bounded retries but excluding model startup
+and dataset selection. Linear processing-cost scenarios, not completion forecasts:
+
+| Population | Cells | Timed node-hours | 5-hour bouts with assumed 15-minute overhead |
+| --- | ---: | ---: | ---: |
+| Qwen cells visible to smoke selector | 48,706 | 374.5 | about 79 |
+| One full generator | 312,096 | 2,399.7 | about 506 |
+| Both generators | 624,192 | 4,799.3 | about 1,011 |
+
+The overhead is illustrative, not measured. Both-generator scenario is roughly
+20,200 GPU-hours including that overhead, or 13.2 days at 16 continuously occupied
+nodes / 6.6 days at 32, excluding queue waits. No such concurrency is authorized
+or promised. These extrapolations omit sensitivity work and corpus-wide dedupe,
+assume the same source-count/answer-length mix for Llama, and rely on only five
+Qwen cells. With zero fully measured cells, time to a complete valid corpus is
+unknown. Do not divide by the success rate and assume repeated retries will cure
+systematic quote failures. User still forbids implementation changes. No new
+allocation, benchmark, retry, or production launch was prepared or submitted.
