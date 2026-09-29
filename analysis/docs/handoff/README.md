@@ -33,3 +33,4 @@ supersede them with a new dated document that links back.
 - 2026-09-29 — [SI-v3 replay approved within an existing allocation](2026-09-29_nemotron-si-v3-replay-approved_handoff.md)
 - 2026-09-29 — [Leave JUPITER page](2026-09-29_leave-jupiter_handoff.md)
 - 2026-09-29 — [Nemotron 20-cell review commands and approval](2026-09-29_nemotron-20cell-review_handoff.md)
+- 2026-09-29 — [Nemotron sample selection speed fix](2026-09-29_nemotron-sample-speed_handoff.md)
