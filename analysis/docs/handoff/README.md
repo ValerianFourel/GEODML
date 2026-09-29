@@ -30,3 +30,4 @@ supersede them with a new dated document that links back.
 - 2026-09-29 — [Nemotron SI-v2 quotation fix and local verification](2026-09-29_nemotron-si-v2-fix_handoff.md)
 - 2026-09-29 — [Nemotron test page for the existing new allocation](2026-09-29_nemotron-test-page_handoff.md)
 - 2026-09-29 — [Nemotron SI-v3 passage selection and local verification](2026-09-29_nemotron-si-v3-passages_handoff.md)
+- 2026-09-29 — [Leave JUPITER page](2026-09-29_leave-jupiter_handoff.md)
