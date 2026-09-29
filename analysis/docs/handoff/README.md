@@ -34,3 +34,4 @@ supersede them with a new dated document that links back.
 - 2026-09-29 — [Leave JUPITER page](2026-09-29_leave-jupiter_handoff.md)
 - 2026-09-29 — [Nemotron 20-cell review commands and approval](2026-09-29_nemotron-20cell-review_handoff.md)
 - 2026-09-29 — [Nemotron sample selection speed fix](2026-09-29_nemotron-sample-speed_handoff.md)
+- 2026-09-29 — [Nemotron HoreKa handoff for tomorrow](2026-09-29_nemotron-tomorrow_handoff.md)
