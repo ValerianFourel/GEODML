@@ -314,3 +314,33 @@ The audit page is reordered to match:
 EMNLP data is already public on the Hub. It only needs uploading if small final
 results (for example probing tables) turn out to be missing and are wanted as a
 cited baseline.
+
+## Publication audit results (user-pasted, 29–30 Sep) and archive plan update
+
+- Axis upload started in tmux `geoaxis-axis` on jpbl-s03-01 at 16:50;
+  completion is not yet confirmed, and neither is the 26k upload.
+- **EMNLP `$SCRATCH/data`:** 1,304 files (16.7 GB) are on the Hub. 130 files
+  (0.52 GB) are not on the Hub and 79 files (0.065 GB) changed since the Hub copy,
+  dated 17 May – 1 Jun: the order-probe top-off, features, per-cell run files.
+  The 2 extracted HTML caches (9 GB) are covered by Hub tarballs.
+- **`GEODML_Analysis/interpretability/output`:** 547.8 GB is not on the Hub. Almost
+  all of it is `.npz` probing activation chunks (`t7_chunks_full` 58.9 GB × 8,
+  `adm_chunks_full` 7.4–11.7 GB × 8, `t7_chunks_rw` 0.2–0.3 GB × 8), which would take
+  about 2,000 GPU-h (`prob-*` jobs) to recompute. The small final results are also
+  missing: `probing_results.csv` (changed), probing/ablation/saliency/weights
+  summaries and plots, 23–25 May.
+- **`GEODML_Analysis` code:** no unpushed commits; 46 untracked files (repair
+  reports, DML summaries, `audits/`).
+- **project1 exports:** unpublished `AxisGEO` exports (1.4 GB).
+- **Pilots:** `pilot-3-627ad348c2a0` is 36.95 GB in 770,600 files; its recovery
+  export is on the Hub. The other pilots are small.
+- **General archive plan (page step 6, code pin `062f06a` unchanged):**
+  - roots now in order home, fscratch, scratch, project1
+  - new exclusions: `data/runs/*/phase2/html_cache` (scratch),
+    `GEODML_Analysis/interpretability/output/probing_*/*_chunks_*`, `GEODML_Analysis/hf_stage`
+  - the patterns were checked with the archiver's `walk()`
+- **Public mirror of the complete interpretability output:** Valerian proposed
+  `ValerianFourel/geodml-emnlp-2026-probing-activations`, 551.7 GB, about 1.5–3 days
+  of upload. A script was drafted and tested with a fake Hub. Adding it to the page
+  was blocked by the permission system as creating a public surface, so it needs
+  Valerian's explicit permission or a private alternative.
