@@ -39,3 +39,16 @@ the HTML blocks match the checked sources exactly. Linux-only flags (`find
 Next: inspect the step 1 output. After leaving, AGENTS.md still gives JUPITER
 ownership of the frozen population, reference timings and plan republication;
 moving those roles to HoreKa is a separate change that needs review.
+
+## Follow-up: explicit Llama completion check
+
+At Valerian's request the page gained a read-only step 1, "Is Llama fully
+done?" (later steps renumbered 2–7). It lists live Llama Slurm jobs, end states of
+every Llama round (including whether round 8 was ever submitted), local attempts
+without a `released` sync receipt, and Hub registry totals: planned, completed,
+terminal-failed and remaining Llama cells, unfinished packages by status and
+owned packages. Output is saved to `$PREP/llama-done-<time>.txt`. Verdict
+`LLAMA_FULLY_DONE=yes` requires 0 live Llama jobs, 0 unpublished attempts,
+0 cells left and 0 owned packages; terminal-failed cells are reported separately.
+All blocks pass `bash -n`/`ast.parse`; the verdict logic was exercised locally
+with synthetic yes/no inputs only. Not run on JUPITER.
