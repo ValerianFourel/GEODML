@@ -363,3 +363,33 @@ page gained step 5 and step 6:
 
 The script was tested with a fake Hub for both scopes; the generated tmux script
 passes `bash -n`.
+
+## Status 30 Sep and the two finishing pages
+
+User-pasted status:
+- `GEOAXIS_26K_COMPLETE`: 271 files, 9.66 GB verified, `UPLOAD_EXIT=0`.
+- `GEOAXIS_AXIS_COMPLETE`: 952 files, 1.28 GB verified, `UPLOAD_EXIT=0`.
+- General archive: still the old 391-unit plan (`RUN_EXIT=1`, 0 units).
+- Activation mirror: not started.
+
+Two finishing pages on the Mac, built only from blocks already tested on the
+other pages:
+- `finish-shell-a.html`:
+  0. setup
+  1. close the finished GeoAxis tmux windows (only if the log shows completion)
+  2. 26k restore check
+  3. axis restore check
+  4. find the 1.5 TB on `/e/scratch`
+  5. replan the general archive (paste before uploading)
+  6. upload
+  7. watch
+  8. tokens (after both shells finish)
+  9. final checklist
+- `finish-shell-b.html`:
+  0. start the public mirror `geodml-emnlp-2026-probing-activations` (`SCOPE=all`
+     or `without-t7-full`)
+  1. watch
+
+The general archive is insurance: provenance, pilots (including the ACL ARR
+document pilot), ledgers, the accounting table, and the late EMNLP results.
+Everything the new paper needs is already on the Hub.
