@@ -104,6 +104,11 @@ def sources(args):
         items.append(("selection/selection-manifest.json", args.selection_manifest, False, ()))
     for path in args.pointer:
         items.append((f"pointers/{os.path.basename(path)}", path, False, ()))
+    for value in args.extra:
+        name, _, path = value.partition("=")
+        if not name or not path or "/" in name:
+            raise SystemExit(f"bad --extra {value!r}; use NAME=/path/to/file-or-folder")
+        items.append((f"extra/{name}", path, Path(path).is_dir(), ()))
     for group, path, is_dir, _ in items:
         if not (Path(path).is_dir() if is_dir else Path(path).is_file()):
             raise SystemExit(f"missing {'folder' if is_dir else 'file'} for {group}: {path}")
@@ -189,6 +194,8 @@ embedding the prompts again**. Archived from JUPITER on
 - `registration/population-registration-v1/`: the files the axis analysis reads
   (`population-selection-records.jsonl`, `manifest.json`, ...), byte-identical.
 - `selection/`, `pointers/`: the pilot selection manifest and cluster pointer files.
+- `extra/`: global-merge provenance (fully-compliant audit, keyword-section plan,
+  run manifest, unification summary) and the unpublished text dataset build.
 
 ## Frozen contract hashes
 
@@ -250,6 +257,8 @@ def main(argv=None):
     parser.add_argument("--registration")
     parser.add_argument("--selection-manifest")
     parser.add_argument("--pointer", action="append", default=[])
+    parser.add_argument("--extra", action="append", default=[],
+                        help="NAME=/path: another provenance file or folder, stored under extra/NAME")
     parser.add_argument("--max-file-gb", type=float, default=2.0)
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--apply", action="store_true", help="upload; without it only the staging tree is built")

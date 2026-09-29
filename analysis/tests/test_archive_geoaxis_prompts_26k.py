@@ -59,6 +59,9 @@ def sources(tmp_path, monkeypatch):
     (base / "registration").mkdir()
     (base / "registration/manifest.json").write_text("{}")
     (base / "registration/population-selection-records.jsonl").write_text("{}\n")
+    (base / "merge/text-dataset/data").mkdir(parents=True)
+    (base / "merge/text-dataset/data/train-00000.parquet").write_bytes(b"P" * 50)
+    (base / "merge/fully-compliant-audit.json").write_text("{}")
     (base / "home").mkdir()
     (base / "home/geodml-final-audit-latest.txt").write_text(str(audit) + "\n")
     (base / "home/geodml-acl-arr-pilot.env").write_text("HF_TOKEN=hf_" + "B" * 34 + "\n")
@@ -73,7 +76,9 @@ def argv(tmp_path, base, audit, *extra):
     return ["--staging", str(tmp_path / "staging"), "--final-audit", str(audit), "--checkpoint", str(base / "checkpoint"),
             "--map", f"qwen={base / 'maps/qwen'}", "--registration", str(base / "registration"),
             "--pointer", str(base / "home/geodml-final-audit-latest.txt"),
-            "--pointer", str(base / "home/geodml-acl-arr-pilot.env"), "--max-file-gb", "0.0000002", *extra]
+            "--pointer", str(base / "home/geodml-acl-arr-pilot.env"), "--max-file-gb", "0.0000002",
+            "--extra", f"fully-compliant-audit.json={base / 'merge/fully-compliant-audit.json'}",
+            "--extra", f"axisgeo-unified-hf-dataset={base / 'merge/text-dataset'}", *extra]
 
 
 def staged(tmp_path):
@@ -91,6 +96,8 @@ def test_dry_run_stages_the_allowlist_only_and_makes_no_hub_calls(tmp_path, sour
     assert "final-audit/final-axis-map.jsonl" in files and "maps/qwen/readiness_embedding_map.json" in files
     assert "registration/population-registration-v1/population-selection-records.jsonl" in files
     assert "pointers/geodml-final-audit-latest.txt" in files and "checkpoint/merge_manifest.json" in files
+    assert "extra/fully-compliant-audit.json" in files
+    assert "extra/axisgeo-unified-hf-dataset/data/train-00000.parquet" in files
     for absent in ("final-audit/logs/run.log", "maps/qwen/readiness_axis_exemplars.restricted-local.json",
                    "checkpoint/projections/qwen/question_embeddings.restricted-local.npz",
                    "checkpoint/merged/candidates.jsonl", "pointers/geodml-acl-arr-pilot.env"):
