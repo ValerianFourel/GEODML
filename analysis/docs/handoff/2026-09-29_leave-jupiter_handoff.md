@@ -152,3 +152,69 @@ every `/e/<fs>/<project>/$USER` root (label `<fs>-<project>`, e.g.
 `geodml/huggingface-acl-arr` and `geodml/audits/leave-jupiter` on each. The
 checklist's checkout check now covers `/e/*/*/$USER/geodml/src/*`. Multi-root
 planning was tested locally on a synthetic tree.
+
+## Archive sizing, the GeoAxis 26k repository and committed archivers
+
+**Sizes (step 6a breakdown, user-pasted).** fscratch has 3,326.7 GB: small files
+(≤50 MB, not restricted) 192.2 GB, large non-restricted 1,402.6 GB, restricted-local
+1,731.8 GB. Largest parts: `runs/readiness-30k-axis1` 2,272.5 GB (1,727 GB
+restricted-local per-round cumulative `question_embeddings.restricted-local.npz`),
+`runs/readiness-30k-high-axis-v2` 674.7 GB (`ten-section-20260902T131831Z/sections-*`
+621.8 GB large), `audits/recovery-*` about 200 GB forensics tars, `compile-cache`
+72.2 GB, `audits/llama-five-872875d` 59.3 GB, 56 `jupiter-llama-*` folders of
+0.3 GB. project1 has `GEODML_Analysis` 955 GB (interpretability 515, hf_cache 429)
+and `geodml/models` 343 GB; scratch has 26 GB. The first run refused at 150 GB.
+
+**Decisions (Valerian, 2026-09-29).**
+- The final 26,009-prompt embeddings and axis maps go to a **private** HF repo
+  despite the restricted-local label, which is a deliberate deviation from the
+  runbook rule. Exemplar text and other restricted-local files stay out.
+- Key embeddings means the final audit only. The general archive keeps small
+  files only, trimmed, and includes project1 and scratch now.
+
+**GeoAxis discovery (user-pasted).**
+- Final audit:
+  `runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint/final-audit-4gpu-a452213`
+  (595 MB, commit a452213, `final-audit-summary` PASS). Both population files have
+  26,009 rows and match the contract hashes. The embeddings are 8 shards per view,
+  26,009 × 4096 float32.
+- Subspace root on project1:
+  `runs/semantic-readiness-subspace/7679b314…-20260820T104733Z`, with both maps and
+  the battery.
+- Registration: `datasets/experiment-v2-incremental-v1/local-only/population-registration-v1`.
+- The global merge has no `hf-publication-receipt.json`, so AxisGEO was never
+  published. `axisgeo-unified-hf-dataset` is 260 MB. `huggingface_hub` is 1.30.0.
+- Not found at the guessed paths: `runs/readiness-30k-axis1/plans/*` and
+  `runs/acl-arr-search-experience/pilot-500-*/selection-manifest.json`. The plan
+  pointer is `$GEODML_PROJECT_ROOT/geodml-readiness-30k-v2-plan-latest.txt`; the
+  selection manifest path comes from the registration manifest.
+
+**Code (commits `eefaa85`, `062f06a`; push to origin was blocked by the
+permission system; Valerian must push before running on JUPITER).**
+- `analysis/scripts/archive_jupiter_to_hub.py`: the page archiver, now in git,
+  with `--max-file-mb`, `--skip-name-contains` (default `restricted-local`) and
+  `--exclude-glob`, all pruned during the walk. It prints filter counts and the
+  names of files that mention LMSYS/WildChat.
+- `analysis/scripts/archive_geoaxis_prompts_26k.py`:
+  - builds an allowlist into hard-linked staging (final audit including the 16
+    shards, maps without exemplars, battery, plan, checkpoint without nested
+    final-audit/restricted/oversize files, registration, selection manifest,
+    pointers, and `--extra` provenance) with `MANIFEST.tsv` and README
+  - checks the contract hashes; defaults to a dry run
+  - `--apply` refuses a non-private repo, uploads with `upload_large_folder`,
+    verifies each file by LFS sha256 or git blob sha1, and writes a receipt
+- Tests: `analysis/tests/test_archive_jupiter_to_hub.py` (4) and
+  `test_archive_geoaxis_prompts_26k.py` (4), 8 passed with fake Hubs.
+
+**Pages.**
+- `geoaxis-26k.html`: 0 setup, 1 discovery (done), 2 dry run (writes
+  `audits/leave-jupiter/geoaxis-26k.sh` with the exact sources, finding the
+  plan/selection manifest itself), 3 upload in tmux `geoaxis-26k`, 4 restore check.
+- `leave-jupiter.html` steps 3 and 6–8 now use the pinned archiver. The replan
+  covers home, fscratch, project1 and scratch with ≤50 MB files and the agreed
+  excludes; the checklist also checks `GEODML_Analysis`.
+- The generated `geoaxis-26k.sh` was simulated and passes `bash -n`, and every
+  block passes `bash -n`. Nothing has run on JUPITER.
+
+Next: push `062f06a`, then run geoaxis steps 2–4, then leave-jupiter step 6
+(replan), 7 and 8.
