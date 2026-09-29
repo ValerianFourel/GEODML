@@ -36,6 +36,8 @@ CONTRACT = {
     "final-audit/final-axis-map.jsonl": "43189f68bcafc77f9dceb7a1a8d993251d4c2a739b401ef4fd24cb64e292682e",
 }
 SKIP_DIRS = {"logs", "quarantine", "__pycache__"}
+MANIFEST_SUFFIXES = (".json", ".md", ".log", ".txt", ".yaml", ".yml", ".sh", ".tsv", ".csv", ".out", ".err")
+MANIFEST_MAX_BYTES = 50_000_000
 EMBEDDING_NAME = "question_embeddings.restricted-local.npz"
 
 
@@ -62,19 +64,25 @@ def git_blob_sha1(path):
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
-def allowed(group, rel, path, size, max_bytes, left_out):
+def final_audit_embedding(group, rel):
+    """The only restricted-local files kept in the 26k archive: the final audit's embedding shards."""
+    return group == "final-audit" and rel.split("/")[0] == "projections" and os.path.basename(rel) == EMBEDDING_NAME
+
+
+def allowed(group, rel, path, size, max_bytes, left_out, restricted_ok=final_audit_embedding, manifests_only=False):
     """Decide whether one file of a group goes into the archive; record why not."""
     name = os.path.basename(rel)
-    parts = rel.split("/")
     if name in SECRET_NAMES:
         left_out["secret"].append(f"{group}/{rel}")
         return False
     if name.endswith(SKIP_SUFFIXES):
         left_out["model weights"].append(f"{group}/{rel}")
         return False
+    if manifests_only and (not name.endswith(MANIFEST_SUFFIXES) or size > MANIFEST_MAX_BYTES):
+        left_out["not a manifest or log"].append(f"{group}/{rel}")
+        return False
     if "restricted-local" in rel:
-        embedding = group == "final-audit" and parts[0] == "projections" and name == EMBEDDING_NAME
-        if not embedding:
+        if not restricted_ok(group, rel):
             left_out["restricted-local"].append(f"{group}/{rel}")
             return False
     elif size > max_bytes:
@@ -109,22 +117,26 @@ def sources(args):
         if not name or not path or "/" in name:
             raise SystemExit(f"bad --extra {value!r}; use NAME=/path/to/file-or-folder")
         items.append((f"extra/{name}", path, Path(path).is_dir(), ()))
-    for group, path, is_dir, _ in items:
-        if not (Path(path).is_dir() if is_dir else Path(path).is_file()):
-            raise SystemExit(f"missing {'folder' if is_dir else 'file'} for {group}: {path}")
     return items
 
 
 def collect(args):
     staging = Path(args.staging)
+    rows, left_out = stage(staging, [(*item, False) for item in sources(args)], int(args.max_file_gb * 1e9))
+    return staging, rows, left_out
+
+
+def stage(staging, items, max_bytes, restricted_ok=final_audit_embedding):
+    """Hard-link (or copy) the allowed files of each (group, source, is_dir, skip_prefixes, manifests_only)."""
     staging.mkdir(parents=True, exist_ok=True)
     for child in staging.iterdir():  # rebuild, but keep the uploader's resume cache
         if child.name != ".cache":
             shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
-    max_bytes = int(args.max_file_gb * 1e9)
     left_out = collections.defaultdict(list)
     rows = []
-    for group, source, is_dir, skip_prefixes in sources(args):
+    for group, source, is_dir, skip_prefixes, manifests_only in items:
+        if not (Path(source).is_dir() if is_dir else Path(source).is_file()):
+            raise SystemExit(f"missing {'folder' if is_dir else 'file'} for {group}: {source}")
         if is_dir:
             files = []
             for folder, dirs, names in os.walk(source):
@@ -141,7 +153,7 @@ def collect(args):
         for rel, path in files:
             size = os.path.getsize(path)
             dest_rel = f"{group}/{rel}" if rel else group
-            if rel and not allowed(group, rel, path, size, max_bytes, left_out):
+            if rel and not allowed(group, rel, path, size, max_bytes, left_out, restricted_ok, manifests_only):
                 continue
             if not rel and size <= SCAN_MAX and TOKEN.search(Path(path).read_bytes()):
                 left_out["contains a token"].append(dest_rel)
@@ -153,7 +165,30 @@ def collect(args):
             except OSError:
                 shutil.copy2(path, dest)
             rows.append((dest_rel, size, sha256_file(dest), os.path.realpath(path)))
-    return staging, rows, left_out
+    return rows, left_out
+
+
+def write_manifest(staging, rows, readme_text):
+    """Write MANIFEST.tsv and README.md; return rows including both generated files."""
+    with open(staging / "MANIFEST.tsv", "w") as handle:
+        handle.write("path\tbytes\tsha256\tsource\n")
+        handle.writelines(f"{rel}\t{size}\t{digest}\t{src}\n" for rel, size, digest, src in rows)
+    (staging / "README.md").write_text(readme_text)
+    return rows + [(name, (staging / name).stat().st_size, sha256_file(staging / name), "generated")
+                   for name in ("MANIFEST.tsv", "README.md")]
+
+
+def upload_private(api, repo, staging, rows, message):
+    """Create the private dataset, upload the staging tree and return the files that fail verification."""
+    retry(lambda: api.create_repo(repo, repo_type=REPO_TYPE, private=True, exist_ok=True), "create repo")
+    if not getattr(retry(lambda: api.repo_info(repo, repo_type=REPO_TYPE), "repo info"), "private", False):
+        raise SystemExit(f"{repo} is not private; refusing to upload")
+    if hasattr(api, "upload_large_folder"):
+        api.upload_large_folder(repo_id=repo, repo_type=REPO_TYPE, folder_path=str(staging), private=True)
+    else:
+        retry(lambda: api.upload_folder(repo_id=repo, repo_type=REPO_TYPE, folder_path=str(staging),
+                                        commit_message=message, ignore_patterns=[".cache/**"]), "upload")
+    return verify(api, repo, staging, rows)
 
 
 def readme(rows, left_out, contract):
@@ -268,12 +303,7 @@ def main(argv=None):
     by_rel = {rel: digest for rel, _, digest, _ in rows}
     contract = {name: (digest, "MATCHES" if by_rel.get(name) == digest else f"DIFFERS ({by_rel.get(name, 'missing')})")
                 for name, digest in CONTRACT.items()}
-    with open(staging / "MANIFEST.tsv", "w") as handle:
-        handle.write("path\tbytes\tsha256\tsource\n")
-        handle.writelines(f"{rel}\t{size}\t{digest}\t{src}\n" for rel, size, digest, src in rows)
-    (staging / "README.md").write_text(readme(rows, left_out, contract))
-    rows += [(name, (staging / name).stat().st_size, sha256_file(staging / name), "generated")
-             for name in ("MANIFEST.tsv", "README.md")]
+    rows = write_manifest(staging, rows, readme(rows, left_out, contract))
 
     groups = collections.defaultdict(lambda: [0, 0])
     for rel, size, *_ in rows:
@@ -297,16 +327,7 @@ def main(argv=None):
         return 0
 
     ensure_token()
-    api = make_api()
-    retry(lambda: api.create_repo(args.repo, repo_type=REPO_TYPE, private=True, exist_ok=True), "create repo")
-    if not getattr(retry(lambda: api.repo_info(args.repo, repo_type=REPO_TYPE), "repo info"), "private", False):
-        raise SystemExit(f"{args.repo} is not private; refusing to upload")
-    if hasattr(api, "upload_large_folder"):
-        api.upload_large_folder(repo_id=args.repo, repo_type=REPO_TYPE, folder_path=str(staging), private=True)
-    else:
-        retry(lambda: api.upload_folder(repo_id=args.repo, repo_type=REPO_TYPE, folder_path=str(staging),
-                                        commit_message="GeoAxis 26k archive", ignore_patterns=[".cache/**"]), "upload")
-    bad = verify(api, args.repo, staging, rows)
+    bad = upload_private(make_api(), args.repo, staging, rows, "GeoAxis 26k archive")
     if bad:
         print("VERIFY_FAILED", len(bad), *bad[:20], sep="\n    ")
         return 1
