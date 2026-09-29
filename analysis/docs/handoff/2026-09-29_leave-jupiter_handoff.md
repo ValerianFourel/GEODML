@@ -71,3 +71,22 @@ JUPITER login banner: $FSCRATCH retention is 30 days, and cleanup starts on
 2026-10-01. The page now warns to finish publish/archive/download before then.
 Next, in order: page step 3, step 1 (want 0 unpublished, 0 owned, 0 left),
 step 4, step 5, step 6 on the Mac, step 7, then step 2.
+
+## Round 8 published; inventory step added
+
+User-pasted `sync-llama` output: round 8 attempt released as bundle
+`bundle-c5918b31d82c…` with `verified_tasks_in_checkpoint 4581`; summary
+`already_synced 55, released 1, live 0, blocked 0`. Every Llama result cell
+is therefore on the Hub. Not yet confirmed by a fresh Llama-status run.
+
+Valerian asked to go back to the start: inventory everything on JUPITER and
+scratch, then push everything worth keeping to Hugging Face, Llama first. The
+page gained a read-only step 1, "Inventory everything on JUPITER" (steps now
+0–8). It prints `jutil user dataquota` and walks `$HOME` plus every
+`/e/*/*/$USER` and `/e/*/$USER` root once (nested roots deduplicated). For each
+root: total bytes, files, bytes older than 30 days, newest mtime; then folders by
+depth with size/file thresholds. Output saved to
+`audits/leave-jupiter/inventory-<time>.txt`. Walker tested on a local synthetic tree.
+Home contains many readiness/axis pointer files (`geodml-readiness-*`,
+`geodml-axis-v2-*`, `important_commands.txt`, `nltk_data`), per the user's `ls`.
+The HF upload design for non-result data waits on the inventory sizes.
