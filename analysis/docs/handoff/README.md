@@ -36,3 +36,4 @@ supersede them with a new dated document that links back.
 - 2026-09-29 — [Nemotron sample selection speed fix](2026-09-29_nemotron-sample-speed_handoff.md)
 - 2026-09-29 — [Nemotron HoreKa handoff for tomorrow](2026-09-29_nemotron-tomorrow_handoff.md)
 - 2026-09-30 — [Leaving JUPITER: handoff for tomorrow](2026-09-30_jupiter-exit-tomorrow_handoff.md)
+- 2026-09-30 — [Shell A archive resume after flagged-file stop](2026-09-30_shell-a-archive-resume_handoff.md)
