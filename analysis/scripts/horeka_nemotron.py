@@ -34,6 +34,7 @@ SERVING = {"tensor_parallel_size": 4, "data_parallel_size": 1, "dtype": "bfloat1
 JOB_NAME = "geodml-nemotron-horeka-trial"
 CLEANUP_MARGIN = 120
 TRIALS = {  # trial name -> (driver script, stage name, default output-token cap)
+    "si-v4-development": ("horeka_si_v4.py", "gemma-si-v4-development", 4096),
     "source-importance": ("try_source_importance_judge.py", "nemotron-source-importance-horeka-trial", 640),
     "claims-v3": ("try_claims_v3_judge.py", "nemotron-claims-v3-horeka-trial", 4096),
 }
@@ -87,7 +88,11 @@ def stage_commands(config: dict, *, python: str, attempt: Path, cache: Path) -> 
     run = [python, str(repo / "analysis/scripts/search_vllm_stage.py"), "run",
            "--profile", str(profile), "--server-log", str(attempt / "server.log"),
            "--cache-base", str(cache), "--startup-timeout-seconds", "1200", "--"]
-    if config.get("replay_inputs"):
+    if config.get("trial") == "si-v4-development":
+        prepare += ["--language-model-only"]
+        run += [python, str(repo / "analysis/scripts/horeka_si_v4.py"), "review",
+                "--config", config["development_config"]]
+    elif config.get("replay_inputs"):
         prepare += ["--language-model-only"]
         run += [python, str(repo / "analysis/scripts/replay_source_importance_judge.py"),
                 "--inputs", config["replay_inputs"], "--inputs-sha256", config["replay_inputs_sha256"]]
@@ -221,6 +226,10 @@ def execute(config_path: Path) -> int:
                XDG_CACHE_HOME=str(scratch / "xdg"), TRITON_CACHE_DIR=str(scratch / "triton"),
                VLLM_CACHE_ROOT=str(scratch / "vllm"))
     end = int(datetime.fromisoformat(fields["EndTime"]).timestamp())
+    if config.get("trial") == "si-v4-development":
+        # Drain the controller before the outer stage/server cleanup deadline.
+        env.update(SLURM_JOB_END_TIME=str(end), GEODML_ROLE_END_TIME=str(end - 180),
+                   GEODML_APPROVED_WALLTIME=config["walltime"])
     cache = workspace / "serving-cache" / f"{config.get('cache_prefix', 'nemotron')}-job{job}"
     prepare, run = stage_commands(config, python=sys.executable, attempt=attempt, cache=cache)
     if config.get("trial") == "source-importance":
@@ -282,7 +291,7 @@ def main(argv=None) -> int:
     s.add_argument("--walltime", required=True, choices=["01:00:00"],
                    help="approved wall-time; this trial allows only one hour")
     s.add_argument("--approval", required=True)
-    s.add_argument("--trial", choices=sorted(TRIALS), default="source-importance")
+    s.add_argument("--trial", choices=sorted(k for k in TRIALS if k != "si-v4-development"), default="source-importance")
     s.add_argument("--model", choices=["qwen38", "llama4"], default="qwen38", help="generator corpus to judge")
     s.add_argument("--cells-from", type=Path, help="replay the exact cells from a saved smoke cells.jsonl")
     s.add_argument("--count", type=int, default=12)
