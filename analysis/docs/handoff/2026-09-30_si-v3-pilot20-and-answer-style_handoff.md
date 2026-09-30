@@ -1,4 +1,4 @@
-# SI-v3 pilot (20 cells) and answer-style finding — 2026-09-30
+# SI-v3 pilot, answer style and judge choice — 2026-09-30
 
 Follows [state of work](2026-09-30_state-of-work_handoff.md). Cluster facts are
 pasted evidence from 30 Sep; recheck before acting.
@@ -59,7 +59,32 @@ makes support circular).
 - Option on the table: small natural-answer generation pilot (new versioned
   instruction, same prompts/evidence) as a second condition. Not approved.
 
-## 4. Other state
+## 4. Judge assessment and Jev
+
+**Nemotron (SI-v3) today:** reliable mechanics (212/212 valid, fast, Llama repeat
+53/53) and usable as a yes/no support filter and for J1; **not yet reliable as a
+fine-grained source ranker** (~80 % of grades are 2–3, misses near-verbatim
+support, picks concatenated title lists, one unstable top source). Candidate fixes
+(new version, test on the same 20 cells): 0/1/2 scale (none/minor/central), sharper
+anchors with one example per grade, split title lists and drop boilerplate/ads,
+pairwise "which supports more" for top positions, stratify by answer style,
+compare against a stronger reference model.
+
+**Jev as judge (proposal, not decided):** decision model returning score/choice
+with probabilities; all ~4.1M SI+J1 requests ≈ 5–6B input tokens ≈ $210–260, no
+GPU. Against: no passage provenance, brand new and unvalidated, closed API
+(pin `jev-1.13`), data leaves the cluster, and it changes the "fixed judge"
+decision. Recommended: head-to-head on the 106 pilot pairs and the 200 style
+labels (Jev vs Nemotron vs a stronger reference) before any switch; likely outcome
+a hybrid (Nemotron auditable primary, Jev second opinion/classifier). Awaiting
+Valerian: build the client? direct API or OpenRouter?
+
+**Generator instruction decision:** prompt for Astra at
+`~/Hamburg/GEODML_Unified/astra-qwen-steering-prompt.md` (options A keep, B
+change mid-run [rejected], C second versioned condition for both generators on a
+subset, D regenerate, E rewrite). Lean: A + C. Qwen run continues unchanged.
+
+## 5. Other state
 
 - Llama copy on HoreKa (`$W/llama-hf/dataset`) was behind (307,512 vs 310,374 on
   the Hub); `temp.html` step 1 re-pulls only missing files. Confirm `PULL_EXIT=0`.
@@ -67,9 +92,11 @@ makes support circular).
 - Preference saved: run batch-style `run.sh` inside one approved salloc and fill
   the hour, instead of separate sbatch jobs.
 
-## 5. Next, in order
+## 6. Next, in order
 
-1. Read `answer-style/summary.md`; decide on Jev classification and whether to
-   pilot a natural-answer instruction.
-2. Review a few `report-pass1/cell-NN.txt`; revise SI rubric/presentation (new version).
-3. Qwen: failed-bout review, then leftover sweep after all bouts end.
+1. Astra's answer on the generator instruction (A / A+C); decide the second condition.
+2. Jev head-to-head on the pilot pairs and 200 style labels (if approved), plus a
+   revised Nemotron version (simpler scale, cleaner passages) on the same 20 cells.
+3. Corpus-wide answer-style labels (Jev or Nemotron), validated on the 200.
+4. Qwen: failed-bout review, then leftover sweep after all bouts end.
+5. Throughput benchmark (higher concurrency) only after the judge protocol is fixed.
