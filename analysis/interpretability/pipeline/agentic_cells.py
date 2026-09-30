@@ -74,6 +74,7 @@ def completed_generator_refs(
         counts["completed"] += 1
         selected.append({"fingerprint": fingerprint, "model": model,
                          **{k: task.get(k) for k in ("prompt_id", "method", "engine", "condition")},
+                         "task_metadata": task,
                          "generation_ref": refs["generations"], "trace_ref": refs["traces"]})
     return selected, counts
 
@@ -82,6 +83,7 @@ def iter_cells(root: Path, refs: list[dict[str, Any]], *, batch: int = 2000) -> 
     """Yield cells with generation, trace and prompt text, in batches of shard reads."""
 
     prompts = {row["prompt_id"]: row for row in iter_sealed_rows(root, "prompts")}
+    memberships = {row["prompt_id"]: row for row in iter_sealed_rows(root, "keyword_memberships")}
     for start in range(0, len(refs), batch):
         chunk = refs[start:start + batch]
         rows = read_references(root, [r[k] for r in chunk for k in ("generation_ref", "trace_ref")])
@@ -89,4 +91,5 @@ def iter_cells(root: Path, refs: list[dict[str, Any]], *, batch: int = 2000) -> 
             generation = rows[ref["generation_ref"]["record_id"]]
             prompt = prompts.get(generation.get("prompt_id"), {})
             yield {**ref, "generation": generation, "trace": rows[ref["trace_ref"]["record_id"]],
-                   "prompt_text": prompt.get("prompt_text")}
+                   "prompt_text": prompt.get("prompt_text"), "prompt_record": prompt,
+                   "keyword_memberships": memberships.get(generation.get("prompt_id"), {})}

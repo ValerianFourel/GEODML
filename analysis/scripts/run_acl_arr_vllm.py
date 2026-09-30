@@ -67,6 +67,9 @@ from analysis.interpretability.pipeline.agentic_dataset import (
 from analysis.interpretability.pipeline.source_importance import (
     RETRY_CONTRACT as SOURCE_IMPORTANCE_RETRY_CONTRACT,
 )
+from analysis.interpretability.pipeline.source_importance_v4 import (
+    RETRY_CONTRACT as SOURCE_IMPORTANCE_V4_RETRY_CONTRACT,
+)
 from analysis.interpretability.pipeline.agentic_judging import (
     SUPPORTED_FORMAT_VERSIONS as AGENTIC_JUDGE_FORMAT_VERSIONS,
 )
@@ -545,10 +548,12 @@ async def _execute_one(item, *, client, fake):
         raise ValueError("maximum validation attempts must be a positive integer")
     if maximum_validation_attempts > 1 and feedback_contract not in {
             "search-experience-validation-feedback-v1", CLAIMS_RETRY_CONTRACT,
-            "si-identical-retry-v1", "si-corrective-retry-v2", SOURCE_IMPORTANCE_RETRY_CONTRACT}:
+            "si-identical-retry-v1", "si-corrective-retry-v2", SOURCE_IMPORTANCE_RETRY_CONTRACT,
+            SOURCE_IMPORTANCE_V4_RETRY_CONTRACT}:
         raise ValueError("unknown validation feedback contract")
     # Preserve historical retries; SI-v3 feedback addresses passage selections.
-    si_selection = feedback_contract == SOURCE_IMPORTANCE_RETRY_CONTRACT
+    si_v4 = feedback_contract == SOURCE_IMPORTANCE_V4_RETRY_CONTRACT
+    si_selection = feedback_contract == SOURCE_IMPORTANCE_RETRY_CONTRACT or si_v4
     si_corrective = si_selection or feedback_contract == "si-corrective-retry-v2"
     identical_retry = feedback_contract in {CLAIMS_RETRY_CONTRACT, "si-identical-retry-v1"}
     categorized = identical_retry or si_corrective
@@ -604,7 +609,7 @@ async def _execute_one(item, *, client, fake):
                     if si_corrective:
                         attempt_record.update(error=f"{type(exc).__name__}: {exc}",
                                               failure_category=getattr(exc, "category", "semantic"))
-                    if validation_attempt == maximum_validation_attempts:
+                    if validation_attempt == maximum_validation_attempts or (si_v4 and isinstance(exc, JudgeOutputTruncatedError)):
                         raise
                     if not identical_retry:
                         prompt = _validation_feedback_prompt(

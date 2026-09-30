@@ -109,6 +109,82 @@ def test_stored_task_records_refuse_to_drift(tmp_path):
         si.item_from_record({**record, "source_text": "Asana is paid only."})
 
 
+@pytest.mark.parametrize("selection", ["exact", "missing", "duplicate", "empty"])
+def test_exact_cell_selection_never_silently_changes_the_frozen_sample(tmp_path, selection):
+    root = dataset(tmp_path)
+    refs, _ = prepare.completed_generator_refs(root, model="qwen38")
+    fingerprint = next(r["fingerprint"] for r in refs if r["condition"] == "natural")
+    selection_file = tmp_path / "selection.txt"
+    selection_file.write_text({
+        "exact": fingerprint + "\n",
+        "missing": fingerprint + "\nmissing-cell\n",
+        "duplicate": fingerprint + "\n" + fingerprint + "\n",
+        "empty": "\n",
+    }[selection])
+    out = tmp_path / "selected"
+    argv = ["--source", f"{root}:qwen38", "--output", str(out),
+            "--protocol", "si-v4", "--cell-fingerprints", str(selection_file)]
+    if selection == "exact":
+        assert prepare.main(argv) == 0
+        cells = read_gz(out / "cells.jsonl.gz")
+        assert len(cells) == 1 and cells[0]["condition"] == "natural"
+        manifest = json.loads((out / "manifest.json").read_text())
+        assert manifest["cell_fingerprints_sha256"] == hashlib.sha256(selection_file.read_bytes()).hexdigest()
+    else:
+        with pytest.raises((SystemExit, ValueError)):
+            prepare.main(argv)
+        assert not out.exists()
+
+
+def test_v4_freeze_preserves_v3_inputs_and_separates_map_dependencies(tmp_path):
+    from analysis.interpretability.pipeline import source_importance_v4 as v4
+    root = dataset(tmp_path)
+    out = tmp_path / "si-v4"
+    assert prepare.main(["--source", f"{root}:qwen38", "--output", str(out), "--protocol", "si-v4"]) == 0
+    cells = read_gz(out / "cells.jsonl.gz")
+    tasks = read_gz(out / "tasks.jsonl.gz")
+    maps = [t for t in tasks if t["task"] == "answer_map"]
+    deps = [t for t in tasks if t["task"] == "source_dependency"]
+    assert len(maps) == 1  # identical complete answers and requests across conditions
+    assert len(deps) == 3  # every observed record, including an unranked source
+    assert maps[0]["inputs"]["answer"] == ANSWER
+    assert all(c["judged_answer"] == c["stored_answer"] == ANSWER for c in cells)
+    assert all(c["provenance"]["status"] == "provenance_unresolved" for c in cells)
+    assert all(c["map_task_id"] == maps[0]["judge_task_id"] for c in cells)
+    assert any(d["source_text"] == C["text"] for d in deps)
+    assert len([t for t in tasks if t["task"] == "fulfilment"]) == 1
+    for t in maps:
+        v4.item_from_record(t)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["warm_gpu_hour_ratio_ceiling"] == 3
+    assert manifest["max_tokens"] == manifest["map_max_tokens"] == 4096
+
+
+def test_actual_serialized_evidence_detects_changed_text_and_answer_attempt():
+    payload = {"purpose": "parallel_final", "request": {
+        "purpose": "parallel_final", "prompt": "Instructions\n\nCOMPACTED SNIPPETS:\n" + json.dumps([A, B]),
+        "response_schema": {}, "force_finish": True}, "raw_output": json.dumps({"answer": ANSWER})}
+    cell = {"trace": {"events": [{"event_type": "llm_call", "payload": payload}]}}
+    assert prepare.provenance(cell, ANSWER, [A, B])["status"] == "verified"
+    bad = prepare.provenance(cell, "different answer", [{**A, "text": "changed"}, B])
+    assert set(bad["reasons"]) == {"generator_judge_evidence_mismatch", "final_answer_mismatch"}
+
+
+def test_v3_preprocessing_comparison_uses_a_separate_identity_and_same_rubric(tmp_path):
+    from analysis.interpretability.pipeline import source_importance_v4 as v4
+    root = dataset(tmp_path)
+    out = tmp_path / "v3-mask-comparison"
+    assert prepare.main(["--source", f"{root}:qwen38", "--output", str(out),
+                         "--preprocessing", v4.PROSE_MASK_VERSION, "--max-tokens", "4096"]) == 0
+    tasks = read_gz(out / "tasks.jsonl.gz")
+    for record in tasks:
+        if record["task"] == "source_importance":
+            item = v4.comparison_from_record(record)
+            assert item["prompt"].startswith(si.INSTRUCTIONS)
+            assert record["judge_task_id"] != record["legacy_record"]["judge_task_id"]
+            assert record["protocol"] == v4.V3_COMPARISON_PROTOCOL
+
+
 @pytest.mark.parametrize("change", [
     {"judge_task_id": "wrong-identity"}, {"seed": 42},
     {"protocol": "agentic-source-importance-v1"}, {"task_version": "source-importance-task-v1"},
