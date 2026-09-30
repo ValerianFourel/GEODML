@@ -1,0 +1,179 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SI-v4 · one-hour Gemma test · HoreKa</title><style>
+:root {
+  color-scheme: light;
+  --bg: #f2f4f3; --panel: #ffffff; --ink: #19212b; --muted: #56616d; --rule: #d4dad7;
+  --accent: #1f6485; --accent-soft: #e2edf3;
+  --code-bg: #111a22; --code-ink: #d9e3ea; --code-rule: #26323d;
+  --safe-ink: #256437; --safe-bg: #e3f1e6;
+  --pub-ink: #1f5670; --pub-bg: #e0ecf3;
+  --warn-ink: #874700; --warn-bg: #fcefd8;
+  --cond-ink: #5b4a86; --cond-bg: #ece8f6;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --text: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+    --accent: #7db5d2; --accent-soft: #1a2b36;
+    --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+    --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+    --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+  --accent: #7db5d2; --accent-soft: #1a2b36;
+  --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+  --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+  --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--text); padding: 0 20px; }
+.page { max-width: 920px; margin: 0 auto; padding-block: 36px 64px; display: grid; gap: 28px; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 4px; }
+.eyebrow { font: 500 12px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+h1 { font: 600 40px/1.1 var(--display); margin: 6px 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { max-width: 68ch; margin: 0; color: var(--muted); }
+.lede strong { color: var(--ink); font-weight: 600; }
+nav.cycle { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.cycle a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); color: var(--ink); text-decoration: none; font: 500 13px/1.2 var(--text); }
+nav.cycle a span { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 500 12px/1 var(--mono); }
+nav.cycle a:hover, nav.cycle a:focus-visible { border-color: var(--accent); outline: none; }
+.loopnote { font: 400 13px/1.5 var(--text); color: var(--muted); margin: 0; }
+.step { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 16px; padding-top: 24px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
+.num { font: 500 26px/1.1 var(--mono); color: var(--accent); }
+.body { display: grid; gap: 12px; min-width: 0; }
+.body > p { margin: 0; max-width: 72ch; }
+.step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
+h3 { font: 600 16px/1.3 var(--display); margin: 0; letter-spacing: 0.01em; }
+.chip { font: 500 11.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; }
+.chip.safe { color: var(--safe-ink); background: var(--safe-bg); }
+.chip.pub { color: var(--pub-ink); background: var(--pub-bg); }
+.chip.warn { color: var(--warn-ink); background: var(--warn-bg); }
+.chip.cond { color: var(--cond-ink); background: var(--cond-bg); }
+.look { font-size: 14px; color: var(--muted); border-left: 2px solid var(--rule); padding-left: 12px; }
+.code { position: relative; background: var(--code-bg); border: 1px solid var(--code-rule); border-radius: 8px; }
+.code pre { margin: 0; padding: 16px 18px; padding-top: 44px; overflow-x: auto; color: var(--code-ink); font: 400 13px/1.55 var(--mono); tab-size: 2; }
+.code pre code { font-size: inherit; background: none; padding: 0; }
+.copy { position: absolute; top: 8px; right: 8px; font: 500 12px/1 var(--text); color: var(--code-ink); background: transparent; border: 1px solid #3a4957; border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.copy:hover { border-color: #7db5d2; }
+.copy:focus-visible { outline: 2px solid #7db5d2; outline-offset: 2px; }
+.copy.done { color: #0b1a10; background: #8fd0a0; border-color: #8fd0a0; }
+.approval { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 14px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 20px; margin: 0; }
+.facts div { display: grid; gap: 2px; }
+.facts dt { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.facts dd { margin: 0; font-size: 14px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.builder { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.builder label { display: grid; gap: 4px; font: 500 12px/1.3 var(--text); color: var(--muted); }
+.builder input, .builder select, .builder textarea { font: 400 14px/1.4 var(--text); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 9px; width: 100%; }
+.builder input:focus-visible, .builder select:focus-visible, .builder textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.builder .wide { grid-column: 1 / -1; }
+.builder textarea { min-height: 78px; resize: vertical; font-family: var(--text); }
+.check { display: flex !important; align-items: center; gap: 8px !important; }
+.check input { width: auto; }
+.estimate { font: 500 14px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); margin: 0; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 72ch; }
+footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 6px; }
+footer p { margin: 0; max-width: 78ch; }
+@media (max-width: 560px) {
+  h1 { font-size: 32px; }
+  .step { grid-template-columns: 1fr; gap: 6px; }
+  .num { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+.status { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; }
+.status ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
+
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B</span><span>SI-v4 development · 1 October 2026</span></div><h1>Test the shared answer map</h1><p class="lede">Valerian, these commands prepare and test SI-v4 in your requested <strong>one-hour interactive allocation</strong>. Paste them in an already-open HoreKa shell, in order. SI-v3 and all earlier results remain available.</p></header>
+<aside class="approval"><h2>Your one-hour test</h2><dl class="facts"><div><dt>Resources</dt><dd>1 exclusive accelerated node · 4 × A100 40 GB</dd></div><div><dt>CPU and memory</dt><dd>32 requested CPUs · whole-node memory, about 512 GiB</dd></div><div><dt>Maximum allocation cost</dt><dd>1 node-hour · 4 GPU-hours · exclusive node reserves up to 152 CPU-hours</dd></div><div><dt>Estimated work</dt><dd>20–50 minutes, including startup; 60-minute wall-time with margin</dd></div></dl><p>Prior Gemma wrappers took 8.9–10.9 minutes, with much shorter SI-v3 outputs. V4 throughput is unmeasured, so this queue may stop partially completed. Thirty minutes would halve allocation cost but could finish only the first pass. This page uses the hour you requested.</p><p>The 3× warm-compute ceiling is evaluated per completed eligible cell, including mapping and retries, with J1 separate. Three repeat passes test stability; their combined allocation cost is not that per-cell ratio.</p></aside>
+<section class="status"><h2>What will run</h2><ol><li>SI-v4 on all 40 reviewed development cells, up to 40 maps + 214 source calls + 40 J1 calls.</li><li>SI-v3 on the same inputs and judge configuration, with the matched 4096-token source budget.</li><li>48 constructed development pairs, deduplicated to 13 maps, 28 source tasks and 13 J1 tasks.</li><li>Two further uncached SI-v4 passes, regenerating the maps each time.</li></ol><p>At most 1,190 first-attempt requests before N/A filtering, plus bounded retries. The model is <code>google/gemma-4-31B-it</code>, BF16, TP4, thinking off, concurrency 4. This is a finite development queue; no fresh held-out cases are consumed.</p><p>Saved judge inputs preserve the completed answers and source records. Original generator-trace provenance remains unresolved and is labeled accordingly. No source is fetched or rewritten.</p></section><section class="step"><div class="num">01</div><div class="body"><header class="step-head"><h2>Prepare the saved development inputs</h2><span class="chip safe">Login shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 1">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  V4_PIN=9aa5d90e0b310f3eea587a60787727787ab92757
+  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
+  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261001&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
+  if [ ! -d &quot;$V4_REPO&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$V4_REPO&quot; &quot;$V4_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$V4_REPO&quot; rev-parse HEAD)&quot; = &quot;$V4_PIN&quot;
+  test -z &quot;$(git -C &quot;$V4_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; prepare \
+    --workspace &quot;$W&quot; --output &quot;$V4_RUN&quot; \
+    --account hk-project-p0026831 \
+    --bundle &quot;$W/reviews/gemma4-si-v3-ddc93fe/inputs.json&quot; \
+    --bundle &quot;$W/reviews/gemma4-si-v3-fresh20-2026093011/inputs.json&quot; \
+    --approval &#x27;Valerian requested one 01:00:00 salloc for SI-v4 development on 2026-10-01; 1 exclusive A100 node, 4 GPUs.&#x27;
+)</code></pre></div><p class="look">Checks the cached Gemma revision, installed runtime, actual local chat template and JSON grammar before allocating. No model download or generator rerun. Expect 40 cells, 214 distinct source inputs and 40 maps per corpus pass. If preparation already exists, preserve it; do not remove the directory to retry.</p></div></section><section class="step"><div class="num">02</div><div class="body"><header class="step-head"><h2>Check admission</h2><span class="chip safe">Login shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 2">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  V4_PIN=9aa5d90e0b310f3eea587a60787727787ab92757
+  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
+  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261001&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
+  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; check --output &quot;$V4_RUN&quot;
+)</code></pre></div><p class="look">Continue only after CHECK PASSED. The check retains five active allocations, no pending allocations, a ten-minute gap since observed starts, the account queue limit, and fresh quota checks. The old v3 scheduling exception does not carry over. If blocked, wait on the login host and repeat this check; leave existing jobs unchanged.</p></div></section><section class="step"><div class="num">03</div><div class="body"><header class="step-head"><h2>Request the approved hour once</h2><span class="chip safe">Login shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 3">Copy</button><pre><code>salloc --account=hk-project-p0026831 --partition=accelerated --nodes=1 --ntasks=1 --cpus-per-task=32 --gres=gpu:4 --mem=0 --exclusive --time=01:00:00 --job-name=geodml-gemma-si-v4</code></pre></div><p class="look">Run once, promptly after admission. Wait for the allocation grant. Queue changes can invalidate a previous check; coordinate other starts. Do not repeat salloc because the queue is slow.</p></div></section><section class="step"><div class="num">04</div><div class="body"><header class="step-head"><h2>Enter the allocated compute node</h2><span class="chip safe">Only if still on login host</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 4">Copy</button><pre><code>srun --jobid &quot;${SLURM_JOB_ID:?Wait for the salloc grant}&quot; --ntasks=1 --cpus-per-task=32 --pty bash -l</code></pre></div><p class="look">Skip this if the allocated shell is already on the compute node. This is a step inside the existing job, not another allocation. Keep the allocation-owning shell open.</p></div></section><section class="step"><div class="num">05</div><div class="body"><header class="step-head"><h2>Run v4 and the comparison queue</h2><span class="chip safe">Allocated compute shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 5">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  V4_PIN=9aa5d90e0b310f3eea587a60787727787ab92757
+  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
+  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261001&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
+  test -n &quot;${SLURM_JOB_ID:?Use the allocated compute shell}&quot;
+  test -f &quot;$V4_RUN/config.json&quot;
+  test -f &quot;$V4_RUN/run.sh&quot;
+  set +e
+  bash &quot;$V4_RUN/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$V4_RUN/console-job${SLURM_JOB_ID}.log&quot;
+  V4_EXIT=${PIPESTATUS[0]}
+  printf &#x27;V4_EXIT=%s\n&#x27; &quot;$V4_EXIT&quot;
+)</code></pre></div><p class="look">Gemma stays loaded across v4 pass 1, the v3 comparison, constructed checks, then uncached v4 passes 2 and 3. The first output may take 8–15 minutes while Gemma loads. Successful source calls and raw responses are checkpointed. Allocation-end time includes startup; remaining work stays missing at the deadline. No automatic retry allocation.</p></div></section><section class="step"><div class="num">06</div><div class="body"><header class="step-head"><h2>Collect summaries and logs</h2><span class="chip safe">Same shell or another login shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 6">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  V4_PIN=9aa5d90e0b310f3eea587a60787727787ab92757
+  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
+  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261001&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
+  &quot;$RT/bin/python&quot; -c &#x27;
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+for path in sorted(root.glob(&quot;attempts/job*/trial-result.json&quot;)):
+    print(&quot;STAGE&quot;, path, path.read_text(), flush=True)
+for path in sorted(root.glob(&quot;attempts/job*/trial/summary.json&quot;)):
+    print(&quot;QUEUE&quot;, path, path.read_text(), flush=True)
+for path in sorted(root.glob(&quot;attempts/job*/trial/*/reports/*/summary.json&quot;)):
+    print(&quot;RUN_SUMMARY&quot;, path, path.read_text(), flush=True)
+for path in sorted(root.glob(&quot;attempts/job*/server.log&quot;)):
+    print(&quot;SERVER_LOG_TAIL&quot;, path, flush=True)
+    print(&quot;\n&quot;.join(path.read_text(errors=&quot;replace&quot;).splitlines()[-35:]), flush=True)
+&#x27; &quot;$V4_RUN&quot;
+)</code></pre></div><p class="look">Send V4_EXIT, STAGE, QUEUE and RUN_SUMMARY output. Full raw requests, responses, maps and cell grades remain below attempts/job&lt;id&gt;/trial/. Exit 0 means the queue finished without inference failures, not that the grades passed semantic validation. N/A, map issues and uncertainty need review even after exit 0.</p></div></section><footer><p>Execution pin: <code>9aa5d90e0b310f3eea587a60787727787ab92757</code>. Model revision: <code>842da3794eaa0b77d5f08bae87a17459d91ff475</code>. No allocation has been submitted by Codex. This page starts no remote work until you paste the commands.</p><p>Server cleanup preserves your salloc shell. Do not close it or cancel other jobs to switch context. Use a separate login terminal for monitoring. Review partial results before requesting any continuation.</p><p>Resource references checked: <a href="https://www.nhr.kit.edu/userdocs/horeka/batch/">HoreKa batch</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/hardware/">hardware</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/filesystems/">filesystems</a>.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
+  button.addEventListener('click', async () => {
+    const code = button.parentElement.querySelector('code');
+    let copied = false;
+    try { await navigator.clipboard.writeText(code.textContent); copied = true; }
+    catch (_) {
+      const range = document.createRange(); range.selectNodeContents(code);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    button.textContent = copied ? 'Copied' : 'Select text and copy';
+    document.getElementById('copy-status').textContent = copied ? 'Commands copied.' : 'Select the commands and copy manually.';
+    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+  });
+});</script></body></html>

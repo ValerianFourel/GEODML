@@ -51,3 +51,4 @@ supersede them with a new dated document that links back.
 - 2026-09-30 — [Gemma export retry with write-token prompt](2026-09-30_gemma4-export-write-token_handoff.md)
 - 2026-09-30 — [Gemma SI-v3 full-batch Astra audit](2026-09-30_gemma4-astra-audit_handoff.md)
 - 2026-09-30 — [SI-v4 implementation and local verification](2026-09-30_si-v4-implementation_handoff.md)
+- 2026-10-01 — [SI-v4 HoreKa one-hour test page](2026-10-01_si-v4-horeka-html_handoff.md)
