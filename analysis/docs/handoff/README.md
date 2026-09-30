@@ -46,3 +46,4 @@ supersede them with a new dated document that links back.
 - 2026-09-30 — [Gemma preparation reuse and short admission command](2026-09-30_gemma4-preparation-reuse_handoff.md)
 - 2026-09-30 — [Gemma replay results and fresh twenty-cell diagnostic](2026-09-30_gemma4-results-fresh20_handoff.md)
 - 2026-09-30 — [Fresh Gemma diagnostic on job 5171481](2026-09-30_gemma4-fresh20-job5171481_handoff.md)
+- 2026-09-30 — [Fresh Gemma verified-candidate selection fix](2026-09-30_gemma4-verified-candidates_handoff.md)
