@@ -98,88 +98,125 @@ footer p { margin: 0; max-width: 78ch; }
 .where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · 30 Sep 2026</span><span>Saved run ddc93fe</span><span>Helper 788ef7d</span><span>SI-v3 · frozen 20 cells</span></div><h1>Gemma 4 SI-v3 in interactive salloc</h1><p class="look"><strong>For the preparation fix, run step 2 once, then step 3. No repeat download needed.</strong> The salloc command is a separate copy block in step 4.</p><p class="lede">Remove Nemotron weights, preserve its evidence, download Gemma 4 31B, then replay the same 20 cells twice. Keep the 0–5 scale and passage matches. Download and prepare on the HoreKa login host. Then open one interactive compute shell with salloc and run the test there.</p></header><aside class="approval"><h2>One hour approved</h2><dl class="facts"><div><dt>Allocation</dt><dd>1 exclusive node · 4 × A100 40 GB</dd></div><div><dt>Time and budget</dt><dd>01:00:00 · at most 4 GPU-hours</dd></div><div><dt>CPU and RAM</dt><dd>32 requested CPUs · whole-node RAM ≈512 GiB<br>152 CPUs reserved by exclusivity</dd></div><div><dt>Estimate</dt><dd>15–45 min work + startup/cleanup margin</dd></div></dl><p class="loopnote">Approved in your reply to the one-hour proposal. One allocation only. Gemma throughput is unmeasured; Nemotron’s cold first run took 11.6 minutes. A 30-minute allocation would be cheaper but could leave the comparison incomplete. These commands have not run on HoreKa.</p></aside><nav class="cycle" aria-label="Steps"><a href="#download"><span>1</span>Download</a><a href="#prepare"><span>2</span>Prepare</a><a href="#check"><span>3</span>Check</a><a href="#allocate"><span>4</span>salloc</a><a href="#enter"><span>5</span>Interactive shell</a><a href="#run"><span>6</span>Run</a><a href="#results"><span>7</span>Results</a></nav><section class="step" id="download"><div class="num">01</div><div class="body"><header class="step-head"><h2>Download Gemma and remove Nemotron weights</h2><span class="chip safe">Login shell</span></header><p>Code commit <code>ddc93fe</code> is already pushed to <code>origin/codex/pilot-continuation</code>. Nemotron must be idle, including any custom-named jobs. This block preserves its pilot results and audits, removes only its model cache, and verifies the pinned Gemma download. About 62.5 GB of weights; the conservative quota check needs about 124 GB of download headroom.</p><div class="code"><button type="button" class="copy" aria-label="Copy Download Gemma and remove Nemotron weights commands">Copy</button><pre><code>(
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · 30 Sep 2026</span><span>SI-v3 · fresh 20 cells</span><span>Code 779c897</span></div><h1>Another 20 cells with Gemma</h1><p class="lede">Use existing allocation <strong>5171305</strong> only. Two passes on fresh inputs, then inspect every judgment. The original 20-cell run passed with 104/106 source scores identical across repeats. This shows repeatability; it does not establish accuracy.</p></header><aside class="approval"><h2>Existing one-hour allocation</h2><p>Pasted Slurm evidence gives an end time of <code>2026-09-30T09:19:29</code> in cluster time. Live checks decide whether enough time remains. No new allocation, extension, cancellation or changes to queued jobs.</p><p>The first test took 47.4 + 44.9 seconds of judging, 252 judgments in total: <strong>2.73 judgments/second</strong>. Its reported stage took 464 seconds including startup and other overhead. These short repeated-input timings are not production throughput.</p></aside><section class="step" id="step1"><div class="num">01</div><div class="body"><header class="step-head"><h2>Fetch the tested code</h2><span class="chip safe">Separate login shell</span></header><p>Keep the allocation shell open. This fetches a new, exact checkout and reads job 5171305. It does not change queued jobs.</p><div class="code"><button type="button" class="copy" aria-label="Copy Fetch the tested code commands">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_PIN=ddc93fe5342152d7c33f2abfc0658a48714d7dcc
-  GEMMA_REPO=&quot;$W/checkouts/gemma-si-$GEMMA_PIN&quot;
-  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-ddc93fe&quot;
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  scontrol show job 5171305 -o
   git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
-  mkdir -p &quot;$W/checkouts&quot;
   if [ ! -d &quot;$GEMMA_REPO&quot; ]; then
     git -C &quot;$REPO&quot; worktree add --detach &quot;$GEMMA_REPO&quot; &quot;$GEMMA_PIN&quot;
   fi
   test &quot;$(git -C &quot;$GEMMA_REPO&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_PIN&quot;
   test -z &quot;$(git -C &quot;$GEMMA_REPO&quot; status --porcelain --untracked-files=all)&quot;
-  &quot;$RT/bin/python&quot; &quot;$GEMMA_REPO/analysis/scripts/horeka_gemma_si.py&quot; download \
-    --workspace &quot;$W&quot; --account hk-project-p0026831 \
-    --baseline &quot;$W/reviews/nemotron-si-v3-pilot20-961ad0b-2026093010&quot; \
-    --remove-nemotron
-)</code></pre></div><p class="look">Wait for <code>"status": "verified"</code>. If quota or baseline verification fails, stop and retain the error. An interrupted download can resume by repeating this step.</p></div></section><section class="step" id="prepare"><div class="num">02</div><div class="body"><header class="step-head"><h2>Update helper and verify preparation</h2><span class="chip safe">Login shell</span></header><p>Fetches the fixed helper. If the run is already prepared, it verifies and reuses its original inputs, approval, code pin and run.sh. Matching preparations are not overwritten. A new run still checks Gemma support and the SI-v3 schema before preparation.</p><div class="code"><button type="button" class="copy" aria-label="Copy Update helper and verify preparation commands">Copy</button><pre><code>(
+)</code></pre></div><p class="look">Continue only inside the existing compute shell for job 5171305. The next steps reject an expired job or less than 20 minutes remaining. Do not repeat the old allocation commands.</p></div></section><section class="step" id="step2"><div class="num">02</div><div class="body"><header class="step-head"><h2>Freeze and prepare twenty fresh cells</h2><span class="chip safe">Existing compute shell</span></header><p>Select 10 Qwen and 10 Llama answers on 20 distinct prompts, excluding every prompt in the first test. Seed 2026093011. Selected sealed evidence is verified, and invalid cells stop preparation without replacement. No model loading in this step.</p><div class="code"><button type="button" class="copy" aria-label="Copy Freeze and prepare twenty fresh cells commands">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_HELPER_PIN=788ef7dc67142f7f9413685e9d4c0216504964a0
-  GEMMA_HELPER=&quot;$W/checkouts/gemma-tools-$GEMMA_HELPER_PIN&quot;
-  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-ddc93fe&quot;
-  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
-  if [ ! -d &quot;$GEMMA_HELPER&quot; ]; then
-    git -C &quot;$REPO&quot; worktree add --detach &quot;$GEMMA_HELPER&quot; &quot;$GEMMA_HELPER_PIN&quot;
-  fi
-  test &quot;$(git -C &quot;$GEMMA_HELPER&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_HELPER_PIN&quot;
-  &quot;$RT/bin/python&quot; &quot;$GEMMA_HELPER/analysis/scripts/horeka_gemma_si.py&quot; prepare \
-    --workspace &quot;$W&quot; --output &quot;$GEMMA_RUN&quot; --walltime 01:00:00 \
-    --approval &#x27;Valerian approved 2026-09-30: one interactive 01:00:00 allocation, one exclusive HoreKa Green node, four A100 GPUs, 32 requested CPUs, whole-node memory, maximum four GPU-hours, for the frozen Gemma SI-v3 comparison. No resubmission.&#x27;
-)</code></pre></div><p class="look">For your existing run, expect <code>"status": "reused"</code> and <code>"allocation_submitted": false</code>. Then continue to step 3. A partial or conflicting preparation stops with a specific error; keep its files intact.</p></div></section><section class="step" id="check"><div class="num">03</div><div class="body"><header class="step-head"><h2>Check queue space and storage</h2><span class="chip safe">Login shell A</span></header><p>Your exception allows this one Gemma allocation alongside the existing Qwen queue. The five-active and no-pending-job guards are waived for this run. No queued job is cancelled, held or modified. The 295-job account limit, fresh quota check and ten-minute observed-start gap remain.</p><div class="code"><button type="button" class="copy" aria-label="Copy Check queue space and storage commands">Copy</button><pre><code>(
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  test &quot;${SLURM_JOB_ID:?Use the existing Gemma compute shell}&quot; = 5171305
+  test &quot;$(git -C &quot;$GEMMA_REPO&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_PIN&quot;
+  test -z &quot;$(git -C &quot;$GEMMA_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_REPO/analysis/scripts/fresh_gemma_si_review.py&quot; freeze \
+    --qwen &quot;$DS&quot; --llama &quot;$W/llama-hf/dataset&quot; \
+    --exclude-inputs &quot;$W/reviews/gemma4-si-v3-ddc93fe/inputs.json&quot; \
+    --output &quot;$W/reviews/gemma4-si-v3-fresh20-inputs-2026093011.json&quot; \
+    --existing-job-id 5171305
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_REPO/analysis/scripts/horeka_gemma_si.py&quot; prepare \
+    --workspace &quot;$W&quot; --output &quot;$GEMMA_RUN&quot; \
+    --inputs &quot;$W/reviews/gemma4-si-v3-fresh20-inputs-2026093011.json&quot; \
+    --existing-job-id 5171305 --walltime 01:00:00 \
+    --approval &#x27;Valerian approved the original one-hour job 5171305 and another fresh 20-cell SI-v3 Gemma diagnostic within it; no additional allocation.&#x27;
+)</code></pre></div><p class="look">Wait for prepared status. The saved inputs and original test are preserved. If time is insufficient, keep the shell open and return the message. A replacement allocation needs a new approved wall-time.</p></div></section><section class="step" id="step3"><div class="num">03</div><div class="body"><header class="step-head"><h2>Run both passes</h2><span class="chip safe">Existing compute shell</span></header><p>Refresh storage evidence, then load Gemma once and judge the frozen sample twice. Expect 10–15 minutes after preparation; the script requires at least 20 minutes remaining. This uses the existing 4 GPUs, 32 requested CPUs and whole-node RAM. Estimated work is 0.67–1.0 GPU-hours within the already approved allocation, with no added allocation budget.</p><div class="code"><button type="button" class="copy" aria-label="Copy Run both passes commands">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_HELPER=&quot;$W/checkouts/gemma-tools-788ef7dc67142f7f9413685e9d4c0216504964a0&quot;
-  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-ddc93fe&quot;
-  &quot;$RT/bin/python&quot; &quot;$GEMMA_HELPER/analysis/scripts/horeka_gemma_si.py&quot; check \
-    --workspace &quot;$W&quot; --output &quot;$GEMMA_RUN&quot; --account hk-project-p0026831
-)</code></pre></div><p class="look">Continue only after CHECK PASSED. If it says to wait N seconds, wait on the login host and repeat this step. A new Qwen start can reset the ten-minute clock. If the queue is full, wait for a slot. Do not repeat preparation or request salloc until this check passes. No jobs are modified.</p></div></section><section class="step" id="allocate"><div class="num">04</div><div class="body"><header class="step-head"><h2>Request the one-hour allocation</h2><span class="chip safe">Login shell A</span></header><p>Run this command once, immediately after step 3 passes. If the approved Gemma allocation is already open, skip this step and reuse it.</p><div class="code"><button type="button" class="copy" aria-label="Copy Request the one-hour allocation commands">Copy</button><pre><code>salloc --nodes=1 --ntasks=1 --gres=gpu:4 --exclusive \
-  --cpus-per-task=32 --mem=0 --time=01:00:00 \
-  --account=hk-project-p0026831 --partition=dev_accelerated \
-  --job-name=geodml-gemma-si-replay</code></pre></div><p class="look">Wait for Granted job allocation. Keep its shell open. If Slurm rejects the request or its outcome is unclear, inspect the queue before any retry. This approval covers one allocation only.</p></div></section><section class="step" id="enter"><div class="num">05</div><div class="body"><header class="step-head"><h2>Enter the interactive compute shell</h2><span class="chip safe">Inside the salloc shell</span></header><p>If salloc already placed you on its assigned compute node, skip this step. Otherwise this opens an interactive terminal inside the existing allocation. It requests no second allocation.</p><div class="code"><button type="button" class="copy" aria-label="Copy Enter the interactive compute shell commands">Copy</button><pre><code>srun --jobid &quot;${SLURM_JOB_ID:?Use the shell of the approved Gemma allocation}&quot; \
-  --overlap --nodes=1 --ntasks=1 --cpus-per-task=32 --gres=gpu:4 \
-  --pty bash -l</code></pre></div><p class="look">Keep this interactive shell open. Run step 6 here. Do not close another live allocation to change shells.</p></div></section><section class="step" id="run"><div class="num">06</div><div class="body"><header class="step-head"><h2>Run both passes directly in the interactive shell</h2><span class="chip safe">Interactive compute shell A</span></header><p>Paste into the interactive compute shell from steps 4–5. This runs run.sh directly in your interactive shell. One server handles both passes, with progress printed in this terminal. The child subshell returns to your prompt after success or failure; the allocation remains open.</p><div class="code"><button type="button" class="copy" aria-label="Copy Run both passes directly in the interactive shell commands">Copy</button><pre><code>(
-  set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_PIN=ddc93fe5342152d7c33f2abfc0658a48714d7dcc
-  GEMMA_REPO=&quot;$W/checkouts/gemma-si-$GEMMA_PIN&quot;
-  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-ddc93fe&quot;
-  : &quot;${SLURM_JOB_ID:?Use the shell of the approved Gemma allocation}&quot;
-  scontrol show job &quot;$SLURM_JOB_ID&quot; -o
-  set +e
-  bash &quot;$GEMMA_RUN/run.sh&quot; \
-    2&gt;&amp;1 | tee &quot;$GEMMA_RUN/console-job$SLURM_JOB_ID.log&quot;
-  GEMMA_EXIT=${PIPESTATUS[0]}
-  printf &#x27;GEMMA_EXIT=%s\n&#x27; &quot;$GEMMA_EXIT&quot;
-)</code></pre></div><p class="look">Expect <code>GEMMA_EXIT=0</code> and two passed summaries. Startup can take several minutes. On failure, keep the allocation shell open and inspect the logs. This command never releases the allocation or creates a replacement.</p></div></section><section class="step" id="results"><div class="num">07</div><div class="body"><header class="step-head"><h2>Read status and saved results</h2><span class="chip safe">Separate login shell B</span></header><p>Use during startup or after completion. This reads shared files and starts no GPU process.</p><div class="code"><button type="button" class="copy" aria-label="Copy Read status and saved results commands">Copy</button><pre><code>(
-  set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_PIN=ddc93fe5342152d7c33f2abfc0658a48714d7dcc
-  GEMMA_REPO=&quot;$W/checkouts/gemma-si-$GEMMA_PIN&quot;
-  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-ddc93fe&quot;
-  squeue --me --format=&#x27;%.18i %.35j %.12T %.12M %.12L %.20R&#x27;
-  &quot;$RT/bin/python&quot; - &quot;$GEMMA_RUN&quot; &lt;&lt;&#x27;PY_RESULTS&#x27;
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  test &quot;${SLURM_JOB_ID:?Use the existing Gemma compute shell}&quot; = 5171305
+  &quot;$RT/bin/python&quot; -c &#x27;
 import json, sys
 from pathlib import Path
-root = Path(sys.argv[1])
-for attempt in sorted((root / &#x27;attempts&#x27;).glob(&#x27;job*&#x27;)):
-    print(&#x27;ATTEMPT&#x27;, attempt)
-    for name in (&#x27;trial-result.json&#x27;, &#x27;trial/summary.json&#x27;, &#x27;trial/pass1/summary.json&#x27;, &#x27;trial/pass2/summary.json&#x27;):
-        path = attempt / name
-        print(str(path), path.read_text() if path.exists() else &#x27;Not written yet&#x27;)
-    for name in (&#x27;server.log&#x27;,):
-        path = attempt / name
-        if path.exists():
-            with path.open(&#x27;rb&#x27;) as stream:
-                stream.seek(max(0, path.stat().st_size - 12000))
-                print(&#x27;LATEST SERVER LOG&#x27;, stream.read().decode(errors=&#x27;replace&#x27;))
-    print(&#x27;SCORE COMPARISON&#x27;, attempt / &#x27;trial/comparison.json&#x27;)
-    print(&#x27;FULL INPUTS AND RAW OUTPUTS&#x27;, attempt / &#x27;trial/pass1&#x27;, attempt / &#x27;trial/pass2&#x27;)
-PY_RESULTS
-)</code></pre></div><p class="look">Send the summaries and <code>GEMMA_EXIT</code>. The pass directories contain full inputs, raw responses, resolved passage matches and cell metrics. A deadline leaves partial evidence; additional allocations need fresh approval.</p></div></section><footer><p>Model <code>google/gemma-4-31B-it</code> · revision <code>842da3794eaa0b77d5f08bae87a17459d91ff475</code>.</p><p>Two passes share one loaded server. Temperature 0, thinking off, BF16, TP4, concurrency 4. Exact stored SI-v3 inputs are hash-checked. Batch composition differs from the original separate Qwen/Llama runs.</p><p>Inspect passage matches and repeat stability, especially Trello and the unstable seven-source case. Valid JSON and higher scores alone do not establish better judging.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
+from analysis.scripts.prepare_horeka_qwen import capture_quota
+from analysis.scripts.manage_agentic_hours import health
+workspace, out = map(Path, sys.argv[1:])
+quota = out / &quot;quota-before-fresh20.json&quot;
+quota.write_text(json.dumps(capture_quota(workspace, &quot;hk-project-p0026831&quot;)))
+status = health({&quot;dataset_root&quot;: str(workspace), &quot;cluster&quot;: &quot;horeka&quot;}, quota)
+print(json.dumps(status), flush=True)
+if status.get(&quot;safe_to_admit&quot;) is not True or status.get(&quot;quota_verified&quot;) is not True:
+    raise SystemExit(&quot;Storage check failed; preserve all jobs and outputs.&quot;)
+&#x27; &quot;$W&quot; &quot;$GEMMA_RUN&quot;
+  set +e
+  bash &quot;$GEMMA_RUN/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$GEMMA_RUN/console-job5171305.log&quot;
+  GEMMA_EXIT=${PIPESTATUS[0]}
+  printf &#x27;GEMMA_EXIT=%s\n&#x27; &quot;$GEMMA_EXIT&quot;
+)</code></pre></div><p class="look">Expect GEMMA_EXIT=0 and two passed summaries. Run once. The attempt guard prevents repeating this sample. The parent allocation shell stays open.</p></div></section><section class="step" id="step4"><div class="num">04</div><div class="body"><header class="step-head"><h2>Read summaries and score differences</h2><span class="chip safe">Either shell</span></header><p>Send this compact report first. It reports validity, timings and task-level repeat differences. Missing or failed scores remain missing.</p><div class="code"><button type="button" class="copy" aria-label="Copy Read summaries and score differences commands">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  &quot;$RT/bin/python&quot; -c &#x27;
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1]) / &quot;attempts/job5171305&quot;
+for name in (&quot;trial-result.json&quot;, &quot;trial/summary.json&quot;, &quot;trial/pass1/summary.json&quot;, &quot;trial/pass2/summary.json&quot;):
+    path = root / name
+    print(name, path.read_text() if path.exists() else &quot;Not written yet&quot;)
+path = root / &quot;trial/comparison.json&quot;
+if path.exists():
+    scores = json.loads(path.read_text())[&quot;scores&quot;]
+    for task in (&quot;fulfilment&quot;, &quot;source_importance&quot;):
+        complete = [r for r in scores if r[&quot;task&quot;] == task and all(r[&quot;gemma&quot;].get(p) is not None for p in (&quot;pass1&quot;, &quot;pass2&quot;))]
+        changed = [r for r in complete if r[&quot;gemma&quot;][&quot;pass1&quot;] != r[&quot;gemma&quot;][&quot;pass2&quot;]]
+        print(task, &quot;complete_pairs&quot;, len(complete), &quot;identical&quot;, len(complete)-len(changed))
+        print(&quot;CHANGED&quot;, json.dumps(changed))
+&#x27; &quot;$GEMMA_RUN&quot;
+)</code></pre></div><p class="look">A passed status means the diagnostic completed successfully. Scientific validity still requires reviewing the actual source support and importance grades.</p></div></section><section class="step" id="step5"><div class="num">05</div><div class="body"><header class="step-head"><h2>Review cells 1–5</h2><span class="chip safe">Either shell</span></header><p>Print each full request and answer, every source passage, and both saved raw and resolved judgments. Send these in separate batches for review.</p><div class="code"><button type="button" class="copy" aria-label="Copy Review cells 1–5 commands">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_REPO/analysis/scripts/fresh_gemma_si_review.py&quot; review \
+    --trial &quot;$GEMMA_RUN/attempts/job5171305/trial&quot; --start 0 --count 5
+)</code></pre></div><p class="look"></p></div></section><section class="step" id="step6"><div class="num">06</div><div class="body"><header class="step-head"><h2>Review cells 6–10</h2><span class="chip safe">Either shell</span></header><p>Print each full request and answer, every source passage, and both saved raw and resolved judgments. Send these in separate batches for review.</p><div class="code"><button type="button" class="copy" aria-label="Copy Review cells 6–10 commands">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_REPO/analysis/scripts/fresh_gemma_si_review.py&quot; review \
+    --trial &quot;$GEMMA_RUN/attempts/job5171305/trial&quot; --start 5 --count 5
+)</code></pre></div><p class="look"></p></div></section><section class="step" id="step7"><div class="num">07</div><div class="body"><header class="step-head"><h2>Review cells 11–15</h2><span class="chip safe">Either shell</span></header><p>Print each full request and answer, every source passage, and both saved raw and resolved judgments. Send these in separate batches for review.</p><div class="code"><button type="button" class="copy" aria-label="Copy Review cells 11–15 commands">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_REPO/analysis/scripts/fresh_gemma_si_review.py&quot; review \
+    --trial &quot;$GEMMA_RUN/attempts/job5171305/trial&quot; --start 10 --count 5
+)</code></pre></div><p class="look"></p></div></section><section class="step" id="step8"><div class="num">08</div><div class="body"><header class="step-head"><h2>Review cells 16–20</h2><span class="chip safe">Either shell</span></header><p>Print each full request and answer, every source passage, and both saved raw and resolved judgments. Send these in separate batches for review.</p><div class="code"><button type="button" class="copy" aria-label="Copy Review cells 16–20 commands">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=779c897cae570949d09e804d1e2f550995af6cc3
+  GEMMA_REPO=&quot;$W/checkouts/gemma-fresh-$GEMMA_PIN&quot;
+  GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_REPO&quot;
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_REPO/analysis/scripts/fresh_gemma_si_review.py&quot; review \
+    --trial &quot;$GEMMA_RUN/attempts/job5171305/trial&quot; --start 15 --count 5
+)</code></pre></div><p class="look"></p></div></section><footer><p>Model google/gemma-4-31B-it, revision 842da3794eaa0b77d5f08bae87a17459d91ff475. SI-v3 rubric, citation masking, complete answers, passage matching and ordinal 0–5 scale unchanged. Temperature 0, thinking off, BF16, TP4, concurrency 4; SI cap 640 and J1 cap 64.</p><p>Review exact support, missed support and importance relative to the answer. In the first sample, tied grades can make top-source alignment true without identifying a unique best source. Six truncated stored answers were judged using recovered full answers.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {
     const code = button.parentElement.querySelector('code');
     let copied = false;

@@ -44,3 +44,4 @@ supersede them with a new dated document that links back.
 - 2026-09-30 — [Gemma explicit interactive salloc shell](2026-09-30_gemma4-interactive-shell_handoff.md)
 - 2026-09-30 — [Gemma separate salloc and scoped scheduling exception](2026-09-30_gemma4-separate-salloc_handoff.md)
 - 2026-09-30 — [Gemma preparation reuse and short admission command](2026-09-30_gemma4-preparation-reuse_handoff.md)
+- 2026-09-30 — [Gemma replay results and fresh twenty-cell diagnostic](2026-09-30_gemma4-results-fresh20_handoff.md)
