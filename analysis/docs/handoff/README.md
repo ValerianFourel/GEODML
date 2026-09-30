@@ -41,3 +41,4 @@ supersede them with a new dated document that links back.
 - 2026-09-30 — [SI-v3 diagnosis, retaining ordinal grades](2026-09-30_si-v3-diagnosis-likert_handoff.md)
 - 2026-09-30 — [Gemma 4 SI-v3 comparison preparation](2026-09-30_gemma4-si-v3-preparation_handoff.md)
 - 2026-09-30 — [Gemma SI-v3 HTML commands and one-hour approval](2026-09-30_gemma4-html-commands_handoff.md)
+- 2026-09-30 — [Gemma explicit interactive salloc shell](2026-09-30_gemma4-interactive-shell_handoff.md)

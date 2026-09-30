@@ -76,10 +76,12 @@ Gemma loads on A100; that remains part of the GPU test.
 The HTML page checks fresh scheduling and quota evidence before allocation.
 The allocation must match job name
 `geodml-gemma-si-replay`, the approved time, whole-node exclusivity and the
-resources above. Observe the current concurrency/start-gap rules. Start `run.sh`
-on the compute host within that allocation; if the interactive shell stays on
-the login host, use an explicit step with its existing job ID. Do not create or
-release another allocation implicitly.
+resources above. Observe the current concurrency/start-gap rules. The HTML uses
+`salloc` to acquire the node and `srun --jobid "$SLURM_JOB_ID" --pty bash -l`
+to open the interactive compute shell inside that allocation. Run `bash run.sh`
+directly there; progress remains in the terminal and the shell stays open after
+the test. Reuse an already-open approved Gemma allocation rather than acquiring
+another one. Do not create or release another allocation implicitly.
 
 ## What the test measures
 
