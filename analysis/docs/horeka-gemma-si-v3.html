@@ -98,26 +98,32 @@ footer p { margin: 0; max-width: 78ch; }
 .where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa login host</span><span>Gemma SI-v3 · saved results</span></div><h1>Export both Gemma tests</h1><p class="lede">Run the block below in your HoreKa <strong>login shell</strong>. Both judging passes finished before the second allocation expired. This exports saved files with no new allocation or inference.</p></header><aside class="approval"><h2>Private review archive</h2><p>Destination: <code>ValerianFourel/geodml-experiment-v2-paper-private</code>, under <code>reviews/gemma-si-v3/exports/</code>. Includes jobs 5171305 and 5171481: frozen inputs, full raw and resolved judgments, cell metrics, audit records, summaries, serving profiles, runtime records, GPU telemetry, console/server logs and Slurm accounting.</p><p>A SHA-256 manifest records every exported file. The helper verifies the uploaded ZIP by downloading it at the exact commit. It uses existing Hugging Face authentication; environment files, credentials, model weights and caches are outside the export allowlist.</p></aside><section class="step"><div class="num">01</div><div class="body"><header class="step-head"><h2>Upload the saved judgments</h2><span class="chip safe">Login shell</span></header><div class="code"><button type="button" class="copy" aria-label="Copy Gemma export command">Copy</button><pre><code>(
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa login host</span><span>Gemma SI-v3 · saved results</span></div><h1>Export both Gemma tests</h1><p class="lede">Run the block below in your HoreKa <strong>login shell</strong>. Both judging passes finished before the second allocation expired. The ZIP is already complete. This retries its upload and asks for a write token with hidden terminal input. No new allocation or inference.</p></header><aside class="approval"><h2>Private review archive</h2><p>Destination: <code>ValerianFourel/geodml-experiment-v2-paper-private</code>, under <code>reviews/gemma-si-v3/exports/</code>. Includes jobs 5171305 and 5171481: frozen inputs, full raw and resolved judgments, cell metrics, audit records, summaries, serving profiles, runtime records, GPU telemetry, console/server logs and Slurm accounting.</p><p>A SHA-256 manifest records every exported file. The helper verifies the uploaded ZIP by downloading it at the exact commit. The token must permit writes to this repository. It is used only by this upload process and is not saved as your login; environment files, credentials, model weights and caches are outside the export allowlist.</p></aside><section class="step"><div class="num">01</div><div class="body"><header class="step-head"><h2>Retry upload with a write token</h2><span class="chip safe">Login shell</span></header><div class="code"><button type="button" class="copy" aria-label="Copy Gemma export command">Copy</button><pre><code>(
   set -euo pipefail
+  set +x
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_EXPORT_PIN=dcd8588b4a3daee31362275167684218e6e607b0
-  GEMMA_EXPORT_REPO=&quot;$W/checkouts/gemma-export-$GEMMA_EXPORT_PIN&quot;
   export PYTHONDONTWRITEBYTECODE=1
+  export PYTHONPATH=&quot;$W/checkouts/gemma-export-dcd8588b4a3daee31362275167684218e6e607b0&quot;
   unset HF_HUB_OFFLINE HF_DATASETS_OFFLINE TRANSFORMERS_OFFLINE
-  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
-  if [ ! -d &quot;$GEMMA_EXPORT_REPO&quot; ]; then
-    git -C &quot;$REPO&quot; worktree add --detach &quot;$GEMMA_EXPORT_REPO&quot; &quot;$GEMMA_EXPORT_PIN&quot;
-  fi
-  test &quot;$(git -C &quot;$GEMMA_EXPORT_REPO&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_EXPORT_PIN&quot;
-  test -z &quot;$(git -C &quot;$GEMMA_EXPORT_REPO&quot; status --porcelain --untracked-files=all)&quot;
-  &quot;$RT/bin/python&quot; &quot;$GEMMA_EXPORT_REPO/analysis/scripts/export_gemma_si_review.py&quot; \
-    --run &quot;$W/reviews/gemma4-si-v3-ddc93fe&quot; \
-    --run &quot;$W/reviews/gemma4-si-v3-fresh20-2026093011&quot; \
-    --output &quot;$W/reviews/gemma-si-v3-exports&quot; \
-    --repo-id ValerianFourel/geodml-experiment-v2-paper-private \
-    --upload
-)</code></pre></div><p class="look">Send the final <code>HF_EXPORT {...}</code> line. It contains the repository, exact revision, filename and checksum needed to download and inspect the same archive. <code>LOCAL_EXPORT</code> also reports any missing files. Original runs remain unchanged.</p></div></section><section class="status"><h2>What the pasted summaries establish</h2><div class="tablewrap"><table><thead><tr><th>Test</th><th>Judgments</th><th>Judging seconds</th><th>Judgments/second</th></tr></thead><tbody><tr><td>First 20 cells, two passes</td><td>252</td><td>92.3</td><td>2.73</td></tr><tr><td>Fresh 20 cells, two passes</td><td>256</td><td>128.7</td><td>1.99</td></tr></tbody></table></div><p>These rates exclude startup. Both fresh passes passed, every judgment returned stop, and GEMMA_EXIT=0 appeared before the later allocation time limit. Full startup, shutdown and Slurm timing still need the saved artifacts. The earlier reference-verification and preparation errors are separate from these successful judgments.</p><p>Fresh sample: 105/108 identical source grades across repeats, 20/20 identical J1 grades. Three source grades changed by one point. This establishes repeatability, not judgment accuracy.</p></section><footer><p>No new job, model download, dataset regeneration or queue change. The archive preserves the four passes from the two completed Gemma diagnostics.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
+  &quot;$RT/bin/python&quot; -c &#x27;
+import getpass, hashlib, json, os, sys, warnings
+from pathlib import Path
+from analysis.scripts.export_gemma_si_review import publish
+from analysis.interpretability.pipeline.agentic_hour_sync import atomic
+archive = Path(sys.argv[1])
+raw = archive.read_bytes()
+if hashlib.sha256(raw).hexdigest() != archive.stem:
+    raise SystemExit(&quot;Archive checksum mismatch; upload stopped.&quot;)
+warnings.simplefilter(&quot;error&quot;, getpass.GetPassWarning)
+token = getpass.getpass(&quot;HF write token for geodml-experiment-v2-paper-private (hidden): &quot;).strip()
+if not token:
+    raise SystemExit(&quot;No token entered; upload stopped.&quot;)
+os.environ[&quot;HF_TOKEN&quot;] = token
+receipt = publish(raw, &quot;ValerianFourel/geodml-experiment-v2-paper-private&quot;)
+atomic(archive.with_suffix(&quot;.receipt.json&quot;), json.dumps(receipt, indent=2).encode())
+print(&quot;HF_EXPORT &quot; + json.dumps(receipt), flush=True)
+&#x27; &quot;$W/reviews/gemma-si-v3-exports/31f3666c64e2f44d58cc4f06411f87f828ad454fee9c1b506c6c915dba77e62f.zip&quot;
+)</code></pre></div><p class="look">Send the final <code>HF_EXPORT {...}</code> line. It contains the repository, exact revision, filename and checksum needed to download and inspect the same archive. The existing 1,253,914-byte archive has no missing expected files. Its SHA-256 is checked before upload. Original runs remain unchanged.</p></div></section><section class="status"><h2>What the pasted summaries establish</h2><div class="tablewrap"><table><thead><tr><th>Test</th><th>Judgments</th><th>Judging seconds</th><th>Judgments/second</th></tr></thead><tbody><tr><td>First 20 cells, two passes</td><td>252</td><td>92.3</td><td>2.73</td></tr><tr><td>Fresh 20 cells, two passes</td><td>256</td><td>128.7</td><td>1.99</td></tr></tbody></table></div><p>These rates exclude startup. Both fresh passes passed, every judgment returned stop, and GEMMA_EXIT=0 appeared before the later allocation time limit. Full startup, shutdown and Slurm timing still need the saved artifacts. The earlier reference-verification and preparation errors are separate from these successful judgments.</p><p>Fresh sample: 105/108 identical source grades across repeats, 20/20 identical J1 grades. Three source grades changed by one point. This establishes repeatability, not judgment accuracy.</p></section><footer><p>No new job, model download, dataset regeneration or queue change. The archive preserves the four passes from the two completed Gemma diagnostics.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {
     const code = button.parentElement.querySelector('code');
     let copied = false;
