@@ -38,7 +38,9 @@ login/transfer host, never on the Mac or offline compute nodes.
 
 ## Prepare the test after wall-time approval
 
-No new allocation is approved as of this handoff. Proposal: 15–45 minutes of
+Valerian approved the proposed one-hour allocation on 2026-09-30 in the reply
+requesting an HTML command page. Use [the operator page](horeka-gemma-si-v3.html)
+for admission, allocation, execution and results commands. Estimate: 15–45 minutes of
 work, a **60-minute allocation** including startup/cleanup margin, one exclusive
 Green node, four A100 40 GB GPUs, 32 requested CPUs, whole-node memory (~512 GiB).
 Budget: one node-hour, four GPU-hours; the exclusive node reserves all 152 CPUs
@@ -71,8 +73,8 @@ If compatibility fails, retain the error and prepare an isolated compatible
 environment before requesting compute. Static registration is not proof that
 Gemma loads on A100; that remains part of the GPU test.
 
-Allocation commands are intentionally pending approval and fresh scheduling /
-quota evidence. The eventual allocation must match job name
+The HTML page checks fresh scheduling and quota evidence before allocation.
+The allocation must match job name
 `geodml-gemma-si-replay`, the approved time, whole-node exclusivity and the
 resources above. Observe the current concurrency/start-gap rules. Start `run.sh`
 on the compute host within that allocation; if the interactive shell stays on
