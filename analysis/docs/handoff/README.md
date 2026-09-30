@@ -37,3 +37,4 @@ supersede them with a new dated document that links back.
 - 2026-09-29 — [Nemotron HoreKa handoff for tomorrow](2026-09-29_nemotron-tomorrow_handoff.md)
 - 2026-09-30 — [Leaving JUPITER: handoff for tomorrow](2026-09-30_jupiter-exit-tomorrow_handoff.md)
 - 2026-09-30 — [State of work: leaving JUPITER, Qwen on HoreKa, Nemotron judge](2026-09-30_state-of-work_handoff.md)
+- 2026-09-30 — [SI-v3 pilot (20 cells) and answer-style finding](2026-09-30_si-v3-pilot20-and-answer-style_handoff.md)
