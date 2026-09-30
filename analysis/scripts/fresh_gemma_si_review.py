@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.interpretability.pipeline.agentic_cells import iter_cells
-from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
+from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows, verify_record_reference
 from analysis.interpretability.pipeline.agentic_task_ledger import StripedTaskLedger, identity_fingerprint
 from analysis.interpretability.pipeline.inference_claims import ClaimIdentity
 from analysis.interpretability.pipeline.source_importance import PROTOCOL
@@ -38,7 +38,7 @@ def validate_selection(bundle, excluded, job):
 
 
 def sample_refs(root, model, excluded_prompts, *, deadline):
-    """Choose from completed metadata, verifying only the selected shards in iter_cells."""
+    """Choose verified candidates; audit unavailable references before freezing inputs."""
     tasks = {}
     for n, row in enumerate(iter_sealed_rows(root, "task_definitions", required=True)):
         if n % 50000 == 0:
@@ -62,11 +62,28 @@ def sample_refs(root, model, excluded_prompts, *, deadline):
         candidates.append({"fingerprint": fingerprint, "model": model,
             **{k: task.get(k) for k in ("prompt_id", "method", "engine", "condition")},
             "generation_ref": refs["generations"], "trace_ref": refs["traces"]})
-    chosen = pick(candidates, count=10, seed=SEED)
+    chosen, rejected = [], []
+    while candidates and len(chosen) < 10:
+        batch = pick(candidates, count=10 - len(chosen), seed=SEED)
+        examined = {r["fingerprint"] for r in batch}
+        candidates = [r for r in candidates if r["fingerprint"] not in examined]
+        for candidate in batch:
+            if time.time() >= deadline:
+                raise ValueError("insufficient remaining time; no inference started")
+            failed = [candidate[k] for k in ("generation_ref", "trace_ref")
+                      if not verify_record_reference(root, candidate[k])]
+            if failed:
+                event = {"model": model, "prompt_id": candidate["prompt_id"],
+                         "fingerprint": candidate["fingerprint"], "reason": "unverified_record_reference",
+                         "failed_references": failed}
+                rejected.append(event)
+                print("EXCLUDED_CANDIDATE " + json.dumps(event), flush=True)
+            else:
+                chosen.append(candidate)
     if len(chosen) != 10:
-        raise ValueError(f"need ten distinct fresh prompts for {model}; found {len(chosen)}")
-    print(f"SELECT {model}: verifying ten selected generation/trace records", flush=True)
-    return chosen
+        raise ValueError(f"need ten distinct verified fresh prompts for {model}; found {len(chosen)}, rejected {len(rejected)}")
+    print(f"SELECT {model}: ten verified candidates; excluded {len(rejected)} unverified candidates", flush=True)
+    return chosen, rejected
 
 
 def freeze(args):
@@ -85,7 +102,8 @@ def freeze(args):
     roots = {"qwen38": args.qwen.resolve(), "llama4": args.llama.resolve()}
     selection = {"seed": SEED, "per_model": 10, "datasets": {k: str(v) for k, v in roots.items()},
         "excluded_inputs_sha256": hashlib.sha256(exclusion_bytes).hexdigest(),
-        "excluded_prompt_ids": sorted(excluded), "distinct_prompts": True}
+        "excluded_prompt_ids": sorted(excluded), "distinct_prompts": True,
+        "eligibility": "verified-generation-and-trace-v1"}
     if args.output.exists():
         bundle = json.loads(args.output.read_bytes())
         if bundle.get("selection") != selection:
@@ -94,11 +112,12 @@ def freeze(args):
         print(f"REUSING FROZEN INPUTS {args.output}", flush=True)
         return 0
     deadline = datetime.fromisoformat(fields["EndTime"]).timestamp() - 1200
-    cells, tasks = [], {}
+    cells, tasks, rejected = [], {}, []
     for model, root in roots.items():
         if not (root / "contract.json").is_file():
             raise ValueError(f"dataset contract missing: {root}")
-        chosen = sample_refs(root, model, excluded, deadline=deadline)
+        chosen, failures = sample_refs(root, model, excluded, deadline=deadline)
+        rejected.extend(failures)
         for cell in iter_cells(root, chosen):
             if time.time() >= deadline:
                 raise ValueError("insufficient remaining time; no inference started")
@@ -115,7 +134,8 @@ def freeze(args):
                     raise ValueError("conflicting shared task")
                 tasks[tid] = task
     bundle = {"protocol": PROTOCOL, "selection": selection, "cells": cells, "tasks": list(tasks.values()),
-              "nemotron": {}, "boundary": boundary, "existing_job_id": args.existing_job_id}
+              "nemotron": {}, "boundary": boundary, "existing_job_id": args.existing_job_id,
+              "rejected_candidates": rejected}
     validate_selection(bundle, set(selection["excluded_prompt_ids"]), args.existing_job_id)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     immutable_json(args.output, bundle)
