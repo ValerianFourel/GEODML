@@ -73,12 +73,19 @@ If compatibility fails, retain the error and prepare an isolated compatible
 environment before requesting compute. Static registration is not proof that
 Gemma loads on A100; that remains part of the GPU test.
 
-The HTML page checks fresh scheduling and quota evidence before allocation.
+The HTML page separates the steps: check, standalone `salloc`, optional
+interactive `srun --pty`, then run the test. Valerian approved one exception for
+this Gemma allocation alongside the existing Qwen queue: the five-active and
+no-pending-allocation guards are waived for this run only. The check retains the
+295-job account queue limit, fresh quota/storage evidence and ten-minute
+observed-start gap. No queued job is cancelled, held or modified. A full queue
+means wait for a slot and recheck. No allocation command runs automatically.
 The allocation must match job name
 `geodml-gemma-si-replay`, the approved time, whole-node exclusivity and the
-resources above. Observe the current concurrency/start-gap rules. The HTML uses
-`salloc` to acquire the node and `srun --jobid "$SLURM_JOB_ID" --pty bash -l`
-to open the interactive compute shell inside that allocation. Run `bash run.sh`
+resources above. Run the standalone `salloc` only once after the check passes.
+If it leaves the shell on the login host, the separate
+`srun --jobid "$SLURM_JOB_ID" --pty bash -l` block opens an interactive compute
+shell inside that allocation. Run `bash run.sh`
 directly there; progress remains in the terminal and the shell stays open after
 the test. Reuse an already-open approved Gemma allocation rather than acquiring
 another one. Do not create or release another allocation implicitly.

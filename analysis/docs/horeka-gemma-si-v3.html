@@ -98,7 +98,7 @@ footer p { margin: 0; max-width: 78ch; }
 .where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · 30 Sep 2026</span><span>Code ddc93fe</span><span>SI-v3 · frozen 20 cells</span></div><h1>Gemma 4 SI-v3 in interactive salloc</h1><p class="lede">Remove Nemotron weights, preserve its evidence, download Gemma 4 31B, then replay the same 20 cells twice. Keep the 0–5 scale and passage matches. Download and prepare on the HoreKa login host. Then open one interactive compute shell with salloc and run the test there.</p></header><aside class="approval"><h2>One hour approved</h2><dl class="facts"><div><dt>Allocation</dt><dd>1 exclusive node · 4 × A100 40 GB</dd></div><div><dt>Time and budget</dt><dd>01:00:00 · at most 4 GPU-hours</dd></div><div><dt>CPU and RAM</dt><dd>32 requested CPUs · whole-node RAM ≈512 GiB<br>152 CPUs reserved by exclusivity</dd></div><div><dt>Estimate</dt><dd>15–45 min work + startup/cleanup margin</dd></div></dl><p class="loopnote">Approved in your reply to the one-hour proposal. One allocation only. Gemma throughput is unmeasured; Nemotron’s cold first run took 11.6 minutes. A 30-minute allocation would be cheaper but could leave the comparison incomplete. These commands have not run on HoreKa.</p></aside><nav class="cycle" aria-label="Steps"><a href="#download"><span>1</span>Download</a><a href="#prepare"><span>2</span>Prepare</a><a href="#allocate"><span>3</span>Allocate</a><a href="#run"><span>4</span>Run</a><a href="#results"><span>5</span>Results</a></nav><section class="step" id="download"><div class="num">01</div><div class="body"><header class="step-head"><h2>Download Gemma and remove Nemotron weights</h2><span class="chip safe">Login shell</span></header><p>Code commit <code>ddc93fe</code> is already pushed to <code>origin/codex/pilot-continuation</code>. Nemotron must be idle, including any custom-named jobs. This block preserves its pilot results and audits, removes only its model cache, and verifies the pinned Gemma download. About 62.5 GB of weights; the conservative quota check needs about 124 GB of download headroom.</p><div class="code"><button type="button" class="copy" aria-label="Copy Download Gemma and remove Nemotron weights commands">Copy</button><pre><code>(
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · 30 Sep 2026</span><span>Code ddc93fe</span><span>SI-v3 · frozen 20 cells</span></div><h1>Gemma 4 SI-v3 in interactive salloc</h1><p class="look"><strong>Already downloaded and prepared? Start at step 3.</strong> The salloc command is a separate copy block in step 4.</p><p class="lede">Remove Nemotron weights, preserve its evidence, download Gemma 4 31B, then replay the same 20 cells twice. Keep the 0–5 scale and passage matches. Download and prepare on the HoreKa login host. Then open one interactive compute shell with salloc and run the test there.</p></header><aside class="approval"><h2>One hour approved</h2><dl class="facts"><div><dt>Allocation</dt><dd>1 exclusive node · 4 × A100 40 GB</dd></div><div><dt>Time and budget</dt><dd>01:00:00 · at most 4 GPU-hours</dd></div><div><dt>CPU and RAM</dt><dd>32 requested CPUs · whole-node RAM ≈512 GiB<br>152 CPUs reserved by exclusivity</dd></div><div><dt>Estimate</dt><dd>15–45 min work + startup/cleanup margin</dd></div></dl><p class="loopnote">Approved in your reply to the one-hour proposal. One allocation only. Gemma throughput is unmeasured; Nemotron’s cold first run took 11.6 minutes. A 30-minute allocation would be cheaper but could leave the comparison incomplete. These commands have not run on HoreKa.</p></aside><nav class="cycle" aria-label="Steps"><a href="#download"><span>1</span>Download</a><a href="#prepare"><span>2</span>Prepare</a><a href="#check"><span>3</span>Check</a><a href="#allocate"><span>4</span>salloc</a><a href="#enter"><span>5</span>Interactive shell</a><a href="#run"><span>6</span>Run</a><a href="#results"><span>7</span>Results</a></nav><section class="step" id="download"><div class="num">01</div><div class="body"><header class="step-head"><h2>Download Gemma and remove Nemotron weights</h2><span class="chip safe">Login shell</span></header><p>Code commit <code>ddc93fe</code> is already pushed to <code>origin/codex/pilot-continuation</code>. Nemotron must be idle, including any custom-named jobs. This block preserves its pilot results and audits, removes only its model cache, and verifies the pinned Gemma download. About 62.5 GB of weights; the conservative quota check needs about 124 GB of download headroom.</p><div class="code"><button type="button" class="copy" aria-label="Copy Download Gemma and remove Nemotron weights commands">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
   GEMMA_PIN=ddc93fe5342152d7c33f2abfc0658a48714d7dcc
@@ -125,48 +125,59 @@ footer p { margin: 0; max-width: 78ch; }
     --workspace &quot;$W&quot; --output &quot;$GEMMA_RUN&quot; \
     --walltime 01:00:00 \
     --approval &#x27;Valerian approved 2026-09-30: one interactive 01:00:00 allocation, one exclusive HoreKa Green node, four A100 GPUs, 32 requested CPUs, whole-node memory, maximum four GPU-hours, for the frozen Gemma SI-v3 comparison. No resubmission.&#x27;
-)</code></pre></div><p class="look">Expect <code>"allocation_submitted": false</code>. If the runtime rejects Gemma, send the error; do not upgrade the shared Qwen environment. If the run directory already exists, inspect it rather than creating another run.</p></div></section><section class="step" id="allocate"><div class="num">03</div><div class="body"><header class="step-head"><h2>Open the interactive salloc shell</h2><span class="chip safe">Login shell A</span></header><p>If the approved Gemma allocation is already open, reuse it and skip this step. Otherwise run once after preparation. The guard checks fresh storage evidence, fewer than five active allocations, no other released pending allocations, and at least ten minutes since an observed start. An active Qwen queue may block admission under these rules. Keep this shell open once the allocation is granted. Coordinate other launchers so they do not start jobs during admission.</p><div class="code"><button type="button" class="copy" aria-label="Copy Open the interactive salloc shell commands">Copy</button><pre><code>(
+)</code></pre></div><p class="look">Expect <code>"allocation_submitted": false</code>. If the runtime rejects Gemma, send the error; do not upgrade the shared Qwen environment. If the run directory already exists, inspect it rather than creating another run.</p></div></section><section class="step" id="check"><div class="num">03</div><div class="body"><header class="step-head"><h2>Check queue space and storage</h2><span class="chip safe">Login shell A</span></header><p>Your exception allows this one Gemma allocation alongside the existing Qwen queue. The five-active and no-pending-job guards are waived for this run. No queued job is cancelled, held or modified. The 295-job account limit, fresh quota check and ten-minute observed-start gap remain.</p><div class="code"><button type="button" class="copy" aria-label="Copy Check queue space and storage commands">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_PIN=ddc93fe5342152d7c33f2abfc0658a48714d7dcc
-  GEMMA_REPO=&quot;$W/checkouts/gemma-si-$GEMMA_PIN&quot;
+  GEMMA_REPO=&quot;$W/checkouts/gemma-si-ddc93fe5342152d7c33f2abfc0658a48714d7dcc&quot;
   GEMMA_RUN=&quot;$W/reviews/gemma4-si-v3-ddc93fe&quot;
   test -f &quot;$GEMMA_RUN/run.sh&quot;
   export PYTHONPATH=&quot;$GEMMA_REPO&quot; PYTHONDONTWRITEBYTECODE=1
-  &quot;$RT/bin/python&quot; - &quot;$W&quot; &quot;$GEMMA_RUN&quot; &lt;&lt;&#x27;PY_ADMIT&#x27;
+  &quot;$RT/bin/python&quot; -c &#x27;
 import datetime, json, subprocess, sys, time
 from pathlib import Path
-from analysis.interpretability.pipeline.agentic_hour_runtime import admission
-from analysis.interpretability.pipeline.agentic_hours import empty_registry
 from analysis.scripts.capture_agentic_scheduler_snapshot import capture
 from analysis.scripts.prepare_horeka_qwen import capture_quota
 from analysis.scripts.manage_agentic_hours import health
 workspace, out = map(Path, sys.argv[1:])
-if (out / &#x27;ALLOCATION_ATTEMPTED&#x27;).exists():
-    raise SystemExit(&#x27;Allocation already attempted. Inspect Slurm and this run; do not resubmit.&#x27;)
+config = json.loads((out / &quot;config.json&quot;).read_text())
+if out.name != &quot;gemma4-si-v3-ddc93fe&quot; or config.get(&quot;job_name&quot;) != &quot;geodml-gemma-si-replay&quot; or config.get(&quot;walltime&quot;) != &quot;01:00:00&quot;:
+    raise SystemExit(&quot;Exception applies only to the already approved one-hour Gemma run.&quot;)
+if (out / &quot;ALLOCATION_ATTEMPTED&quot;).exists() or any((out / &quot;attempts&quot;).glob(&quot;job*&quot;)):
+    raise SystemExit(&quot;A previous allocation attempt exists. Inspect it; do not request another.&quot;)
+queued = subprocess.check_output([&quot;squeue&quot;, &quot;--account=hk-project-p0026831&quot;, &quot;--array&quot;, &quot;--noheader&quot;, &quot;--format=%i&quot;], text=True)
+queue_count = len(set(queued.split()))
+if queue_count &gt;= 295:
+    raise SystemExit(f&quot;Account queue is {queue_count}/295. Wait for a free slot; leave all jobs unchanged.&quot;)
 since = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
-live = subprocess.check_output([&#x27;squeue&#x27;, &#x27;--me&#x27;, &#x27;--noheader&#x27;, &#x27;--format=%i&#x27;], text=True)
-history = subprocess.check_output([&#x27;sacct&#x27;, &#x27;-X&#x27;, &#x27;--noheader&#x27;, &#x27;--parsable2&#x27;,
-    &#x27;--starttime=&#x27; + since, &#x27;--format=JobIDRaw&#x27;], text=True)
-ids = sorted({line.strip().split(&#x27;|&#x27;)[0] for line in (live + &#x27;\n&#x27; + history).splitlines() if line.strip()})
-snapshot = {**capture(plan={&#x27;plan_id&#x27;: &#x27;gemma-si-replay&#x27;}, since=since, include_job_ids=ids), &#x27;cluster&#x27;: &#x27;horeka&#x27;}
-quota = out / &#x27;admission-quota.json&#x27;
-quota.write_text(json.dumps(capture_quota(workspace, &#x27;hk-project-p0026831&#x27;), indent=2))
-storage = {**health({&#x27;dataset_root&#x27;: str(workspace), &#x27;cluster&#x27;: &#x27;horeka&#x27;}, quota),
-    &#x27;captured_at_epoch&#x27;: int(time.time())}
-request = {&#x27;cluster&#x27;: &#x27;horeka&#x27;, &#x27;attempt_id&#x27;: out.name, &#x27;approval&#x27;: {&#x27;walltime_seconds&#x27;: 3600}}
-ticket = admission(empty_registry(), request, snapshot, storage, now=int(time.time()))
-(out / &#x27;admission.json&#x27;).write_text(json.dumps({&#x27;scheduler&#x27;: snapshot, &#x27;storage&#x27;: storage, &#x27;ticket&#x27;: ticket}, indent=2))
-with (out / &#x27;ALLOCATION_ATTEMPTED&#x27;).open(&#x27;x&#x27;) as f:
-    f.write(datetime.datetime.now().isoformat() + &#x27;\n&#x27;)
-print(&#x27;ADMISSION PASSED: requesting the one approved allocation&#x27;, flush=True)
-PY_ADMIT
-  salloc --nodes=1 --ntasks=1 --gres=gpu:4 --exclusive \
-    --cpus-per-task=32 --mem=0 --time=01:00:00 \
-    --account=hk-project-p0026831 --partition=dev_accelerated \
-    --job-name=geodml-gemma-si-replay \
-    bash -c &#x27;exec srun --jobid &quot;$SLURM_JOB_ID&quot; --nodes=1 --ntasks=1 --cpus-per-task=32 --gres=gpu:4 --pty bash -l&#x27;
-)</code></pre></div><p class="look">Wait for <code>Granted job allocation</code> and an interactive prompt on <code>hkn…</code>. The srun step opens a terminal inside that same salloc allocation. Keep this terminal open during and after the test. A blocked check starts no allocation. Do not delete the attempt marker or retry a failed/ambiguous salloc without reconciling the result. The snapshot cannot guarantee start spacing if independent launchers continue submitting.</p></div></section><section class="step" id="run"><div class="num">04</div><div class="body"><header class="step-head"><h2>Run both passes directly in the interactive shell</h2><span class="chip safe">Interactive compute shell A</span></header><p>Paste at the hkn… prompt opened in step 3. This runs run.sh directly in your interactive shell. One server handles both passes, with progress printed in this terminal. The child subshell returns to your prompt after success or failure; the allocation remains open.</p><div class="code"><button type="button" class="copy" aria-label="Copy Run both passes directly in the interactive shell commands">Copy</button><pre><code>(
+live = subprocess.check_output([&quot;squeue&quot;, &quot;--me&quot;, &quot;--noheader&quot;, &quot;--format=%i&quot;], text=True)
+history = subprocess.check_output([&quot;sacct&quot;, &quot;-X&quot;, &quot;--noheader&quot;, &quot;--parsable2&quot;, &quot;--starttime=&quot; + since, &quot;--format=JobIDRaw&quot;], text=True)
+ids = sorted({line.strip().split(&quot;|&quot;)[0] for line in (live + &quot;\n&quot; + history).splitlines() if line.strip()})
+snapshot = capture(plan={&quot;plan_id&quot;: &quot;gemma-si-replay&quot;}, since=since, include_job_ids=ids)
+if snapshot.get(&quot;complete&quot;) is not True or not 0 &lt;= time.time() - snapshot[&quot;captured_at_epoch&quot;] &lt;= 120:
+    raise SystemExit(&quot;Fresh complete scheduler evidence required.&quot;)
+if any(row.get(&quot;job_name&quot;) == &quot;geodml-gemma-si-replay&quot; for row in snapshot[&quot;jobs&quot;]):
+    raise SystemExit(&quot;A Gemma allocation is already queued or active. Reuse it; do not request another.&quot;)
+starts = [r[&quot;start_epoch&quot;] for r in snapshot[&quot;jobs&quot;] + snapshot.get(&quot;owners&quot;, []) if isinstance(r.get(&quot;start_epoch&quot;), int)]
+remaining = 600 - (int(time.time()) - max(starts, default=0))
+if remaining &gt; 0:
+    raise SystemExit(f&quot;Wait at least {remaining} seconds on the login host, then repeat this check. Ten-minute start-gap rule retained.&quot;)
+quota = out / &quot;admission-quota.json&quot;
+quota.write_text(json.dumps(capture_quota(workspace, &quot;hk-project-p0026831&quot;), indent=2))
+storage = health({&quot;dataset_root&quot;: str(workspace), &quot;cluster&quot;: &quot;horeka&quot;}, quota)
+if storage.get(&quot;safe_to_admit&quot;) is not True or storage.get(&quot;quota_verified&quot;) is not True:
+    raise SystemExit(&quot;Storage check blocked admission. Leave all jobs unchanged.&quot;)
+evidence = {&quot;scheduler&quot;: snapshot, &quot;storage&quot;: storage, &quot;account_queue_count&quot;: queue_count,
+    &quot;approved_exception&quot;: &quot;Valerian approved one 01:00:00 Gemma allocation alongside the existing Qwen queue; waive five-active and no-pending guards for this run only. Cancel, hold or modify no jobs.&quot;,
+    &quot;walltime_seconds&quot;: 3600, &quot;maximum_gpu_hours&quot;: 4, &quot;checked_at_epoch&quot;: int(time.time())}
+(out / &quot;admission.json&quot;).write_text(json.dumps(evidence, indent=2))
+print(f&quot;CHECK PASSED: account queue {queue_count}/295. Now run the separate salloc command once.&quot;, flush=True)
+&#x27; &quot;$W&quot; &quot;$GEMMA_RUN&quot;
+)</code></pre></div><p class="look">Continue only after CHECK PASSED. If the queue is full, wait for a slot and repeat this check. This command does not allocate anything. Checks are a snapshot, so run the next step immediately and coordinate independent launchers.</p></div></section><section class="step" id="allocate"><div class="num">04</div><div class="body"><header class="step-head"><h2>Request the one-hour allocation</h2><span class="chip safe">Login shell A</span></header><p>Run this command once, immediately after step 3 passes. If the approved Gemma allocation is already open, skip this step and reuse it.</p><div class="code"><button type="button" class="copy" aria-label="Copy Request the one-hour allocation commands">Copy</button><pre><code>salloc --nodes=1 --ntasks=1 --gres=gpu:4 --exclusive \
+  --cpus-per-task=32 --mem=0 --time=01:00:00 \
+  --account=hk-project-p0026831 --partition=dev_accelerated \
+  --job-name=geodml-gemma-si-replay</code></pre></div><p class="look">Wait for Granted job allocation. Keep its shell open. If Slurm rejects the request or its outcome is unclear, inspect the queue before any retry. This approval covers one allocation only.</p></div></section><section class="step" id="enter"><div class="num">05</div><div class="body"><header class="step-head"><h2>Enter the interactive compute shell</h2><span class="chip safe">Inside the salloc shell</span></header><p>If salloc already placed you on its assigned compute node, skip this step. Otherwise this opens an interactive terminal inside the existing allocation. It requests no second allocation.</p><div class="code"><button type="button" class="copy" aria-label="Copy Enter the interactive compute shell commands">Copy</button><pre><code>srun --jobid &quot;${SLURM_JOB_ID:?Use the shell of the approved Gemma allocation}&quot; \
+  --overlap --nodes=1 --ntasks=1 --cpus-per-task=32 --gres=gpu:4 \
+  --pty bash -l</code></pre></div><p class="look">Keep this interactive shell open. Run step 6 here. Do not close another live allocation to change shells.</p></div></section><section class="step" id="run"><div class="num">06</div><div class="body"><header class="step-head"><h2>Run both passes directly in the interactive shell</h2><span class="chip safe">Interactive compute shell A</span></header><p>Paste into the interactive compute shell from steps 4–5. This runs run.sh directly in your interactive shell. One server handles both passes, with progress printed in this terminal. The child subshell returns to your prompt after success or failure; the allocation remains open.</p><div class="code"><button type="button" class="copy" aria-label="Copy Run both passes directly in the interactive shell commands">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
   GEMMA_PIN=ddc93fe5342152d7c33f2abfc0658a48714d7dcc
@@ -179,7 +190,7 @@ PY_ADMIT
     2&gt;&amp;1 | tee &quot;$GEMMA_RUN/console-job$SLURM_JOB_ID.log&quot;
   GEMMA_EXIT=${PIPESTATUS[0]}
   printf &#x27;GEMMA_EXIT=%s\n&#x27; &quot;$GEMMA_EXIT&quot;
-)</code></pre></div><p class="look">Expect <code>GEMMA_EXIT=0</code> and two passed summaries. Startup can take several minutes. On failure, keep the allocation shell open and inspect the logs. This command never releases the allocation or creates a replacement.</p></div></section><section class="step" id="results"><div class="num">05</div><div class="body"><header class="step-head"><h2>Read status and saved results</h2><span class="chip safe">Separate login shell B</span></header><p>Use during startup or after completion. This reads shared files and starts no GPU process.</p><div class="code"><button type="button" class="copy" aria-label="Copy Read status and saved results commands">Copy</button><pre><code>(
+)</code></pre></div><p class="look">Expect <code>GEMMA_EXIT=0</code> and two passed summaries. Startup can take several minutes. On failure, keep the allocation shell open and inspect the logs. This command never releases the allocation or creates a replacement.</p></div></section><section class="step" id="results"><div class="num">07</div><div class="body"><header class="step-head"><h2>Read status and saved results</h2><span class="chip safe">Separate login shell B</span></header><p>Use during startup or after completion. This reads shared files and starts no GPU process.</p><div class="code"><button type="button" class="copy" aria-label="Copy Read status and saved results commands">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
   GEMMA_PIN=ddc93fe5342152d7c33f2abfc0658a48714d7dcc
