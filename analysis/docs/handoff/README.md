@@ -49,3 +49,4 @@ supersede them with a new dated document that links back.
 - 2026-09-30 — [Fresh Gemma verified-candidate selection fix](2026-09-30_gemma4-verified-candidates_handoff.md)
 - 2026-09-30 — [Fresh Gemma results and private Hub export](2026-09-30_gemma4-results-hf-export_handoff.md)
 - 2026-09-30 — [Gemma export retry with write-token prompt](2026-09-30_gemma4-export-write-token_handoff.md)
+- 2026-09-30 — [Gemma SI-v3 full-batch Astra audit](2026-09-30_gemma4-astra-audit_handoff.md)

@@ -1,0 +1,1295 @@
+{
+  "reviewer": "GPT-6 Astra reference-model semantic audit; not human gold standard",
+  "blinded": true,
+  "created_at_utc": "2026-09-30T12:41:27.122182+00:00",
+  "blind_packet_sha256": "f8c9ae513630720bec59e42adeffa4fa147e8e1d11d0b983b3030cda38704677",
+  "rubric_notes": [
+    "Full answer and whole title/snippet inspected for all 106 sources. Partial answer-unit support is allowed.",
+    "Centrality refers to the answer written, not J1/query fulfillment. A source describing a capability does not necessarily support advice based on it.",
+    "Ranges fixed before opening the unblinded packet. Adjacent alternatives represent genuine centrality ambiguity.",
+    "For evidence-lacks answers, one source cannot establish absence over the whole set.",
+    "Manual query-style proxies are not measured semantic-axis strata."
+  ],
+  "cells": [
+    {
+      "index": 0,
+      "cell_id": "9407a920b4e139ba05b2",
+      "model": "qwen38",
+      "method": "Parallel-Expansion-v1",
+      "style": "mixed",
+      "query_style_proxy": "action",
+      "eligibility_note": "Mixed refusal/narration or decision framing; absence statements require separate eligibility caution.",
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-3ff45de00a45b87d1b42de31",
+          "url": "https://www.isms.online/compliance-software/what-is-the-best-cybersecurity-compliance-software/",
+          "acceptable_range": [
+            2,
+            2
+          ],
+          "rationale": "Directly supports the complete a3 account of centralizing policies, risks, tasks and evidence for ISO/SOC compliance. This is useful descriptive context, not the main inability-to-provide-procedure conclusion.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-60e95f3bc7f641c4026123f3",
+          "url": "https://www.prosoft.de/loesungen/it-management/it-audit-software/",
+          "acceptable_range": [
+            2,
+            2
+          ],
+          "rationale": "German text directly supports a5 real-time IT change monitoring and compliance reports for Netwrix. It does not supply a deployment or audit-generation procedure.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-8c569f68e223bd5c3d046f72",
+          "url": "https://cynomi.com/learn/compliance-management-software-solutions/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Directly supplies the framework list in a6. The list is a secondary descriptive detail in an answer chiefly reporting missing procedural evidence.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-6636338126bf52a20babfd21",
+          "url": "https://www.reddit.com/r/cybersecurity/comments/1gplhfy/compliance_automation_tools_saas_companies/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Supports a7 observed prevalence of quick compliance and audit-readiness tools. It does not support the recommendation to consult documentation.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-c8326689c7c6bccb4b6a066c",
+          "url": "https://www.securitycompass.com/blog/top-10-compliance-audit-software-tools/",
+          "acceptable_range": [
+            2,
+            2
+          ],
+          "rationale": "Supports a4 Hyperproof cloud compliance/audit management and real-time regulatory insights. Product description is secondary to the answer conclusion.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-d9ad1ee9e4a451c17affaec0",
+          "url": "https://www.puppet.com/blog/software-deployment-automation",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Supports a8 description of configuration-management and CI/CD deployment tools and locally shows no compliance wizard. It cannot establish absence across all snippets.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-ea533fbf27bf093d604b9a3b",
+          "url": "https://getsecureslate.com/blog/top-7-hipaa-compliant-billing-software-for-healthcare-finance",
+          "acceptable_range": [
+            1,
+            1
+          ],
+          "rationale": "The title directly supports a9 that this item concerns HIPAA-compliant billing software. This peripheral characterization is the only substantive match.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "cell_id": "f9c5c4e1940622aa3acb",
+      "model": "qwen38",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "evidence_lacks",
+      "query_style_proxy": "action",
+      "eligibility_note": "Evidence-wide absence conclusion cannot be assessed from a single source; retain local positive descriptive support separately.",
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-d9b6f3d67994a4a1d304051a",
+          "url": "https://www.impactanalytics.ai/blog/pricing-optimization",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Supports the first definition in a2, the sole positive substantive content of this short answer. It cannot establish that all observed evidence lacks deployment steps; useful explanatory rationale, not most essential content.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-3376e7404d90e7e23efac576",
+          "url": "https://en.wikipedia.org/wiki/Price_optimization",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Supports the mathematical-analysis/customer-response definition in a2. It cannot independently establish evidence-wide absence of Python or curl instructions.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "cell_id": "9d3e114a47ba2f5b05a4",
+      "model": "qwen38",
+      "method": "Parallel-Expansion-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-240e0c94afbc91ceb5e76b40",
+          "url": "https://winninghunter.com/blog/product-research-tools",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Names WinningHunter, Helium10 and Google Trends as product-research tools, supporting tool examples within a4. It does not classify their functions as claimed, prescribe 30–90 days, or support the final test.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-7aa1318ca1a0f633f5b2e7a9",
+          "url": "https://www.pipiads.com/dropshipping-product-research-tool",
+          "acceptable_range": [
+            1,
+            1
+          ],
+          "rationale": "Supports Pipiads as a dropshipping product-research tool and its discovery purpose within a4. Neither ad-spying nor active-ad monitoring is stated; only peripheral tool identity is established.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-4c3a66cdb8b636308c95da15",
+          "url": "https://www.minea.com/dropshipping-winning-products/find-dropshipping-products",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Recommends research tools like Minea and mentions trending products, supporting Minea as a proposed research tool in a4. It does not establish ad-spying functions or screening rules.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-34c64ffd276ffee43e863799",
+          "url": "https://www.autods.com/blog/product-finding/product-research-tools/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "General value of product research does not establish AutoDS market-share/review-count capability, the named tools in a4, or any stated workflow instruction. Shared purpose alone is insufficient.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-8650ec605175784b59509627",
+          "url": "https://www.sellthetrend.com/dropshipping-product-research",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Defines research as validating demand, competition, pricing and saturation before launch, directly grounding a3 core criteria and workflow premise. Detailed thresholds, competitor-quality rules and validation-ad budget remain unsupported.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-e58bf9a3a1cd6b29a1067e66",
+          "url": "https://contentsquare.com/guides/product-research/tools/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Names Contentsquare and Zendesk with research functions absent from the answer. Generic tech-stack wording does not substantiate the chosen stack or its steps.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-15cef6fe581774dfb99ccef3",
+          "url": "https://www.youtube.com/watch?v=0A0v_3RoDdI",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "A guide promises profitable-product research but states none of the answer’s concrete recommendations, conditions or thresholds.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "cell_id": "3d2c4e46d03a01d63795",
+      "model": "qwen38",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "mixed",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-fa3003807089d0f9a2a0bbf4",
+          "url": "https://coldiq.com/tools/ecwid",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Supports the capability assertions embedded in a1 and a2: launch on any site and no transaction fees. It does not recommend verification, CMS compatibility checking, or volume-based plan comparison.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-e738eb823ff30924b2f99a11",
+          "url": "https://www.forbes.com/advisor/business/ecwid-review/",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Supports the embedded claims in a1 and a2 that Ecwid embeds in an existing website and has a free selling option. Seamlessness, plan limits and the instruction to compare plans are not established.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-29db9f7817649bc1e42a07e5",
+          "url": "https://thecleverbusiness.com/ecwid-review/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly supplies the capabilities underlying the two main checklist sections a3 and a4: product organization, storefront, orders, payments, marketing and analytics. It does not prescribe testing or substantiate depth/suitability, but this is substantial substantive checklist content.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-7e18cb4021bc212bbc83b24d",
+          "url": "https://ecommerceplatforms.com/ecwid-review/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Generic review introduction does not establish scalability, support quality, or that reviews identify those as critical. No other concrete answer content is supplied.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "cell_id": "ccf34042bf62e1e6fea0",
+      "model": "qwen38",
+      "method": "Parallel-Expansion-v1",
+      "style": "mixed",
+      "query_style_proxy": "action",
+      "eligibility_note": "Mixed refusal/narration or decision framing; absence statements require separate eligibility caution.",
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-0bfaaea11b8d2da0bd985917",
+          "url": "https://www.ups.com/de/en/supplychain/logistics-solutions/ecommerce-fulfillment",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Supports UPS offering reliable outsourced fulfillment plus order/inventory management, a secondary provider example in a3. It does not support all end-to-end services attributed jointly to UPS and FBA or recommend the conditional outsourcing decision.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-540ce58facdda2b26807c253",
+          "url": "https://sell.amazon.com/fulfillment-by-amazon",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Supports FBA outsourcing, global fulfillment network, picking/packing/shipping and customer service, central factual justification in a3 and network premise in a4. It does not recommend full outsourcing over hybrid under the answer’s stated conditions.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-1aa43fc185984e6f5ac75058",
+          "url": "https://ecommercenews.eu/fulfillment-companies/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Supports a2 premise that fulfillment consumes time, but not the stronger claim that outsourcing reduces it. Peripheral to the decision and does not establish the final recommendation.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-a54f61915d1cb6dc26cf3942",
+          "url": "https://ware2go.co/articles/why-e-commerce-fulfillment-is-just-as-important-as-sales-marketing/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly supports a2 cost reduction and streamlined operations and a6 fulfillment/customer-satisfaction importance, main factual justification. Does not establish outsourcing-specific cost savings or the loss-of-control tradeoff.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-d935bddde6f6e86a5d01b9cf",
+          "url": "https://b-slogistik.de/en/services/e-commerce-fulfillment/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Describes B+S storage/shipping activities; the answer attributes comprehensive services to Amazon and UPS. Wrong provider prevents transferring those capabilities.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-06d7886515587aff47e1b180",
+          "url": "https://www.metro-logistics.de/en/services/metro-logistics-as-fulfillment-service-provider",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Describes a METRO warehouse offering absent from the answer. It does not substantiate a named provider or outsourcing/hybrid decision.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-a36852999ab666afedd0e272",
+          "url": "https://zenfulfillment.com/fulfillment/e-commerce/definition",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Zenfulfillment provider promotion contains no substantive claim made in the answer about the named providers or choice conditions.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "cell_id": "ff36fa6c503732eccfcc",
+      "model": "qwen38",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-97a571649a6614ddc609698d",
+          "url": "https://bluebrix.health/products/care-coordination-software",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly recommends scheduling outreach, follow-ups and reminders and monitoring care-plan tasks, supporting a10 and core a12 monitoring. Automation, real-time outcomes and applicability to a selected free/open-source platform are not established.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-69b3ff5371d88b33c5761d8f",
+          "url": "https://sourceforge.net/software/care-coordination/free-version/",
+          "acceptable_range": [
+            2,
+            2
+          ],
+          "rationale": "Lists the exact four free options in a2, useful preliminary selection content. The answer distinguishes free from open source, and this source does not establish configuration steps.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-d8011cc9a30dae9bf1f1c5d8",
+          "url": "https://cloudmedico.com/blog/top-free-personal-patient-management-software",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Generic growth and quality-care description contains none of the named platforms, configuration steps or caveats.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "cell_id": "ec1dff51454a2d283c6e",
+      "model": "qwen38",
+      "method": "Parallel-Expansion-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-312197dbeb85c6895ff51b8d",
+          "url": "https://subjectwell.com/seven-essential-strategies-to-revolutionize-your-patient-recruitment/",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Explicitly recommends improved recruitment diversity, supporting the diversity objective in a5. It does not establish the buzzword contrast or immediate Phase III rescue effectiveness.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-67b1cd08900762bf21b553e9",
+          "url": "https://ccrps.org/clinical-research-blog/patient-recruitment-strategies-for-clinical-trials",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Promises seven strategies but enumerates none; generic improved enrollment/trial success does not support any specific answer strategy.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-6178e1276b8cdf7720b95e06",
+          "url": "https://clariness.com/resource/3-patient-recruitment-strategies-in-clinical-trials/",
+          "acceptable_range": [
+            4,
+            4
+          ],
+          "rationale": "Directly supplies three of five substantive recommendations: patient opinions, reduce site burden, make diversity a focus. These are central recommendations; immediate reversal of Phase III shortfall and patient-logistics claims are additional unsupported extensions.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-2c3c44dba017890e954ecc3c",
+          "url": "https://mdgroup.com/blog/patient-recruitment-and-retention-in-clinical-trials-strategies-and-challenges/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly supports culturally sensitive outreach and community partnerships in a4, a central recommended strategy. The clipped ending does not establish the particular underrepresented/hard-to-reach target population.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-3b8abc8f534cb998952ee8d8",
+          "url": "https://onecoredevit.com/news-and-insights/clinical-research/effective-patient-recruitment-strategies-in-clinical-trials/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Promises effective techniques without naming any of the answer’s strategies or mechanisms.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-9a1facec04dc68add87775af",
+          "url": "https://servier.com/en/newsroom/clinical-studies-patient-recruitment/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Describes implementation of digital recruitment through social networks and online platforms, directly supporting a3 central strategy. Broadened reach, efficiency and Phase III urgency are not fully established.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-6c000a74854b44ce2eed5f64",
+          "url": "https://www.parexel.com/solutions/early-development-and-innovation/clinical-trial-patient-recruitment-strategy",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "States successful recruitment of diverse patients, supporting the diversity goal within a5. Does not recommend the concrete change from buzzword to actionable diversity strategies or establish effectiveness for an active shortfall.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "cell_id": "f223ac7238c28c2f044b",
+      "model": "qwen38",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "informational",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-4143d394087a88fb2a68e446",
+          "url": "https://www.shift4shop.com/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Real-time shipping is mentioned, but neither rate calculation, APIs, cost checkout, dimensions, nor any other substantive answer claim is stated.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-7669b9c8f69c80b012e2f87d",
+          "url": "https://www.softwareworld.co/best-shipping-software/",
+          "acceptable_range": [
+            2,
+            2
+          ],
+          "rationale": "Directly supports a5 workflow automation and optimized delivery in e-commerce. It supplies context, not the central API/dimensional-weight mechanism.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-47f100fc8706c4bddf960e2d",
+          "url": "https://www.veeqo.com/blog/shipping-software-comparison",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Lists software names absent from the answer and describes choosing software, not calculating or comparing carrier rates.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-d8b5762c6c592a0ed34908c5",
+          "url": "https://www.shipbase.com/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly supports a2 instantaneous carrier-rate comparison and dimensional weight/fuel/residential fees. This is the principal concrete mechanism example; title identifies all four carriers. APIs and precise input-to-quote procedure remain unsupported.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-3b40600a45a72c6e0f1d7751",
+          "url": "https://www.fedex.com/en-us/online/rating.html",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Supports shipment origin/destination and weight as shipping-calculator inputs in a3. It provides estimated costs, not real-time quotes or dimensional-weight/API processing; useful secondary mechanistic support only.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-bf8d77ac29d4c98c3cc27088",
+          "url": "https://fareye.com/carrier-management-software",
+          "acceptable_range": [
+            2,
+            3
+          ],
+          "rationale": "Directly supports a4 centralized carrier/service comparisons and reduced difficulty/time, a substantial secondary explanation. No live API computation is established.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "cell_id": "224b306298e4a68d7f74",
+      "model": "qwen38",
+      "method": "Parallel-Expansion-v1",
+      "style": "direct",
+      "query_style_proxy": "informational",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-d22c9b5b655ae536b94927e6",
+          "url": "https://posbytz.com/ecommerce/best-pos-systems-to-integrate-in-woocommerce/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Title supplies WooCommerce/POS integration and snippet an omnichannel solution, supporting examples within a3. Does not establish real-time synchronization or the full unified-platform definition.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-4ebcc4d66a625dc6e8461f23",
+          "url": "https://kiwicommerce.co.uk/4-best-ecommerce-pos-to-connect-online-and-in-store-operations/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Title directly states connecting online and in-store operations, the answer’s central definition, while snippet supplies Magento/Shopify examples. It does not establish synchronization of particular data or real-time behavior.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-ce1d4c6dc1470b0011124d07",
+          "url": "https://www.fieldstack.com/blog/how-to-choose-the-best-retail-pos-system-for-your-business",
+          "acceptable_range": [
+            4,
+            5
+          ],
+          "rationale": "Directly supplies more-than-checkout characterization and inventory/customer/loyalty/ecommerce/forecasting/warehouse coverage, most of the conceptual answer. Real-time synchronization and accounting integration remain beyond this source.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-44713bd403371a7cf6a4b89d",
+          "url": "https://startups.co.uk/payment-processing/small-businesses-pos-systems/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Shopify combining in-store and online sales directly supports the central online/offline integration claim in a2. Does not support synchronized data fields, real-time operation or complete platform criteria.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-70a24a467258fc7ce9e8fc7a",
+          "url": "https://technologyadvice.com/point-of-sale-software/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Comparison implies larger POS platforms have ecommerce integrations, a general capability premise in a3. No named integration, unified data or evaluation criterion is supplied.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-9f5b24131fb37355f5715574",
+          "url": "https://www.youtube.com/watch?v=06H5ewBTmQs",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Title explicitly identifies POS ecommerce integration; snippet includes Shopify. Supports the integration example in a3, without real-time or unified-data detail.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-196adef8c1f6cfe38eaa010a",
+          "url": "https://skuplugs.com/8-best-e-commerce-pos-integrations-to-grow-your-online-business-in-2024/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Explicitly links integrations to business scaling and names accounting integrations, supporting the main a4 connectivity/scaling claim. No stock-accuracy or unified-profile evidence.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "cell_id": "2e4098d7ee3d2547ee74",
+      "model": "qwen38",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "informational",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-fdf7ffdfe58ecaa7bf682576",
+          "url": "https://wifitalents.com/best/online-test-proctoring-software/",
+          "acceptable_range": [
+            4,
+            5
+          ],
+          "rationale": "Supplies exam-specific proctoring, analytics, user-friendliness, reliability and the stated evaluation/best-in-class rationale across a1,a3,a5,a6. It does not supply anomaly detection, causal pressure/accessibility benefits or all exam types.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-d9531a7237386affa05ecb58",
+          "url": "https://geekflare.com/consumer-tech/exam-proctoring-software/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly supplies record/review, live monitoring and LMS integration, the first two key factors a1/a2. Workflow/data-consistency benefits are an unsupported extension.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-ee4dd4bc46be630d2b34f14a",
+          "url": "https://research.com/software/best-online-proctoring-software",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Supplies support for multiple named exam types, the central factor in a4. Meeting institution-specific needs is inferred from versatility, not directly established.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "cell_id": "2dd070ba00e1c41c31f5",
+      "model": "llama4",
+      "method": "Parallel-Expansion-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-562c04bdd47e63b2c5a1d4de",
+          "url": "https://kinsta.com/blog/trello-alternative/",
+          "acceptable_range": [
+            4,
+            5
+          ],
+          "rationale": "Full composite snippet directly recommends Productive and Breeze as Trello alternatives and supplies powerful features/flexible workflows in a2; monday.com appears as an alternative in the composite title. Wekan is absent. Despite poor query fulfillment, this supports much of the answer actually written.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-ca9c5281ef7d636026a33f48",
+          "url": "https://thedigitalprojectmanager.com/tools/best-trello-alternatives/",
+          "acceptable_range": [
+            4,
+            5
+          ],
+          "rationale": "Directly supports Productive/Breeze alternatives and a2 powerful features/flexible workflows, substantial and central content in a two-sentence answer. Does not support Wekan or Monday.com.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-57ddfb9531d3147de991956b",
+          "url": "https://thecmo.com/tools/asana-alternatives/",
+          "acceptable_range": [
+            1,
+            1
+          ],
+          "rationale": "Supports only the peripheral premise that Asana organizes/tracks/manages tasks, embedded in a1. It does not support the recommended alternative products.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-9e65817e503c48294f5e7af9",
+          "url": "https://quantive.com/resources/articles/how-to-implement-okrs",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "OKR implementation and company examples are unrelated to the answer’s specified alternatives and their project-management features.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-286449b983d57bc5a0a68211",
+          "url": "https://alternativeto.net/software/trello/",
+          "acceptable_range": [
+            4,
+            4
+          ],
+          "rationale": "Directly recommends Wekan as the best Trello alternative and identifies it as free/open source, central named recommendation in a1. Does not support the other alternatives or their common workflow properties.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-961c12e9043e660a2ecf31a5",
+          "url": "https://www.bing.com/aclick?ld=e8CbiHJwyxqml6a48mL3caLzVUCUwadIDJ0pOM-De5gQucxZPY5i2akurk7cc59rxvAQypn-dIIinFnWt0bClINoAmH38DeUK5rFj5iV_UQiTU5xJtYendmFmo6hImvq7ESMVc55nvKWiWQYUma_QGdYCBzSEI-z6mR7kAMYhWzqt3g005XSfDbN22A9crEJQDrl3mDw&u=aHR0cHMlM2ElMmYlMmZ3d3cuem9oby5jb20lMmZwcm9qZWN0cyUyZnRyZWxsby1hbHRlcm5hdGl2ZS5odG1sJTNmdXRtX3NvdXJjZSUzZGJpbmdhZHMlMjZ1dG1fbWVkaXVtJTNkY3BjJTI2bmV0d29yayUzZG8lMjZkZXZpY2UlM2RjJTI2a2V5d29yZCUzZGFsdGVybmF0aXZlJTI1MjB0byUyNTIwdHJlbGxvJTI2Y2FtcGFpZ25pZCUzZDQ3MTMyMzI4MSUyNmFkZ3JvdXAlM2QxMjk2MzI1NDIyNzExNzYxJTI2bWF0Y2h0eXBlJTNkZSUyNmtleXdvcmRtYXRjaHR5cGUlM2RiZSUyNnV0bV90ZXJtJTNkYWx0ZXJuYXRpdmUlMjUyMHRvJTI1MjB0cmVsbG8lMjZhZHBvc2l0aW9uJTNkJTI2cGxhY2VtZW50JTNkJTI2bXNjbGtpZCUzZGJkNWMzMGNhOGFkNjFhNjIyMjlkNTkxNTE3YTQ3MTczJTI2dXRtX2NhbXBhaWduJTNkWlByb2plY3RzJTI1MjAtJTI1MjBBbHRlcm5hdGl2ZXMlMjUyMC0lMjUyMEVVJTI1MjAlMjUyNiUyNTIwVUslMjZ1dG1fY29udGVudCUzZFRyZWxsbyUyNTIwQWx0ZXJuYXRpdmU&rlid=bd5c30ca8ad61a62229d591517a47173",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "An unnamed advertised Trello alternative has planning/tracking features, but the answer attributes properties to Wekan/Productive/Breeze/Monday. Cannot transfer properties across entities.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-1032399c16762448b8c189b7",
+          "url": "https://www.rankred.com/sales-tracking-software/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Describes sales-tracking products not recommended in the answer. No support for the named alternatives or their properties.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "cell_id": "0205b13f2a51c79c85fd",
+      "model": "llama4",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-ee79ffb07a0f999d0005a06b",
+          "url": "https://nichesources.com/sourcing-websites.html",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Defines sourcing generically; it neither names the recommended platforms nor establishes their supplier-verification or benefit claims.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-f84a24f5c735666dd5dedd81",
+          "url": "https://www.analyzer.tools/amazon-sourcing-research-tools-apps-that-simplify-supplier-hunting/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Lists different sourcing tools; none is a platform recommended in the answer.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-bb59acfeff51f1ac43b45e76",
+          "url": "https://www.salehoo.com/wholesale",
+          "acceptable_range": [
+            4,
+            5
+          ],
+          "rationale": "Directly supports SaleHoo as a verified-supplier directory and all three stated benefits in a2, most essential substance for one named platform. Does not establish compliance automation or that all three platforms share those benefits.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-9c9f3724296c0cdb25c1228e",
+          "url": "https://supplierscentral.com/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Recommends its directory for retailers/resellers and states every supplier undergoes review, directly supporting Suppliers Central and verified suppliers. No automated compliance, better-price or scaling guarantee.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-6204c57118a04c01da0ab4a1",
+          "url": "https://m.globalsources.com/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly identifies Global Sources as a marketplace connecting verified suppliers, central named recommendation and verification premise. Does not establish compliance automation or all a2 commercial benefits.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "cell_id": "166ffa4bb37c4f872e9a",
+      "model": "llama4",
+      "method": "Parallel-Expansion-v1",
+      "style": "direct",
+      "query_style_proxy": "mixed",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-2e6498b13ab3fa2b0a9984da",
+          "url": "https://intuitionlabs.ai/articles/pharmacy-management-systems-guide",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Supports the data-storage/medication-operations premise within a1. Does not specify interface, security, or the feature checklist; narrower secondary support.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-15b2daeb937d8dfbf0a93a2a",
+          "url": "https://en.wikipedia.org/wiki/Pharmacy_management_system",
+          "acceptable_range": [
+            4,
+            4
+          ],
+          "rationale": "Exactly supplies the a1 necessary system requirements, one of two central answer sentences. Requirement language supports evaluating these components, not merely topic overlap.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-25b26bbce62cc02e2fe0e725",
+          "url": "https://checklistguro.com/blog/the-10-best-pharmaceutical-management-software-of-2025",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Supplies inventory/compliance/dispensing features and operational streamlining within a2, a substantial feature-list subset. Does not supply expiry/sales/purchase detail.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-3baee061760f86dad854f9fa",
+          "url": "https://www.goodfirms.co/pharmacy-software/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Supports general efficiency, seamless operations and compliance aims in a2. None of the concrete checklist features is specified.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-7bbf675803ca4b09409466b4",
+          "url": "https://www.workflowservices.com/pharmacy-solutions",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Turn-key healthcare-destination marketing does not substantiate any listed system requirement or feature.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-307abbf8fee61d4ba9eaba48",
+          "url": "https://www.verifiedmarketresearch.com/blog/best-pharmacy-management-systems/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Cerner safety/effectiveness and Clanwilliam offerings do not substantiate the exact interface/security/features checklist; broad medication-management overlap is insufficient.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-8a48e6b2779f817ce75523f7",
+          "url": "https://www.softwareadvice.com/retail/pharmacy-comparison/",
+          "acceptable_range": [
+            4,
+            4
+          ],
+          "rationale": "Directly supplies inventory/regulatory compliance plus expiry alerts, automated sales and purchase tracking, most of the central second sentence. Does not support all first-sentence system requirements.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "cell_id": "83baa5d2a07c651d8b28",
+      "model": "llama4",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-0f8b18092740be5cf800264b",
+          "url": "https://www.coursera.org/articles/erp-vs-crm",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "CRM/ERP data capture and broad integration does not describe schema mapping, batch migration or log verification.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-cfc42df286c9423b8d225ca0",
+          "url": "https://www.netsuite.com/portal/resource/articles/erp/erp-vs-crm.shtml",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Central-database ERP and customer-management CRM definitions do not describe any instructed migration step.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-1df1f782ec35a04b12d710d9",
+          "url": "https://abas-erp.com/de/blog/erp-vs-crm-grosser-unterschied",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "German ERP-versus-CRM scope comparison supplies none of the mapping/migration/log procedure.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 14,
+      "cell_id": "212aa2c7a6c698d700d7",
+      "model": "llama4",
+      "method": "Parallel-Expansion-v1",
+      "style": "evidence_lacks",
+      "query_style_proxy": "action",
+      "eligibility_note": "Evidence-wide absence conclusion cannot be assessed from a single source; retain local positive descriptive support separately.",
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-672a7f2e09e7ac0bbd4becf7",
+          "url": "https://seesaw.com/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Educational-software description directly supports one part of a2 characterization. Cannot establish evidence-wide absence of authentication/log steps; positive support is only generic explanatory context.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-e4f48196c01637311e718f1a",
+          "url": "https://learn.microsoft.com/en-us/microsoft-365/education/guide/1-reference/baseline-reference-sis",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "SIS definition directly supports a2 characterization of student-information systems. Does not independently establish absence across all snippets.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-f1b8c07da0ab47cbb0161d02",
+          "url": "https://www.gartner.com/reviews/market/higher-education-student-information-system-software-as-a-service",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Academia SIS academic-management description supports a2 source characterization, not the main evidence-wide absence claim.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-c875976c90e1d03c9104b3ff",
+          "url": "https://www.larksuite.com/en_us/topics/education/education-software-for-schools",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Explicit article description supports the educational-software characterization in a2, not the global absence assertion.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-29680c44916a9c64e75777bd",
+          "url": "https://www.bu.edu/mybu/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Describes a self-service/login portal only; it does not identify educational software or an SIS, and it cannot establish that the whole evidence set lacks API/log guidance.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-59df402d9c0bdc0b4c6d13dc",
+          "url": "https://www.classe365.com/student-information-system",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Explicit SIS definition supports a2 topic characterization only. Main evidence-wide absence claim is not established by one source.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-072baf193b655b0e25001a7c",
+          "url": "https://www.microsoft.com/en-us/education",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Explicit educational-software offering supports a2 characterization only, not absence of API/log evidence throughout the source set.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 15,
+      "cell_id": "2d3df8f3d3f469070d97",
+      "model": "llama4",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-c37cda30bb40e2f515b3b6df",
+          "url": "https://www.webfx.com/blog/web-design/online-payment-systems/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Generic payment definitions/marketing contain no pending-deposit troubleshooting step. Electronic-payment/authentication vocabulary does not support instructions to check or verify particular settings/accounts.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-b4d2c2441fde4826a9ceefb2",
+          "url": "https://www.forbes.com/advisor/business/software/best-payment-gateways/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Defines payment gateways without any troubleshooting or confirmation instruction.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-d438a149b1f2a9c184db9d07",
+          "url": "https://support.bigcommerce.com/s/article/Connecting-with-Braintree",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Supports only existence/location of configurable Braintree settings within a3. This is merchant-platform setup information; it does not establish that a forex depositor can or should check these settings to fix a pending deposit.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-a3aa3abdea9f51f5bcf883a0",
+          "url": "https://wordpress.org/plugins/woocommerce-gateway-paypal-powered-by-braintree/",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Full composite snippet describes Braintree control-panel login and the settings location, factual subclaims in a1/a3. It does not recommend these actions for forex payment failure, checking errors, contacting support or funding confirmation.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 16,
+      "cell_id": "326525bc3e7b07f069b7",
+      "model": "llama4",
+      "method": "Parallel-Expansion-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-d5424e3c86688a5ae92b8772",
+          "url": "https://www.reddit.com/r/coolguides/comments/1rcqymm/a_cool_guide_to_the_customer_loyalty_programs/",
+          "acceptable_range": [
+            3,
+            4
+          ],
+          "rationale": "Directly supplies the central numerical reward example, $20 after five points, within a1. It conditions earning each point on a $20+ purchase; the answer’s every-order rule omits that material condition. Partial-unit matching may credit the threshold without validating the earning rule.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-4e7269617d0b5e5d3707752a",
+          "url": "https://hiverhq.com/blog/customer-loyalty-program",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Describes points and tiered rewards for repeat purchases, supporting available program types within a1/a2. It does not recommend this particular configuration or numerical earning/reward rule.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-f80f0df907a261223db8051f",
+          "url": "https://www.salesforce.com/marketing/loyalty-management/loyalty-programs/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Generic definition of recognizing recurring purchases does not specify points, tiers, referrals or the proposed reward configuration.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-bd624a9594eb53d3b66472d5",
+          "url": "https://www.qualtrics.com/articles/customer-experience/loyalty-incentives/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Generic repeat-business rewards do not substantiate any concrete answer configuration or recommendation.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-a9e09e0b330097d7dd825f62",
+          "url": "https://www.zendesk.com/blog/loyalty-rewards/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Generic retention rationale does not specify any proposed reward-program type or rule.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-55d79ac7ce6250528c6639a3",
+          "url": "https://popupsmart.com/blog/customer-loyalty-program-ideas",
+          "acceptable_range": [
+            4,
+            5
+          ],
+          "rationale": "Explicitly recommends points-based rewards, tiered memberships and referral incentives and adaptation, supplying all program-type recommendations across both sentences. Does not supply numerical points/order/dollar rule; that limitation prevents an unqualified sole grade 5.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-8392e315d3584d718625d9c7",
+          "url": "https://razorpay.com/learn/customer-reward-programs-blog/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Generic loyalty/growth promotion supplies none of the concrete numerical or program-type recommendations.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 17,
+      "cell_id": "14f3d6e1e67650a4eb97",
+      "model": "llama4",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-c2508fde8541e58039ab4f7a",
+          "url": "https://www.benzinga.com/money/robinhood-vs-etrade",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Broker comparison supplies no login, transfer initiation, recipient-entry, confirmation or support-consultation instruction.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-0479ccd55e2a738524b002e8",
+          "url": "https://thesmartinvestor.com/brokers/etrade-vs-robinhood/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Trading-feature comparison supplies none of the procedural transfer steps; generic suitability is not support for the circumstances caveat.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-a21c98b1d4f67da385950bd9",
+          "url": "https://www.investopedia.com/robinhood-vs-e-trade-4587955",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Commission/resource comparison supplies no full-transfer process or step.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 18,
+      "cell_id": "2522f8a38df1ecfce16e",
+      "model": "llama4",
+      "method": "Parallel-Expansion-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-60a0000fc09c5971183ab044",
+          "url": "https://careerkarma.com/wiki/skillshare-free/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Course skill-level offerings do not substantiate signup placement, trial or cancellation.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-448222424858ff0a5da855c2",
+          "url": "https://help.skillshare.com/hc/en-us/articles/204536368-How-do-I-become-a-Skillshare-student",
+          "acceptable_range": [
+            5,
+            5
+          ],
+          "rationale": "Directly supplies all essential answer content: top-right Sign Up, trial enrollment and cancellation at any point.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-b04da7cc61d9143496f5d54a",
+          "url": "https://scholarships360.org/college-admissions/what-is-skillshare/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Self-paced classes description supplies no signup, trial or cancellation instruction.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-ae57de1f2952d73e1f701c32",
+          "url": "https://www.studentbeans.com/student-discount/us/skillshare",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Course/discount promotion supplies no signup placement, trial or cancellation instruction.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-4cd1ed7966a56a70f03e7c8f",
+          "url": "https://www.reddit.com/r/skillsharedeals/comments/1jfei4y/does_skillshare_have_a_student_discount/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Student discount via verification partners is a different access route and does not support the answer’s unrestricted trial/signup procedure.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-cf16236c8a4a15373fab14d7",
+          "url": "https://www.myunidays.com/US/en-US/partners/skillshare/view",
+          "acceptable_range": [
+            1,
+            2
+          ],
+          "rationale": "Title supplies a one-month free Skillshare student offer, a limited peripheral match to trial access. Does not establish top-right signup or unrestricted cancellation, and should not be treated as supporting the complete procedure.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-3990d7cd1749ae6c881c8644",
+          "url": "https://www.skillshare.com/en/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "General access to classes/creation does not substantiate signup placement, a trial, or cancellation.",
+          "whole_source_checked": true
+        }
+      ]
+    },
+    {
+      "index": 19,
+      "cell_id": "c8758840b9f0bc3868ed",
+      "model": "llama4",
+      "method": "Reactive-Snippet-Loop-v1",
+      "style": "direct",
+      "query_style_proxy": "action",
+      "eligibility_note": null,
+      "sources": [
+        {
+          "task_id": "source-importance-task-v3-0871cf09242141b541cd680b",
+          "url": "https://www.mentimeter.com/blog/training/social-learning-platforms",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Describes collaborative-learning capabilities; does not recommend governance policy, content creation, onboarding or rollout milestones.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-3c634ca7f7e8338a278c3978",
+          "url": "https://topbusinesssoftware.com/categories/social-learning/",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Lists social-platform features but no stated governance or rollout instruction. Feature availability does not substantiate the recommended implementation process.",
+          "whole_source_checked": true
+        },
+        {
+          "task_id": "source-importance-task-v3-cf8ccd9cd42a4e7eae8c53d9",
+          "url": "https://grokipedia.com/page/social_learning_tools",
+          "acceptable_range": [
+            0,
+            0
+          ],
+          "rationale": "Academic definition of social learning tools contains none of the prescribed governance policies or rollout milestones.",
+          "whole_source_checked": true
+        }
+      ]
+    }
+  ]
+}

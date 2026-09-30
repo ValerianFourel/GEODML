@@ -1,0 +1,368 @@
+{
+  "runs": [
+    {
+      "run": "gemma4-si-v3-ddc93fe",
+      "job": "job5171305",
+      "code_pin": "ddc93fe5342152d7c33f2abfc0658a48714d7dcc",
+      "model": "google/gemma-4-31B-it",
+      "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+      "runtime_versions": {
+        "torch": "2.13.0",
+        "transformers": "5.17.0",
+        "vllm": "0.28.0",
+        "xgrammar": "0.2.7"
+      },
+      "passes": {
+        "pass1": {
+          "seconds": 47.4,
+          "rows": 126,
+          "success": 126,
+          "validation_attempt_counts": {
+            "1": 126
+          },
+          "transport_event_counts": {
+            "start": 126,
+            "end": 126
+          },
+          "transport_attempt_counts": {
+            "1": 126
+          },
+          "finish_reasons": {
+            "stop": 126
+          },
+          "request_span_seconds": 47.11144185066223,
+          "tokens": {
+            "prompt_tokens": 109894,
+            "completion_tokens": 3032,
+            "total_tokens": 112926
+          },
+          "latency_by_task": {
+            "source_importance": {
+              "n": 106,
+              "mean": 1.6276468595353675,
+              "median": 0.716121856472455,
+              "p95_nearest_rank": 4.3277066729497164,
+              "min": 0.6941763521172106,
+              "max": 6.6094164601527154
+            },
+            "fulfilment": {
+              "n": 20,
+              "mean": 0.7053700343123637,
+              "median": 0.5925743399420753,
+              "p95_nearest_rank": 0.6575819309800863,
+              "min": 0.5873326449654996,
+              "max": 2.7931057941168547
+            }
+          }
+        },
+        "pass2": {
+          "seconds": 44.9,
+          "rows": 126,
+          "success": 126,
+          "validation_attempt_counts": {
+            "1": 126
+          },
+          "transport_event_counts": {
+            "start": 126,
+            "end": 126
+          },
+          "transport_attempt_counts": {
+            "1": 126
+          },
+          "finish_reasons": {
+            "stop": 126
+          },
+          "request_span_seconds": 44.934897899627686,
+          "tokens": {
+            "prompt_tokens": 109894,
+            "completion_tokens": 3039,
+            "total_tokens": 112933
+          },
+          "latency_by_task": {
+            "source_importance": {
+              "n": 106,
+              "mean": 1.5640309520004283,
+              "median": 0.7039748645620421,
+              "p95_nearest_rank": 4.25581514602527,
+              "min": 0.6973639209754765,
+              "max": 6.51840999815613
+            },
+            "fulfilment": {
+              "n": 20,
+              "mean": 0.5888290698174388,
+              "median": 0.5920859555481002,
+              "p95_nearest_rank": 0.5946765330154449,
+              "min": 0.49795539397746325,
+              "max": 0.6228837531525642
+            }
+          }
+        }
+      },
+      "timing": {
+        "judging_seconds": 92.3,
+        "judgments": 252,
+        "judgments_per_second": 2.7302275189599134,
+        "stage_reported_seconds": 464.0727119445801,
+        "recorded_wrapper_start_to_server_finish_seconds": 533.2465648651123,
+        "server_runtime_seconds": 398.3720052242279,
+        "server_start_to_first_judgment_seconds": 276.0642075538635,
+        "last_judgment_to_server_finish_seconds": 30.1840398311615,
+        "server_finished_utc": "2026-09-30T06:31:47.578768+00:00",
+        "wrapper_started_utc": "2026-09-30T06:22:54.332203+00:00",
+        "server_started_utc": "2026-09-30T06:25:09.206763+00:00",
+        "first_judgment_utc": "2026-09-30T06:29:45.270970Z",
+        "last_judgment_utc": "2026-09-30T06:31:17.394728Z",
+        "server_controller_exit": [
+          0,
+          0
+        ]
+      },
+      "warnings": {
+        "error_lines_before_shutdown": [],
+        "error_lines_after_shutdown": [
+          {
+            "line": 417,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744] AsyncLLM output_handler failed."
+          },
+          {
+            "line": 418,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744] Traceback (most recent call last):"
+          },
+          {
+            "line": 419,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744]   File \"/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/environment/qwen-runtime/lib64/python3.12/site-packages/vllm/v1/engine/async_llm.py\", line 690, in output_handler"
+          },
+          {
+            "line": 420,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744]     outputs = await engine_core.get_output_async()"
+          },
+          {
+            "line": 421,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+          },
+          {
+            "line": 422,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744]   File \"/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/environment/qwen-runtime/lib64/python3.12/site-packages/vllm/v1/engine/core_client.py\", line 1104, in get_output_async"
+          },
+          {
+            "line": 423,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744]     raise self._format_exception(outputs) from None"
+          },
+          {
+            "line": 424,
+            "text": "(APIServer pid=1010649) ERROR 09-30 08:31:17 [async_llm.py:744] vllm.v1.engine.exceptions.EngineDeadError: EngineCore encountered an issue. See stack trace (above) for the root cause."
+          }
+        ],
+        "http_status_counts": {
+          "200": 255,
+          "401": 4
+        },
+        "shutdown_line": 402,
+        "weight_loading_seconds": [
+          "38.90"
+        ],
+        "out_of_memory_log_matches": 0
+      },
+      "sampled_gpu": {
+        "rows": 64,
+        "utilization_percent": {
+          "n": 64,
+          "mean": 16.078125,
+          "median": 0.0,
+          "p95_nearest_rank": 100.0,
+          "min": 0.0,
+          "max": 100.0
+        },
+        "memory_mib": {
+          "n": 64,
+          "mean": 15896.5,
+          "median": 9124.5,
+          "p95_nearest_rank": 36454.0,
+          "min": 27.0,
+          "max": 36456.0
+        },
+        "note": "30-second samples over stage; not inference-only utilization"
+      },
+      "generator_metadata": {
+        "recovered_full_answer_cells": 6,
+        "final_validation_failures_histogram": {
+          "3": 6,
+          "0": 14
+        },
+        "repaired_cells": 6
+      }
+    },
+    {
+      "run": "gemma4-si-v3-fresh20-2026093011",
+      "job": "job5171481",
+      "code_pin": "135d4685f232776d2e8157e93e41657f3b062ee9",
+      "model": "google/gemma-4-31B-it",
+      "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+      "runtime_versions": {
+        "torch": "2.13.0",
+        "transformers": "5.17.0",
+        "vllm": "0.28.0",
+        "xgrammar": "0.2.7"
+      },
+      "passes": {
+        "pass1": {
+          "seconds": 67.1,
+          "rows": 128,
+          "success": 128,
+          "validation_attempt_counts": {
+            "1": 128
+          },
+          "transport_event_counts": {
+            "start": 128,
+            "end": 128
+          },
+          "transport_attempt_counts": {
+            "1": 128
+          },
+          "finish_reasons": {
+            "stop": 128
+          },
+          "request_span_seconds": 66.77048516273499,
+          "tokens": {
+            "prompt_tokens": 129637,
+            "completion_tokens": 4264,
+            "total_tokens": 133901
+          },
+          "latency_by_task": {
+            "source_importance": {
+              "n": 108,
+              "mean": 2.286243502430066,
+              "median": 1.884316194569692,
+              "p95_nearest_rank": 6.567658492131159,
+              "min": 0.6953625071328133,
+              "max": 7.03731882898137
+            },
+            "fulfilment": {
+              "n": 20,
+              "mean": 0.7628999229171314,
+              "median": 0.5934912344673648,
+              "p95_nearest_rank": 0.6644953358918428,
+              "min": 0.5496160190086812,
+              "max": 3.972560035996139
+            }
+          }
+        },
+        "pass2": {
+          "seconds": 61.6,
+          "rows": 128,
+          "success": 128,
+          "validation_attempt_counts": {
+            "1": 128
+          },
+          "transport_event_counts": {
+            "start": 128,
+            "end": 128
+          },
+          "transport_attempt_counts": {
+            "1": 128
+          },
+          "finish_reasons": {
+            "stop": 128
+          },
+          "request_span_seconds": 61.55071806907654,
+          "tokens": {
+            "prompt_tokens": 129637,
+            "completion_tokens": 4283,
+            "total_tokens": 133920
+          },
+          "latency_by_task": {
+            "source_importance": {
+              "n": 108,
+              "mean": 2.1289009207415535,
+              "median": 1.8602052530040964,
+              "p95_nearest_rank": 6.269493285100907,
+              "min": 0.6856346130371094,
+              "max": 6.533690158044919
+            },
+            "fulfilment": {
+              "n": 20,
+              "mean": 0.5779703431762755,
+              "median": 0.5832417744677514,
+              "p95_nearest_rank": 0.5859195999801159,
+              "min": 0.489950860850513,
+              "max": 0.5863081419374794
+            }
+          }
+        }
+      },
+      "timing": {
+        "judging_seconds": 128.7,
+        "judgments": 256,
+        "judgments_per_second": 1.9891219891219893,
+        "stage_reported_seconds": 566.0891773700714,
+        "recorded_wrapper_start_to_server_finish_seconds": 654.5076711177826,
+        "server_runtime_seconds": 489.63453578948975,
+        "server_start_to_first_judgment_seconds": 331.155348777771,
+        "last_judgment_to_server_finish_seconds": 30.10719394683838,
+        "server_finished_utc": "2026-09-30T08:59:00.890199+00:00",
+        "wrapper_started_utc": "2026-09-30T08:48:06.382528+00:00",
+        "server_started_utc": "2026-09-30T08:50:51.255663+00:00",
+        "first_judgment_utc": "2026-09-30T08:56:22.411012Z",
+        "last_judgment_utc": "2026-09-30T08:58:30.783005Z",
+        "server_controller_exit": [
+          0,
+          0
+        ]
+      },
+      "warnings": {
+        "error_lines_before_shutdown": [],
+        "error_lines_after_shutdown": [],
+        "http_status_counts": {
+          "200": 259,
+          "401": 4
+        },
+        "shutdown_line": 410,
+        "weight_loading_seconds": [
+          "60.61"
+        ],
+        "out_of_memory_log_matches": 0
+      },
+      "sampled_gpu": {
+        "rows": 76,
+        "utilization_percent": {
+          "n": 76,
+          "mean": 18.06578947368421,
+          "median": 0.0,
+          "p95_nearest_rank": 100.0,
+          "min": 0.0,
+          "max": 100.0
+        },
+        "memory_mib": {
+          "n": 76,
+          "mean": 16192.302631578947,
+          "median": 16805.0,
+          "p95_nearest_rank": 36456.0,
+          "min": 29.0,
+          "max": 36456.0
+        },
+        "note": "30-second samples over stage; not inference-only utilization"
+      },
+      "generator_metadata": {
+        "recovered_full_answer_cells": 6,
+        "final_validation_failures_histogram": {
+          "3": 6,
+          "0": 14
+        },
+        "repaired_cells": 6
+      }
+    }
+  ],
+  "accounting": {
+    "command": [
+      "sacct",
+      "-j",
+      "5171305,5171481",
+      "--noheader",
+      "--parsable2",
+      "--format=JobIDRaw,JobName,State,ExitCode,Start,End,ElapsedRaw,AllocCPUS,AllocTRES,MaxRSS"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "5171305|geodml-gemma-si-replay|TIMEOUT|0:0|2026-09-30T08:19:29|2026-09-30T09:19:36|3607|152|billing=152,cpu=152,energy=1780230,gres/gpu=4,mem=497500M,node=1|\n5171305.interactive|interactive|CANCELLED|0:9|2026-09-30T08:19:29|2026-09-30T09:20:05|3636|152|cpu=152,gres/gpu=4,mem=497500M,node=1|21516K\n5171305.extern|extern|COMPLETED|0:0|2026-09-30T08:19:29|2026-09-30T09:20:05|3636|152|billing=152,cpu=152,gres/gpu=4,mem=497500M,node=1|\n5171305.0|bash|CANCELLED|0:9|2026-09-30T08:20:43|2026-09-30T09:20:07|3564|32|cpu=32,gres/gpu=4,mem=497500M,node=1|73157612K\n5171481|geodml-gemma-si-replay|TIMEOUT|0:0|2026-09-30T10:30:06|2026-09-30T11:30:07|3601|152|billing=152,cpu=152,energy=1850263,gres/gpu=4,mem=497500M,node=1|\n5171481.interactive|interactive|CANCELLED|0:9|2026-09-30T10:30:06|2026-09-30T11:30:36|3630|152|cpu=152,gres/gpu=4,mem=497500M,node=1|72997044K\n5171481.extern|extern|COMPLETED|0:0|2026-09-30T10:30:06|2026-09-30T11:30:36|3630|152|billing=152,cpu=152,gres/gpu=4,mem=497500M,node=1|\n"
+  }
+}

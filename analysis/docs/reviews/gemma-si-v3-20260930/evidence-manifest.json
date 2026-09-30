@@ -1,0 +1,21 @@
+{
+  "archive_revision": "098d3f467b4a0f3fec6da2789043421428390770",
+  "archive_sha256": "31f3666c64e2f44d58cc4f06411f87f828ad454fee9c1b506c6c915dba77e62f",
+  "reviewers": [
+    "gpt-6-astra: original_astra",
+    "gpt-6-astra: fresh_astra",
+    "gpt-6-astra: integrity_astra"
+  ],
+  "files": {
+    "original-audit.json": "b76c1cc699c58ef80cb88a14d5839d4a7a170590caf2286c6e11a2854180ccda",
+    "fresh-audit.json": "b29126ea87953e8ced53ddbeaafe813bcdec05ebf34db7088c0c7b1c14451ac9",
+    "original-blind-ranges.json": "9e39c9fcee356c550709d83dce92ef4b6acfa1cb5c0593cf03c5399a48b5f54e",
+    "fresh-blind-ranges.json": "4c5e2fb540fd7f09bb7defbfb8b1b89a34e37771ef58e6b997622de94a7b83d7",
+    "original-audit.md": "881f250bfeb172c616b9ea134763bae4bc5587ecbe7047bdc233e0747fe33c87",
+    "fresh-audit.md": "fece09fa63c652cf00d0d330ffc11464d681fdf71aa4e9bc7c8b44f23fadfca7",
+    "integrity-audit.md": "a08535e7c1d448277dcd486c82afea995270fb25ecb36f7a383adfc0acde4bbe",
+    "integrity-audit.json": "debb4d599f53a6c96dddb63663847e401f90a3c81a6ae205b9b7c9bb9a795907",
+    "runtime-audit.json": "ebae519f7c6d0b2f09dbabcc4f6204795eb25e27019b8866da12810622485e3b",
+    "aggregate-audit.json": "37f3791f7488ce7af5a1d03137865d7520f41d885b8fb23f8d69a5815f7f3dc5"
+  }
+}

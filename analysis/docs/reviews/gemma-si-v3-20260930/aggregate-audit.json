@@ -1,0 +1,274 @@
+{
+  "basis": "GPT-6 Astra reference-model screening; no human gold labels",
+  "splits": {
+    "original": {
+      "judgments": 212,
+      "below_range": 89,
+      "low_grade": 148,
+      "low_below_range": 55,
+      "pairs": 141,
+      "valid": 114,
+      "in_range": 123,
+      "zero_with_positive_reference": 36,
+      "invalid": 7,
+      "ambiguous": 20
+    },
+    "fresh": {
+      "judgments": 216,
+      "in_range": 100,
+      "pairs": 220,
+      "valid": 200,
+      "below_range": 114,
+      "low_grade": 133,
+      "low_below_range": 57,
+      "zero_with_positive_reference": 20,
+      "ambiguous": 12,
+      "invalid": 8,
+      "above_range": 2
+    }
+  },
+  "subgroups": {
+    "split": {
+      "original": {
+        "judgments": 106,
+        "below_range": 45,
+        "low_grade": 74,
+        "low_below_range": 28,
+        "pairs": 71,
+        "valid": 57,
+        "in_range": 61,
+        "zero_with_positive_reference": 18,
+        "invalid": 4,
+        "ambiguous": 10
+      },
+      "fresh": {
+        "judgments": 108,
+        "in_range": 49,
+        "pairs": 110,
+        "valid": 100,
+        "below_range": 58,
+        "low_grade": 67,
+        "low_below_range": 29,
+        "zero_with_positive_reference": 10,
+        "ambiguous": 6,
+        "invalid": 4,
+        "above_range": 1
+      }
+    },
+    "model": {
+      "qwen38": {
+        "judgments": 109,
+        "below_range": 64,
+        "low_grade": 67,
+        "low_below_range": 40,
+        "pairs": 122,
+        "valid": 110,
+        "in_range": 45,
+        "zero_with_positive_reference": 14,
+        "invalid": 6,
+        "ambiguous": 6
+      },
+      "llama4": {
+        "judgments": 105,
+        "below_range": 39,
+        "pairs": 59,
+        "valid": 47,
+        "ambiguous": 10,
+        "low_grade": 74,
+        "low_below_range": 17,
+        "zero_with_positive_reference": 14,
+        "in_range": 65,
+        "above_range": 1,
+        "invalid": 2
+      }
+    },
+    "method": {
+      "Parallel-Expansion-v1": {
+        "judgments": 140,
+        "below_range": 78,
+        "low_grade": 95,
+        "low_below_range": 46,
+        "pairs": 121,
+        "valid": 106,
+        "in_range": 62,
+        "zero_with_positive_reference": 25,
+        "invalid": 6,
+        "ambiguous": 9
+      },
+      "Reactive-Snippet-Loop-v1": {
+        "judgments": 74,
+        "below_range": 25,
+        "low_grade": 46,
+        "low_below_range": 11,
+        "pairs": 60,
+        "valid": 51,
+        "in_range": 48,
+        "ambiguous": 7,
+        "zero_with_positive_reference": 3,
+        "above_range": 1,
+        "invalid": 2
+      }
+    },
+    "style": {
+      "mixed": {
+        "judgments": 30,
+        "below_range": 18,
+        "low_grade": 26,
+        "low_below_range": 14,
+        "pairs": 20,
+        "valid": 18,
+        "in_range": 12,
+        "zero_with_positive_reference": 4,
+        "invalid": 1,
+        "ambiguous": 1
+      },
+      "evidence_lacks": {
+        "judgments": 9,
+        "below_range": 8,
+        "low_grade": 9,
+        "low_below_range": 8,
+        "pairs": 3,
+        "valid": 3,
+        "zero_with_positive_reference": 6,
+        "in_range": 1
+      },
+      "direct": {
+        "judgments": 168,
+        "in_range": 96,
+        "pairs": 149,
+        "valid": 127,
+        "invalid": 7,
+        "low_grade": 99,
+        "ambiguous": 15,
+        "below_range": 71,
+        "low_below_range": 29,
+        "zero_with_positive_reference": 18,
+        "above_range": 1
+      },
+      "narration": {
+        "judgments": 7,
+        "in_range": 1,
+        "low_grade": 7,
+        "pairs": 9,
+        "valid": 9,
+        "below_range": 6,
+        "low_below_range": 6
+      }
+    },
+    "query_proxy": {
+      "action": {
+        "judgments": 154,
+        "below_range": 66,
+        "low_grade": 114,
+        "low_below_range": 41,
+        "pairs": 106,
+        "valid": 90,
+        "in_range": 88,
+        "zero_with_positive_reference": 21,
+        "invalid": 4,
+        "ambiguous": 12
+      },
+      "mixed": {
+        "judgments": 23,
+        "in_range": 11,
+        "pairs": 35,
+        "valid": 31,
+        "low_grade": 9,
+        "below_range": 12,
+        "low_below_range": 5,
+        "zero_with_positive_reference": 2,
+        "ambiguous": 3,
+        "invalid": 1
+      },
+      "informational": {
+        "judgments": 37,
+        "in_range": 11,
+        "low_grade": 18,
+        "below_range": 25,
+        "low_below_range": 11,
+        "pairs": 40,
+        "valid": 36,
+        "zero_with_positive_reference": 5,
+        "invalid": 3,
+        "ambiguous": 1,
+        "above_range": 1
+      }
+    },
+    "source_text_length": {
+      "short_lt1000": {
+        "judgments": 186,
+        "below_range": 90,
+        "low_grade": 125,
+        "low_below_range": 50,
+        "pairs": 145,
+        "valid": 126,
+        "in_range": 95,
+        "zero_with_positive_reference": 26,
+        "invalid": 8,
+        "ambiguous": 11,
+        "above_range": 1
+      },
+      "long_ge1000": {
+        "judgments": 28,
+        "below_range": 13,
+        "pairs": 36,
+        "valid": 31,
+        "ambiguous": 5,
+        "in_range": 15,
+        "low_grade": 16,
+        "low_below_range": 7,
+        "zero_with_positive_reference": 2
+      }
+    }
+  },
+  "unique_pairs": {
+    "valid": 157,
+    "invalid": 8,
+    "ambiguous": 16
+  },
+  "pass1": {
+    "judgments": 214,
+    "below_range": 103,
+    "low_grade": 141,
+    "low_below_range": 57,
+    "pairs": 181,
+    "valid": 157,
+    "in_range": 110,
+    "zero_with_positive_reference": 28,
+    "invalid": 8,
+    "ambiguous": 16,
+    "above_range": 1
+  },
+  "all_passes": {
+    "judgments": 428,
+    "below_range": 203,
+    "low_grade": 281,
+    "low_below_range": 112,
+    "pairs": 361,
+    "valid": 314,
+    "in_range": 223,
+    "zero_with_positive_reference": 56,
+    "invalid": 15,
+    "ambiguous": 32,
+    "above_range": 2
+  },
+  "descriptive_wilson95": {
+    "note": "Treating tasks/pairs as independent is optimistic: sources share cells; sample is not random; labels are model assessments. These are descriptive only.",
+    "repeat_exact": [
+      0.9464811119815161,
+      0.9899797486112013
+    ],
+    "repeat_within_one": [
+      0.9823658047394189,
+      0.9999999999999999
+    ],
+    "unique_pairs_definite_support": [
+      0.8102845314609858,
+      0.9092510145607383
+    ],
+    "pass1_reference_range_agreement": [
+      0.44740022146929814,
+      0.5801427450187228
+    ]
+  }
+}
