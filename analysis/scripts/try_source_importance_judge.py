@@ -87,8 +87,7 @@ def write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False, default=str) + "\n")
 
 
-async def main_async(args) -> int:
-    from analysis.scripts.run_acl_arr_vllm import VllmChatClient, _execute_one, _iter_execute
+async def main_async(args, *, frozen_input=None) -> int:
     args.output.mkdir(parents=True)
     frozen = []
     try:
@@ -98,22 +97,38 @@ async def main_async(args) -> int:
             if args.cells_from_sha256 and hashlib.sha256(content).hexdigest() != args.cells_from_sha256:
                 raise ValueError("replay selection file checksum changed")
             saved = [json.loads(line) for line in content.splitlines() if line.strip()]
-        refs, selection = completed_generator_refs(args.dataset_root, model=args.model,
-            prompt_ids={r["prompt_id"] for r in saved} if saved is not None else None)
-        chosen = (replay_refs(refs, saved, model=args.model, count=args.count) if saved is not None
-                  else pick(refs, count=args.count, seed=args.seed))
-        if len(chosen) != args.count:
-            raise ValueError(f"requested {args.count} cells, only {len(chosen)} available")
-        print(f"SELECTED {len(chosen)} cells of {selection.get('completed', 0)} completed", flush=True)
-        for cell in iter_cells(args.dataset_root, chosen):
-            record, tasks = build_cell(cell, max_tokens=args.max_tokens, j1_max_tokens=64, sensitivity_fraction=0.0)
-            frozen.append((record, {t["judge_task_id"]: t for t in tasks}))
+        if frozen_input is not None:
+            # Replay already frozen task records; the protocol owner verifies every hash.
+            for record, tasks in frozen_input:
+                for task in tasks.values():
+                    si.item_from_record(task)
+                frozen.append((record, tasks))
+        else:
+            frozen.extend(freeze_dataset(args, saved))
     except Exception as exc:
         report = {"scientific_result": False, "status": "failed", "requested_cells": args.count,
                   "error": f"{type(exc).__name__}: {exc}", "cells": len(frozen), "complete_cells": 0}
         write_json(args.output / "summary.json", report)
         print("SUMMARY " + json.dumps(report), flush=True)
         return 1
+    return await execute_frozen(args, frozen)
+
+
+def freeze_dataset(args, saved):
+    refs, selection = completed_generator_refs(args.dataset_root, model=args.model,
+        prompt_ids={r["prompt_id"] for r in saved} if saved is not None else None)
+    chosen = (replay_refs(refs, saved, model=args.model, count=args.count) if saved is not None
+              else pick(refs, count=args.count, seed=args.seed))
+    if len(chosen) != args.count:
+        raise ValueError(f"requested {args.count} cells, only {len(chosen)} available")
+    print(f"SELECTED {len(chosen)} cells of {selection.get('completed', 0)} completed", flush=True)
+    for cell in iter_cells(args.dataset_root, chosen):
+        record, tasks = build_cell(cell, max_tokens=args.max_tokens, j1_max_tokens=64, sensitivity_fraction=0.0)
+        yield record, {t["judge_task_id"]: t for t in tasks}
+
+
+async def execute_frozen(args, frozen) -> int:
+    from analysis.scripts.run_acl_arr_vllm import VllmChatClient, _execute_one, _iter_execute
     unique = {tid: task for _, tasks in frozen for tid, task in tasks.items()}
     # Freeze exact inputs and the per-cell provenance before opening a connection.
     (args.output / "tasks.jsonl").write_text("".join(json.dumps(t, ensure_ascii=False) + "\n"

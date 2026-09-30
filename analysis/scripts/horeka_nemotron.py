@@ -69,10 +69,14 @@ def stage_commands(config: dict, *, python: str, attempt: Path, cache: Path) -> 
     """The two stage-runner calls, with the frozen pilot settings and an A100 check."""
     repo = Path(config["repository"])
     script, stage, _ = TRIALS[config.get("trial", "claims-v3")]  # configs written before SI were claims-v3
+    if config.get("replay_inputs"):
+        stage = "source-importance-horeka-replay"
     profile = attempt / "serving-profile.json"
+    model_id = config.get("model_id", MODEL_ID)
+    revision = config.get("model_revision", MODEL_REVISION)
     prepare = [python, str(repo / "analysis/scripts/search_vllm_stage.py"), "prepare",
                "--profile", str(profile), "--stage", stage,
-               "--model-id", MODEL_ID, "--model-revision", MODEL_REVISION,
+               "--model-id", model_id, "--model-revision", revision,
                "--vllm-executable", str(Path(python).parent / "vllm"), "--cache-base", str(cache),
                "--expected-gpu-name-pattern", "A100",
                "--data-parallel-size", str(SERVING["data_parallel_size"]),
@@ -82,14 +86,20 @@ def stage_commands(config: dict, *, python: str, attempt: Path, cache: Path) -> 
                "--request-concurrency", str(SERVING["request_concurrency"]), "--enforce-eager"]
     run = [python, str(repo / "analysis/scripts/search_vllm_stage.py"), "run",
            "--profile", str(profile), "--server-log", str(attempt / "server.log"),
-           "--cache-base", str(cache), "--startup-timeout-seconds", "1200", "--",
-           python, str(repo / "analysis/scripts" / script),
-           "--dataset-root", config["dataset_root"], "--output", str(attempt / "trial"),
-           "--model", config.get("generator_model", "qwen38"), "--count", str(config["count"]),
-           "--base-url", "http://127.0.0.1:8010/v1", "--server-model-name", MODEL_ID,
-           "--max-tokens", str(config["max_tokens"]), "--concurrency", str(SERVING["request_concurrency"])]
-    if config.get("cells_from"):
-        run += ["--cells-from", config["cells_from"], "--cells-from-sha256", config["cells_from_sha256"]]
+           "--cache-base", str(cache), "--startup-timeout-seconds", "1200", "--"]
+    if config.get("replay_inputs"):
+        prepare += ["--language-model-only"]
+        run += [python, str(repo / "analysis/scripts/replay_source_importance_judge.py"),
+                "--inputs", config["replay_inputs"], "--inputs-sha256", config["replay_inputs_sha256"]]
+    else:
+        run += [python, str(repo / "analysis/scripts" / script),
+                "--dataset-root", config["dataset_root"],
+                "--model", config.get("generator_model", "qwen38"), "--count", str(config["count"]),
+                "--max-tokens", str(config["max_tokens"]), "--concurrency", str(SERVING["request_concurrency"])]
+        if config.get("cells_from"):
+            run += ["--cells-from", config["cells_from"], "--cells-from-sha256", config["cells_from_sha256"]]
+    run += ["--output", str(attempt / "trial"), "--base-url", "http://127.0.0.1:8010/v1",
+            "--server-model-name", model_id]
     return prepare, run
 
 
@@ -200,7 +210,7 @@ def execute(config_path: Path) -> int:
                XDG_CACHE_HOME=str(scratch / "xdg"), TRITON_CACHE_DIR=str(scratch / "triton"),
                VLLM_CACHE_ROOT=str(scratch / "vllm"))
     end = int(datetime.fromisoformat(fields["EndTime"]).timestamp())
-    cache = workspace / "serving-cache" / f"nemotron-job{job}"
+    cache = workspace / "serving-cache" / f"{config.get('cache_prefix', 'nemotron')}-job{job}"
     prepare, run = stage_commands(config, python=sys.executable, attempt=attempt, cache=cache)
     if config.get("trial") == "source-importance":
         from analysis.interpretability.pipeline.source_importance import PROTOCOL
