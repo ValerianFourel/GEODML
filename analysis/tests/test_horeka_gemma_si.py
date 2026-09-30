@@ -3,6 +3,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -110,6 +111,52 @@ def test_preparation_pins_gemma_replay_without_allocating(baseline, tmp_path, mo
     assert run_cmd[run_cmd.index("--server-model-name") + 1] == gemma.MODEL
     assert len(calls) == 1 and "--check-schema" in calls[0]
     assert (out / "run.sh").stat().st_mode & 0o111
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+    assert gemma.main(args + ["fixture approval"]) == 0
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before
+    assert len(calls) == 1  # no repeated schema preparation or allocation
+    with pytest.raises(ValueError, match="conflicts"):
+        gemma.main([a.replace("00:45:00", "01:00:00") for a in args] + ["fixture approval"])
+    (out / "inputs.json").write_text("changed")
+    with pytest.raises(ValueError, match="checksum"):
+        gemma.main(args + ["fixture approval"])
+    (out / "inputs.json").write_bytes(before["inputs.json"])
+    (out / "run.sh").write_text("modified command")
+    with pytest.raises(ValueError, match="run.sh"):
+        gemma.main(args + ["fixture approval"])
+
+
+@pytest.mark.parametrize("count,gap,safe,blocked", [
+    (294, 601, True, None), (295, 601, True, "295"),
+    (294, 100, True, "Wait at least"), (294, 601, False, "Storage check"),
+])
+def test_admission_cli_preserves_queue_exception_and_remaining_guards(tmp_path, monkeypatch, count, gap, safe, blocked):
+    from analysis.scripts import capture_agentic_scheduler_snapshot as scheduler
+    from analysis.scripts import prepare_horeka_qwen as downloader
+    from analysis.scripts import manage_agentic_hours as manager
+    out = tmp_path / "gemma4-si-v3-ddc93fe"
+    out.mkdir()
+    (out / "config.json").write_text(json.dumps({"job_name": gemma.JOB_NAME, "walltime": "01:00:00"}))
+    snapshot = {"complete": True, "captured_at_epoch": int(time.time()), "owners": [], "jobs": [
+        {"job_name": f"qwen-{i}", "state": "RUNNING", "start_epoch": int(time.time()) - gap}
+        for i in range(28)] + [{"job_name": "pending-qwen", "state": "PENDING", "start_epoch": None}]}
+    def read(command, **kwargs):
+        assert command[0] in ("squeue", "sacct"), "admission must not mutate Slurm"
+        return "\n".join(map(str, range(count))) if "--account=hk-project-p0026831" in command else "100\n"
+    monkeypatch.setattr(gemma.subprocess, "check_output", read)
+    monkeypatch.setattr(scheduler, "capture", lambda **kw: snapshot)
+    monkeypatch.setattr(downloader, "capture_quota", lambda *a: {})
+    monkeypatch.setattr(manager, "health", lambda *a: {"safe_to_admit": safe, "quota_verified": True})
+    args = ["check", "--workspace", str(tmp_path), "--output", str(out), "--account", "hk-project-p0026831"]
+    if blocked:
+        with pytest.raises(SystemExit, match=blocked):
+            gemma.main(args)
+        assert not (out / "admission.json").exists()
+    else:
+        assert gemma.main(args) == 0
+        evidence = json.loads((out / "admission.json").read_text())
+        assert evidence["account_queue_count"] == 294 and len(evidence["scheduler"]["jobs"]) == 29
+        assert not (out / "ALLOCATION_ATTEMPTED").exists()
 
 
 def test_removal_keeps_results_and_other_models_and_refuses_active_jobs(tmp_path, monkeypatch):

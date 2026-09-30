@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -12,6 +13,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -80,6 +82,40 @@ def runtime_check():
     return {name: importlib.metadata.version(name) for name in ("vllm", "torch", "transformers", "xgrammar")}
 
 
+def run_script(repo, out):
+    command = [sys.executable, str(repo / "analysis/scripts/horeka_nemotron.py"), "execute", "--config", str(out / "config.json")]
+    return ("#!/bin/bash\nset -euo pipefail\nexec " + shlex.join(command) + "\n").encode()
+
+
+def reuse_prepared(args):
+    """Verify the saved run, preserving its original code pin, approval and artifacts."""
+    out, workspace = args.output.resolve(), args.workspace.resolve()
+    if not all((out / name).is_file() for name in ("config.json", "inputs.json", "run.sh")):
+        raise ValueError("existing preparation is incomplete; inspect it without overwriting")
+    config = runner.read(out / "config.json")
+    expected = {"workspace": str(workspace), "walltime": args.walltime, "model_id": MODEL,
+        "model_revision": REVISION, "job_name": JOB_NAME, "judge_protocol": PROTOCOL,
+        "trial": "source-importance", "count": 20, "max_tokens": 640, "serving": runner.SERVING,
+        "replay_inputs": str(out / "inputs.json")}
+    if any(config.get(k) != v for k, v in expected.items()) or not config.get("approval"):
+        raise ValueError("existing preparation conflicts with the requested run")
+    content = (out / "inputs.json").read_bytes()
+    if hashlib.sha256(content).hexdigest() != config["replay_inputs_sha256"]:
+        raise ValueError("existing replay input checksum changed")
+    if content != (prep(workspace) / "nemotron-baseline.json").read_bytes():
+        raise ValueError("existing preparation conflicts with the frozen baseline")
+    repo = Path(config["repository"])
+    if subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip() != config["git_commit"]:
+        raise ValueError("saved execution checkout no longer matches its code pin")
+    if subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"], text=True).strip():
+        raise ValueError("saved execution checkout is dirty")
+    if (out / "run.sh").read_bytes() != run_script(repo, out):
+        raise ValueError("saved run.sh differs from the frozen command or Python interpreter")
+    print(json.dumps({"status": "reused", "prepared": str(out), "commit": config["git_commit"],
+                      "allocation_submitted": False, "next": "check"}, indent=2))
+    return 0
+
+
 def prepare(args):
     if not args.approval.strip():
         raise ValueError("record explicit approval of this allocation and wall-time")
@@ -89,7 +125,7 @@ def prepare(args):
         raise ValueError("clean committed checkout required")
     workspace, out = args.workspace.resolve(), args.output.resolve()
     if out.exists():
-        raise ValueError("output exists; inspect it instead of overwriting")
+        return reuse_prepared(args)
     source = prep(workspace)
     verified = runner.read(source / "models-verified.json")
     if verified.get("status") != "verified" or [(m["repo_id"], m["revision"]) for m in verified["models"]] != list(MODELS):
@@ -115,11 +151,51 @@ def prepare(args):
     out.mkdir(parents=True)
     atomic(out / "inputs.json", content)
     atomic(out / "config.json", canonical(config))
-    command = [sys.executable, str(repo / "analysis/scripts/horeka_nemotron.py"), "execute", "--config", str(out / "config.json")]
-    atomic(out / "run.sh", ("#!/bin/bash\nset -euo pipefail\nexec " + shlex.join(command) + "\n").encode())
+    atomic(out / "run.sh", run_script(repo, out))
     os.chmod(out / "run.sh", 0o755)
     print(json.dumps({"prepared": str(out), "commit": pin, "runtime": versions,
                       "allocation_submitted": False}, indent=2))
+    return 0
+
+
+def check(args):
+    """Read-only Slurm checks for the single approved scheduling exception. Never allocates."""
+    from analysis.scripts.capture_agentic_scheduler_snapshot import capture
+    from analysis.scripts.prepare_horeka_qwen import capture_quota
+    from analysis.scripts.manage_agentic_hours import health
+    workspace, out = args.workspace.resolve(), args.output.resolve()
+    config = json.loads((out / "config.json").read_text())
+    if out.name != "gemma4-si-v3-ddc93fe" or config.get("job_name") != "geodml-gemma-si-replay" or config.get("walltime") != "01:00:00":
+        raise SystemExit("Exception applies only to the already approved one-hour Gemma run.")
+    if (out / "ALLOCATION_ATTEMPTED").exists() or any((out / "attempts").glob("job*")):
+        raise SystemExit("A previous allocation attempt exists. Inspect it; do not request another.")
+    queued = subprocess.check_output(["squeue", "--account=" + args.account, "--array", "--noheader", "--format=%i"], text=True)
+    queue_count = len(set(queued.split()))
+    if queue_count >= 295:
+        raise SystemExit(f"Account queue is {queue_count}/295. Wait for a free slot; leave all jobs unchanged.")
+    since = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    live = subprocess.check_output(["squeue", "--me", "--noheader", "--format=%i"], text=True)
+    history = subprocess.check_output(["sacct", "-X", "--noheader", "--parsable2", "--starttime=" + since, "--format=JobIDRaw"], text=True)
+    ids = sorted({line.strip().split("|")[0] for line in (live + "\n" + history).splitlines() if line.strip()})
+    snapshot = capture(plan={"plan_id": "gemma-si-replay"}, since=since, include_job_ids=ids)
+    if snapshot.get("complete") is not True or not 0 <= time.time() - snapshot["captured_at_epoch"] <= 120:
+        raise SystemExit("Fresh complete scheduler evidence required.")
+    if any(row.get("job_name") == "geodml-gemma-si-replay" for row in snapshot["jobs"]):
+        raise SystemExit("A Gemma allocation is already queued or active. Reuse it; do not request another.")
+    starts = [r["start_epoch"] for r in snapshot["jobs"] + snapshot.get("owners", []) if isinstance(r.get("start_epoch"), int)]
+    remaining = 600 - (int(time.time()) - max(starts, default=0))
+    if remaining > 0:
+        raise SystemExit(f"Wait at least {remaining} seconds on the login host, then repeat this check. Ten-minute start-gap rule retained.")
+    quota = out / "admission-quota.json"
+    quota.write_text(json.dumps(capture_quota(workspace, args.account), indent=2))
+    storage = health({"dataset_root": str(workspace), "cluster": "horeka"}, quota)
+    if storage.get("safe_to_admit") is not True or storage.get("quota_verified") is not True:
+        raise SystemExit("Storage check blocked admission. Leave all jobs unchanged.")
+    evidence = {"scheduler": snapshot, "storage": storage, "account_queue_count": queue_count,
+        "approved_exception": "Valerian approved one 01:00:00 Gemma allocation alongside the existing Qwen queue; waive five-active and no-pending guards for this run only. Cancel, hold or modify no jobs.",
+        "walltime_seconds": 3600, "maximum_gpu_hours": 4, "checked_at_epoch": int(time.time())}
+    (out / "admission.json").write_text(json.dumps(evidence, indent=2))
+    print(f"CHECK PASSED: account queue {queue_count}/295. Now run the separate salloc command once.", flush=True)
     return 0
 
 
@@ -136,8 +212,12 @@ def main(argv=None):
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--walltime", choices=("00:30:00", "00:45:00", "01:00:00"), required=True)
     p.add_argument("--approval", required=True)
+    c = sub.add_parser("check", help="check admission for the approved Gemma run; never submits")
+    c.add_argument("--workspace", type=Path, required=True)
+    c.add_argument("--output", type=Path, required=True)
+    c.add_argument("--account", required=True)
     args = parser.parse_args(argv)
-    return download(args) if args.command == "download" else prepare(args)
+    return {"download": download, "prepare": prepare, "check": check}[args.command](args)
 
 
 if __name__ == "__main__":
