@@ -47,8 +47,13 @@ makes support circular).
 - 200-answer sample (100 Qwen, 100 Llama, seed 2026093001) uploaded to private
   `geodml-experiment-v2-paper-private/analysis-samples/answer-style-200-20260930-0546/`
   and downloaded to Mac `~/Hamburg/GEODML_Unified/answer-style/`.
-- A subagent is labelling it (codebook → `codebook.md`, `labels.jsonl`,
-  `summary.md` in `answer-style/`). **Not finished at handoff**; check those files.
+- Labelled by a subagent (one annotator, no second coder): `answer-style/codebook.md`,
+  `labels.jsonl`, `summary.md`, `summarize_labels.py`. Direct answer: Qwen 56 %,
+  Llama 91 %; evidence lacks answer 31 % / 9 %; narrates snippets 37 % / 0 %;
+  answers a different question 3 % / 19 %; median length 1,062 / 407 chars.
+  Drivers: action-ready prompts (Qwen 46 % evidence-lacks vs 10 % info) and
+  Parallel-Expansion (Qwen 42 % vs 19 % Reactive). Evidence-talk is mainly a Qwen
+  pattern; Llama's issue is short or off-target answers (tool lists for how-to).
 - Corpus-wide classifier candidate: **Jev** (TypeSafe decision model; $0.042/M
   input, free output): all ~622k answers ≈ $16–17; validate on a few hundred first.
 - Option on the table: small natural-answer generation pilot (new versioned
