@@ -37,8 +37,12 @@ def baseline(tmp_path):
     return root
 
 
-def test_replay_preserves_inputs_and_joins_shuffled_results_by_id(baseline, tmp_path, monkeypatch):
+@pytest.mark.parametrize("fresh", [False, True])
+def test_replay_preserves_inputs_and_joins_shuffled_results_by_id(baseline, tmp_path, monkeypatch, capsys, fresh):
     bundle = replay.freeze_baseline(baseline)
+    if fresh:
+        bundle.pop("nemotron")
+        bundle["selection"] = {"seed": 2026093011}
     original = copy.deepcopy(bundle)
     monkeypatch.setattr(run_acl_arr_vllm, "VllmChatClient", ScriptedServer)
     inputs = tmp_path / "inputs.json"
@@ -53,7 +57,18 @@ def test_replay_preserves_inputs_and_joins_shuffled_results_by_id(baseline, tmp_
         assert all(c["grades"] == {A["url"]: 4, B["url"]: 0} and c["j1"] == 4 for c in cells)
     scores = json.loads((args.output / "comparison.json").read_text())["scores"]
     assert all(row["gemma"]["pass1"] == row["gemma"]["pass2"] for row in scores)
-    assert all(row["nemotron"]["pass1"] == [2, 2] for row in scores if row["task"] == "source_importance")
+    if fresh:
+        assert all(row["nemotron"] == {} for row in scores)
+        assert json.loads((args.output / "pass2/summary.json").read_text())["settings"]["seed"] == 2026093011
+        from analysis.scripts import fresh_gemma_si_review as review
+        capsys.readouterr()
+        review.main(["review", "--trial", str(args.output), "--count", "1"])
+        report = json.loads(capsys.readouterr().out)
+        assert report["sources"][0]["input"]["source_text"] == A["text"]
+        assert report["sources"][0]["judgments"]["pass2"]["parsed_output"]["importance"] == 4
+        assert report["request_and_full_answer"]["answer"] == ANSWER
+    else:
+        assert all(row["nemotron"]["pass1"] == [2, 2] for row in scores if row["task"] == "source_importance")
     assert bundle == original
     with pytest.raises(FileExistsError):
         asyncio.run(replay.run(args))
@@ -83,7 +98,8 @@ def test_missing_or_failed_scores_are_not_zero(baseline):
     assert all(s["gemma"] == {"pass1": None, "pass2": None} for s in scores)
 
 
-def test_preparation_pins_gemma_replay_without_allocating(baseline, tmp_path, monkeypatch):
+@pytest.mark.parametrize("bound", [False, True])
+def test_preparation_pins_gemma_replay_without_allocating(baseline, tmp_path, monkeypatch, bound):
     ws = tmp_path / "workspace"
     prep_dir = gemma.prep(ws)
     prep_dir.mkdir(parents=True)
@@ -91,17 +107,27 @@ def test_preparation_pins_gemma_replay_without_allocating(baseline, tmp_path, mo
     (prep_dir / "nemotron-baseline.json").write_text(json.dumps(bundle))
     (prep_dir / "models-verified.json").write_text(json.dumps({"status": "verified", "models": [
         {"repo_id": gemma.MODEL, "revision": gemma.REVISION, "snapshot": str(prep_dir)}]}))
-    monkeypatch.setattr(gemma.subprocess, "check_output", lambda cmd, **kw: "a" * 40 if "rev-parse" in cmd else "")
+    from datetime import datetime
+    end = datetime.fromtimestamp(time.time() + 1800).isoformat()
+    monkeypatch.setattr(gemma.subprocess, "check_output", lambda cmd, **kw:
+        f"JobName={gemma.JOB_NAME} JobState=RUNNING TimeLimit=00:45:00 EndTime={end}" if cmd[0] == "scontrol"
+        else "a" * 40 if "rev-parse" in cmd else "")
     monkeypatch.setattr(gemma, "runtime_check", lambda: {"vllm": "fixture"})
     calls = []
     monkeypatch.setattr(gemma.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
     out = tmp_path / "run"
     args = ["prepare", "--workspace", str(ws), "--output", str(out), "--walltime", "00:45:00", "--approval"]
+    if bound:
+        monkeypatch.setenv("SLURM_JOB_ID", "123")
+        args = args[:-1] + ["--existing-job-id", "123", "--inputs", str(prep_dir / "nemotron-baseline.json"), "--approval"]
     with pytest.raises(ValueError, match="approval"):
         gemma.main(args + [" "])
     assert gemma.main(args + ["fixture approval"]) == 0
     config = json.loads((out / "config.json").read_text())
     assert config["git_commit"] == "a" * 40 and config["walltime"] == "00:45:00"
+    if bound:
+        assert config["existing_job_id"] == "123" and config["minimum_remaining_seconds"] == 1200
+        assert config["cache_prefix"] != "gemma4"  # never overwrite the first test's server cache
     assert config["replay_inputs_sha256"] == hashlib.sha256((out / "inputs.json").read_bytes()).hexdigest()
     prepare_cmd, run_cmd = gemma.runner.stage_commands(config, python="/runtime/bin/python", attempt=out, cache=out / "cache")
     assert prepare_cmd[prepare_cmd.index("--model-id") + 1] == gemma.MODEL
@@ -115,7 +141,7 @@ def test_preparation_pins_gemma_replay_without_allocating(baseline, tmp_path, mo
     assert gemma.main(args + ["fixture approval"]) == 0
     assert {p.name: p.read_bytes() for p in out.iterdir()} == before
     assert len(calls) == 1  # no repeated schema preparation or allocation
-    with pytest.raises(ValueError, match="conflicts"):
+    with pytest.raises(ValueError, match="conflicts|does not match"):
         gemma.main([a.replace("00:45:00", "01:00:00") for a in args] + ["fixture approval"])
     (out / "inputs.json").write_text("changed")
     with pytest.raises(ValueError, match="checksum"):

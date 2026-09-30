@@ -137,6 +137,26 @@ def test_walltime_is_limited_to_the_approved_hour():
                    "--walltime", "05:00:00", "--approval", "x"])
 
 
+@pytest.mark.parametrize("job,state,remaining", [("999", "RUNNING", 1800), ("123", "COMPLETED", 1800),
+                                                 ("123", "RUNNING", 1199), ("123", "RUNNING", -1)])
+def test_bound_run_refuses_wrong_or_short_allocation_before_attempt(tmp_path, monkeypatch, job, state, remaining):
+    import time
+    from datetime import datetime
+    from analysis.scripts import verify_inference_allocation
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"existing_job_id": "123", "minimum_remaining_seconds": 1200}))
+    monkeypatch.setenv("SLURM_JOB_ID", job)
+    monkeypatch.setattr(verify_inference_allocation, "verify", lambda cluster: {"verified": True})
+    end = datetime.fromtimestamp(time.time() + remaining).isoformat()
+    def output(command, **kw):
+        assert command[0] == "scontrol", "rejection must precede model startup"
+        return f"JobState={state} EndTime={end}"
+    monkeypatch.setattr(nemo.subprocess, "check_output", output)
+    with pytest.raises(ValueError, match="recorded existing allocation|20 minutes"):
+        nemo.execute(config)
+    assert not (tmp_path / "attempts").exists()
+
+
 def test_nemotron_inventory_uses_only_the_pinned_revision():
     siblings = [SimpleNamespace(rfilename=name, size=10, lfs=SimpleNamespace(sha256="b" * 64) if name.endswith("safetensors") else None,
                                 blob_id="c" * 40)

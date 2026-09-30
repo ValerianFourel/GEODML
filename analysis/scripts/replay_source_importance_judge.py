@@ -98,7 +98,7 @@ def compare(bundle, passes):
     by_pass = {name: indexed(records) for name, records in passes.items()}
     return [{"judge_task_id": task["judge_task_id"], "task": task["task"],
              "nemotron": {name: [value(r) for r in records if r["judge_task_id"] == task["judge_task_id"]]
-                          for name, records in bundle["nemotron"].items()},
+                          for name, records in bundle.get("nemotron", {}).items()},
              "gemma": {name: value(records.get(task["judge_task_id"])) for name, records in by_pass.items()}}
             for task in bundle["tasks"]]
 
@@ -115,7 +115,7 @@ async def run(args):
         name = f"pass{pass_id}"
         options = SimpleNamespace(output=args.output / name, cells_from=None, count=len(frozen),
             base_url=args.base_url, server_model_name=args.server_model_name, request_timeout=300,
-            concurrency=4, seed=2026093010, max_tokens=640, model="qwen38+llama4")
+            concurrency=4, seed=bundle.get("selection", {}).get("seed", 2026093010), max_tokens=640, model="qwen38+llama4")
         codes.append(await trial.main_async(options, frozen_input=copy.deepcopy(frozen)))
         passes[name] = rows(options.output / "results.jsonl")
         trial.write_json(args.output / "comparison.json", {"scientific_result": False,

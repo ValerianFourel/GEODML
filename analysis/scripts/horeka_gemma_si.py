@@ -87,6 +87,10 @@ def run_script(repo, out):
     return ("#!/bin/bash\nset -euo pipefail\nexec " + shlex.join(command) + "\n").encode()
 
 
+def input_path(args):
+    return args.inputs.resolve() if getattr(args, "inputs", None) else prep(args.workspace.resolve()) / "nemotron-baseline.json"
+
+
 def reuse_prepared(args):
     """Verify the saved run, preserving its original code pin, approval and artifacts."""
     out, workspace = args.output.resolve(), args.workspace.resolve()
@@ -96,13 +100,13 @@ def reuse_prepared(args):
     expected = {"workspace": str(workspace), "walltime": args.walltime, "model_id": MODEL,
         "model_revision": REVISION, "job_name": JOB_NAME, "judge_protocol": PROTOCOL,
         "trial": "source-importance", "count": 20, "max_tokens": 640, "serving": runner.SERVING,
-        "replay_inputs": str(out / "inputs.json")}
+        "replay_inputs": str(out / "inputs.json"), "existing_job_id": getattr(args, "existing_job_id", None)}
     if any(config.get(k) != v for k, v in expected.items()) or not config.get("approval"):
         raise ValueError("existing preparation conflicts with the requested run")
     content = (out / "inputs.json").read_bytes()
     if hashlib.sha256(content).hexdigest() != config["replay_inputs_sha256"]:
         raise ValueError("existing replay input checksum changed")
-    if content != (prep(workspace) / "nemotron-baseline.json").read_bytes():
+    if content != input_path(args).read_bytes():
         raise ValueError("existing preparation conflicts with the frozen baseline")
     repo = Path(config["repository"])
     if subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip() != config["git_commit"]:
@@ -119,6 +123,14 @@ def reuse_prepared(args):
 def prepare(args):
     if not args.approval.strip():
         raise ValueError("record explicit approval of this allocation and wall-time")
+    bound = getattr(args, "existing_job_id", None)
+    if bound:
+        fields = dict(t.split("=", 1) for t in subprocess.check_output(
+            ["scontrol", "show", "job", str(bound), "-o"], text=True).split() if "=" in t)
+        runner.check_bound_allocation({"existing_job_id": bound, "minimum_remaining_seconds": 1200},
+                                      os.environ.get("SLURM_JOB_ID"), fields)
+        if fields.get("JobName") != JOB_NAME or fields.get("TimeLimit") != args.walltime:
+            raise ValueError("existing allocation does not match the Gemma run")
     repo = Path(__file__).resolve().parents[2]
     pin = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     if subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"], text=True).strip():
@@ -134,7 +146,11 @@ def prepare(args):
         if not Path(model["snapshot"]).is_dir():
             raise ValueError("verified model snapshot missing")
     versions = runtime_check()
-    content = (source / "nemotron-baseline.json").read_bytes()
+    content = input_path(args).read_bytes()
+    from analysis.scripts.replay_source_importance_judge import frozen_cells
+    frozen = frozen_cells(json.loads(content))
+    if len(frozen) != 20 or sorted(c["model"] for c, _ in frozen) != ["llama4"] * 10 + ["qwen38"] * 10:
+        raise ValueError("Gemma pilot requires ten frozen Qwen and ten frozen Llama cells")
     # No GPU work until the existing structured-output dependency accepts SI-v3.
     subprocess.run([sys.executable, str(repo / "analysis/scripts/try_source_importance_judge.py"),
                     "--check-schema"], check=True)
@@ -148,6 +164,13 @@ def prepare(args):
         "estimate": {"minutes": [15, 45], "basis": "Nemotron cold startup 11.6 min; Gemma dense throughput unmeasured",
                      "nodes": 1, "gpus": 4, "cpus_requested": 32, "memory": "whole node (512 GiB)",
                      "maximum_gpu_hours": 4 * runner._hours(args.walltime)}}
+    if bound:
+        config.update(existing_job_id=bound, minimum_remaining_seconds=1200,
+                      cache_prefix="gemma4-fresh20-" + hashlib.sha256(str(out).encode()).hexdigest()[:12],
+                      estimate={"minutes": [10, 15], "minimum_remaining_minutes": 20,
+                                "basis": "first 20-cell Gemma replay: 464s stage run, 92.3s judging; frozen inputs prepared separately",
+                                "new_allocation": False, "nodes": 1, "gpus": 4, "cpus_requested": 32,
+                                "memory": "whole node", "additional_allocation_hours": 0})
     out.mkdir(parents=True)
     atomic(out / "inputs.json", content)
     atomic(out / "config.json", canonical(config))
@@ -212,6 +235,8 @@ def main(argv=None):
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--walltime", choices=("00:30:00", "00:45:00", "01:00:00"), required=True)
     p.add_argument("--approval", required=True)
+    p.add_argument("--inputs", type=Path, help="verified fresh 20-cell bundle instead of the Nemotron baseline")
+    p.add_argument("--existing-job-id", help="bind execution to this already approved live allocation")
     c = sub.add_parser("check", help="check admission for the approved Gemma run; never submits")
     c.add_argument("--workspace", type=Path, required=True)
     c.add_argument("--output", type=Path, required=True)

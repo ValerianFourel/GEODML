@@ -182,6 +182,16 @@ def _hours(walltime: str) -> float:
     return h + m / 60 + s / 3600
 
 
+def check_bound_allocation(config, job, fields):
+    if not config.get("existing_job_id"):
+        return
+    if str(job) != str(config["existing_job_id"]):
+        raise ValueError("this run is approved only inside the recorded existing allocation")
+    remaining = datetime.fromisoformat(fields["EndTime"]).timestamp() - time.time()
+    if fields.get("JobState") != "RUNNING" or remaining < config["minimum_remaining_seconds"]:
+        raise ValueError("existing allocation needs at least 20 minutes remaining; preserve it and request fresh approval if expired")
+
+
 def execute(config_path: Path) -> int:
     """Compute node: boundary and allocation checks first, then Nemotron and the trial."""
     from analysis.scripts.horeka_qwen_bouts import compiler_environment
@@ -189,13 +199,14 @@ def execute(config_path: Path) -> int:
     boundary = verify("horeka")
     config = read(config_path)
     job = os.environ["SLURM_JOB_ID"]
+    fields = dict(t.split("=", 1) for t in subprocess.check_output(
+        ["scontrol", "show", "job", job, "-o"], text=True).split() if "=" in t)
+    check_bound_allocation(config, job, fields)
+    if fields.get("JobName") != config["job_name"] or fields.get("TimeLimit") != config["walltime"]:
+        raise ValueError("allocation differs from the approved run")
     attempt = Path(config_path).parent / "attempts" / f"job{job}"
     attempt.mkdir(parents=True, exist_ok=False)
     atomic(attempt / "boundary.json", canonical(boundary))
-    fields = dict(t.split("=", 1) for t in subprocess.check_output(
-        ["scontrol", "show", "job", job, "-o"], text=True).split() if "=" in t)
-    if fields.get("JobName") != config["job_name"] or fields.get("TimeLimit") != config["walltime"]:
-        raise ValueError("allocation differs from the approved run")
     repo = Path(config["repository"])
     if subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip() != config["git_commit"]:
         raise ValueError("execution commit mismatch")
