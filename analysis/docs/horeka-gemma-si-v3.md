@@ -69,6 +69,11 @@ After an explicit wall-time choice, from the pinned checkout:
 Preparation checks installed vLLM's Gemma4 registration without initializing CUDA,
 records package versions, checks native SI schema support, and creates immutable
 `config.json`, `inputs.json`, and `run.sh`. It does not upgrade the shared runtime.
+Repeating preparation verifies and reuses a matching run, retaining its original
+code pin, approval and bytes. Incomplete, conflicting or modified preparations
+are rejected. The HTML fetches helper revision `788ef7d` separately; the existing
+run remains pinned to `ddc93fe`. Run HTML step 2 once to obtain the corrected
+helper, then use the short `check` command in step 3. No repeat download needed.
 If compatibility fails, retain the error and prepare an isolated compatible
 environment before requesting compute. Static registration is not proof that
 Gemma loads on A100; that remains part of the GPU test.
@@ -80,6 +85,10 @@ no-pending-allocation guards are waived for this run only. The check retains the
 295-job account queue limit, fresh quota/storage evidence and ten-minute
 observed-start gap. No queued job is cancelled, held or modified. A full queue
 means wait for a slot and recheck. No allocation command runs automatically.
+A "Wait at least N seconds" response is the retained observed-start rule, not a
+preparation failure. Wait on the login host and repeat only the check; another
+Qwen start can reset that clock. The check now lives in the versioned Python
+script, replacing the long pasted Python program in the HTML.
 The allocation must match job name
 `geodml-gemma-si-replay`, the approved time, whole-node exclusivity and the
 resources above. Run the standalone `salloc` only once after the check passes.
