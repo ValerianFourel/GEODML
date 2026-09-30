@@ -62,3 +62,38 @@ no-human-annotator preference. Do not optimize merely for a wider grade histogra
 
 Only this handoff and its index were changed. No production code, data, tests,
 cluster jobs or API calls changed. Documentation verified with `git diff --check`.
+
+## Expert follow-up: generator evidence versus judge input
+
+The expert requested exact serialized inputs/outputs for Trello and unstable cell
+`9407a920b4e1`. Inspected source preparation, compaction, generator serialization,
+trial joins and client audit capture. Relevant files are unchanged from pilot pin
+`961ad0b181c70b9355db5b2366c0602d9abae675`.
+
+- Compaction is top-k selection/reranking of whole `Snippet` records, not text
+  shortening. Generator serialization includes full title/text. The judge reads
+  the last selected compaction for Parallel, accumulated selected observations for
+  Reactive, deduplicating by URL with first occurrence retained. It adds passage
+  IDs; it does not retrieve longer page content. Individual generator traces still
+  need comparison with frozen judge tasks to prove equality for these actual cases.
+- Request results are joined by stable judge task ID, not asynchronous completion
+  order. URL is excluded from semantic task identity, so identical inputs can
+  legitimately share a task. This code inspection alone does not rule out an
+  assignment bug in the saved artifacts.
+- Local evidence bundle: workspace-root
+  `expert-review/si-v3-input-evidence-20260930/`. Contains
+  `complete-prompts-and-raw-outputs.md`, `recorded-examples.json`, and
+  `export-horeka.sh`. These local deliverables are outside this worktree commit.
+- Four printed examples recovered verbatim from the Sep 30 03:38:09 UTC user
+  paste: Trello and compliance, each in two passes. Their case blocks and raw
+  outputs repeat identically. Complete prompts reconstructed with pinned rubric;
+  explicitly not original HTTP captures. These printed examples lack task ID/URL.
+  Compliance's printed example grades 1 in both passes; the two switching sources'
+  raw responses are not available locally. Do not associate it with either of them.
+- Prepared read-only HoreKa exporter selects both cells in both saved reports,
+  keeps every source's frozen task/full result and audit responses, reconstructs
+  request messages and verifies recorded prompt hashes, includes original request
+  settings, response bodies, task/URL mapping and run config. Reads only existing
+  artifacts and prints JSON. Starts no inference/allocation. Python and shell
+  syntax checked locally; not executed on HoreKa. The user must paste its contents
+  into an existing HoreKa login shell to obtain the missing full evidence.
