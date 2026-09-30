@@ -60,6 +60,48 @@ def test_admission_preserves_limits_without_historical_exception(change, reason)
         pilot.admission({**snapshot, **change}, 10000)
 
 
+@pytest.mark.parametrize("blocked", [None, "scope", "recent", "queue", "storage", "existing", "attempted"])
+def test_scoped_queue_exception_keeps_other_admission_guards(tmp_path, monkeypatch, blocked):
+    from analysis.scripts import capture_agentic_scheduler_snapshot as scheduler
+    now = 10000
+    out = tmp_path / "reviews" / ("different-run" if blocked == "scope" else "gemma-si-v4-development-20261001")
+    out.mkdir(parents=True)
+    config = {"workspace": str(tmp_path), "job_name": pilot.JOB_NAME, "walltime": "01:00:00",
+              "approval": "one hour", "account": "fixture", "trial": "si-v4-development",
+              "git_commit": "9aa5d90e0b310f3eea587a60787727787ab92757",
+              "model_id": pilot.gemma.MODEL, "model_revision": pilot.gemma.REVISION}
+    raw = json.dumps(config)
+    (out / "config.json").write_text(raw)
+    if blocked == "attempted":
+        (out / "attempts/job123").mkdir(parents=True)
+    jobs = [{"state": "RUNNING", "job_name": "qwen", "start_epoch": 8000}] * 28
+    jobs += [{"state": "PENDING", "job_name": "qwen", "start_epoch": None}]
+    if blocked == "existing":
+        jobs += [{"state": "PENDING", "job_name": pilot.JOB_NAME, "start_epoch": None}]
+    snapshot = {"complete": True, "captured_at_epoch": now, "jobs": jobs,
+                "owners": [{"start_epoch": 9950}] if blocked == "recent" else []}
+    monkeypatch.setattr(scheduler, "capture", lambda **kw: snapshot)
+    monkeypatch.setattr(pilot.time, "time", lambda: now)
+    monkeypatch.setattr(pilot.subprocess, "check_output", lambda command, **kw:
+                        "\n".join(map(str, range(295 if blocked == "queue" else 294)))
+                        if "--array" in command else "123\n")
+    monkeypatch.setattr(pilot.subprocess, "run", lambda *a, **kw: None)
+    monkeypatch.setattr(pilot, "capture_quota", lambda *a: {"fixture": True})
+    monkeypatch.setattr(pilot.judge, "check_storage", lambda *a:
+                        {"safe_to_admit": blocked != "storage", "quota_verified": True})
+    argv = ["check", "--output", str(out), "--approved-existing-queue-exception"]
+    if blocked:
+        with pytest.raises(ValueError):
+            pilot.main(argv)
+        assert not (out / "admission.json").exists()
+    else:
+        assert pilot.main(argv) == 0
+        evidence = json.loads((out / "admission.json").read_text())
+        assert "waive five-active and no-pending" in evidence["approved_exception"]
+        assert evidence["config_sha256"] == pilot.judge.file_hash(out / "config.json")
+    assert (out / "config.json").read_text() == raw
+
+
 def test_new_stage_uses_existing_gemma_boundary_and_v4_driver(tmp_path):
     config = {"repository": str(tmp_path), "trial": "si-v4-development",
               "model_id": pilot.gemma.MODEL, "model_revision": pilot.gemma.REVISION,

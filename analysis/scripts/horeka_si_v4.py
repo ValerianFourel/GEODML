@@ -148,14 +148,14 @@ def prepare(args):
     return 0
 
 
-def admission(snapshot, now):
+def admission(snapshot, now, *, existing_queue_exception=False):
     from analysis.scripts.capture_agentic_scheduler_snapshot import ACTIVE_STATES
     if snapshot.get("complete") is not True or not 0 <= now - snapshot["captured_at_epoch"] <= 120:
         raise ValueError("fresh complete scheduler evidence required")
     live = snapshot["jobs"]
-    if sum(r["state"] in ACTIVE_STATES for r in live) >= 5:
+    if not existing_queue_exception and sum(r["state"] in ACTIVE_STATES for r in live) >= 5:
         raise ValueError("five allocations already active; wait on the login host")
-    if any(r["state"] == "PENDING" for r in live):
+    if not existing_queue_exception and any(r["state"] == "PENDING" for r in live):
         raise ValueError("pending allocations prevent a reliable start-gap check; leave them unchanged")
     if any(r["job_name"] == JOB_NAME for r in live):
         raise ValueError("SI-v4 allocation already exists; do not request another")
@@ -171,6 +171,14 @@ def check(args):
     config = stage.read(out / "config.json")
     if config["job_name"] != JOB_NAME or config["walltime"] != "01:00:00" or not config["approval"]:
         raise ValueError("not an approved one-hour SI-v4 preparation")
+    exception = getattr(args, "approved_existing_queue_exception", False)
+    if exception and (
+        out != Path(config["workspace"]).resolve() / "reviews/gemma-si-v4-development-20261001"
+        or config.get("git_commit") != "9aa5d90e0b310f3eea587a60787727787ab92757"
+        or config.get("model_id") != gemma.MODEL or config.get("model_revision") != gemma.REVISION
+        or config.get("trial") != "si-v4-development"
+    ):
+        raise ValueError("queue exception applies only to the prepared 20261001 Gemma SI-v4 run")
     if (out / "ALLOCATION_ATTEMPTED").exists() or any((out / "attempts").glob("job*")):
         raise ValueError("allocation already attempted; inspect existing work before any new allocation")
     live = subprocess.check_output(["squeue", "--me", "--noheader", "--format=%i"], text=True)
@@ -179,7 +187,7 @@ def check(args):
                                        "--format=JobIDRaw"], text=True)
     ids = [s.strip().split("|")[0] for s in (live + "\n" + history).splitlines() if s.strip()]
     snapshot = capture(plan={"plan_id": "si-v4-development"}, since=since, include_job_ids=ids)
-    admission(snapshot, int(time.time()))
+    admission(snapshot, int(time.time()), existing_queue_exception=exception)
     queue = subprocess.check_output(["squeue", "--account=" + config["account"], "--array", "--noheader", "--format=%i"], text=True)
     if len(set(queue.split())) >= 295:
         raise ValueError("account queue full; wait without changing jobs")
@@ -190,6 +198,14 @@ def check(args):
     if not health["safe_to_admit"] or not health["quota_verified"]:
         raise ValueError("storage admission failed")
     atomic(out / "admission.json", judge.canonical({"scheduler": snapshot, "storage": health,
+                                                   "config_sha256": judge.file_hash(out / "config.json"),
+                                                   "admission_helper_sha256": judge.file_hash(Path(__file__)),
+                                                   "approved_exception": (
+                                                       "Valerian approved one 01:00:00 SI-v4 allocation alongside the existing queue; "
+                                                       "waive five-active and no-pending guards only for this prepared run. "
+                                                       "Keep quota, account queue limit and ten-minute observed-start spacing. "
+                                                       "Do not cancel or modify other jobs."
+                                                       if exception else None),
                                                    "checked_at_epoch": int(time.time())}).encode())
     print("CHECK PASSED. Run the separate one-hour salloc once, promptly; recheck if delayed.")
     return 0
@@ -267,6 +283,8 @@ def main(argv=None):
     p.add_argument("--approval", required=True)
     c = commands.add_parser("check")
     c.add_argument("--output", type=Path, required=True)
+    c.add_argument("--approved-existing-queue-exception", action="store_true",
+                   help="record Valerian's one-run exception for the prepared 20261001 run only")
     r = commands.add_parser("review")
     r.add_argument("--config", type=Path, required=True)
     r.add_argument("--output", type=Path, required=True)
