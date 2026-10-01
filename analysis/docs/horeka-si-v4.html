@@ -136,7 +136,7 @@ for name in names:
     if old == b&quot;CAP=294&quot;:
         print(&quot;ALREADY_SET&quot;, path, &quot;CAP=294&quot;)
         continue
-    if old not in (b&quot;CAP=${CAP:-295}&quot;, b&quot;CAP=${CAP:-294}&quot;, b&quot;CAP=295&quot;):
+    if old not in (b&quot;CAP=${CAP:-295}&quot;, b&quot;CAP=${CAP:-294}&quot;, b&quot;CAP=${CAP:-300}&quot;, b&quot;CAP=295&quot;):
         raise SystemExit(&quot;REFUSED unfamiliar CAP setting: &quot; + str(path))
     lines[index] = b&quot;CAP=294\n&quot;
     updated = b&quot;&quot;.join(lines)
