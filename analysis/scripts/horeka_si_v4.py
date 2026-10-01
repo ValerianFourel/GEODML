@@ -182,14 +182,21 @@ def check(args):
     if config["job_name"] != JOB_NAME or config["walltime"] not in ("01:00:00", "03:00:00") or not config["approval"]:
         raise ValueError("not an approved SI-v4 preparation")
     exception = getattr(args, "approved_existing_queue_exception", False)
+    legacy_scope = (
+        out == Path(config["workspace"]).resolve() / "reviews/gemma-si-v4-development-20261001"
+        and config.get("walltime") == "01:00:00"
+        and config.get("git_commit") == "9aa5d90e0b310f3eea587a60787727787ab92757"
+    )
+    three_hour_scope = (
+        out == Path(config["workspace"]).resolve() / "reviews/gemma-si-v4-development-20261002-3h"
+        and config.get("walltime") == "03:00:00"
+    )
     if exception and (
-        out != Path(config["workspace"]).resolve() / "reviews/gemma-si-v4-development-20261001"
-        or config.get("walltime") != "01:00:00"
-        or config.get("git_commit") != "9aa5d90e0b310f3eea587a60787727787ab92757"
+        not (legacy_scope or three_hour_scope)
         or config.get("model_id") != gemma.MODEL or config.get("model_revision") != gemma.REVISION
         or config.get("trial") != "si-v4-development"
     ):
-        raise ValueError("queue exception applies only to the prepared 20261001 Gemma SI-v4 run")
+        raise ValueError("queue exception applies only to the approved dated Gemma SI-v4 preparations")
     if (out / "ALLOCATION_ATTEMPTED").exists() or any((out / "attempts").glob("job*")):
         raise ValueError("allocation already attempted; inspect existing work before any new allocation")
     live = subprocess.check_output(["squeue", "--me", "--noheader", "--format=%i"], text=True)
@@ -212,7 +219,7 @@ def check(args):
                                                    "config_sha256": judge.file_hash(out / "config.json"),
                                                    "admission_helper_sha256": judge.file_hash(Path(__file__)),
                                                    "approved_exception": (
-                                                       "Valerian approved one 01:00:00 SI-v4 allocation alongside the existing queue; "
+                                                       f"Valerian approved one {config['walltime']} SI-v4 allocation alongside the existing queue; "
                                                        "waive five-active and no-pending guards only for this prepared run. "
                                                        "Keep quota, account queue limit and ten-minute observed-start spacing. "
                                                        "Do not cancel or modify other jobs."
@@ -296,7 +303,7 @@ def main(argv=None):
     c = commands.add_parser("check")
     c.add_argument("--output", type=Path, required=True)
     c.add_argument("--approved-existing-queue-exception", action="store_true",
-                   help="record Valerian's one-run exception for the prepared 20261001 run only")
+                   help="record Valerian's scoped exception for the approved dated one- or three-hour run")
     r = commands.add_parser("review")
     r.add_argument("--config", type=Path, required=True)
     r.add_argument("--output", type=Path, required=True)

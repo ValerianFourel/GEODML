@@ -66,16 +66,23 @@ def test_admission_preserves_limits_without_historical_exception(change, reason)
         pilot.admission({**snapshot, **change}, 10000)
 
 
-@pytest.mark.parametrize("blocked", [None, "scope", "recent", "queue", "storage", "existing", "attempted"])
-def test_scoped_queue_exception_keeps_other_admission_guards(tmp_path, monkeypatch, blocked):
+@pytest.mark.parametrize("three_hour", [False, True])
+@pytest.mark.parametrize("blocked", [None, "scope", "duration", "recent", "queue", "storage", "existing", "attempted"])
+def test_scoped_queue_exception_keeps_other_admission_guards(tmp_path, monkeypatch, blocked, three_hour):
     from analysis.scripts import capture_agentic_scheduler_snapshot as scheduler
     now = 10000
-    out = tmp_path / "reviews" / ("different-run" if blocked == "scope" else "gemma-si-v4-development-20261001")
+    name = "gemma-si-v4-development-20261002-3h" if three_hour else "gemma-si-v4-development-20261001"
+    out = tmp_path / "reviews" / ("different-run" if blocked == "scope" else name)
     out.mkdir(parents=True)
     config = {"workspace": str(tmp_path), "job_name": pilot.JOB_NAME, "walltime": "01:00:00",
               "approval": "one hour", "account": "fixture", "trial": "si-v4-development",
               "git_commit": "9aa5d90e0b310f3eea587a60787727787ab92757",
               "model_id": pilot.gemma.MODEL, "model_revision": pilot.gemma.REVISION}
+    config["walltime"] = "03:00:00" if three_hour else "01:00:00"
+    if three_hour:
+        config["git_commit"] = "a" * 40
+    if blocked == "duration":
+        config["walltime"] = "01:00:00" if three_hour else "03:00:00"
     raw = json.dumps(config)
     (out / "config.json").write_text(raw)
     if blocked == "attempted":
