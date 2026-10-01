@@ -1,0 +1,1684 @@
+[
+  {
+    "title": "GEO: Generative Engine Optimization",
+    "authors": [
+      "Aggarwal, Pranjal",
+      "Murahari, Vishvak",
+      "Rajpurohit, Tanmay",
+      "Kalyan, Ashwin",
+      "Narasimhan, Karthik",
+      "Deshpande, Ameet"
+    ],
+    "year": 2023,
+    "identifier_or_url": "https://arxiv.org/abs/2311.09735",
+    "existing_key": "P044",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P044. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Understanding intermediate layers using linear classifier probes",
+    "authors": [
+      "Alain, Guillaume",
+      "Bengio, Yoshua"
+    ],
+    "year": 2016,
+    "identifier_or_url": "https://arxiv.org/abs/1610.01644",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Useful if historical hidden-state probing remains in the manuscript; existing P016 already covers probe controls.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Causal Inference in Natural Language Processing: Estimation, Prediction, Interpretation and Beyond",
+    "authors": [
+      "Feder, Amir",
+      "Keith, Katherine A.",
+      "Manzoor, Emaad",
+      "Pryzant, Reid",
+      "Sridhar, Dhanya",
+      "Wood-Doughty, Zach",
+      "Eisenstein, Jacob",
+      "Grimmer, Justin",
+      "Reichart, Roi",
+      "Roberts, Margaret E.",
+      "Stewart, Brandon M.",
+      "Veitch, Victor",
+      "Yang, Diyi"
+    ],
+    "year": 2021,
+    "identifier_or_url": "https://arxiv.org/abs/2109.00725",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "Corrects the old manuscript conflation of predictive adjustment and causal identification; covers text as treatment, outcome and confounding information. Useful across the historical policy experiment and observational readiness study.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/interpretability/pipeline/dml.py:165"
+    ],
+    "source_group": "old_manuscript",
+    "primary_topic": "causal-statistics",
+    "secondary_topics": [
+      "measurement-validation"
+    ],
+    "abstract_summary": "The survey organizes causal estimation and causal uses in NLP, including text as treatment, outcome or adjustment information, and distinguishes estimation from prediction and interpretation."
+  },
+  {
+    "title": "The Rise of AI Search: Implications for Information Markets and Human Judgement at Scale",
+    "authors": [
+      "Aral, Sinan",
+      "Li, Haiwen",
+      "Zuo, Rui"
+    ],
+    "year": 2026,
+    "identifier_or_url": "https://arxiv.org/abs/2602.13415",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Broad AI-search context; less urgent than direct GEO and attribution comparisons.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Estimating Causal Effects with Double Machine Learning -- A Method Evaluation",
+    "authors": [
+      "Fuhr, Jonathan",
+      "Berens, Philipp",
+      "Papies, Dominik"
+    ],
+    "year": 2024,
+    "identifier_or_url": "https://arxiv.org/abs/2403.14385",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Useful applied DML robustness reading after the estimand and sampling unit are fixed; P090 and the new sensitivity paper take precedence.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/interpretability/pipeline/dml.py:165"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "DoubleML -- An Object-Oriented Implementation of Double Machine Learning in Python",
+    "authors": [
+      "Bach, Philipp",
+      "Chernozhukov, Victor",
+      "Kurz, Malte S.",
+      "Spindler, Martin"
+    ],
+    "year": 2021,
+    "identifier_or_url": "https://arxiv.org/abs/2104.03220",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "The actual legacy estimator uses DoubleML and custom PLR residualization. Read implementation/estimand distinctions before interpreting binary-outcome coefficients or standard errors.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/interpretability/pipeline/dml.py:165"
+    ],
+    "source_group": "old_manuscript",
+    "primary_topic": "causal-statistics",
+    "secondary_topics": [],
+    "abstract_summary": "DoubleML implements orthogonal-score and cross-fitting estimators for several causal models in Python, with extensible model specifications and nuisance learners."
+  },
+  {
+    "title": "Transformer Feed-Forward Layers Are Key-Value Memories",
+    "authors": [
+      "Geva, Mor",
+      "Schuster, Roei",
+      "Berant, Jonathan",
+      "Levy, Omer"
+    ],
+    "year": 2020,
+    "identifier_or_url": "https://arxiv.org/abs/2012.14913",
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "Feed-forward key-value interpretation does not validate the old layer-specific causal narrative; no current mechanistic intervention depends on it.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "E-GEO: A Testbed for Generative Engine Optimization in E-Commerce",
+    "authors": [
+      "Bagga, Puneet S.",
+      "Farias, Vivek F.",
+      "Korkotashvili, Tamar",
+      "Peng, Tianyi",
+      "Wu, Yuhang"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://arxiv.org/abs/2511.20867",
+    "existing_key": "P050",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P050. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "A Causal Information-Flow Framework for Unbiased Learning-to-Rank",
+    "authors": [
+      "Gong, Haoming",
+      "Ai, Qingyao",
+      "Tao, Zhihao",
+      "Zhang, Yongfeng"
+    ],
+    "year": 2026,
+    "identifier_or_url": "https://arxiv.org/abs/2601.05590",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Unbiased learning-to-rank is adjacent, but its exposure/feedback estimand should not be conflated with page-feature DML or source-support grading.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "The Llama 3 Herd of Models",
+    "authors": [
+      "Grattafiori, Aaron",
+      "Dubey, Abhimanyu",
+      "Jauhri, Abhinav",
+      "Pandey, Abhinav",
+      "Kadian, Abhishek",
+      "Al-Dahle, Ahmad",
+      "Letman, Aiesha",
+      "Mathur, Akhil",
+      "Schelten, Alan",
+      "Vaughan, Alex",
+      "Yang, Amy",
+      "Fan, Angela",
+      "Goyal, Anirudh",
+      "Hartshorn, Anthony",
+      "Yang, Aobo",
+      "Mitra, Archi",
+      "Sravankumar, Archie",
+      "Korenev, Artem",
+      "Hinsvark, Arthur",
+      "Rao, Arun",
+      "Zhang, Aston",
+      "Rodriguez, Aurelien",
+      "Gregerson, Austen",
+      "Spataru, Ava",
+      "Roziere, Baptiste",
+      "Biron, Bethany",
+      "Tang, Binh",
+      "Chern, Bobbie",
+      "Caucheteux, Charlotte",
+      "Nayak, Chaya",
+      "Bi, Chloe",
+      "Marra, Chris",
+      "McConnell, Chris",
+      "Keller, Christian",
+      "Touret, Christophe",
+      "Wu, Chunyang",
+      "Wong, Corinne",
+      "Ferrer, Cristian Canton",
+      "Nikolaidis, Cyrus",
+      "Allonsius, Damien",
+      "Song, Daniel",
+      "Pintz, Danielle",
+      "Livshits, Danny",
+      "Wyatt, Danny",
+      "Esiobu, David",
+      "Choudhary, Dhruv",
+      "Mahajan, Dhruv",
+      "Garcia-Olano, Diego",
+      "Perino, Diego",
+      "Hupkes, Dieuwke",
+      "Lakomkin, Egor",
+      "AlBadawy, Ehab",
+      "Lobanova, Elina",
+      "Dinan, Emily",
+      "Smith, Eric Michael",
+      "Radenovic, Filip",
+      "Guzmán, Francisco",
+      "Zhang, Frank",
+      "Synnaeve, Gabriel",
+      "Lee, Gabrielle",
+      "Anderson, Georgia Lewis",
+      "Thattai, Govind",
+      "Nail, Graeme",
+      "Mialon, Gregoire",
+      "Pang, Guan",
+      "Cucurell, Guillem",
+      "Nguyen, Hailey",
+      "Korevaar, Hannah",
+      "Xu, Hu",
+      "Touvron, Hugo",
+      "Zarov, Iliyan",
+      "Ibarra, Imanol Arrieta",
+      "Kloumann, Isabel",
+      "Misra, Ishan",
+      "Evtimov, Ivan",
+      "Zhang, Jack",
+      "Copet, Jade",
+      "Lee, Jaewon",
+      "Geffert, Jan",
+      "Vranes, Jana",
+      "Park, Jason",
+      "Mahadeokar, Jay",
+      "Shah, Jeet",
+      "van der Linde, Jelmer",
+      "Billock, Jennifer",
+      "Hong, Jenny",
+      "Lee, Jenya",
+      "Fu, Jeremy",
+      "Chi, Jianfeng",
+      "Huang, Jianyu",
+      "Liu, Jiawen",
+      "Wang, Jie",
+      "Yu, Jiecao",
+      "Bitton, Joanna",
+      "Spisak, Joe",
+      "Park, Jongsoo",
+      "Rocca, Joseph",
+      "Johnstun, Joshua",
+      "Saxe, Joshua",
+      "Jia, Junteng",
+      "Alwala, Kalyan Vasuden",
+      "Prasad, Karthik",
+      "Upasani, Kartikeya",
+      "Plawiak, Kate",
+      "Li, Ke",
+      "Heafield, Kenneth",
+      "Stone, Kevin",
+      "El-Arini, Khalid",
+      "Iyer, Krithika",
+      "Malik, Kshitiz",
+      "Chiu, Kuenley",
+      "Bhalla, Kunal",
+      "Lakhotia, Kushal",
+      "Rantala-Yeary, Lauren",
+      "van der Maaten, Laurens",
+      "Chen, Lawrence",
+      "Tan, Liang",
+      "Jenkins, Liz",
+      "Martin, Louis",
+      "Madaan, Lovish",
+      "Malo, Lubo",
+      "Blecher, Lukas",
+      "Landzaat, Lukas",
+      "de Oliveira, Luke",
+      "Muzzi, Madeline",
+      "Pasupuleti, Mahesh",
+      "Singh, Mannat",
+      "Paluri, Manohar",
+      "Kardas, Marcin",
+      "Tsimpoukelli, Maria",
+      "Oldham, Mathew",
+      "Rita, Mathieu",
+      "Pavlova, Maya",
+      "Kambadur, Melanie",
+      "Lewis, Mike",
+      "Si, Min",
+      "Singh, Mitesh Kumar",
+      "Hassan, Mona",
+      "Goyal, Naman",
+      "Torabi, Narjes",
+      "Bashlykov, Nikolay",
+      "Bogoychev, Nikolay",
+      "Chatterji, Niladri",
+      "Zhang, Ning",
+      "Duchenne, Olivier",
+      "Çelebi, Onur",
+      "Alrassy, Patrick",
+      "Zhang, Pengchuan",
+      "Li, Pengwei",
+      "Vasic, Petar",
+      "Weng, Peter",
+      "Bhargava, Prajjwal",
+      "Dubal, Pratik",
+      "Krishnan, Praveen",
+      "Koura, Punit Singh",
+      "Xu, Puxin",
+      "He, Qing",
+      "Dong, Qingxiao",
+      "Srinivasan, Ragavan",
+      "Ganapathy, Raj",
+      "Calderer, Ramon",
+      "Cabral, Ricardo Silveira",
+      "Stojnic, Robert",
+      "Raileanu, Roberta",
+      "Maheswari, Rohan",
+      "Girdhar, Rohit",
+      "Patel, Rohit",
+      "Sauvestre, Romain",
+      "Polidoro, Ronnie",
+      "Sumbaly, Roshan",
+      "Taylor, Ross",
+      "Silva, Ruan",
+      "Hou, Rui",
+      "Wang, Rui",
+      "Hosseini, Saghar",
+      "Chennabasappa, Sahana",
+      "Singh, Sanjay",
+      "Bell, Sean",
+      "Kim, Seohyun Sonia",
+      "Edunov, Sergey",
+      "Nie, Shaoliang",
+      "Narang, Sharan",
+      "Raparthy, Sharath",
+      "Shen, Sheng",
+      "Wan, Shengye",
+      "Bhosale, Shruti",
+      "Zhang, Shun",
+      "Vandenhende, Simon",
+      "Batra, Soumya",
+      "Whitman, Spencer",
+      "Sootla, Sten",
+      "Collot, Stephane",
+      "Gururangan, Suchin",
+      "Borodinsky, Sydney",
+      "Herman, Tamar",
+      "Fowler, Tara",
+      "Sheasha, Tarek",
+      "Georgiou, Thomas",
+      "Scialom, Thomas",
+      "Speckbacher, Tobias",
+      "Mihaylov, Todor",
+      "Xiao, Tong",
+      "Karn, Ujjwal",
+      "Goswami, Vedanuj",
+      "Gupta, Vibhor",
+      "Ramanathan, Vignesh",
+      "Kerkez, Viktor",
+      "Gonguet, Vincent",
+      "Do, Virginie",
+      "Vogeti, Vish",
+      "Albiero, Vítor",
+      "Petrovic, Vladan",
+      "Chu, Weiwei",
+      "Xiong, Wenhan",
+      "Fu, Wenyin",
+      "Meers, Whitney",
+      "Martinet, Xavier",
+      "Wang, Xiaodong",
+      "Wang, Xiaofang",
+      "Tan, Xiaoqing Ellen",
+      "Xia, Xide",
+      "Xie, Xinfeng",
+      "Jia, Xuchao",
+      "Wang, Xuewei",
+      "Goldschlag, Yaelle",
+      "Gaur, Yashesh",
+      "Babaei, Yasmine",
+      "Wen, Yi",
+      "Song, Yiwen",
+      "Zhang, Yuchen",
+      "Li, Yue",
+      "Mao, Yuning",
+      "Coudert, Zacharie Delpierre",
+      "Yan, Zheng",
+      "Chen, Zhengxing",
+      "Papakipos, Zoe",
+      "Singh, Aaditya",
+      "Srivastava, Aayushi",
+      "Jain, Abha",
+      "Kelsey, Adam",
+      "Shajnfeld, Adam",
+      "Gangidi, Adithya",
+      "Victoria, Adolfo",
+      "Goldstand, Ahuva",
+      "Menon, Ajay",
+      "Sharma, Ajay",
+      "Boesenberg, Alex",
+      "Baevski, Alexei",
+      "Feinstein, Allie",
+      "Kallet, Amanda",
+      "Sangani, Amit",
+      "Teo, Amos",
+      "Yunus, Anam",
+      "Lupu, Andrei",
+      "Alvarado, Andres",
+      "Caples, Andrew",
+      "Gu, Andrew",
+      "Ho, Andrew",
+      "Poulton, Andrew",
+      "Ryan, Andrew",
+      "Ramchandani, Ankit",
+      "Dong, Annie",
+      "Franco, Annie",
+      "Goyal, Anuj",
+      "Saraf, Aparajita",
+      "Chowdhury, Arkabandhu",
+      "Gabriel, Ashley",
+      "Bharambe, Ashwin",
+      "Eisenman, Assaf",
+      "Yazdan, Azadeh",
+      "James, Beau",
+      "Maurer, Ben",
+      "Leonhardi, Benjamin",
+      "Huang, Bernie",
+      "Loyd, Beth",
+      "De Paola, Beto",
+      "Paranjape, Bhargavi",
+      "Liu, Bing",
+      "Wu, Bo",
+      "Ni, Boyu",
+      "Hancock, Braden",
+      "Wasti, Bram",
+      "Spence, Brandon",
+      "Stojkovic, Brani",
+      "Gamido, Brian",
+      "Montalvo, Britt",
+      "Parker, Carl",
+      "Burton, Carly",
+      "Mejia, Catalina",
+      "Liu, Ce",
+      "Wang, Changhan",
+      "Kim, Changkyu",
+      "Zhou, Chao",
+      "Hu, Chester",
+      "Chu, Ching-Hsiang",
+      "Cai, Chris",
+      "Tindal, Chris",
+      "Feichtenhofer, Christoph",
+      "Gao, Cynthia",
+      "Civin, Damon",
+      "Beaty, Dana",
+      "Kreymer, Daniel",
+      "Li, Daniel",
+      "Adkins, David",
+      "Xu, David",
+      "Testuggine, Davide",
+      "David, Delia",
+      "Parikh, Devi",
+      "Liskovich, Diana",
+      "Foss, Didem",
+      "Wang, Dingkang",
+      "Le, Duc",
+      "Holland, Dustin",
+      "Dowling, Edward",
+      "Jamil, Eissa",
+      "Montgomery, Elaine",
+      "Presani, Eleonora",
+      "Hahn, Emily",
+      "Wood, Emily",
+      "Le, Eric-Tuan",
+      "Brinkman, Erik",
+      "Arcaute, Esteban",
+      "Dunbar, Evan",
+      "Smothers, Evan",
+      "Sun, Fei",
+      "Kreuk, Felix",
+      "Tian, Feng",
+      "Kokkinos, Filippos",
+      "Ozgenel, Firat",
+      "Caggioni, Francesco",
+      "Kanayet, Frank",
+      "Seide, Frank",
+      "Florez, Gabriela Medina",
+      "Schwarz, Gabriella",
+      "Badeer, Gada",
+      "Swee, Georgia",
+      "Halpern, Gil",
+      "Herman, Grant",
+      "Sizov, Grigory",
+      "Guangyi",
+      "Zhang",
+      "Lakshminarayanan, Guna",
+      "Inan, Hakan",
+      "Shojanazeri, Hamid",
+      "Zou, Han",
+      "Wang, Hannah",
+      "Zha, Hanwen",
+      "Habeeb, Haroun",
+      "Rudolph, Harrison",
+      "Suk, Helen",
+      "Aspegren, Henry",
+      "Goldman, Hunter",
+      "Zhan, Hongyuan",
+      "Damlaj, Ibrahim",
+      "Molybog, Igor",
+      "Tufanov, Igor",
+      "Leontiadis, Ilias",
+      "Veliche, Irina-Elena",
+      "Gat, Itai",
+      "Weissman, Jake",
+      "Geboski, James",
+      "Kohli, James",
+      "Lam, Janice",
+      "Asher, Japhet",
+      "Gaya, Jean-Baptiste",
+      "Marcus, Jeff",
+      "Tang, Jeff",
+      "Chan, Jennifer",
+      "Zhen, Jenny",
+      "Reizenstein, Jeremy",
+      "Teboul, Jeremy",
+      "Zhong, Jessica",
+      "Jin, Jian",
+      "Yang, Jingyi",
+      "Cummings, Joe",
+      "Carvill, Jon",
+      "Shepard, Jon",
+      "McPhie, Jonathan",
+      "Torres, Jonathan",
+      "Ginsburg, Josh",
+      "Wang, Junjie",
+      "Wu, Kai",
+      "U, Kam Hou",
+      "Saxena, Karan",
+      "Khandelwal, Kartikay",
+      "Zand, Katayoun",
+      "Matosich, Kathy",
+      "Veeraraghavan, Kaushik",
+      "Michelena, Kelly",
+      "Li, Keqian",
+      "Jagadeesh, Kiran",
+      "Huang, Kun",
+      "Chawla, Kunal",
+      "Huang, Kyle",
+      "Chen, Lailin",
+      "Garg, Lakshya",
+      "A, Lavender",
+      "Silva, Leandro",
+      "Bell, Lee",
+      "Zhang, Lei",
+      "Guo, Liangpeng",
+      "Yu, Licheng",
+      "Moshkovich, Liron",
+      "Wehrstedt, Luca",
+      "Khabsa, Madian",
+      "Avalani, Manav",
+      "Bhatt, Manish",
+      "Mankus, Martynas",
+      "Hasson, Matan",
+      "Lennie, Matthew",
+      "Reso, Matthias",
+      "Groshev, Maxim",
+      "Naumov, Maxim",
+      "Lathi, Maya",
+      "Keneally, Meghan",
+      "Liu, Miao",
+      "Seltzer, Michael L.",
+      "Valko, Michal",
+      "Restrepo, Michelle",
+      "Patel, Mihir",
+      "Vyatskov, Mik",
+      "Samvelyan, Mikayel",
+      "Clark, Mike",
+      "Macey, Mike",
+      "Wang, Mike",
+      "Hermoso, Miquel Jubert",
+      "Metanat, Mo",
+      "Rastegari, Mohammad",
+      "Bansal, Munish",
+      "Santhanam, Nandhini",
+      "Parks, Natascha",
+      "White, Natasha",
+      "Bawa, Navyata",
+      "Singhal, Nayan",
+      "Egebo, Nick",
+      "Usunier, Nicolas",
+      "Mehta, Nikhil",
+      "Laptev, Nikolay Pavlovich",
+      "Dong, Ning",
+      "Cheng, Norman",
+      "Chernoguz, Oleg",
+      "Hart, Olivia",
+      "Salpekar, Omkar",
+      "Kalinli, Ozlem",
+      "Kent, Parkin",
+      "Parekh, Parth",
+      "Saab, Paul",
+      "Balaji, Pavan",
+      "Rittner, Pedro",
+      "Bontrager, Philip",
+      "Roux, Pierre",
+      "Dollar, Piotr",
+      "Zvyagina, Polina",
+      "Ratanchandani, Prashant",
+      "Yuvraj, Pritish",
+      "Liang, Qian",
+      "Alao, Rachad",
+      "Rodriguez, Rachel",
+      "Ayub, Rafi",
+      "Murthy, Raghotham",
+      "Nayani, Raghu",
+      "Mitra, Rahul",
+      "Parthasarathy, Rangaprabhu",
+      "Li, Raymond",
+      "Hogan, Rebekkah",
+      "Battey, Robin",
+      "Wang, Rocky",
+      "Howes, Russ",
+      "Rinott, Ruty",
+      "Mehta, Sachin",
+      "Siby, Sachin",
+      "Bondu, Sai Jayesh",
+      "Datta, Samyak",
+      "Chugh, Sara",
+      "Hunt, Sara",
+      "Dhillon, Sargun",
+      "Sidorov, Sasha",
+      "Pan, Satadru",
+      "Mahajan, Saurabh",
+      "Verma, Saurabh",
+      "Yamamoto, Seiji",
+      "Ramaswamy, Sharadh",
+      "Lindsay, Shaun",
+      "Lindsay, Shaun",
+      "Feng, Sheng",
+      "Lin, Shenghao",
+      "Zha, Shengxin Cindy",
+      "Patil, Shishir",
+      "Shankar, Shiva",
+      "Zhang, Shuqiang",
+      "Zhang, Shuqiang",
+      "Wang, Sinong",
+      "Agarwal, Sneha",
+      "Sajuyigbe, Soji",
+      "Chintala, Soumith",
+      "Max, Stephanie",
+      "Chen, Stephen",
+      "Kehoe, Steve",
+      "Satterfield, Steve",
+      "Govindaprasad, Sudarshan",
+      "Gupta, Sumit",
+      "Deng, Summer",
+      "Cho, Sungmin",
+      "Virk, Sunny",
+      "Subramanian, Suraj",
+      "Choudhury, Sy",
+      "Goldman, Sydney",
+      "Remez, Tal",
+      "Glaser, Tamar",
+      "Best, Tamara",
+      "Koehler, Thilo",
+      "Robinson, Thomas",
+      "Li, Tianhe",
+      "Zhang, Tianjun",
+      "Matthews, Tim",
+      "Chou, Timothy",
+      "Shaked, Tzook",
+      "Vontimitta, Varun",
+      "Ajayi, Victoria",
+      "Montanez, Victoria",
+      "Mohan, Vijai",
+      "Kumar, Vinay Satish",
+      "Mangla, Vishal",
+      "Ionescu, Vlad",
+      "Poenaru, Vlad",
+      "Mihailescu, Vlad Tiberiu",
+      "Ivanov, Vladimir",
+      "Li, Wei",
+      "Wang, Wenchen",
+      "Jiang, Wenwen",
+      "Bouaziz, Wes",
+      "Constable, Will",
+      "Tang, Xiaocheng",
+      "Wu, Xiaojian",
+      "Wang, Xiaolan",
+      "Wu, Xilun",
+      "Gao, Xinbo",
+      "Kleinman, Yaniv",
+      "Chen, Yanjun",
+      "Hu, Ye",
+      "Jia, Ye",
+      "Qi, Ye",
+      "Li, Yenda",
+      "Zhang, Yilin",
+      "Zhang, Ying",
+      "Adi, Yossi",
+      "Nam, Youngjin",
+      "Yu",
+      "Wang",
+      "Zhao, Yu",
+      "Hao, Yuchen",
+      "Qian, Yundi",
+      "Li, Yunlu",
+      "He, Yuzi",
+      "Rait, Zach",
+      "DeVito, Zachary",
+      "Rosnbrick, Zef",
+      "Wen, Zhaoduo",
+      "Yang, Zhenyu",
+      "Zhao, Zhiwei",
+      "Ma, Zhiyu"
+    ],
+    "year": 2024,
+    "identifier_or_url": "https://arxiv.org/abs/2407.21783",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Archive reference for old Llama 3 analysis; current V2 Llama 4 needs its own exact model provenance.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "MS MARCO: A Human Generated MAchine Reading COmprehension Dataset",
+    "authors": [
+      "Bajaj, Payal",
+      "Campos, Daniel",
+      "Craswell, Nick",
+      "Deng, Li",
+      "Gao, Jianfeng",
+      "Liu, Xiaodong",
+      "Majumder, Rangan",
+      "McNamara, Andrew",
+      "Mitra, Bhaskar",
+      "Nguyen, Tri",
+      "Rosenberg, Mir",
+      "Song, Xia",
+      "Stoica, Alina",
+      "Tiwary, Saurabh",
+      "Wang, Tong"
+    ],
+    "year": 2016,
+    "identifier_or_url": "https://arxiv.org/abs/1611.09268",
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "MS MARCO is background to other rankers, not the current frozen prompt/SERP dataset.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Generative Engine Optimization: How to Dominate AI Search",
+    "authors": [
+      "Chen, Mahe",
+      "Wang, Xiaoxuan",
+      "Chen, Kaiwen",
+      "Koudas, Nick"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://arxiv.org/abs/2509.08919",
+    "existing_key": "P047",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P047. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "DoubleMLDeep: Estimation of Causal Effects with Multimodal Data",
+    "authors": [
+      "Klaassen, Sven",
+      "Teichert-Kluge, Jan",
+      "Bach, Philipp",
+      "Chernozhukov, Victor",
+      "Spindler, Martin",
+      "Vijaykumar, Suhas"
+    ],
+    "year": 2024,
+    "identifier_or_url": "https://arxiv.org/abs/2402.01785",
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "Multimodal nuisance estimation is not an implemented requirement of the current readiness/support analysis.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "CC-GSEO-Bench: A Content-Centric Benchmark for Measuring Source Influence in Generative Search Engines",
+    "authors": [
+      "Chen, Qiyuan",
+      "Chen, Jiahe",
+      "Huang, Hongsen",
+      "Shao, Qian",
+      "Chen, Jintai",
+      "Hua, Renjie",
+      "Xu, Hongxia",
+      "Wu, Ruijia",
+      "Chuan, Ren",
+      "Wu, Jian"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://arxiv.org/abs/2509.05607",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "Direct novelty comparator: source influence across diverse intents and follow-up questions, with Exposure, Faithful Credit and Causal Impact separated. Read its operational definitions before claiming a new ideal-versus-realized source gap.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript",
+    "primary_topic": "geo-source-visibility",
+    "secondary_topics": [
+      "source-attribution",
+      "measurement-validation"
+    ],
+    "abstract_summary": "CC-GSEO-Bench organizes over 1,000 articles and over 5,000 query-article pairs and evaluates article-level exposure, faithful credit and causal impact across query clusters."
+  },
+  {
+    "title": "Aligning Language Models with Observational Data: Opportunities and Risks from a Causal Perspective",
+    "authors": [
+      "Loghmani, Erfan"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://arxiv.org/abs/2506.00152",
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "Old appendix proposes reward/distillation work that is outside the current experiment.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Double/Debiased Machine Learning for Treatment and Causal Parameters",
+    "authors": [
+      "Chernozhukov, Victor",
+      "Chetverikov, Denis",
+      "Demirer, Mert",
+      "Duflo, Esther",
+      "Hansen, Christian",
+      "Newey, Whitney",
+      "Robins, James"
+    ],
+    "year": 2016,
+    "identifier_or_url": "https://arxiv.org/abs/1608.00060",
+    "existing_key": "P090",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P090. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Zero-Shot Listwise Document Reranking with a Large Language Model",
+    "authors": [
+      "Ma, Xueguang",
+      "Zhang, Xinyu",
+      "Pradeep, Ronak",
+      "Lin, Jimmy"
+    ],
+    "year": 2023,
+    "identifier_or_url": "https://arxiv.org/abs/2305.02156",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Historical listwise reranking comparator; P041 and P043 already cover the main lineage.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Applied Causal Inference Powered by ML and AI",
+    "authors": [
+      "Chernozhukov, Victor",
+      "Hansen, Christian",
+      "Kallus, Nathan",
+      "Spindler, Martin",
+      "Syrgkanis, Vasilis"
+    ],
+    "year": 2024,
+    "identifier_or_url": "https://arxiv.org/abs/2403.02467",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Useful broad reference, but a book download adds less immediate value than the focused identification and sensitivity sources.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "RankVicuna: Zero-Shot Listwise Document Reranking with Open-Source Large Language Models",
+    "authors": [
+      "Pradeep, Ronak",
+      "Sharifymoghaddam, Sahel",
+      "Lin, Jimmy"
+    ],
+    "year": 2023,
+    "identifier_or_url": "https://arxiv.org/abs/2309.15088",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Useful only for a fuller history of open listwise rankers; current methods are bounded answer-generation/search loops.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "TREC Deep Learning Track: Reusable Test Collections in the Large Data Regime",
+    "authors": [
+      "Craswell, Nick",
+      "Mitra, Bhaskar",
+      "Yilmaz, Emine",
+      "Campos, Daniel",
+      "Voorhees, Ellen M.",
+      "Soboroff, Ian"
+    ],
+    "year": 2021,
+    "identifier_or_url": "https://arxiv.org/abs/2104.09399",
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "TREC collection background is already available through relevant reranking articles; current experiment does not use this collection.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "RankZephyr: Effective and Robust Zero-Shot Listwise Reranking is a Breeze!",
+    "authors": [
+      "Pradeep, Ronak",
+      "Sharifymoghaddam, Sahel",
+      "Lin, Jimmy"
+    ],
+    "year": 2023,
+    "identifier_or_url": "https://arxiv.org/abs/2312.02724",
+    "existing_key": "P043",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P043. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Do Large Language Models Favor Recent Content? A Study on Recency Bias in LLM-Based Reranking",
+    "authors": [
+      "Fang, Hanpei",
+      "Tao, Sijie",
+      "Chen, Nuo",
+      "Chang, Kai-Xin",
+      "Sakai, Tetsuya"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://arxiv.org/abs/2509.11353",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "Old manuscript section 2 calls this consistent with its freshness-demotion result, but the verified abstract reports promotion after artificial fresh-date injection. Essential to correct that comparison and distinguish intervention from observed freshness.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript",
+    "primary_topic": "retrieval-search",
+    "secondary_topics": [
+      "geo-source-visibility"
+    ],
+    "abstract_summary": "The study injects artificial publication dates into TREC passages and finds newer passages promoted across seven reranking models, with listwise and pairwise preference changes."
+  },
+  {
+    "title": "Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting",
+    "authors": [
+      "Qin, Zhen",
+      "Jagerman, Rolf",
+      "Hui, Kai",
+      "Zhuang, Honglei",
+      "Wu, Junru",
+      "Yan, Le",
+      "Shen, Jiaming",
+      "Liu, Tianqi",
+      "Liu, Jialu",
+      "Metzler, Donald",
+      "Wang, Xuanhui",
+      "Bendersky, Michael"
+    ],
+    "year": 2023,
+    "identifier_or_url": "https://arxiv.org/abs/2306.17563",
+    "existing_key": "P045",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P045. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Qwen2.5 Technical Report",
+    "authors": [
+      "Qwen",
+      ":",
+      "Yang, An",
+      "Yang, Baosong",
+      "Zhang, Beichen",
+      "Hui, Binyuan",
+      "Zheng, Bo",
+      "Yu, Bowen",
+      "Li, Chengyuan",
+      "Liu, Dayiheng",
+      "Huang, Fei",
+      "Wei, Haoran",
+      "Lin, Huan",
+      "Yang, Jian",
+      "Tu, Jianhong",
+      "Zhang, Jianwei",
+      "Yang, Jianxin",
+      "Yang, Jiaxi",
+      "Zhou, Jingren",
+      "Lin, Junyang",
+      "Dang, Kai",
+      "Lu, Keming",
+      "Bao, Keqin",
+      "Yang, Kexin",
+      "Yu, Le",
+      "Li, Mei",
+      "Xue, Mingfeng",
+      "Zhang, Pei",
+      "Zhu, Qin",
+      "Men, Rui",
+      "Lin, Runji",
+      "Li, Tianhao",
+      "Tang, Tianyi",
+      "Xia, Tingyu",
+      "Ren, Xingzhang",
+      "Ren, Xuancheng",
+      "Fan, Yang",
+      "Su, Yang",
+      "Zhang, Yichang",
+      "Wan, Yu",
+      "Liu, Yuqiong",
+      "Cui, Zeyu",
+      "Zhang, Zhenru",
+      "Qiu, Zihan"
+    ],
+    "year": 2024,
+    "identifier_or_url": "https://arxiv.org/abs/2412.15115",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Historical Qwen2.5 provenance; do not substitute for the exact current Qwen3.8 model documentation.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
+    "authors": [
+      "Reimers, Nils",
+      "Gurevych, Iryna"
+    ],
+    "year": 2019,
+    "identifier_or_url": "https://arxiv.org/abs/1908.10084",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Useful for the historical topical-competence feature; current readiness geometry uses LLM2Vec, already P024.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Debiasing Reward Models via Causally Motivated Inference-Time Intervention",
+    "authors": [
+      "Shinoda, Kazutoshi",
+      "Nishida, Kosuke",
+      "Nishida, Kyosuke"
+    ],
+    "year": 2026,
+    "identifier_or_url": "https://arxiv.org/abs/2604.27495",
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "Reward-model intervention supports an old future-work suggestion, not implemented source-importance measurement.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents",
+    "authors": [
+      "Sun, Weiwei",
+      "Yan, Lingyong",
+      "Ma, Xinyu",
+      "Wang, Shuaiqiang",
+      "Ren, Pengjie",
+      "Chen, Zhumin",
+      "Yin, Dawei",
+      "Ren, Zhaochun"
+    ],
+    "year": 2023,
+    "identifier_or_url": "https://arxiv.org/abs/2304.09542",
+    "existing_key": "P041",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P041. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "BERT Rediscovers the Classical NLP Pipeline",
+    "authors": [
+      "Tenney, Ian",
+      "Das, Dipanjan",
+      "Pavlick, Ellie"
+    ],
+    "year": 2019,
+    "identifier_or_url": "https://arxiv.org/abs/1905.05950",
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "BERT layer analysis cannot establish when an autoregressive reranker causally commits to an admission decision.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "BEIR: A Heterogenous Benchmark for Zero-shot Evaluation of Information Retrieval Models",
+    "authors": [
+      "Thakur, Nandan",
+      "Reimers, Nils",
+      "Rücklé, Andreas",
+      "Srivastava, Abhishek",
+      "Gurevych, Iryna"
+    ],
+    "year": 2021,
+    "identifier_or_url": "https://arxiv.org/abs/2104.08663",
+    "existing_key": "P056",
+    "priority": "not_needed",
+    "rationale": "Already downloaded as P056. Retain and read the existing copy; no duplicate retrieval is needed.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "What Generative Search Engines Like and How to Optimize Web Content Cooperatively",
+    "authors": [
+      "Wu, Yujiang",
+      "Zhong, Shanshan",
+      "Kim, Yubin",
+      "Xiong, Chenyan"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://arxiv.org/abs/2510.11438",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "AutoGEO is a direct content-preference and source-visibility comparator. Compare its content rewrites and learned preferences with measured readiness and fixed-source support judgments.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript",
+    "primary_topic": "geo-source-visibility",
+    "secondary_topics": [
+      "retrieval-search"
+    ],
+    "abstract_summary": "AutoGEO extracts generative-engine preference rules, uses them in prompt-based rewriting and model training, and evaluates content traction alongside search utility."
+  },
+  {
+    "title": "Rank-R1: Enhancing Reasoning in LLM-based Document Rerankers via Reinforcement Learning",
+    "authors": [
+      "Zhuang, Shengyao",
+      "Ma, Xueguang",
+      "Koopman, Bevan",
+      "Lin, Jimmy",
+      "Zuccon, Guido"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://arxiv.org/abs/2503.06034",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Useful reranking comparator if retaining a reranker survey; RL optimization is not part of current V2.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 8-10",
+      ".worktrees/threehour-relaunch-fix/analysis/docs/agentic_search_retrieval_protocol.md:352"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Causal alignment: Augmenting language models with A/B tests",
+    "authors": [
+      "Panagiotis Angelopoulos",
+      "Kevin Lee",
+      "Sanjog Misra"
+    ],
+    "year": 2024,
+    "identifier_or_url": null,
+    "existing_key": null,
+    "priority": "not_needed",
+    "rationale": "Old future-work reference; A/B-driven alignment is not the implemented V2 outcome or judge.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 9-10"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Deep neural networks for estimation and inference",
+    "authors": [
+      "Max H. Farrell",
+      "Tengyuan Liang",
+      "Sanjog Misra"
+    ],
+    "year": 2021,
+    "identifier_or_url": null,
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Additional asymptotic background; not required to justify the existing LightGBM estimator beyond P090.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 9-10"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Designing and Interpreting Probes with Control Tasks",
+    "authors": [
+      "John Hewitt",
+      "Percy Liang"
+    ],
+    "year": 2019,
+    "identifier_or_url": "https://doi.org/10.18653/v1/d19-1275",
+    "existing_key": "P016",
+    "priority": "not_needed",
+    "rationale": "Already downloaded. Essential existing reading if keeping claims about probing and causal use.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 9-10"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Stepwise multiple testing as formalized data snooping",
+    "authors": [
+      "Joseph P. Romano",
+      "Michael Wolf"
+    ],
+    "year": 2005,
+    "identifier_or_url": null,
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Read if retaining the old Romano-Wolf claims or adopting that correction; does not fix dependence or selection bias.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 9-10"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "A setwise approach for effective and highly efficient zero-shot ranking with large language models",
+    "authors": [
+      "Shengyao Zhuang",
+      "Honglei Zhuang",
+      "Bevan Koopman",
+      "Guido Zuccon"
+    ],
+    "year": 2024,
+    "identifier_or_url": null,
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Completes historical reranker taxonomy; lower priority than source attribution and construct validation.",
+    "evidence": [
+      "Old manuscript bibliography, pp. 9-10"
+    ],
+    "source_group": "old_manuscript"
+  },
+  {
+    "title": "Correctness is not Faithfulness in RAG Attributions",
+    "authors": [
+      "Wallat, Jonas",
+      "Heuss, Maria",
+      "de Rijke, Maarten",
+      "Anand, Avishek"
+    ],
+    "year": 2024,
+    "identifier_or_url": "https://arxiv.org/abs/2412.18004",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "Separates citation support/correctness from whether the model actually relied on a source. This is the central interpretive boundary for SI-v4 and the proposed source-gap outcome.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/source-importance-v4.md:209",
+      "Primary arXiv metadata/abstract read 2026-10-01; astra_new_reference_metadata.json"
+    ],
+    "source_group": "new_gap",
+    "primary_topic": "source-attribution",
+    "secondary_topics": [
+      "judge-evaluation",
+      "measurement-validation"
+    ],
+    "abstract_summary": "The authors distinguish citation correctness from faithfulness and test post-rationalization, where a citation supports a statement without reflecting the model's actual use of the document."
+  },
+  {
+    "title": "Long Story Short: Omitted Variable Bias in Causal Machine Learning",
+    "authors": [
+      "Chernozhukov, Victor",
+      "Cinelli, Carlos",
+      "Newey, Whitney",
+      "Sharma, Amit",
+      "Syrgkanis, Vasilis"
+    ],
+    "year": 2021,
+    "identifier_or_url": "https://arxiv.org/abs/2112.13398",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "Gives omitted-variable sensitivity bounds for flexible causal models, including partial linearity. Better matched to legacy PLR page-feature estimates than treating risk-ratio E-values as a universal sensitivity solution.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/scripts/dml_canonical.py:154",
+      "Primary arXiv metadata/abstract read 2026-10-01; astra_new_reference_metadata.json"
+    ],
+    "source_group": "new_gap",
+    "primary_topic": "causal-statistics",
+    "secondary_topics": [],
+    "abstract_summary": "The paper derives omitted-variable-bias bounds for several causal parameters using assumptions about omitted explanatory power and supplies machine-learning-compatible inference for those bounds."
+  },
+  {
+    "title": "Prediction-Powered Inference",
+    "authors": [
+      "Angelopoulos, Anastasios N.",
+      "Bates, Stephen",
+      "Fannjiang, Clara",
+      "Jordan, Michael I.",
+      "Zrnic, Tijana"
+    ],
+    "year": 2023,
+    "identifier_or_url": "https://arxiv.org/abs/2301.09633",
+    "existing_key": null,
+    "priority": "download_now",
+    "rationale": "Provides a route from a genuine independent human-labeled calibration sample plus machine predictions to uncertainty-aware population estimation. ARES P083 already applies this idea to RAG; the foundational method is missing. It is not automatic validation of SI-v4 or clustered ordinal rankings.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/source-importance-v4.md:209",
+      "Primary arXiv metadata/abstract read 2026-10-01; astra_new_reference_metadata.json"
+    ],
+    "source_group": "new_gap",
+    "primary_topic": "judge-evaluation",
+    "secondary_topics": [
+      "causal-statistics",
+      "measurement-validation"
+    ],
+    "abstract_summary": "Prediction-powered inference combines labeled observations with machine predictions to estimate quantities such as means and regression coefficients with confidence intervals while correcting prediction error."
+  },
+  {
+    "title": "Making Sense of Sensitivity: Extending Omitted Variable Bias",
+    "authors": [
+      "Carlos Cinelli",
+      "Chad Hazlett"
+    ],
+    "year": 2020,
+    "identifier_or_url": "https://doi.org/10.1111/rssb.12348",
+    "existing_key": null,
+    "priority": "optional",
+    "rationale": "Clear regression sensitivity exposition. Useful companion to Long Story Short, but the latter is the more direct first download for flexible DML.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/scripts/dml_canonical.py:154",
+      "Crossref title/authors/DOI verified 2026-10-01; online date 2019-12-17, journal issue 2020."
+    ],
+    "source_group": "new_gap"
+  },
+  {
+    "title": "Construct validity in psychological tests.",
+    "authors": [
+      "Lee J. Cronbach",
+      "Paul E. Meehl"
+    ],
+    "year": 1955,
+    "identifier_or_url": "https://doi.org/10.1037/h0040957",
+    "existing_key": "P001",
+    "priority": "download_now",
+    "rationale": "Read for a defensible readiness construct: agreement with model labels and a stable embedding direction do not by themselves establish construct validity.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Inside the search process: Information seeking from the user's perspective",
+    "authors": [
+      "Carol C. Kuhlthau"
+    ],
+    "year": 1991,
+    "identifier_or_url": "https://doi.org/10.1002/(sici)1097-4571(199106)42:5<361::aid-asi6>3.0.co;2-#",
+    "existing_key": "P002",
+    "priority": "optional",
+    "rationale": "Useful process-level search-intent background; downloaded Broder P006 and Jansen P013 cover a defensible first-pass intent foundation.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Effects of Deliberative and Implemental Mindsets on Persistence in Goal-Directed Behavior",
+    "authors": [
+      "Veronika Brandstätter",
+      "Elisabeth Frank"
+    ],
+    "year": 2002,
+    "identifier_or_url": "https://doi.org/10.1177/014616702236868",
+    "existing_key": "P007",
+    "priority": "not_needed",
+    "rationale": "Additional mindset/process background adds little to the already downloaded foundational intention literature for this prompt-text construct. Defer retrieval.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "The Effects of Mindset on Behavior: Self-Regulation in Deliberative and Implemental Frames of Mind",
+    "authors": [
+      "David A. Armor",
+      "Shelley E. Taylor"
+    ],
+    "year": 2003,
+    "identifier_or_url": "https://doi.org/10.1177/0146167202238374",
+    "existing_key": "P008",
+    "priority": "not_needed",
+    "rationale": "Additional mindset/process background adds little to the already downloaded foundational intention literature for this prompt-text construct. Defer retrieval.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Exploratory search",
+    "authors": [
+      "Gary Marchionini"
+    ],
+    "year": 2006,
+    "identifier_or_url": "https://doi.org/10.1145/1121949.1121979",
+    "existing_key": "P010",
+    "priority": "optional",
+    "rationale": "Useful to prevent equating information seeking with low-quality or incomplete decision making; enriches the low-readiness end.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "How do implementation intentions promote goal attainment? A test of component processes",
+    "authors": [
+      "Thomas Llewelyn Webb",
+      "Paschal Sheeran"
+    ],
+    "year": 2006,
+    "identifier_or_url": "https://doi.org/10.1016/j.jesp.2006.02.001",
+    "existing_key": "P011",
+    "priority": "not_needed",
+    "rationale": "Additional mindset/process background adds little to the already downloaded foundational intention literature for this prompt-text construct. Defer retrieval.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "The Role of Deliberative Versus Implemental Mindsets in Time Prediction and Task Accomplishment",
+    "authors": [
+      "Veronika Brandstätter",
+      "Lukas Giesinger",
+      "Veronika Job",
+      "Elisabeth Frank"
+    ],
+    "year": 2015,
+    "identifier_or_url": "https://doi.org/10.1027/1864-9335/a000231",
+    "existing_key": "P014",
+    "priority": "not_needed",
+    "rationale": "Additional mindset/process background adds little to the already downloaded foundational intention literature for this prompt-text construct. Defer retrieval.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Probing Classifiers: Promises, Shortcomings, and Advances",
+    "authors": [
+      "Yonatan Belinkov"
+    ],
+    "year": 2022,
+    "identifier_or_url": "https://doi.org/10.1162/coli_a_00422",
+    "existing_key": "P020",
+    "priority": "optional",
+    "rationale": "Useful probing survey, but P016 is already downloaded and the current main analysis is not a probe study.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Convergent and discriminant validation by the multitrait-multimethod matrix.",
+    "authors": [
+      "Donald T. Campbell",
+      "Donald W. Fiske"
+    ],
+    "year": 1959,
+    "identifier_or_url": "https://doi.org/10.1037/h0046016",
+    "existing_key": "P026",
+    "priority": "download_now",
+    "rationale": "Read for convergent and discriminant validation. Agreement between Qwen and Mistral embeddings is insufficient if both follow lexical or genre shortcuts.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "A Generalized Solution of the Orthogonal Procrustes Problem",
+    "authors": [
+      "Peter H. Schönemann"
+    ],
+    "year": 1966,
+    "identifier_or_url": "https://doi.org/10.1007/bf02289451",
+    "existing_key": "P028",
+    "priority": "optional",
+    "rationale": "Original Procrustes reference for the implemented alignment; helpful citation, lower priority than proving out-of-sample construct validity.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Statistical Modeling: The Two Cultures (with comments and a rejoinder by the author)",
+    "authors": [
+      "Leo Breiman"
+    ],
+    "year": 2001,
+    "identifier_or_url": "https://doi.org/10.1214/ss/1009213726",
+    "existing_key": "P030",
+    "priority": "not_needed",
+    "rationale": "Broad predictive-versus-explanatory modeling essay; focused DML and text-causal references address the present inferential problem more directly.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Measurement invariance conventions and reporting: The state of the art and future directions for psychological research",
+    "authors": [
+      "Diane L. Putnick",
+      "Marc H. Bornstein"
+    ],
+    "year": 2016,
+    "identifier_or_url": "https://doi.org/10.1016/j.dr.2016.06.004",
+    "existing_key": "P031",
+    "priority": "optional",
+    "rationale": "Practical measurement-invariance guide, useful after specifying generator, genre, topic and contract groups; P029 is already available.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Automatic Document Editing for Improved Ranking",
+    "authors": [
+      "Niv Bardas",
+      "Tommy Mordo",
+      "Oren Kurland",
+      "Moshe Tennenholtz"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://doi.org/10.1145/3726302.3730168",
+    "existing_key": "P046",
+    "priority": "optional",
+    "rationale": "Relevant document-editing comparator if the paper makes optimization claims, but V2 is currently measurement rather than a tested editing system.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Position: On the Risks of Generative Engine Optimization in the Era of LLMs",
+    "authors": [
+      "Yizhu Wen",
+      "Nan Zhang",
+      "Haohan Yuan",
+      "Xun Chen",
+      "Haopeng Zhang",
+      "H. Guo"
+    ],
+    "year": 2025,
+    "identifier_or_url": "https://doi.org/10.36227/techrxiv.176620816.64043115/v1",
+    "existing_key": "P048",
+    "priority": "optional",
+    "rationale": "Useful ethical context, lower priority than methodological sources and direct empirical comparators.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/readiness_subspace_robustness_battery.md:1"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Weighted kappa: Nominal scale agreement provision for scaled disagreement or partial credit.",
+    "authors": [
+      "Jacob Cohen"
+    ],
+    "year": 1968,
+    "identifier_or_url": "https://doi.org/10.1037/h0026256",
+    "existing_key": "P078",
+    "priority": "download_now",
+    "rationale": "Read for ordinal judge agreement and weighted disagreement; SI-v4 grades are ordered, not percentages or interval measurements. Prespecify weights and report class marginals.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/source-importance-v4.md:267"
+    ],
+    "source_group": "existing_pdf_gap"
+  },
+  {
+    "title": "Intraclass correlations: Uses in assessing rater reliability.",
+    "authors": [
+      "Patrick E. Shrout",
+      "Joseph L. Fleiss"
+    ],
+    "year": 1979,
+    "identifier_or_url": "https://doi.org/10.1037/0033-2909.86.2.420",
+    "existing_key": "P079",
+    "priority": "optional",
+    "rationale": "Use only after choosing a reliability model appropriate for ordinal ratings and the rater design; weighted kappa is the first retrieval priority.",
+    "evidence": [
+      ".worktrees/threehour-relaunch-fix/analysis/docs/source-importance-v4.md:267"
+    ],
+    "source_group": "existing_pdf_gap"
+  }
+]

@@ -68,3 +68,5 @@ supersede them with a new dated document that links back.
 - 2026-10-01 — [Literature plan, executed searches and annotated bibliography](2026-10-01_literature-search_handoff.md)
 - 2026-10-01 — [Standalone literature findings HTML](2026-10-01_literature-html_handoff.md)
 - 2026-10-01 — [GPT-6.1 Sol abstract review and tagged paper library](2026-10-01_tagged-paper-library_handoff.md)
+
+- 2026-10-02 — [Astra high review and selected paper downloads](2026-10-02_astra-paper-selection_handoff.md)

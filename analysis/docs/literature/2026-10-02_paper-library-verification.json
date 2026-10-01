@@ -1,0 +1,54 @@
+{
+  "papers": 101,
+  "complete_abstracts_read": 96,
+  "partial_abstracts_read": 1,
+  "abstracts_unavailable": [
+    "P001",
+    "P004",
+    "P011",
+    "P026"
+  ],
+  "pdfs": 86,
+  "pdfs_unavailable": [
+    "P001",
+    "P002",
+    "P007",
+    "P008",
+    "P010",
+    "P011",
+    "P014",
+    "P020",
+    "P028",
+    "P030",
+    "P031",
+    "P046",
+    "P048",
+    "P078",
+    "P079"
+  ],
+  "topic_notes": 205,
+  "pdf_shortcuts": 179,
+  "pdf_bytes": 180986958,
+  "primary_topic_counts": {
+    "measurement-validation": 15,
+    "intent-readiness": 12,
+    "retrieval-search": 19,
+    "semantic-directions": 9,
+    "causal-statistics": 11,
+    "prompt-generation": 6,
+    "source-attribution": 10,
+    "geo-source-visibility": 9,
+    "order-ablation": 2,
+    "judge-evaluation": 8
+  },
+  "verified_date": "2026-10-02",
+  "checks": [
+    "101 unique IDs and CSV rows",
+    "All summaries, relevance and rationale present",
+    "86 distinct PDF SHA-256 hashes matched",
+    "86 PDFs readable by pdfinfo with positive page count",
+    "All local Markdown links and PDF shortcuts resolve",
+    "All shortcuts target canonical files",
+    "Frozen original bibliography SHA-256 unchanged"
+  ]
+}

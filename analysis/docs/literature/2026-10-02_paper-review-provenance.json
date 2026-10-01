@@ -1,0 +1,30 @@
+{
+  "requested_model": "gpt-6.1-sol",
+  "review_batches": [
+    {
+      "agent": "papers_001_031",
+      "model": "gpt-6.1-sol",
+      "ids": "P001-P031"
+    },
+    {
+      "agent": "papers_032_062",
+      "model": "gpt-6.1-sol",
+      "ids": "P032-P062"
+    },
+    {
+      "agent": "papers_063_093",
+      "model": "gpt-6.1-sol",
+      "ids": "P063-P093"
+    }
+  ],
+  "scope": "Abstract reading, original summaries, topic classification and public PDF retrieval; parent performed folder organization and independent verification.",
+  "source_manifest_sha256": "9d949ea90b7017229265f17bac3dfed5bd9b68374d302f8d7b003ba41cb13855",
+  "supplement_review": {
+    "agent": "astra_paper_selection",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "date": "2026-10-02",
+    "ids": "A001-A008",
+    "scope": "Full old-manuscript text and current experiment contracts/code inspected; abstracts used for paper selection. Parent downloaded and verified PDFs; also recovered P026."
+  }
+}
