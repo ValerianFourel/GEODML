@@ -66,3 +66,4 @@ supersede them with a new dated document that links back.
 - 2026-10-01 — [SI-v4 existing allocation detected](2026-10-01_si-v4-existing-allocation_handoff.md)
 - 2026-10-01 — [Qwen first-pass completion estimate](2026-10-01_qwen-completion-estimate_handoff.md)
 - 2026-10-01 — [Literature plan, executed searches and annotated bibliography](2026-10-01_literature-search_handoff.md)
+- 2026-10-01 — [Standalone literature findings HTML](2026-10-01_literature-html_handoff.md)
