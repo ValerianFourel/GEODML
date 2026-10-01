@@ -1,0 +1,281 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JUPITER · completion and publication verification</title><style>
+:root {
+  color-scheme: light;
+  --bg: #f2f4f3; --panel: #ffffff; --ink: #19212b; --muted: #56616d; --rule: #d4dad7;
+  --accent: #1f6485; --accent-soft: #e2edf3;
+  --code-bg: #111a22; --code-ink: #d9e3ea; --code-rule: #26323d;
+  --safe-ink: #256437; --safe-bg: #e3f1e6;
+  --pub-ink: #1f5670; --pub-bg: #e0ecf3;
+  --warn-ink: #874700; --warn-bg: #fcefd8;
+  --cond-ink: #5b4a86; --cond-bg: #ece8f6;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --text: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+    --accent: #7db5d2; --accent-soft: #1a2b36;
+    --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+    --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+    --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+  --accent: #7db5d2; --accent-soft: #1a2b36;
+  --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+  --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+  --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--text); padding: 0 20px; }
+.page { max-width: 920px; margin: 0 auto; padding-block: 36px 64px; display: grid; gap: 28px; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 4px; }
+.eyebrow { font: 500 12px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+h1 { font: 600 40px/1.1 var(--display); margin: 6px 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { max-width: 68ch; margin: 0; color: var(--muted); }
+.lede strong { color: var(--ink); font-weight: 600; }
+nav.cycle { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.cycle a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); color: var(--ink); text-decoration: none; font: 500 13px/1.2 var(--text); }
+nav.cycle a span { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 500 12px/1 var(--mono); }
+nav.cycle a:hover, nav.cycle a:focus-visible { border-color: var(--accent); outline: none; }
+.loopnote { font: 400 13px/1.5 var(--text); color: var(--muted); margin: 0; }
+.step { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 16px; padding-top: 24px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
+.num { font: 500 26px/1.1 var(--mono); color: var(--accent); }
+.body { display: grid; gap: 12px; min-width: 0; }
+.body > p { margin: 0; max-width: 72ch; }
+.step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
+h3 { font: 600 16px/1.3 var(--display); margin: 0; letter-spacing: 0.01em; }
+.chip { font: 500 11.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; }
+.chip.safe { color: var(--safe-ink); background: var(--safe-bg); }
+.chip.pub { color: var(--pub-ink); background: var(--pub-bg); }
+.chip.warn { color: var(--warn-ink); background: var(--warn-bg); }
+.chip.cond { color: var(--cond-ink); background: var(--cond-bg); }
+.look { font-size: 14px; color: var(--muted); border-left: 2px solid var(--rule); padding-left: 12px; }
+.code { position: relative; background: var(--code-bg); border: 1px solid var(--code-rule); border-radius: 8px; }
+.code pre { margin: 0; padding: 16px 18px; padding-top: 44px; overflow-x: auto; color: var(--code-ink); font: 400 13px/1.55 var(--mono); tab-size: 2; }
+.code pre code { font-size: inherit; background: none; padding: 0; }
+.copy { position: absolute; top: 8px; right: 8px; font: 500 12px/1 var(--text); color: var(--code-ink); background: transparent; border: 1px solid #3a4957; border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.copy:hover { border-color: #7db5d2; }
+.copy:focus-visible { outline: 2px solid #7db5d2; outline-offset: 2px; }
+.copy.done { color: #0b1a10; background: #8fd0a0; border-color: #8fd0a0; }
+.approval { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 14px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 20px; margin: 0; }
+.facts div { display: grid; gap: 2px; }
+.facts dt { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.facts dd { margin: 0; font-size: 14px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.builder { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.builder label { display: grid; gap: 4px; font: 500 12px/1.3 var(--text); color: var(--muted); }
+.builder input, .builder select, .builder textarea { font: 400 14px/1.4 var(--text); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 9px; width: 100%; }
+.builder input:focus-visible, .builder select:focus-visible, .builder textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.builder .wide { grid-column: 1 / -1; }
+.builder textarea { min-height: 78px; resize: vertical; font-family: var(--text); }
+.check { display: flex !important; align-items: center; gap: 8px !important; }
+.check input { width: auto; }
+.estimate { font: 500 14px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); margin: 0; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 72ch; }
+footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 6px; }
+footer p { margin: 0; max-width: 78ch; }
+@media (max-width: 560px) {
+  h1 { font-size: 32px; }
+  .step { grid-template-columns: 1fr; gap: 6px; }
+  .num { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+.status { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; }
+.status ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
+
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+</style></head><body><main class="page"><header><div class="eyebrow"><span>JUPITER · existing login shell</span><span>Read-only verification · 1 October 2026</span></div><h1>Is JUPITER finished and backed up?</h1><p class="lede">Valerian, run these checks to verify jobs, code, generator publication and the four export destinations. They allocate no nodes, start no inference and upload nothing. Save the output so we can identify what remains.</p></header>
+<aside class="approval"><h2>Last known state, to be checked again</h2><dl class="facts"><div><dt>Llama</dt><dd>310,374 successes · 6 accepted failures · historically published</dd></div><div><dt>JUPITER Qwen</dt><dd>24,218 cells historically published; HoreKa continues separately</dd></div><div><dt>GeoAxis</dt><dd>26k population and readiness-axis uploads reported complete</dd></div><div><dt>Still needed confirmation</dt><dd>General archive and full activation upload</dd></div></dl><p>“Accounted for” includes the six known Llama failures. It does not mean every cell succeeded. No current status has been verified from this Mac.</p></aside>
+<section class="status"><h2>How to read the checks</h2><div class="tablewrap"><table><thead><tr><th>Check</th><th>Evidence needed</th></tr></thead><tbody><tr><td>Jobs and transfers</td><td>No intended work still active; check the login node that owns each transfer</td></tr><tr><td>Code</td><td>Clean checkout and no local commits absent from current origin branches</td></tr><tr><td>Llama</td><td>All planned cells accounted for, no owned packages, all local sync receipts released</td></tr><tr><td>JUPITER Qwen</td><td>No new verified local results awaiting upload</td></tr><tr><td>General archive and GeoAxis</td><td>Current remote files and hashes match saved manifests; no missing units</td></tr><tr><td>Activations</td><td>Full filename/size inventory matches; byte verification remains separate</td></tr></tbody></table></div><p>A missing directory, permission error, timeout or absent receipt is <strong>unknown</strong>, never “done.” The general archive was filtered and does not include every file on JUPITER. These checks cover the recorded export scopes; they cannot prove an unrecorded file was backed up.</p><p>Reports and metadata caches go under <code>/e/project1/scifi/$USER/geodml/jupiter-verification</code>. The historical home inode quota was nearly full, and scratch retention may already have removed old files. No writes to your home directory are required.</p></section><section class="step"><div class="num">01</div><div class="body"><header class="step-head"><h2>Prepare the verification tools</h2><span class="chip safe">JUPITER login shell</span></header><div class="code"><button type="button" class="copy" aria-label="Copy step 1">Copy</button><pre><code>(
+  set -eo pipefail
+  source /e/fscratch/scifi/fourel1/geodml/audits/llama-prep/sweep-env.sh
+  VERIFY_ROOT=&quot;/e/project1/scifi/$USER/geodml/jupiter-verification&quot;
+  VERIFY_PIN=adb2586e5f8566437f9ee0916ebf82bdb3ebb15b
+  VERIFY_REPO=&quot;$VERIFY_ROOT/code-$VERIFY_PIN&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$VERIFY_REPO&quot;
+  export HF_HUB_CACHE=&quot;$VERIFY_ROOT/hf-cache&quot;
+  export VERIFY_ROOT
+  unset HF_HUB_OFFLINE HF_DATASETS_OFFLINE TRANSFORMERS_OFFLINE
+  mkdir -p &quot;$VERIFY_ROOT&quot;
+  VERIFY_SEED=&quot;${OLD:-${REPO:?Repository path missing from sweep-env.sh}}&quot;
+  git -C &quot;$VERIFY_SEED&quot; fetch origin codex/pilot-continuation
+  if [ ! -d &quot;$VERIFY_REPO&quot; ]; then
+    git -C &quot;$VERIFY_SEED&quot; worktree add --detach &quot;$VERIFY_REPO&quot; &quot;$VERIFY_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$VERIFY_REPO&quot; rev-parse HEAD)&quot; = &quot;$VERIFY_PIN&quot;
+  test -z &quot;$(git -C &quot;$VERIFY_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  printf &#x27;VERIFICATION_TOOLS_READY=%s\n&#x27; &quot;$VERIFY_PIN&quot;
+  hostname -s
+  date -Is
+)</code></pre></div><p class="look">Creates only a pinned checkout, reports and metadata cache on project storage. It leaves datasets and remote repositories unchanged. If the saved environment file has disappeared, stop and send that error; a missing file is not evidence of completion.</p></div></section><section class="step"><div class="num">02</div><div class="body"><header class="step-head"><h2>Check running work and local code</h2><span class="chip safe">JUPITER login shell</span></header><div class="code"><button type="button" class="copy" aria-label="Copy step 2">Copy</button><pre><code>(
+  set -eo pipefail
+  source /e/fscratch/scifi/fourel1/geodml/audits/llama-prep/sweep-env.sh
+  VERIFY_ROOT=&quot;/e/project1/scifi/$USER/geodml/jupiter-verification&quot;
+  VERIFY_PIN=adb2586e5f8566437f9ee0916ebf82bdb3ebb15b
+  VERIFY_REPO=&quot;$VERIFY_ROOT/code-$VERIFY_PIN&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$VERIFY_REPO&quot;
+  export HF_HUB_CACHE=&quot;$VERIFY_ROOT/hf-cache&quot;
+  export VERIFY_ROOT
+  unset HF_HUB_OFFLINE HF_DATASETS_OFFLINE TRANSFORMERS_OFFLINE
+  squeue --me --format=&#x27;%.12i %.50j %.12T %.10M %.12l %.18R&#x27;
+  sacct -X --starttime=2026-09-28 --format=JobID,JobName%45,State,Elapsed,ExitCode
+  tmux list-sessions 2&gt;/dev/null || true
+  ps -u &quot;$(id -u)&quot; -o pid=,etime=,comm=
+  python3 - &lt;&lt;&#x27;PY_LOCAL&#x27;
+import json, os, subprocess
+from pathlib import Path
+roots = [Path(&#x27;/e&#x27;)/storage/&#x27;scifi&#x27;/os.environ[&#x27;USER&#x27;] for storage in (&#x27;fscratch&#x27;,&#x27;scratch&#x27;,&#x27;project1&#x27;)]
+repos = set()
+for root in roots:
+    repos.update(p for p in (root/&#x27;geodml/src&#x27;).glob(&#x27;*&#x27;) if (p/&#x27;.git&#x27;).exists())
+    if (root/&#x27;GEODML_Analysis/.git&#x27;).exists(): repos.add(root/&#x27;GEODML_Analysis&#x27;)
+rows=[]
+for repo in sorted(repos):
+    def git(*args):
+        return subprocess.check_output([&#x27;git&#x27;,&#x27;-C&#x27;,str(repo),*args],text=True,stderr=subprocess.PIPE,timeout=120).strip()
+    row={&#x27;path&#x27;:str(repo)}
+    try:
+        git(&#x27;fetch&#x27;,&#x27;--quiet&#x27;,&#x27;--prune&#x27;,&#x27;origin&#x27;)
+        row.update(head=git(&#x27;rev-parse&#x27;,&#x27;HEAD&#x27;), dirty=git(&#x27;status&#x27;,&#x27;--porcelain&#x27;,&#x27;--untracked-files=all&#x27;).splitlines(),
+                   unpushed_commits=int(git(&#x27;rev-list&#x27;,&#x27;--count&#x27;,&#x27;HEAD&#x27;,&#x27;--branches&#x27;,&#x27;--not&#x27;,&#x27;--remotes=origin&#x27;)))
+        row[&#x27;status&#x27;]=&#x27;clean_and_pushed&#x27; if not row[&#x27;dirty&#x27;] and row[&#x27;unpushed_commits&#x27;]==0 else &#x27;attention&#x27;
+    except Exception as exc:
+        row.update(status=&#x27;unknown&#x27;,error=type(exc).__name__)
+    print(&#x27;CODE_STATE &#x27;+json.dumps(row),flush=True); rows.append(row)
+Path(os.environ[&#x27;VERIFY_ROOT&#x27;],&#x27;code-state.json&#x27;).write_text(json.dumps(rows,indent=2))
+print(&#x27;CODE_SCAN_CHECKOUTS&#x27;,len(rows))
+for command in (&#x27;crontab&#x27;,&#x27;scrontab&#x27;):
+    try:
+        p=subprocess.run([command,&#x27;-l&#x27;],capture_output=True,text=True,timeout=20)
+        entries=[s for s in p.stdout.splitlines() if s.strip() and not s.lstrip().startswith(&#x27;#&#x27;)]
+        print(&#x27;SCHEDULED_ENTRIES&#x27;,command,len(entries),&#x27;exit&#x27;,p.returncode)
+    except Exception as exc: print(&#x27;SCHEDULED_ENTRIES&#x27;,command,&#x27;unknown&#x27;,type(exc).__name__)
+PY_LOCAL
+) 2&gt;&amp;1 | tee &quot;/e/project1/scifi/$USER/geodml/jupiter-verification/local-status-$(date +%Y%m%d-%H%M%S).log&quot;</code></pre></div><p class="look">An empty Slurm queue does not establish upload completion. tmux and process checks cover this login node only; also run them on the node where each transfer started, last recorded as jpbl-s03-01. Git fetch updates tracking refs only. Dirty files or unpushed commits need review; nothing is reset, pushed or deleted.</p></div></section><section class="step"><div class="num">03</div><div class="body"><header class="step-head"><h2>Check Llama publication and Qwen upload gaps</h2><span class="chip safe">Read-only Hub and local receipt check</span></header><div class="code"><button type="button" class="copy" aria-label="Copy step 3">Copy</button><pre><code>(
+  set -eo pipefail
+  source /e/fscratch/scifi/fourel1/geodml/audits/llama-prep/sweep-env.sh
+  VERIFY_ROOT=&quot;/e/project1/scifi/$USER/geodml/jupiter-verification&quot;
+  VERIFY_PIN=adb2586e5f8566437f9ee0916ebf82bdb3ebb15b
+  VERIFY_REPO=&quot;$VERIFY_ROOT/code-$VERIFY_PIN&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$VERIFY_REPO&quot;
+  export HF_HUB_CACHE=&quot;$VERIFY_ROOT/hf-cache&quot;
+  export VERIFY_ROOT
+  unset HF_HUB_OFFLINE HF_DATASETS_OFFLINE TRANSFORMERS_OFFLINE
+  python3 -u - &lt;&lt;&#x27;PY_RESULTS&#x27;
+import collections, json, os, re
+from pathlib import Path
+from analysis.scripts.dispatch_threehour_wave import hf_token
+from analysis.interpretability.pipeline.agentic_hour_sync import Exchange, HubStore
+from analysis.scripts.publish_qwen_results import publish
+hf_token(write=False)
+base, meas = Path(os.environ[&#x27;BASE&#x27;]), Path(os.environ[&#x27;MEAS&#x27;])
+exchange=Exchange(HubStore(&#x27;ValerianFourel/geodml-experiment-v2-paper-private&#x27;),Path(os.environ[&#x27;VERIFY_ROOT&#x27;])/&#x27;journal&#x27;)
+revision,state=exchange.snapshot()
+hours=list(state[&#x27;hours&#x27;].values()); llama=[h for h in hours if h[&#x27;model&#x27;]==&#x27;llama4&#x27;]
+if not llama: raise SystemExit(&#x27;UNKNOWN: no Llama packages in the registry&#x27;)
+planned=set(); done=set(); failed=set()
+for h in llama:
+    planned.update(h[&#x27;task_fingerprints&#x27;]); done.update(h[&#x27;completed&#x27;]); failed.update(h[&#x27;failed&#x27;])
+if done &amp; failed or (done | failed)-planned: raise SystemExit(&#x27;UNKNOWN: inconsistent registry outcomes&#x27;)
+left=planned-done-failed
+owned=[h for h in hours if (h.get(&#x27;owner&#x27;) or {}).get(&#x27;cluster&#x27;)==&#x27;jupiter&#x27;]
+print(&#x27;REGISTRY&#x27;,revision,flush=True)
+print(&#x27;LLAMA_COUNTS&#x27;,json.dumps({&#x27;planned&#x27;:len(planned),&#x27;completed&#x27;:len(done),&#x27;terminal_failed&#x27;:len(failed),&#x27;remaining&#x27;:len(left),&#x27;llama_owned_packages&#x27;:sum(bool(h.get(&#x27;owner&#x27;)) for h in llama)}),flush=True)
+print(&#x27;JUPITER_OWNED_PACKAGES&#x27;,len(owned),flush=True)
+sites=set(base.glob(&#x27;audits/llama-five-*/site.json&#x27;))
+missing=[]
+for guard in meas.glob(&#x27;expansion-llama*.json&#x27;):
+    if re.fullmatch(r&#x27;expansion-llama(?:-r\d+)?\.json&#x27;,guard.name):
+        out=Path(json.loads(guard.read_text())[&#x27;output&#x27;]); site=out/&#x27;site.json&#x27;
+        if site.is_file(): sites.add(site)
+        elif (out/&#x27;submitted.json&#x27;).exists() or (out/&#x27;submission-intent.json&#x27;).exists(): missing.append(str(site))
+unsynced=[]; attempts=set()
+for site in sorted(sites):
+    for name in json.loads(site.read_text())[&#x27;attempts&#x27;]:
+        attempts.add(name); receipt=Path(name).parent/&#x27;sync.json&#x27;
+        if not receipt.is_file() or json.loads(receipt.read_text()).get(&#x27;status&#x27;)!=&#x27;released&#x27;: unsynced.append(str(receipt))
+print(&#x27;LLAMA_LOCAL_RECEIPTS&#x27;,json.dumps({&#x27;sites&#x27;:len(sites),&#x27;attempts&#x27;:len(attempts),&#x27;missing_sites&#x27;:missing,&#x27;unpublished_receipts&#x27;:unsynced}),flush=True)
+accounted=bool(attempts) and not (missing or unsynced or left or owned) and not any(h.get(&#x27;owner&#x27;) for h in llama)
+print(&#x27;LLAMA_ACCOUNTED_FOR=&#x27;+(&#x27;yes&#x27; if accounted else &#x27;no_or_unknown&#x27;),flush=True)
+print(&#x27;LLAMA_ALL_SUCCESSFUL=&#x27;+(&#x27;yes&#x27; if accounted and not failed else &#x27;no&#x27;),flush=True)
+qroot=base/&#x27;datasets/experiment-v2-incremental-v1&#x27;
+if not qroot.is_dir(): raise SystemExit(&#x27;UNKNOWN: Qwen dataset root missing: &#x27;+str(qroot))
+print(&#x27;CHECKING_QWEN_LOCAL_VERIFIED_RESULTS&#x27;,flush=True)
+report=publish(exchange,qroot,apply=False)
+print(&#x27;QWEN_PUBLICATION_DRY_RUN &#x27;+json.dumps(report),flush=True)
+print(&#x27;QWEN_NEW_VERIFIED_RESULTS=&#x27;+str(report[&#x27;new_cells&#x27;]),flush=True)
+print(&#x27;QWEN_SCOPE: terminal results with valid sealed references; not a full new corpus integrity audit&#x27;,flush=True)
+PY_RESULTS
+) 2&gt;&amp;1 | tee &quot;/e/project1/scifi/$USER/geodml/jupiter-verification/results-status-$(date +%Y%m%d-%H%M%S).log&quot;</code></pre></div><p class="look">Uses your existing HF authentication or prompts for a hidden read token. No write token is required. Expected historical totals were 310,374 completed Llama cells, six accepted failures, and 24,218 JUPITER Qwen cells. These are comparison points, not assumed current facts. Qwen on HoreKa can still be running. Nonzero upload gaps mean publication is unfinished; this block does not upload or retry anything.</p></div></section><section class="step"><div class="num">04</div><div class="body"><header class="step-head"><h2>Verify all four export destinations</h2><span class="chip safe">Read-only metadata and hash checks</span></header><div class="code"><button type="button" class="copy" aria-label="Copy step 4">Copy</button><pre><code>(
+  set -eo pipefail
+  source /e/fscratch/scifi/fourel1/geodml/audits/llama-prep/sweep-env.sh
+  VERIFY_ROOT=&quot;/e/project1/scifi/$USER/geodml/jupiter-verification&quot;
+  VERIFY_PIN=adb2586e5f8566437f9ee0916ebf82bdb3ebb15b
+  VERIFY_REPO=&quot;$VERIFY_ROOT/code-$VERIFY_PIN&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$VERIFY_REPO&quot;
+  export HF_HUB_CACHE=&quot;$VERIFY_ROOT/hf-cache&quot;
+  export VERIFY_ROOT
+  unset HF_HUB_OFFLINE HF_DATASETS_OFFLINE TRANSFORMERS_OFFLINE
+  python3 -u -c &#x27;
+from analysis.scripts.dispatch_threehour_wave import hf_token
+from analysis.scripts.verify_jupiter_exports import main
+hf_token(write=False)
+raise SystemExit(main())
+&#x27; --base &quot;$BASE&quot; \
+    --activation-root &quot;/e/project1/scifi/$USER/GEODML_Analysis/interpretability/output&quot; \
+    --output &quot;$VERIFY_ROOT/exports-$(date +%Y%m%d-%H%M%S)&quot;
+) 2&gt;&amp;1 | tee &quot;/e/project1/scifi/$USER/geodml/jupiter-verification/exports-status-$(date +%Y%m%d-%H%M%S).log&quot;</code></pre></div><p class="look">Checks the general archive, GeoAxis prompt population, readiness-axis archive and full activation inventory at recorded current Hub revisions. It uses remote LFS SHA-256 or local Git-blob checks for manifested files. It checks every activation filename and size, including t7_chunks_full, without reading 551 GB of local contents. Expect minutes, depending on file count and Hub latency. A matching activation inventory is not a full content-hash or restore test.</p></div></section><section class="step"><div class="num">05</div><div class="body"><header class="step-head"><h2>Read the latest transfer logs</h2><span class="chip safe">JUPITER login shell</span></header><div class="code"><button type="button" class="copy" aria-label="Copy step 5">Copy</button><pre><code>(
+  set -eo pipefail
+  source /e/fscratch/scifi/fourel1/geodml/audits/llama-prep/sweep-env.sh
+  VERIFY_ROOT=&quot;/e/project1/scifi/$USER/geodml/jupiter-verification&quot;
+  VERIFY_PIN=adb2586e5f8566437f9ee0916ebf82bdb3ebb15b
+  VERIFY_REPO=&quot;$VERIFY_ROOT/code-$VERIFY_PIN&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$VERIFY_REPO&quot;
+  export HF_HUB_CACHE=&quot;$VERIFY_ROOT/hf-cache&quot;
+  export VERIFY_ROOT
+  unset HF_HUB_OFFLINE HF_DATASETS_OFFLINE TRANSFORMERS_OFFLINE
+  python3 - &lt;&lt;&#x27;PY_LOGS&#x27;
+from pathlib import Path
+from collections import deque
+import os
+base=Path(os.environ[&#x27;BASE&#x27;])
+patterns=[(&#x27;general archive&#x27;,base/&#x27;audits/leave-jupiter/hf-archive&#x27;,&#x27;run-*.log&#x27;),
+          (&#x27;activations&#x27;,base/&#x27;audits/publication-audit&#x27;,&#x27;activations-upload-*.log&#x27;),
+          (&#x27;26k prompts&#x27;,base/&#x27;audits/leave-jupiter&#x27;,&#x27;geoaxis-26k-upload-*.log&#x27;),
+          (&#x27;readiness axis&#x27;,base/&#x27;audits/leave-jupiter&#x27;,&#x27;geoaxis-axis-upload-*.log&#x27;)]
+for label,folder,pattern in patterns:
+    files=sorted(folder.glob(pattern),key=lambda p:p.stat().st_mtime)
+    if not files: print(label,&#x27;NO_LOG_FOUND&#x27;); continue
+    path=files[-1]; print(&#x27;LATEST_LOG&#x27;,label,path)
+    with path.open(errors=&#x27;replace&#x27;) as stream: print(&#x27;&#x27;.join(deque(stream,maxlen=18)))
+print(&#x27;REPORT_FOLDER&#x27;,os.environ[&#x27;VERIFY_ROOT&#x27;])
+PY_LOGS
+)</code></pre></div><p class="look">Send the CODE_STATE lines, LLAMA_COUNTS, LLAMA_LOCAL_RECEIPTS, QWEN_PUBLICATION_DRY_RUN and the four export results. If a command fails, send its error too; missing output stays unknown. Do not restart uploads or delete anything based only on an old success marker.</p></div></section><footer><p>Verifier pin: <code>adb2586e5f8566437f9ee0916ebf82bdb3ebb15b</code>. No automatic all-ready verdict: activation bytes, later-created files and processes on other login nodes need separate evidence. This page does not remove credentials, cancel jobs, release registry owners, or change the cluster responsible for production plans.</p><p>Keep live allocation shells open. No SSH invocation is included; use your existing JUPITER login session. Verification does not authorize cleanup or loss of local copies.</p></footer><div id="copy-status" class="sr-only" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
+  button.addEventListener('click', async () => {
+    const code = button.parentElement.querySelector('code');
+    let copied = false;
+    try { await navigator.clipboard.writeText(code.textContent); copied = true; }
+    catch (_) {
+      const range = document.createRange(); range.selectNodeContents(code);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    button.textContent = copied ? 'Copied' : 'Select text and copy';
+    document.getElementById('copy-status').textContent = copied ? 'Commands copied.' : 'Select the commands and copy manually.';
+    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+  });
+});</script></body></html>

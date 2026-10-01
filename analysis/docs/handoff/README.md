@@ -53,3 +53,4 @@ supersede them with a new dated document that links back.
 - 2026-09-30 — [SI-v4 implementation and local verification](2026-09-30_si-v4-implementation_handoff.md)
 - 2026-10-01 — [SI-v4 HoreKa one-hour test page](2026-10-01_si-v4-horeka-html_handoff.md)
 - 2026-10-01 — [SI-v4 approved one-run queue exception](2026-10-01_si-v4-queue-exception_handoff.md)
+- 2026-10-01 — [JUPITER completion and export verification page](2026-10-01_jupiter-verification-page_handoff.md)
