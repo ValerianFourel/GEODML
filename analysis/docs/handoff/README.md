@@ -74,3 +74,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [SI-v4 legacy source-hash compatibility and HTML diagnostic](2026-10-02_si-v4-legacy-source-hash_handoff.md)
 
 - 2026-10-02 — [Confirmed missing hashes and SI-v4 recovery commands](2026-10-02_si-v4-confirmed-hash-recovery_handoff.md)
+
+- 2026-10-02 — [SI-v4 recovery checkout import checks](2026-10-02_si-v4-recovery-import-check_handoff.md)

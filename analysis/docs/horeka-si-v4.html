@@ -158,13 +158,14 @@ PY
   test &quot;$(git -C &quot;$V4_FIX_REPO&quot; rev-parse HEAD)&quot; = &quot;$V4_FIX_PIN&quot;
   test -z &quot;$(git -C &quot;$V4_FIX_REPO&quot; status --porcelain --untracked-files=all)&quot;
   export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
-  &quot;$RT/bin/python&quot; - &quot;$W&quot; &lt;&lt;&#x27;PY&#x27;
+  &quot;$RT/bin/python&quot; - &quot;$W&quot; &quot;$V4_FIX_REPO&quot; &lt;&lt;&#x27;PY&#x27;
 import copy
 import json
 from pathlib import Path
 import sys
 import tempfile
 from types import SimpleNamespace
+sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
 from analysis.scripts import horeka_si_v4 as pilot
 
 workspace = Path(sys.argv[1])
@@ -229,19 +230,28 @@ print(&#x27;HASH_REPAIR_VERIFIED&#x27;, new)
 print(&#x27;MISSING_CELL_HASHES_FILLED&#x27;, filled)
 print(&#x27;Original preparation and attempts preserved. No inference started.&#x27;)
 PY
-)</code></pre></div></div></section><section class="step" id="existing-job-retry"><div class="num">Fix</div><div class="body"><header class="step-head"><h2>2. Run only in existing job 5174124</h2><span class="chip safe">Allocated compute shell · no new allocation</span></header><p>Your pasted snapshot showed this allocation RUNNING on <code>hkn0617</code>, with 28:03 left and EndTime <code>2026-10-01T18:04:10</code> in the scheduler timezone. These are captured values, not live status. The command checks the live job and requires at least 20 minutes remaining. It refuses another job ID or an expired allocation.</p><p>The unchanged development queue is estimated at 20–50 minutes including startup; v4 throughput is still unmeasured. The existing allocation has one node, four A100 GPUs, 32 requested CPUs, 152 allocated CPUs and 497500 MiB memory. At the snapshot, the remaining budget was at most 0.468 node-hours and 1.87 GPU-hours. Execution respects the original Slurm end time and drain margin; it may produce partial work. There is no extension or replacement allocation. The cheaper alternative is to finish CPU validation only and leave inference pending.</p><p>If the remaining-time check fails, preserve this shell and the corrected preparation. Report the message before requesting a separately estimated and approved allocation. If the command runs, send <code>V4_EXIT</code> and inspect the new directory’s summaries.</p><div class="code"><button class="copy" type="button" aria-label="Copy 2. Run only in existing job 5174124">Copy</button><pre><code>(
+)</code></pre></div></div></section><section class="step" id="existing-job-retry"><div class="num">Fix</div><div class="body"><header class="step-head"><h2>2. Run only in existing job 5174124</h2><span class="chip safe">Allocated compute shell · no new allocation</span></header><p>Run step 1 first and require <code>HASH_REPAIR_VERIFIED</code>. If Python reports <code>No module named analysis</code>, the corrected checkout may be absent or Python may be ignoring PYTHONPATH. This block now verifies the checkout and receipt, then passes the checkout path explicitly to Python. Do not install a package named analysis.</p><p>Your pasted snapshot showed this allocation RUNNING on <code>hkn0617</code>, with 28:03 left and EndTime <code>2026-10-01T18:04:10</code> in the scheduler timezone. These are captured values, not live status. The command checks the live job and requires at least 20 minutes remaining. It refuses another job ID or an expired allocation.</p><p>The unchanged development queue is estimated at 20–50 minutes including startup; v4 throughput is still unmeasured. The existing allocation has one node, four A100 GPUs, 32 requested CPUs, 152 allocated CPUs and 497500 MiB memory. At the snapshot, the remaining budget was at most 0.468 node-hours and 1.87 GPU-hours. Execution respects the original Slurm end time and drain margin; it may produce partial work. There is no extension or replacement allocation. The cheaper alternative is to finish CPU validation only and leave inference pending.</p><p>If the remaining-time check fails, preserve this shell and the corrected preparation. Report the message before requesting a separately estimated and approved allocation. If the command runs, send <code>V4_EXIT</code> and inspect the new directory’s summaries.</p><div class="code"><button class="copy" type="button" aria-label="Copy 2. Run only in existing job 5174124">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
   test &quot;${SLURM_JOB_ID:-}&quot; = 5174124
   V4_FIX_PIN=c82ff8120dee2f26ccd63478ff0d98bcb8cce779
   V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
   V4_FIXED_RUN=&quot;$W/reviews/gemma-si-v4-development-20261001-hashfix-c82ff81&quot;
+  if [ ! -f &quot;$V4_FIX_REPO/analysis/scripts/horeka_si_v4.py&quot; ]; then
+    printf &#x27;%s\n&#x27; &#x27;STOP: corrected checkout missing. Run step 1: Rebuild and validate corrected inputs.&#x27;
+    exit 1
+  fi
+  if [ ! -f &quot;$V4_FIXED_RUN/HASH_REPAIR_VERIFIED.json&quot; ]; then
+    printf &#x27;%s\n&#x27; &#x27;STOP: repair receipt missing. Step 1 has not completed successfully. Send its output.&#x27;
+    exit 1
+  fi
   export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
-  &quot;$RT/bin/python&quot; - &quot;$V4_FIXED_RUN&quot; &lt;&lt;&#x27;PY&#x27;
+  &quot;$RT/bin/python&quot; - &quot;$V4_FIXED_RUN&quot; &quot;$V4_FIX_REPO&quot; &lt;&lt;&#x27;PY&#x27;
 import json
 from pathlib import Path
 import subprocess
 import sys
+sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
 from analysis.scripts import horeka_si_v4 as pilot
 root = Path(sys.argv[1])
 receipt = json.loads((root / &#x27;HASH_REPAIR_VERIFIED.json&#x27;).read_text())
