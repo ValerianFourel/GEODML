@@ -57,3 +57,4 @@ supersede them with a new dated document that links back.
 - 2026-10-01 — [Independent JUPITER Hugging Face verification](2026-10-01_jupiter-hf-verification_handoff.md)
 - 2026-10-01 — [JUPITER live-status commands](2026-10-01_jupiter-live-status-commands_handoff.md)
 - 2026-10-01 — [JUPITER live-status HTML](2026-10-01_jupiter-live-status-html_handoff.md)
+- 2026-10-01 — [JUPITER upload logs confirmed](2026-10-01_jupiter-upload-logs-confirmed_handoff.md)
