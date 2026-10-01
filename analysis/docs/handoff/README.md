@@ -61,3 +61,4 @@ supersede them with a new dated document that links back.
 - 2026-10-01 — [Gemma 4 SI-v4 launch page reopened](2026-10-01_gemma4-v4-page-reopened_handoff.md)
 - 2026-10-01 — [Gemma 4 SI-v4 monitoring and hourly start forecasts](2026-10-01_gemma4-v4-monitoring_handoff.md)
 - 2026-10-01 — [Qwen bout counts and queue target 294](2026-10-01_qwen-counts-queue294_handoff.md)
+- 2026-10-01 — [Qwen CAP update refused; inspect live setting](2026-10-01_qwen-cap-inspection_handoff.md)
