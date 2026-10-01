@@ -98,8 +98,54 @@ footer p { margin: 0; max-width: 78ch; }
 .where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B</span><span>SI-v4 development · 1 October 2026</span></div><h1>Test the shared answer map</h1><p class="lede">Valerian, these commands prepare and test SI-v4 in your requested <strong>one-hour interactive allocation</strong>. Preparation has succeeded. If the queue is full, use step 1 to lower the Qwen refill target, then repeat step 2 in your HoreKa login shell. SI-v3 and all earlier results remain available.</p></header>
-<nav class="cycle" aria-label="Page shortcuts"><a href="#reserve-slot">Reserve a queue slot</a><a href="#task-counts">Task counts</a><a href="#job-counts">Slurm jobs</a><a href="#qwen-bout-counts">Qwen bout counts</a><a href="#start-forecast">Hourly start forecast</a><a href="#summaries">Summaries and logs</a></nav>
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B</span><span>SI-v4 development · 1 October 2026</span></div><h1>Test the shared answer map</h1><p class="lede">Valerian, the reported run stopped during frozen-input validation with <code>source hash does not match its dependency</code>. Start with the read-only diagnostic below. Keep the allocated shell open. The original launch instructions are retained for reference; do not repeat allocation or launch steps for this failed preparation.</p></header>
+<nav class="cycle" aria-label="Page shortcuts"><a href="#source-hash-diagnostic">Source-hash failure</a><a href="#reserve-slot">Reserve a queue slot</a><a href="#task-counts">Task counts</a><a href="#job-counts">Slurm jobs</a><a href="#qwen-bout-counts">Qwen bout counts</a><a href="#start-forecast">Hourly start forecast</a><a href="#summaries">Summaries and logs</a></nav>
+<section class="step" id="source-hash-diagnostic"><div class="num">Fix</div><div class="body"><header class="step-head"><h2>Diagnose the source-hash failure</h2><span class="chip safe">Existing HoreKa shell · read-only</span></header><p>Updated 2 October 2026. Older SI-v3 cell records omitted <code>source_sha256</code>. The v4 bridge copied those records without filling the field, and the coordinator rejected them before the first judging pass. This reproduces the reported error locally. The check below determines whether the cluster inputs have that omission or a conflicting saved hash.</p><div class="code"><button class="copy" type="button" aria-label="Copy source hash diagnostic">Copy</button><pre><code>(
+  set -euo pipefail
+  python3 - &lt;&lt;&#x27;PY&#x27;
+import gzip
+import hashlib
+import json
+from pathlib import Path
+
+root = Path(&#x27;/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-si-v4-development-20261001&#x27;)
+p = root / &#x27;v4-inputs&#x27;
+def digest(value):
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(&#x27;,&#x27;, &#x27;:&#x27;), allow_nan=False).encode()).hexdigest()
+def rows(name):
+    with gzip.open(p / name, &#x27;rt&#x27;, encoding=&#x27;utf-8&#x27;) as f:
+        return [json.loads(line) for line in f if line.strip()]
+manifest = json.loads((p / &#x27;manifest.json&#x27;).read_text())
+for name in (&#x27;tasks.jsonl.gz&#x27;, &#x27;cells.jsonl.gz&#x27;):
+    actual = hashlib.sha256((p / name).read_bytes()).hexdigest()
+    if actual != manifest[&#x27;files&#x27;][name]:
+        raise SystemExit(&#x27;FROZEN_FILE_CHANGED: &#x27; + name)
+tasks = {r[&#x27;judge_task_id&#x27;]: r for r in rows(&#x27;tasks.jsonl.gz&#x27;)}
+bad = []
+checked = 0
+for cell in rows(&#x27;cells.jsonl.gz&#x27;):
+    for source in cell.get(&#x27;sources&#x27;, []):
+        if &#x27;dependency_id&#x27; not in source:
+            continue
+        dep = tasks[source[&#x27;dependency_id&#x27;]]
+        checked += 1
+        expected = digest({&#x27;title&#x27;: dep[&#x27;source_title&#x27;], &#x27;text&#x27;: dep[&#x27;source_text&#x27;]})
+        if source.get(&#x27;source_sha256&#x27;) != expected:
+            bad.append({&#x27;cell_id&#x27;: cell[&#x27;cell_id&#x27;], &#x27;dependency_id&#x27;: dep[&#x27;judge_task_id&#x27;],
+                        &#x27;hash_field_missing&#x27;: &#x27;source_sha256&#x27; not in source,
+                        &#x27;saved_hash&#x27;: source.get(&#x27;source_sha256&#x27;), &#x27;expected_hash&#x27;: expected})
+print(json.dumps({&#x27;manifest_checks&#x27;: &#x27;passed&#x27;, &#x27;sources_checked&#x27;: checked,
+                  &#x27;mismatch_count&#x27;: len(bad),
+                  &#x27;missing_hash_count&#x27;: sum(r[&#x27;hash_field_missing&#x27;] for r in bad),
+                  &#x27;conflicting_hash_count&#x27;: sum(not r[&#x27;hash_field_missing&#x27;] for r in bad),
+                  &#x27;examples&#x27;: bad[:5]}, indent=2))
+PY
+  squeue --me --format=&#x27;%.18i %.30j %.10T %.12M %.12l&#x27;
+  if [ -n &quot;${SLURM_JOB_ID:-}&quot; ]; then
+    scontrol show job &quot;$SLURM_JOB_ID&quot;
+    sacct -j &quot;$SLURM_JOB_ID&quot; --format=JobID,State,Elapsed,Timelimit,ExitCode
+  fi
+)</code></pre></div><p class="look">Send the JSON counts and scheduler output. If every mismatch is a missing field, the legacy-format bug explains this failure. A conflicting hash or failed manifest check needs separate investigation. This command does not change files, start inference or allocate resources.</p><h3>Recovery status</h3><p>The local bridge fix derives only absent hashes from validated saved task records. Existing conflicting hashes remain errors. All 32 focused bridge and Gemma tests pass, including the legacy-format regression. The fix has not been applied to the cluster preparation.</p><p>After confirming the counts and remaining allocation time, rebuild the preparation into a new directory from the original verified bundles using the corrected committed code. Preserve the failed preparation, logs and attempts. Do not edit its manifests, bypass the coordinator check or rerun the old <code>run.sh</code>. A new or extended allocation requires a fresh runtime estimate and explicit wall-time approval.</p></div></section>
 <aside class="approval"><h2>Your one-hour test</h2><dl class="facts"><div><dt>Resources</dt><dd>1 exclusive accelerated node · 4 × A100 40 GB</dd></div><div><dt>CPU and memory</dt><dd>32 requested CPUs · whole-node memory, about 512 GiB</dd></div><div><dt>Maximum allocation cost</dt><dd>1 node-hour · 4 GPU-hours · exclusive node reserves up to 152 CPU-hours</dd></div><div><dt>Estimated work</dt><dd>20–50 minutes, including startup; 60-minute wall-time with margin</dd></div></dl><p>Prior Gemma wrappers took 8.9–10.9 minutes, with much shorter SI-v3 outputs. V4 throughput is unmeasured, so this queue may stop partially completed. Thirty minutes would halve allocation cost but could finish only the first pass. This page uses the hour you requested.</p><p>The 3× warm-compute ceiling is evaluated per completed eligible cell, including mapping and retries, with J1 separate. Three repeat passes test stability; their combined allocation cost is not that per-cell ratio.</p></aside>
 <section class="status"><h2>What will run</h2><ol><li>SI-v4 on all 40 reviewed development cells, up to 40 maps + 214 source calls + 40 J1 calls.</li><li>SI-v3 on the same inputs and judge configuration, with the matched 4096-token source budget.</li><li>48 constructed development pairs, deduplicated to 13 maps, 28 source tasks and 13 J1 tasks.</li><li>Two further uncached SI-v4 passes, regenerating the maps each time.</li></ol><p>At most 1,190 first-attempt requests before N/A filtering, plus bounded retries. The model is <code>google/gemma-4-31B-it</code>, BF16, TP4, thinking off, concurrency 4. This is a finite development queue; no fresh held-out cases are consumed.</p><p>Saved judge inputs preserve the completed answers and source records. Original generator-trace provenance remains unresolved and is labeled accordingly. No source is fetched or rewritten.</p></section><section class="status"><h2>Preparation completed</h2><p>Your 40-cell corpus inputs and 48 constructed cases are already frozen. Use step 1 if the queue is full, then step 2. Do not repeat preparation, delete its folder, or alter its saved configuration.</p><p>The new helper records your approved one-run scheduling exception. Inference still uses the original pinned checkout and run.sh.</p></section><section class="step" id="reserve-slot"><div class="num">01</div><div class="body"><header class="step-head"><h2>Keep one account queue slot available</h2><span class="chip cond">HoreKa login shell · updates sender scripts</span></header><p>Run this once before step 2. It changes the existing Qwen sender scripts in the shared workspace to <code>CAP=294</code>, including when an older tmux loop passes <code>CAP=295</code>. The account limit remains 295. Each changed script gets a backup; rerunning this block is safe.</p><div class="code"><button class="copy" type="button" aria-label="Copy reserve one queue slot">Copy</button><pre><code>(
   set -euo pipefail

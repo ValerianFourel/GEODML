@@ -61,6 +61,12 @@ def freeze_saved(bundles, output, protocol):
                 old = old_tasks[source.pop("judge_task_id")]
                 if old["request"] != j1["request"] or old["masked_answer"] != masked:
                     raise ValueError("saved source and J1 inputs disagree")
+                # Older SI-v3 cell records omitted this hash. Their validated
+                # task records still contain the exact judge-visible source.
+                source_hash = judge._digest({"title": old["source_title"], "text": old["source_text"]})
+                if "source_sha256" in source and source["source_sha256"] != source_hash:
+                    raise ValueError("saved source hash does not match its frozen task")
+                source["source_sha256"] = source_hash
                 if protocol == v4.PROTOCOL:
                     new = v4.source_dependency(mapper["judge_task_id"], old["source_title"], old["source_text"])
                     source.update(dependency_id=new["judge_task_id"], status="awaiting_map")

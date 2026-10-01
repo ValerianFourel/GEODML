@@ -11,8 +11,14 @@ from analysis.scripts import replay_source_importance_judge as replay
 from analysis.tests.test_horeka_gemma_si import baseline
 
 
-def test_saved_bundle_bridge_preserves_semantic_inputs_and_joins(baseline, tmp_path):
+@pytest.mark.parametrize("legacy_missing_hash", [False, True])
+def test_saved_bundle_bridge_preserves_semantic_inputs_and_joins(baseline, tmp_path, legacy_missing_hash):
     bundle = replay.freeze_baseline(baseline)
+    if legacy_missing_hash:
+        # Pre-v4 SI-v3 cells omitted this metadata; frozen tasks retain exact text.
+        for cell in bundle["cells"]:
+            for source in cell["sources"]:
+                source.pop("source_sha256")
     unchanged = copy.deepcopy(bundle)
     for protocol, name in ((pilot.v3.PROTOCOL, "v3"), (pilot.v4.PROTOCOL, "v4")):
         out = tmp_path / name
@@ -139,3 +145,10 @@ def test_review_runs_finite_queue_and_stops_on_incomplete_work(tmp_path, monkeyp
     assert result == (0 if status == "finished" else 2)
     summary = json.loads((out / "summary.json").read_text())
     assert summary["status"] == ("finished" if status == "finished" else "partial_or_failed")
+
+
+def test_saved_bundle_bridge_rejects_conflicting_source_hash(baseline, tmp_path):
+    bundle = replay.freeze_baseline(baseline)
+    bundle["cells"][0]["sources"][0]["source_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="saved source hash"):
+        pilot.freeze_saved([bundle], tmp_path / "conflict", pilot.v4.PROTOCOL)
