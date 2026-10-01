@@ -1,0 +1,155 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JUPITER live status</title><style>
+:root {
+  color-scheme: light;
+  --bg: #f2f4f3; --panel: #ffffff; --ink: #19212b; --muted: #56616d; --rule: #d4dad7;
+  --accent: #1f6485; --accent-soft: #e2edf3;
+  --code-bg: #111a22; --code-ink: #d9e3ea; --code-rule: #26323d;
+  --safe-ink: #256437; --safe-bg: #e3f1e6;
+  --pub-ink: #1f5670; --pub-bg: #e0ecf3;
+  --warn-ink: #874700; --warn-bg: #fcefd8;
+  --cond-ink: #5b4a86; --cond-bg: #ece8f6;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --text: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+    --accent: #7db5d2; --accent-soft: #1a2b36;
+    --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+    --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+    --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+  --accent: #7db5d2; --accent-soft: #1a2b36;
+  --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+  --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+  --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--text); padding: 0 20px; }
+.page { max-width: 920px; margin: 0 auto; padding-block: 36px 64px; display: grid; gap: 28px; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 4px; }
+.eyebrow { font: 500 12px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+h1 { font: 600 40px/1.1 var(--display); margin: 6px 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { max-width: 68ch; margin: 0; color: var(--muted); }
+.lede strong { color: var(--ink); font-weight: 600; }
+nav.cycle { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.cycle a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); color: var(--ink); text-decoration: none; font: 500 13px/1.2 var(--text); }
+nav.cycle a span { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 500 12px/1 var(--mono); }
+nav.cycle a:hover, nav.cycle a:focus-visible { border-color: var(--accent); outline: none; }
+.loopnote { font: 400 13px/1.5 var(--text); color: var(--muted); margin: 0; }
+.step { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 16px; padding-top: 24px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
+.num { font: 500 26px/1.1 var(--mono); color: var(--accent); }
+.body { display: grid; gap: 12px; min-width: 0; }
+.body > p { margin: 0; max-width: 72ch; }
+.step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
+h3 { font: 600 16px/1.3 var(--display); margin: 0; letter-spacing: 0.01em; }
+.chip { font: 500 11.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; }
+.chip.safe { color: var(--safe-ink); background: var(--safe-bg); }
+.chip.pub { color: var(--pub-ink); background: var(--pub-bg); }
+.chip.warn { color: var(--warn-ink); background: var(--warn-bg); }
+.chip.cond { color: var(--cond-ink); background: var(--cond-bg); }
+.look { font-size: 14px; color: var(--muted); border-left: 2px solid var(--rule); padding-left: 12px; }
+.code { position: relative; background: var(--code-bg); border: 1px solid var(--code-rule); border-radius: 8px; }
+.code pre { margin: 0; padding: 16px 18px; padding-top: 44px; overflow-x: auto; color: var(--code-ink); font: 400 13px/1.55 var(--mono); tab-size: 2; }
+.code pre code { font-size: inherit; background: none; padding: 0; }
+.copy { position: absolute; top: 8px; right: 8px; font: 500 12px/1 var(--text); color: var(--code-ink); background: transparent; border: 1px solid #3a4957; border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.copy:hover { border-color: #7db5d2; }
+.copy:focus-visible { outline: 2px solid #7db5d2; outline-offset: 2px; }
+.copy.done { color: #0b1a10; background: #8fd0a0; border-color: #8fd0a0; }
+.approval { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 14px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 20px; margin: 0; }
+.facts div { display: grid; gap: 2px; }
+.facts dt { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.facts dd { margin: 0; font-size: 14px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.builder { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.builder label { display: grid; gap: 4px; font: 500 12px/1.3 var(--text); color: var(--muted); }
+.builder input, .builder select, .builder textarea { font: 400 14px/1.4 var(--text); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 9px; width: 100%; }
+.builder input:focus-visible, .builder select:focus-visible, .builder textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.builder .wide { grid-column: 1 / -1; }
+.builder textarea { min-height: 78px; resize: vertical; font-family: var(--text); }
+.check { display: flex !important; align-items: center; gap: 8px !important; }
+.check input { width: auto; }
+.estimate { font: 500 14px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); margin: 0; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 72ch; }
+footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 6px; }
+footer p { margin: 0; max-width: 78ch; }
+@media (max-width: 560px) {
+  h1 { font-size: 32px; }
+  .step { grid-template-columns: 1fr; gap: 6px; }
+  .num { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+.status { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; }
+.status ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
+
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+</style></head><body><main class="page">
+<header><div class="eyebrow"><span>JUPITER · existing login shell</span><span>Read-only · 1 October 2026</span></div><h1>What is happening on JUPITER?</h1><p class="lede">Valerian, copy each block into your existing JUPITER login shell, then send back both outputs. No setup is needed. The commands inspect jobs, processes and saved logs.</p></header>
+<aside class="approval"><h2>Check the host</h2><p>Slurm lists your jobs across the cluster. tmux and process listings cover only the current host. Transfers were last recorded on <code>jpbl-s03-01</code>; no tmux sessions on another host does not establish that they stopped.</p><p>This page contains commands to run. It does not display live cluster status.</p></aside>
+<section class="step"><div class="num">01</div><div class="body"><header class="step-head"><h2>Jobs, sessions and processes</h2><span class="chip safe">JUPITER login shell</span></header><p>Shows queued/running jobs, job outcomes since 29 September, tmux panes and your processes on this host.</p><div class="code"><button type="button" class="copy" aria-label="Copy step 1">Copy</button><pre><code>(
+  hostname -s
+  date -Is
+  squeue --me --format=&#x27;%.12i %.45j %.12T %.10M %.12l %.24R&#x27;
+  sacct -X --user=&quot;$USER&quot; --starttime=2026-09-29 \
+    --format=JobID,JobName%45,State,Elapsed,ExitCode,NodeList%25
+  tmux list-sessions
+  tmux list-panes -a -F &#x27;#S:#I.#P pid=#{pane_pid} command=#{pane_current_command} dead=#{pane_dead}&#x27;
+  ps -u &quot;$(id -u)&quot; -o pid,ppid,etime,pcpu,pmem,comm --sort=-pcpu
+)</code></pre></div></div></section>
+<section class="step"><div class="num">02</div><div class="body"><header class="step-head"><h2>Latest archive and upload logs</h2><span class="chip safe">JUPITER login shell</span></header><p>Shows the last 20 lines from each latest transfer log, reading at most 16 KiB per file. A missing log remains unknown.</p><div class="code"><button type="button" class="copy" aria-label="Copy step 2">Copy</button><pre><code>python3 - &lt;&lt;&#x27;PY&#x27;
+import os
+from datetime import datetime
+from pathlib import Path
+
+base = Path(&#x27;/e/fscratch/scifi&#x27;) / os.environ[&#x27;USER&#x27;] / &#x27;geodml&#x27;
+checks = [
+    (&#x27;General archive&#x27;, base/&#x27;audits/leave-jupiter/hf-archive&#x27;, &#x27;run-*.log&#x27;),
+    (&#x27;Activations&#x27;, base/&#x27;audits/publication-audit&#x27;, &#x27;activations-upload-*.log&#x27;),
+    (&#x27;GeoAxis prompts&#x27;, base/&#x27;audits/leave-jupiter&#x27;, &#x27;geoaxis-26k-upload-*.log&#x27;),
+    (&#x27;Readiness axis&#x27;, base/&#x27;audits/leave-jupiter&#x27;, &#x27;geoaxis-axis-upload-*.log&#x27;),
+]
+for label, folder, pattern in checks:
+    print(&#x27;\n&#x27; + label, flush=True)
+    try:
+        logs = sorted(folder.glob(pattern), key=lambda p: p.stat().st_mtime)
+        if not logs:
+            print(&#x27;NO_LOG_FOUND:&#x27;, folder, flush=True)
+            continue
+        path = logs[-1]
+        info = path.stat()
+        print(path, &#x27;\nLast modified:&#x27;, datetime.fromtimestamp(info.st_mtime).isoformat(), flush=True)
+        with path.open(&#x27;rb&#x27;) as stream:
+            stream.seek(max(0, info.st_size - 16384))
+            print(&#x27;\n&#x27;.join(stream.read(16384).decode(errors=&#x27;replace&#x27;).splitlines()[-20:]), flush=True)
+    except OSError as error:
+        print(type(error).__name__ + &#x27;: &#x27; + str(error), flush=True)
+PY</code></pre></div></div></section><footer><p>Paste both outputs back into the conversation. Keep existing allocation shells open. These checks do not start or stop jobs, restart uploads, or modify results.</p></footer><div id="copy-status" class="sr-only" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
+  button.addEventListener('click', async () => {
+    const code = button.parentElement.querySelector('code');
+    let copied = false;
+    try { await navigator.clipboard.writeText(code.textContent); copied = true; }
+    catch (_) {
+      const range = document.createRange(); range.selectNodeContents(code);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    button.textContent = copied ? 'Copied' : 'Select text and copy';
+    document.getElementById('copy-status').textContent = copied ? 'Commands copied.' : 'Select the commands and copy manually.';
+    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+  });
+});</script></body></html>
