@@ -100,11 +100,11 @@ footer p { margin: 0; max-width: 78ch; }
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 </style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B · 2 October 2026</span></div><h1>New three-hour Gemma shell</h1><p class="lede">Valerian, use this sequence from a separate HoreKa login terminal. It creates corrected inputs in a new directory, checks admission, and requests one explicitly approved <strong>03:00:00</strong> interactive allocation. Keep previous allocation shells and results intact.</p></header>
 <nav class="cycle" aria-label="Page shortcuts"><a href="#prepare">1 · Prepare</a><a href="#admission">2 · Admission</a><a href="#allocate">3 · Allocate</a><a href="#compute">4 · Compute shell</a><a href="#run">5 · Run</a><a href="#logs">6 · Logs</a><a href="#job-counts">Job counts</a><a href="#qwen-bout-counts">Qwen counts</a><a href="#start-forecast">Start forecasts</a></nav>
-<aside class="approval"><h2>Approved allocation and expected work</h2><p>One exclusive accelerated node, 4 × A100 40 GB, 32 requested CPUs, whole-node memory. The last allocation reserved 152 CPUs and 497500 MiB. Three hours cap resource use at <strong>3 node-hours, 12 GPU-hours and up to 456 allocated CPU-hours</strong>.</p><p>The fixed development queue is still estimated at 20–50 minutes including startup. Earlier Gemma wrappers took 8.9–10.9 minutes; v4 throughput remains unmeasured because the first pass failed during input import. Three hours provide 130–160 minutes beyond that estimate. A one-hour shell is the cheaper alternative; this page implements your explicit three-hour request. The queue runs once and stops when finished. No extra passes, automatic retries or new scientific work are added to fill time.</p><p>The new preparation fixes the 214 missing source hashes, verifies task text is unchanged and checks all inputs before allocation. Prior judge work, if found, blocks a fresh run until reconciled.</p><p><strong>Queue exception pending:</strong> the old exception was limited to the old run. Until you approve an exception for this new run, admission retains the default five-allocation/no-pending limits, ten-minute observed-start spacing, account limit and storage checks. Do not allocate if admission fails. Any live Gemma v4 allocation blocks a duplicate; wait for it to end naturally.</p></aside>
+<aside class="approval"><h2>Approved allocation and expected work</h2><p>One exclusive accelerated node, 4 × A100 40 GB, 32 requested CPUs, whole-node memory. The last allocation reserved 152 CPUs and 497500 MiB. Three hours cap resource use at <strong>3 node-hours, 12 GPU-hours and up to 456 allocated CPU-hours</strong>.</p><p>The fixed development queue is still estimated at 20–50 minutes including startup. Earlier Gemma wrappers took 8.9–10.9 minutes; v4 throughput remains unmeasured because the first pass failed during input import. Three hours provide 130–160 minutes beyond that estimate. A one-hour shell is the cheaper alternative; this page implements your explicit three-hour request. The queue runs once and stops when finished. No extra passes, automatic retries or new scientific work are added to fill time.</p><p>The new preparation fixes the 214 missing source hashes, verifies task text is unchanged and checks all inputs before allocation. Prior judge work, if found, blocks a fresh run until reconciled.</p><p><strong>Approved queue exception:</strong> Valerian approved one new three-hour Gemma run alongside Qwen. The two admission commands waive the five-active/no-pending guards only for this dated three-hour preparation. Fresh quota checks, the account queue limit, ten-minute observed-start spacing and duplicate-Gemma protection remain enforced. If an older Gemma allocation is still live, wait for it to end naturally. Leave Qwen jobs unchanged.</p></aside>
 <section class="step" id="prepare"><div class="num">01</div><div class="body"><header class="step-head"><h2>Prepare corrected inputs</h2><span class="chip safe">Separate login shell · no allocation</span></header><p>Run once. Require HASH_REPAIR_VERIFIED before continuing. A pre-existing destination is preserved and causes a stop. No model weights are downloaded. This step uses the original verified bundles, adds missing metadata, and performs CPU-only coordinator validation.</p><div class="code"><button class="copy" type="button" aria-label="Copy Prepare corrected inputs">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_FIX_PIN=aab61590c6aa05ad088e4069cfc9f0f84e7eb02a
+  V4_FIX_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
   V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
   git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
   if [ ! -d &quot;$V4_FIX_REPO&quot; ]; then
@@ -197,17 +197,17 @@ PY
 )</code></pre></div></div></section><section class="step" id="admission"><div class="num">02</div><div class="body"><header class="step-head"><h2>Check admission</h2><span class="chip safe">Same login shell</span></header><p>This checks fresh scheduler evidence, quota, queue capacity and duplicate jobs. If blocked, leave existing jobs unchanged and repeat manually later. No allocation is requested here.</p><div class="code"><button class="copy" type="button" aria-label="Copy Check admission">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=aab61590c6aa05ad088e4069cfc9f0f84e7eb02a
+  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
   V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
   V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
   export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
   test -f &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot;
   test -f &quot;$V4_RUN/HASH_REPAIR_VERIFIED.json&quot;
-  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; check --output &quot;$V4_RUN&quot;
+  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; check --output &quot;$V4_RUN&quot; --approved-existing-queue-exception
 )</code></pre></div></div></section><section class="step" id="allocate"><div class="num">03</div><div class="body"><header class="step-head"><h2>Request the approved three hours once</h2><span class="chip safe">Same login shell</span></header><p>Admission is repeated immediately before salloc. The one-attempt marker prevents duplicate requests. Wait for the allocation grant; do not repeat this command while waiting. If submission fails, preserve the marker and send the error for inspection.</p><div class="code"><button class="copy" type="button" aria-label="Copy Request the approved three hours once">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=aab61590c6aa05ad088e4069cfc9f0f84e7eb02a
+  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
   V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
   V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
   export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
@@ -225,13 +225,13 @@ config = json.loads(raw)
 if receipt[&#x27;config_sha256&#x27;] != hashlib.sha256(raw).hexdigest() or config[&#x27;walltime&#x27;] != &#x27;03:00:00&#x27;:
     raise SystemExit(&#x27;Verified three-hour preparation required&#x27;)
 PYVERIFY
-  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; check --output &quot;$V4_RUN&quot;
+  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; check --output &quot;$V4_RUN&quot; --approved-existing-queue-exception
   ( set -o noclobber; printf &#x27;%s\n&#x27; &#x27;One new 03:00:00 allocation requested by Valerian&#x27; &gt; &quot;$V4_RUN/ALLOCATION_ATTEMPTED&quot; )
   salloc --account=hk-project-p0026831 --partition=accelerated --nodes=1 --ntasks=1 --cpus-per-task=32 --gres=gpu:4 --mem=0 --exclusive --time=03:00:00 --job-name=geodml-gemma-si-v4
 )</code></pre></div></div></section><section class="step" id="compute"><div class="num">04</div><div class="body"><header class="step-head"><h2>Enter the newly allocated compute node</h2><span class="chip safe">New allocation shell</span></header><p>Run only after the new grant. This srun is a step within that allocation. Skip it if already on the allocated compute node. Keep the allocation-owning shell open.</p><div class="code"><button class="copy" type="button" aria-label="Copy Enter the newly allocated compute node">Copy</button><pre><code>srun --jobid &quot;${SLURM_JOB_ID:?Wait for the new salloc grant}&quot; --ntasks=1 --cpus-per-task=32 --pty bash -l</code></pre></div></div></section><section class="step" id="run"><div class="num">05</div><div class="body"><header class="step-head"><h2>Run the finite SI-v4 comparison</h2><span class="chip safe">New allocated compute shell</span></header><p>The runner validates the three-hour allocation, clean pinned code and GPU boundary, and uses Slurm’s actual end time with a three-minute outer drain margin. The five-pass queue is v4-pass1, v3-bridge, constructed diagnostics, v4-pass2 and v4-pass3. A completed queue does not establish semantic validity. Do not repeat the launch after partial work; inspect the artifacts.</p><div class="code"><button class="copy" type="button" aria-label="Copy Run the finite SI-v4 comparison">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=aab61590c6aa05ad088e4069cfc9f0f84e7eb02a
+  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
   V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
   V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
   export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
@@ -256,7 +256,7 @@ PYVERIFY
 )</code></pre></div></div></section><section class="step" id="logs"><div class="num">06</div><div class="body"><header class="step-head"><h2>Inspect summaries and logs</h2><span class="chip safe">Compute or separate login shell</span></header><p>Send V4_EXIT and these summaries. This reads the new three-hour directory only. It changes no job and closes no shell.</p><div class="code"><button class="copy" type="button" aria-label="Copy Inspect summaries and logs">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=aab61590c6aa05ad088e4069cfc9f0f84e7eb02a
+  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
   V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
   V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
   export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
@@ -469,7 +469,7 @@ except (OSError, subprocess.SubprocessError, ValueError) as error:
     print(&quot;COUNTS_UNAVAILABLE:&quot;, str(error))
     if isinstance(error, subprocess.CalledProcessError):
         print(error.stderr.strip())
-PY</code></pre></div><p class="look">Shows COMPLETED, FAILED, RUNNING and PENDING, plus cancelled, timed-out and other states separately. FAILED means the Slurm FAILED state; it does not include TIMEOUT or CANCELLED. Accounting can lag after a job leaves the queue. Counts cover job allocations, excluding steps; retries with different job IDs count separately. Change <code>since</code> if you need older jobs. A completed allocation does not establish that all scientific tasks succeeded.</p></div></section><footer><p>Execution pin: <code>aab61590c6aa05ad088e4069cfc9f0f84e7eb02a</code>. New directory: <code>$W/reviews/gemma-si-v4-development-20261002-3h</code>. Old preparations are preserved. This page submits nothing until you paste an allocation command.</p><p>Resources: <a href="https://www.nhr.kit.edu/userdocs/horeka/batch/">HoreKa batch</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/hardware/">hardware</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/filesystems/">filesystems</a>. Refreshed for this update.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
+PY</code></pre></div><p class="look">Shows COMPLETED, FAILED, RUNNING and PENDING, plus cancelled, timed-out and other states separately. FAILED means the Slurm FAILED state; it does not include TIMEOUT or CANCELLED. Accounting can lag after a job leaves the queue. Counts cover job allocations, excluding steps; retries with different job IDs count separately. Change <code>since</code> if you need older jobs. A completed allocation does not establish that all scientific tasks succeeded.</p></div></section><footer><p>Execution pin: <code>1bf21cb0e37374634be30a07bca9079ec18d6f87</code>. New directory: <code>$W/reviews/gemma-si-v4-development-20261002-3h</code>. Old preparations are preserved. This page submits nothing until you paste an allocation command.</p><p>Resources: <a href="https://www.nhr.kit.edu/userdocs/horeka/batch/">HoreKa batch</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/hardware/">hardware</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/filesystems/">filesystems</a>. Refreshed for this update.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {
     const code = button.parentElement.querySelector('code');
     let copied = false;
