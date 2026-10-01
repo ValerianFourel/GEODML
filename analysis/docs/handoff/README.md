@@ -59,3 +59,4 @@ supersede them with a new dated document that links back.
 - 2026-10-01 — [JUPITER live-status HTML](2026-10-01_jupiter-live-status-html_handoff.md)
 - 2026-10-01 — [JUPITER upload logs confirmed](2026-10-01_jupiter-upload-logs-confirmed_handoff.md)
 - 2026-10-01 — [Gemma 4 SI-v4 launch page reopened](2026-10-01_gemma4-v4-page-reopened_handoff.md)
+- 2026-10-01 — [Gemma 4 SI-v4 monitoring and hourly start forecasts](2026-10-01_gemma4-v4-monitoring_handoff.md)

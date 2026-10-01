@@ -47,7 +47,7 @@ nav.cycle a:hover, nav.cycle a:focus-visible { border-color: var(--accent); outl
 .loopnote { font: 400 13px/1.5 var(--text); color: var(--muted); margin: 0; }
 .step { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 16px; padding-top: 24px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
 .num { font: 500 26px/1.1 var(--mono); color: var(--accent); }
-.body { display: grid; gap: 12px; min-width: 0; }
+.body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
 .body > p { margin: 0; max-width: 72ch; }
 .step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
@@ -99,6 +99,7 @@ footer p { margin: 0; max-width: 78ch; }
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 </style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B</span><span>SI-v4 development · 1 October 2026</span></div><h1>Test the shared answer map</h1><p class="lede">Valerian, these commands prepare and test SI-v4 in your requested <strong>one-hour interactive allocation</strong>. Preparation has succeeded. Start at step 2 in your HoreKa login shell. SI-v3 and all earlier results remain available.</p></header>
+<nav class="cycle" aria-label="Monitoring shortcuts"><a href="#task-counts">Task counts</a><a href="#job-counts">Slurm jobs</a><a href="#start-forecast">Hourly start forecast</a><a href="#summaries">Summaries and logs</a></nav>
 <aside class="approval"><h2>Your one-hour test</h2><dl class="facts"><div><dt>Resources</dt><dd>1 exclusive accelerated node · 4 × A100 40 GB</dd></div><div><dt>CPU and memory</dt><dd>32 requested CPUs · whole-node memory, about 512 GiB</dd></div><div><dt>Maximum allocation cost</dt><dd>1 node-hour · 4 GPU-hours · exclusive node reserves up to 152 CPU-hours</dd></div><div><dt>Estimated work</dt><dd>20–50 minutes, including startup; 60-minute wall-time with margin</dd></div></dl><p>Prior Gemma wrappers took 8.9–10.9 minutes, with much shorter SI-v3 outputs. V4 throughput is unmeasured, so this queue may stop partially completed. Thirty minutes would halve allocation cost but could finish only the first pass. This page uses the hour you requested.</p><p>The 3× warm-compute ceiling is evaluated per completed eligible cell, including mapping and retries, with J1 separate. Three repeat passes test stability; their combined allocation cost is not that per-cell ratio.</p></aside>
 <section class="status"><h2>What will run</h2><ol><li>SI-v4 on all 40 reviewed development cells, up to 40 maps + 214 source calls + 40 J1 calls.</li><li>SI-v3 on the same inputs and judge configuration, with the matched 4096-token source budget.</li><li>48 constructed development pairs, deduplicated to 13 maps, 28 source tasks and 13 J1 tasks.</li><li>Two further uncached SI-v4 passes, regenerating the maps each time.</li></ol><p>At most 1,190 first-attempt requests before N/A filtering, plus bounded retries. The model is <code>google/gemma-4-31B-it</code>, BF16, TP4, thinking off, concurrency 4. This is a finite development queue; no fresh held-out cases are consumed.</p><p>Saved judge inputs preserve the completed answers and source records. Original generator-trace provenance remains unresolved and is labeled accordingly. No source is fetched or rewritten.</p></section><section class="status"><h2>Preparation completed</h2><p>Your 40-cell corpus inputs and 48 constructed cases are already frozen. Start at step 2 below. Do not repeat preparation, delete its folder, or alter its saved configuration.</p><p>The new helper records your approved one-run scheduling exception. Inference still uses the original pinned checkout and run.sh.</p></section><section class="step"><div class="num">02</div><div class="body"><header class="step-head"><h2>Update the helper and retry admission</h2><span class="chip safe">Login shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 2">Copy</button><pre><code>(
   set -euo pipefail
@@ -129,7 +130,163 @@ footer p { margin: 0; max-width: 78ch; }
   bash &quot;$V4_RUN/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$V4_RUN/console-job${SLURM_JOB_ID}.log&quot;
   V4_EXIT=${PIPESTATUS[0]}
   printf &#x27;V4_EXIT=%s\n&#x27; &quot;$V4_EXIT&quot;
-)</code></pre></div><p class="look">Gemma stays loaded across v4 pass 1, the v3 comparison, constructed checks, then uncached v4 passes 2 and 3. The first output may take 8–15 minutes while Gemma loads. Successful source calls and raw responses are checkpointed. Allocation-end time includes startup; remaining work stays missing at the deadline. No automatic retry allocation.</p></div></section><section class="step"><div class="num">06</div><div class="body"><header class="step-head"><h2>Collect summaries and logs</h2><span class="chip safe">Same shell or another login shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 6">Copy</button><pre><code>(
+)</code></pre></div><p class="look">Gemma stays loaded across v4 pass 1, the v3 comparison, constructed checks, then uncached v4 passes 2 and 3. The first output may take 8–15 minutes while Gemma loads. Successful source calls and raw responses are checkpointed. Allocation-end time includes startup; remaining work stays missing at the deadline. No automatic retry allocation.</p></div></section><section class="step" id="task-counts"><div class="num">5a</div><div class="body"><header class="step-head"><h2>Count judge tasks by pass</h2><span class="chip safe">Separate HoreKa login shell · read-only</span></header><p>Run this while inference continues in its original shell. It reads the existing task indexes without loading the model. Repeat manually for another snapshot. Each row covers unique map, source and J1 tasks within one pass, not answer cells or retry requests.</p><div class="code"><button class="copy" type="button" aria-label="Copy count judge tasks by pass">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  &quot;$RT/bin/python&quot; - &quot;$W/reviews/gemma-si-v4-development-20261001&quot; &lt;&lt;&#x27;PY&#x27;
+from collections import Counter
+from contextlib import closing
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import sqlite3
+import sys
+
+root = Path(sys.argv[1])
+print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat(), root)
+if not (root / &quot;config.json&quot;).is_file():
+    raise SystemExit(&quot;RUN_UNAVAILABLE: config.json missing; check the run path.&quot;)
+config = json.loads((root / &quot;config.json&quot;).read_text())
+queue = [(&quot;v4-pass1&quot;, &quot;v4-inputs&quot;), (&quot;v3-bridge&quot;, &quot;v3-inputs&quot;),
+         (&quot;constructed&quot;, &quot;constructed-inputs&quot;), (&quot;v4-pass2&quot;, &quot;v4-inputs&quot;),
+         (&quot;v4-pass3&quot;, &quot;v4-inputs&quot;)]
+attempts = sorted(root.glob(&quot;attempts/job*&quot;))
+if not attempts:
+    print(&quot;NO_ATTEMPT_RECORDED: check Slurm below; this is not a completion count.&quot;)
+for attempt in attempts:
+    print(&quot;\nATTEMPT&quot;, attempt.name)
+    for name, inputs in queue:
+        expected = sum(config[&quot;inventories&quot;][inputs][&quot;unique_tasks&quot;].values())
+        path = attempt / &quot;trial&quot; / name / &quot;control/index.sqlite&quot;
+        if not path.is_file():
+            print(name, &quot;NO_INDEX: not started or initialization incomplete; expected=&quot; + str(expected))
+            continue
+        try:
+            with closing(sqlite3.connect(path.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True, timeout=2)) as db:
+                db.execute(&quot;PRAGMA query_only=ON&quot;)
+                rows = db.execute(&quot;SELECT state,result FROM tasks&quot;).fetchall()
+            counts = Counter()
+            for state, raw in rows:
+                if state in (&quot;done&quot;, &quot;saved&quot;):
+                    result = json.loads(raw) if raw else {}
+                    outcome = (&quot;ok&quot; if result.get(&quot;ok&quot;) is True else
+                               &quot;failed&quot; if result.get(&quot;ok&quot;) is False else &quot;unknown&quot;)
+                    label = ({&quot;ok&quot;: &quot;completed&quot;, &quot;failed&quot;: &quot;failed&quot;, &quot;unknown&quot;: &quot;unknown&quot;}[outcome]
+                             if state == &quot;done&quot; else &quot;saved_&quot; + outcome)
+                else:
+                    label = state if state in (&quot;pending&quot;, &quot;waiting&quot;, &quot;running&quot;, &quot;blocked&quot;) else &quot;unknown&quot;
+                counts[label] += 1
+            fields = (&quot;completed&quot;, &quot;failed&quot;, &quot;running&quot;, &quot;pending&quot;, &quot;waiting&quot;, &quot;blocked&quot;,
+                      &quot;saved_ok&quot;, &quot;saved_failed&quot;, &quot;saved_unknown&quot;, &quot;unknown&quot;)
+            print(name, &quot;total=&quot; + str(len(rows)), &quot;expected=&quot; + str(expected),
+                  &quot; &quot;.join(key + &quot;=&quot; + str(counts[key]) for key in fields))
+            if len(rows) != expected:
+                print(&quot;  INVENTORY_MISMATCH: do not interpret missing rows as completed.&quot;)
+        except (OSError, sqlite3.Error, ValueError, AttributeError) as error:
+            print(name, &quot;UNAVAILABLE:&quot;, type(error).__name__, str(error))
+PY
+)</code></pre></div><p class="look"><code>completed</code> and <code>failed</code> split sealed results by inference outcome. <code>saved_ok</code> and <code>saved_failed</code> are written results awaiting sealing, shown separately. <code>pending</code> is queued work; <code>waiting</code> awaits an answer map; <code>blocked</code> means a source cannot be scored because its map failed, was quarantined or declared the input ineligible. <code>running</code> is the recorded task state and can remain after interruption. Check Slurm and logs below for current activity. Unknown or unavailable data is not counted as success. These counts do not establish semantic acceptance.</p></div></section><section class="step" id="job-counts"><div class="num">5b</div><div class="body"><header class="step-head"><h2>Count Slurm jobs by state</h2><span class="chip safe">Separate HoreKa login shell · read-only</span></header><p>Shows counts for all your HoreKa jobs and separately for <code>geodml-gemma-si-v4</code>, followed by that job’s details. The live queue and accounting since 1 October 2026 are separate views. Accounting counts allocations, excluding job steps.</p><div class="code"><button class="copy" type="button" aria-label="Copy count slurm jobs by state">Copy</button><pre><code>python3 - &lt;&lt;&#x27;PY&#x27;
+from collections import Counter
+from datetime import datetime, timezone
+import getpass
+import subprocess
+
+job_name = &quot;geodml-gemma-si-v4&quot;
+since = &quot;2026-10-01&quot;
+print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat())
+checks = [
+    (&quot;LIVE_QUEUE&quot;, [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--noheader&quot;,
+                    &quot;--format=%i|%j|%T|%M|%l|%R&quot;], &quot;id | name | state | elapsed | limit | node/reason&quot;),
+    (&quot;ACCOUNTING_SINCE_&quot; + since,
+     [&quot;sacct&quot;, &quot;-X&quot;, &quot;--user=&quot; + getpass.getuser(), &quot;--starttime=&quot; + since,
+      &quot;--noheader&quot;, &quot;--parsable2&quot;, &quot;--format=JobIDRaw,JobName%80,State%40,Elapsed,ExitCode&quot;],
+     &quot;id | name | state | elapsed | exit_code&quot;),
+]
+for title, command, columns in checks:
+    print(&quot;\n&quot; + title)
+    try:
+        result = subprocess.run(command, text=True, capture_output=True, check=True, timeout=30)
+        if result.stderr.strip():
+            print(&quot;SLURM_WARNING&quot;, result.stderr.strip())
+        rows = [[field.strip() for field in line.split(&quot;|&quot;)]
+                for line in result.stdout.splitlines() if line.strip()]
+        if any(len(row) &lt; 5 or not row[2] for row in rows):
+            raise ValueError(&quot;unexpected Slurm output; no counts reported&quot;)
+        rows = list({row[0]: row for row in rows}.values())
+        selected = [row for row in rows if row[1] == job_name]
+        for scope, group in ((&quot;ALL_MY_JOBS&quot;, rows), (&quot;GEMMA_V4&quot;, selected)):
+            counts = Counter(row[2].split()[0].rstrip(&quot;+&quot;) for row in group)
+            common = [&quot;COMPLETED&quot;, &quot;FAILED&quot;, &quot;RUNNING&quot;, &quot;PENDING&quot;, &quot;COMPLETING&quot;,
+                      &quot;CANCELLED&quot;, &quot;TIMEOUT&quot;, &quot;OUT_OF_MEMORY&quot;, &quot;NODE_FAIL&quot;, &quot;PREEMPTED&quot;]
+            states = common + sorted(set(counts) - set(common))
+            print(scope, &quot;total=&quot; + str(len(group)),
+                  &quot; &quot;.join(state + &quot;=&quot; + str(counts[state]) for state in states))
+        print(&quot;GEMMA_V4_DETAILS:&quot;, columns)
+        for row in selected:
+            print(&quot; | &quot;.join(row))
+        if not selected:
+            print(&quot;NO_MATCHING_JOB in this view.&quot;)
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        print(&quot;UNAVAILABLE:&quot;, str(error))
+        if isinstance(error, subprocess.CalledProcessError):
+            print(error.stderr.strip())
+PY</code></pre></div><p class="look">Use LIVE_QUEUE for running and pending allocations. Completed jobs normally disappear from that view; use ACCOUNTING for completed, failed, cancelled and timed-out allocations. Accounting can lag. Do not add the two views together. A RUNNING allocation can be loading the model or sitting in an interactive shell; it does not prove that inference is active. A COMPLETED allocation does not establish that the judge queue finished successfully. Keep the allocation-owning shell open.</p></div></section><section class="step" id="start-forecast"><div class="num">5c</div><div class="body"><header class="step-head"><h2>Forecast new job starts hour by hour</h2><span class="chip safe">Separate HoreKa login shell · read-only</span></header><p>Shows Slurm’s estimated starts for all your pending HoreKa jobs, grouped by hour, with a separate Gemma v4 count. Each hour lists the job IDs, names and estimated start times. Times use the HoreKa login host’s timezone, not your Mac’s timezone.</p><div class="code"><button class="copy" type="button" aria-label="Copy hourly start forecast">Copy</button><pre><code>python3 - &lt;&lt;&#x27;PY&#x27;
+from collections import Counter, defaultdict
+from datetime import datetime
+import os
+import subprocess
+
+now = datetime.now().astimezone()
+print(&quot;FORECAST_SNAPSHOT&quot;, now.isoformat())
+print(&quot;Times use this login host&#x27;s timezone, with UTC offset shown for each hour.&quot;)
+command = [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--states=PENDING&quot;, &quot;--start&quot;, &quot;--noheader&quot;,
+           &quot;--format=%i|%j|%T|%S|%R&quot;]
+try:
+    result = subprocess.run(command, text=True, capture_output=True, check=True, timeout=30,
+                            env={**os.environ, &quot;SLURM_TIME_FORMAT&quot;: &quot;%Y-%m-%dT%H:%M:%S&quot;})
+    if result.stderr.strip():
+        print(&quot;SLURM_WARNING&quot;, result.stderr.strip())
+    rows = [[part.strip() for part in line.split(&quot;|&quot;)]
+            for line in result.stdout.splitlines() if line.strip()]
+    if any(len(row) != 5 or row[2] != &quot;PENDING&quot; for row in rows):
+        raise ValueError(&quot;unexpected Slurm output; no forecast reported&quot;)
+    rows = list({row[0]: row for row in rows}.values())
+    hours = defaultdict(list)
+    unknown, stale = [], []
+    for row in rows:
+        try:
+            start = datetime.fromisoformat(row[3]).astimezone()
+        except ValueError:
+            unknown.append(row)
+            continue
+        if start &lt; now:
+            stale.append(row)
+        else:
+            hours[start.replace(minute=0, second=0, microsecond=0)].append((start, row))
+    print(&quot;PENDING_TOTAL&quot;, len(rows), &quot;WITH_FUTURE_ESTIMATE&quot;, sum(map(len, hours.values())),
+          &quot;NO_ESTIMATE&quot;, len(unknown), &quot;STALE_ESTIMATE&quot;, len(stale))
+    print(&quot;HOUR_START | ALL_MY_JOBS | GEMMA_V4&quot;)
+    for hour, entries in sorted(hours.items()):
+        gemma = sum(row[1] == &quot;geodml-gemma-si-v4&quot; for _, row in entries)
+        print(hour.isoformat(timespec=&quot;minutes&quot;), &quot;|&quot;, len(entries), &quot;|&quot;, gemma)
+        for start, row in sorted(entries):
+            print(&quot;  &quot;, start.isoformat(timespec=&quot;minutes&quot;), row[0], row[1], row[4])
+    for label, entries in ((&quot;NO_ESTIMATE&quot;, unknown), (&quot;STALE_ESTIMATE&quot;, stale)):
+        if entries:
+            print(label, &quot;reasons:&quot;, dict(Counter(row[4] for row in entries)))
+            for row in entries:
+                print(&quot;  &quot;, &quot; | &quot;.join(row))
+    if not rows:
+        print(&quot;NO_PENDING_JOBS for your user in this snapshot.&quot;)
+    elif not hours:
+        print(&quot;NO_FUTURE_START_ESTIMATES: Slurm has not supplied a usable schedule.&quot;)
+    print(&quot;Only hours with estimates are listed. An omitted hour is not a guarantee of no starts.&quot;)
+    print(&quot;Estimates can change with priority, dependencies and resource availability; rerun for an update.&quot;)
+except (OSError, subprocess.SubprocessError, ValueError) as error:
+    print(&quot;FORECAST_UNAVAILABLE:&quot;, str(error))
+    if isinstance(error, subprocess.CalledProcessError):
+        print(error.stderr.strip())
+PY</code></pre></div><p class="look">These are scheduler estimates, not reservations or promised start times. <code>NO_ESTIMATE</code> means Slurm has not assigned a start estimate. <code>STALE_ESTIMATE</code> means the reported start is already in the past while the job remains pending. Both are shown separately with their reasons. Only hours with future estimates appear in the table; jobs without estimates can still start in other hours. Repeat manually to refresh. This check submits or changes no jobs.</p></div></section><section class="step" id="summaries"><div class="num">06</div><div class="body"><header class="step-head"><h2>Collect summaries and logs</h2><span class="chip safe">Same shell or another login shell</span></header><div class="code"><button class="copy" type="button" aria-label="Copy step 6">Copy</button><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
   V4_PIN=9aa5d90e0b310f3eea587a60787727787ab92757
@@ -146,9 +303,14 @@ for path in sorted(root.glob(&quot;attempts/job*/trial/summary.json&quot;)):
     print(&quot;QUEUE&quot;, path, path.read_text(), flush=True)
 for path in sorted(root.glob(&quot;attempts/job*/trial/*/reports/*/summary.json&quot;)):
     print(&quot;RUN_SUMMARY&quot;, path, path.read_text(), flush=True)
-for path in sorted(root.glob(&quot;attempts/job*/server.log&quot;)):
-    print(&quot;SERVER_LOG_TAIL&quot;, path, flush=True)
-    print(&quot;\n&quot;.join(path.read_text(errors=&quot;replace&quot;).splitlines()[-35:]), flush=True)
+logs = sorted(root.glob(&quot;console-job*.log&quot;)) + sorted(root.glob(&quot;attempts/job*/server.log&quot;))
+if not logs:
+    print(&quot;NO_LOGS_FOUND&quot;, root, flush=True)
+for path in logs:
+    print(&quot;LOG_TAIL&quot;, path, flush=True)
+    with path.open(&quot;rb&quot;) as stream:
+        stream.seek(max(0, path.stat().st_size - 16384))
+        print(&quot;\n&quot;.join(stream.read(16384).decode(errors=&quot;replace&quot;).splitlines()[-35:]), flush=True)
 &#x27; &quot;$V4_RUN&quot;
 )</code></pre></div><p class="look">Send V4_EXIT, STAGE, QUEUE and RUN_SUMMARY output. Full raw requests, responses, maps and cell grades remain below attempts/job&lt;id&gt;/trial/. Exit 0 means the queue finished without inference failures, not that the grades passed semantic validation. N/A, map issues and uncertainty need review even after exit 0.</p></div></section><footer><p>Admission helper: <code>f256b68809628998e7ee29b9d022b03591db1b3f</code>. Unchanged execution pin: <code>9aa5d90e0b310f3eea587a60787727787ab92757</code>. Model revision: <code>842da3794eaa0b77d5f08bae87a17459d91ff475</code>. No allocation has been submitted by Codex. This page starts no remote work until you paste the commands.</p><p>Server cleanup preserves your salloc shell. Do not close it or cancel other jobs to switch context. Use a separate login terminal for monitoring. Review partial results before requesting any continuation.</p><p>Resource references checked: <a href="https://www.nhr.kit.edu/userdocs/horeka/batch/">HoreKa batch</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/hardware/">hardware</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/filesystems/">filesystems</a>.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {
