@@ -1,0 +1,1905 @@
+{
+  "library_relative_to_workspace": "ARR_ACL_CycleOct2026/papers",
+  "review_model": "gpt-6.1-sol",
+  "verification": {
+    "papers": 93,
+    "complete_abstracts_read": 88,
+    "partial_abstracts_read": 1,
+    "abstracts_unavailable": [
+      "P001",
+      "P004",
+      "P011",
+      "P026"
+    ],
+    "pdfs": 77,
+    "pdfs_unavailable": [
+      "P001",
+      "P002",
+      "P007",
+      "P008",
+      "P010",
+      "P011",
+      "P014",
+      "P020",
+      "P026",
+      "P028",
+      "P030",
+      "P031",
+      "P046",
+      "P048",
+      "P078",
+      "P079"
+    ],
+    "topic_notes": 188,
+    "pdf_shortcuts": 161,
+    "pdf_bytes": 169235066,
+    "primary_topic_counts": {
+      "measurement-validation": 15,
+      "intent-readiness": 12,
+      "retrieval-search": 18,
+      "semantic-directions": 9,
+      "causal-statistics": 8,
+      "prompt-generation": 6,
+      "source-attribution": 9,
+      "geo-source-visibility": 7,
+      "order-ablation": 2,
+      "judge-evaluation": 7
+    },
+    "checks": [
+      "93 unique IDs and CSV rows",
+      "all summaries, relevance and rationale present",
+      "77 distinct PDF SHA-256 hashes",
+      "77 PDFs readable by pdfinfo with positive page count",
+      "all topic note/PDF links resolve",
+      "all topic PDF shortcuts target canonical files",
+      "source bibliography byte-identical"
+    ]
+  },
+  "papers": [
+    {
+      "key": "P001",
+      "title": "Construct validity in psychological tests.",
+      "year": 1955,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [],
+      "abstract_status": "unavailable",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "metadata_provisional",
+      "topic_note_paths": [
+        "measurement-validation/P001_1955_Construct_validity_in_psychological_tests.md"
+      ]
+    },
+    {
+      "key": "P002",
+      "title": "Inside the search process: Information seeking from the user's perspective",
+      "year": 1991,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P002_1991_Inside_the_search_process_Information_seeking_from_the_user_s_perspective.md",
+        "retrieval-search/P002_1991_Inside_the_search_process_Information_seeking_from_the_user_s_perspective.md"
+      ]
+    },
+    {
+      "key": "P003",
+      "title": "Implementation intentions and effective goal pursuit.",
+      "year": 1997,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://kops.uni-konstanz.de/server/api/core/bitstreams/7f570024-1503-43d7-b519-c359f6369c41/content",
+      "pdf_path": "_library/P003/paper.pdf",
+      "pdf_sha256": "b91a788299de4ebc0534c2a173f940739ae92c780b88df5e2febd7c0198b59f0",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P003_1997_Implementation_intentions_and_effective_goal_pursuit.md"
+      ]
+    },
+    {
+      "key": "P004",
+      "title": "Deliberative versus implemental mindsets in the control of action",
+      "year": 1999,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [],
+      "abstract_status": "unavailable",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://kops.uni-konstanz.de/bitstreams/9783678d-13b5-4c07-89a6-c4a01d6a3999/download",
+      "pdf_path": "_library/P004/paper.pdf",
+      "pdf_sha256": "bb62467f83b408cfd3d7b14cfdaac04829091dcd34b6c9ca916f89ebe0493f99",
+      "tag_basis": "metadata_provisional",
+      "topic_note_paths": [
+        "intent-readiness/P004_1999_Deliberative_versus_implemental_mindsets_in_the_control_of_action.md"
+      ]
+    },
+    {
+      "key": "P005",
+      "title": "Implementation intentions: Strong effects of simple plans.",
+      "year": 1999,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://kops.uni-konstanz.de/server/api/core/bitstreams/14cc2a36-5f01-4dc1-b9ca-f2d0ca0c8930/content",
+      "pdf_path": "_library/P005/paper.pdf",
+      "pdf_sha256": "cb6c662aa5c768432ef9693b3ef6147e1fe0744053482d734d99b846daa7bee5",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P005_1999_Implementation_intentions_Strong_effects_of_simple_plans.md"
+      ]
+    },
+    {
+      "key": "P006",
+      "title": "A taxonomy of web search",
+      "year": 2002,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://sigir.org/files/forum/F2002/broder.pdf",
+      "pdf_path": "_library/P006/paper.pdf",
+      "pdf_sha256": "a3437059ac5d00a1855d42907c70d80b3acfff359417c83f58bcd447b3a7d4da",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P006_2002_A_taxonomy_of_web_search.md",
+        "retrieval-search/P006_2002_A_taxonomy_of_web_search.md"
+      ]
+    },
+    {
+      "key": "P007",
+      "title": "Effects of Deliberative and Implemental Mindsets on Persistence in Goal-Directed Behavior",
+      "year": 2002,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P007_2002_Effects_of_Deliberative_and_Implemental_Mindsets_on_Persistence_in_Goal_Directed_Behavior.md"
+      ]
+    },
+    {
+      "key": "P008",
+      "title": "The Effects of Mindset on Behavior: Self-Regulation in Deliberative and Implemental Frames of Mind",
+      "year": 2003,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P008_2003_The_Effects_of_Mindset_on_Behavior_Self_Regulation_in_Deliberative_and_Implemental_Frames_of_Mind.md"
+      ]
+    },
+    {
+      "key": "P009",
+      "title": "The Interplay Between Goal Intentions and Implementation Intentions",
+      "year": 2004,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://kops.uni-konstanz.de/server/api/core/bitstreams/6fcdb341-4a9d-45db-bfe9-1d132828b60f/content",
+      "pdf_path": "_library/P009/paper.pdf",
+      "pdf_sha256": "df23c094b9249324de6f302749b429bf23d0f7b478d0cd3aa9679b37f352b051",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P009_2004_The_Interplay_Between_Goal_Intentions_and_Implementation_Intentions.md"
+      ]
+    },
+    {
+      "key": "P010",
+      "title": "Exploratory search",
+      "year": 2006,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "intent-readiness"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P010_2006_Exploratory_search.md",
+        "retrieval-search/P010_2006_Exploratory_search.md"
+      ]
+    },
+    {
+      "key": "P011",
+      "title": "How do implementation intentions promote goal attainment? A test of component processes",
+      "year": 2006,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [],
+      "abstract_status": "unavailable",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "metadata_provisional",
+      "topic_note_paths": [
+        "intent-readiness/P011_2006_How_do_implementation_intentions_promote_goal_attainment_A_test_of_component_processes.md"
+      ]
+    },
+    {
+      "key": "P012",
+      "title": "Implementation Intentions and Goal Achievement: A Meta‐analysis of Effects and Processes",
+      "year": 2006,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://kops.uni-konstanz.de/bitstreams/d4f710b4-a505-49ef-a831-5b8d7675100b/download",
+      "pdf_path": "_library/P012/paper.pdf",
+      "pdf_sha256": "ab804917b63cd8b07a0caf1c0a89d27a18e14ad8ab49826a20de15b82ad904c9",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P012_2006_Implementation_Intentions_and_Goal_Achievement_A_Metaanalysis_of_Effects_and_Processes.md",
+        "measurement-validation/P012_2006_Implementation_Intentions_and_Goal_Achievement_A_Metaanalysis_of_Effects_and_Processes.md"
+      ]
+    },
+    {
+      "key": "P013",
+      "title": "Determining the informational, navigational, and transactional intent of Web queries",
+      "year": 2008,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [
+        "retrieval-search",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://faculty.ist.psu.edu/jjansen/academic/pubs/jansen_user_intent.pdf",
+      "pdf_path": "_library/P013/paper.pdf",
+      "pdf_sha256": "9557a01e4b93f72d518a96d5f6d259c8a1adb992d12ee6f2cc825b6660340ea5",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P013_2008_Determining_the_informational_navigational_and_transactional_intent_of_Web_queries.md",
+        "measurement-validation/P013_2008_Determining_the_informational_navigational_and_transactional_intent_of_Web_queries.md",
+        "retrieval-search/P013_2008_Determining_the_informational_navigational_and_transactional_intent_of_Web_queries.md"
+      ]
+    },
+    {
+      "key": "P014",
+      "title": "The Role of Deliberative Versus Implemental Mindsets in Time Prediction and Task Accomplishment",
+      "year": 2015,
+      "primary_topic": "intent-readiness",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P014_2015_The_Role_of_Deliberative_Versus_Implemental_Mindsets_in_Time_Prediction_and_Task_Accomplishment.md",
+        "measurement-validation/P014_2015_The_Role_of_Deliberative_Versus_Implemental_Mindsets_in_Time_Prediction_and_Task_Accomplishment.md"
+      ]
+    },
+    {
+      "key": "P015",
+      "title": "Interpretability Beyond Feature Attribution: Quantitative Testing with Concept Activation Vectors (TCAV)",
+      "year": 2017,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/1711.11279",
+      "pdf_path": "_library/P015/paper.pdf",
+      "pdf_sha256": "1b89c87dc4971bdf8797e028566c292866944ea646eefe2e70144a1165b0e0ee",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P015_2017_Interpretability_Beyond_Feature_Attribution_Quantitative_Testing_with_Concept_Activation_Vectors_TCAV.md",
+        "measurement-validation/P015_2017_Interpretability_Beyond_Feature_Attribution_Quantitative_Testing_with_Concept_Activation_Vectors_TCAV.md"
+      ]
+    },
+    {
+      "key": "P016",
+      "title": "Designing and Interpreting Probes with Control Tasks",
+      "year": 2019,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/D19-1275.pdf",
+      "pdf_path": "_library/P016/paper.pdf",
+      "pdf_sha256": "557f5d7dc18b17d641c9e54c91c0071b00612f9ec051fc788bcc7117f4d194d0",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P016_2019_Designing_and_Interpreting_Probes_with_Control_Tasks.md",
+        "measurement-validation/P016_2019_Designing_and_Interpreting_Probes_with_Control_Tasks.md"
+      ]
+    },
+    {
+      "key": "P017",
+      "title": "Similarity of Neural Network Representations Revisited",
+      "year": 2019,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/1905.00414",
+      "pdf_path": "_library/P017/paper.pdf",
+      "pdf_sha256": "ed7da67c8a73d90966d91f0d4e9c006e9113d113fe16d77fbde1022a90c38bea",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P017_2019_Similarity_of_Neural_Network_Representations_Revisited.md",
+        "measurement-validation/P017_2019_Similarity_of_Neural_Network_Representations_Revisited.md"
+      ]
+    },
+    {
+      "key": "P018",
+      "title": "Null It Out: Guarding Protected Attributes by Iterative Nullspace Projection",
+      "year": 2020,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2004.07667",
+      "pdf_path": "_library/P018/paper.pdf",
+      "pdf_sha256": "8e2525d689342e3ecabc801c53681a7b62e040ad8063c3d8d0dbc35ae60c3d90",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P018_2020_Null_It_Out_Guarding_Protected_Attributes_by_Iterative_Nullspace_Projection.md",
+        "measurement-validation/P018_2020_Null_It_Out_Guarding_Protected_Attributes_by_Iterative_Nullspace_Projection.md"
+      ]
+    },
+    {
+      "key": "P019",
+      "title": "SimCSE: Simple Contrastive Learning of Sentence Embeddings",
+      "year": 2021,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2021.emnlp-main.552.pdf",
+      "pdf_path": "_library/P019/paper.pdf",
+      "pdf_sha256": "b6bb8b5d1356095a02aae8e5e41265fde03f8f02101972e338bad0b7715f12fc",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P019_2021_SimCSE_Simple_Contrastive_Learning_of_Sentence_Embeddings.md",
+        "measurement-validation/P019_2021_SimCSE_Simple_Contrastive_Learning_of_Sentence_Embeddings.md"
+      ]
+    },
+    {
+      "key": "P020",
+      "title": "Probing Classifiers: Promises, Shortcomings, and Advances",
+      "year": 2022,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P020_2022_Probing_Classifiers_Promises_Shortcomings_and_Advances.md",
+        "measurement-validation/P020_2022_Probing_Classifiers_Promises_Shortcomings_and_Advances.md"
+      ]
+    },
+    {
+      "key": "P021",
+      "title": "LEACE: Perfect linear concept erasure in closed form",
+      "year": 2023,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2306.03819",
+      "pdf_path": "_library/P021/paper.pdf",
+      "pdf_sha256": "0e748cfc8d0a9d630d18b63d8126bcc0346dc339ca8a690b9322803fc9a78d86",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P021_2023_LEACE_Perfect_linear_concept_erasure_in_closed_form.md",
+        "measurement-validation/P021_2023_LEACE_Perfect_linear_concept_erasure_in_closed_form.md"
+      ]
+    },
+    {
+      "key": "P022",
+      "title": "Representation Engineering: A Top-Down Approach to AI Transparency",
+      "year": 2023,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2310.01405",
+      "pdf_path": "_library/P022/paper.pdf",
+      "pdf_sha256": "5cd54799f795433bd6652231e0d113dead887f21c798148619fc0ce6f0fd589f",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P022_2023_Representation_Engineering_A_Top_Down_Approach_to_AI_Transparency.md",
+        "measurement-validation/P022_2023_Representation_Engineering_A_Top_Down_Approach_to_AI_Transparency.md"
+      ]
+    },
+    {
+      "key": "P023",
+      "title": "The Linear Representation Hypothesis and the Geometry of Large Language Models",
+      "year": 2023,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2311.03658",
+      "pdf_path": "_library/P023/paper.pdf",
+      "pdf_sha256": "a3d1be055237f65e7573e519845ba213f39bc67bef9b30441fd450983f6ef136",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P023_2023_The_Linear_Representation_Hypothesis_and_the_Geometry_of_Large_Language_Models.md",
+        "measurement-validation/P023_2023_The_Linear_Representation_Hypothesis_and_the_Geometry_of_Large_Language_Models.md"
+      ]
+    },
+    {
+      "key": "P024",
+      "title": "LLM2Vec: Large Language Models Are Secretly Powerful Text Encoders",
+      "year": 2024,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2404.05961",
+      "pdf_path": "_library/P024/paper.pdf",
+      "pdf_sha256": "2272c8fb9f485f01e3474904df6ed5a28db7c981fb5dc538a4d06b9b65d532a1",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P024_2024_LLM2Vec_Large_Language_Models_Are_Secretly_Powerful_Text_Encoders.md",
+        "retrieval-search/P024_2024_LLM2Vec_Large_Language_Models_Are_Secretly_Powerful_Text_Encoders.md"
+      ]
+    },
+    {
+      "key": "P025",
+      "title": "LLM2Vec-Gen: Generative Embeddings from Large Language Models",
+      "year": 2026,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2603.10913",
+      "pdf_path": "_library/P025/paper.pdf",
+      "pdf_sha256": "2c2f9a79395028ff2dd2c1bac49df9fddb3ce61ff12fb18d3b5495ddeed663c5",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P025_2026_LLM2Vec_Gen_Generative_Embeddings_from_Large_Language_Models.md",
+        "retrieval-search/P025_2026_LLM2Vec_Gen_Generative_Embeddings_from_Large_Language_Models.md"
+      ]
+    },
+    {
+      "key": "P026",
+      "title": "Convergent and discriminant validation by the multitrait-multimethod matrix.",
+      "year": 1959,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [],
+      "abstract_status": "unavailable",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "metadata_provisional",
+      "topic_note_paths": [
+        "measurement-validation/P026_1959_Convergent_and_discriminant_validation_by_the_multitrait_multimethod_matrix.md"
+      ]
+    },
+    {
+      "key": "P027",
+      "title": "A Rationale and Test for the Number of Factors in Factor Analysis",
+      "year": 1965,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "causal-statistics"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "http://link.springer.com/content/pdf/10.1007/BF02289447.pdf",
+      "pdf_path": "_library/P027/paper.pdf",
+      "pdf_sha256": "700c1b6476b178dcea9ba842c74ec64a4286b7f94b63b456dbb0fe4f5f770886",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P027_1965_A_Rationale_and_Test_for_the_Number_of_Factors_in_Factor_Analysis.md",
+        "causal-statistics/P027_1965_A_Rationale_and_Test_for_the_Number_of_Factors_in_Factor_Analysis.md"
+      ]
+    },
+    {
+      "key": "P028",
+      "title": "A Generalized Solution of the Orthogonal Procrustes Problem",
+      "year": 1966,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P028_1966_A_Generalized_Solution_of_the_Orthogonal_Procrustes_Problem.md",
+        "measurement-validation/P028_1966_A_Generalized_Solution_of_the_Orthogonal_Procrustes_Problem.md"
+      ]
+    },
+    {
+      "key": "P029",
+      "title": "Measurement Invariance, Factor Analysis and Factorial Invariance",
+      "year": 1993,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "http://link.springer.com/content/pdf/10.1007/BF02294825.pdf",
+      "pdf_path": "_library/P029/paper.pdf",
+      "pdf_sha256": "59c597a5a7ea0cef4336b0be933e20d06512827388eadd359794855d158b50f4",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P029_1993_Measurement_Invariance_Factor_Analysis_and_Factorial_Invariance.md"
+      ]
+    },
+    {
+      "key": "P030",
+      "title": "Statistical Modeling: The Two Cultures (with comments and a rejoinder by the author)",
+      "year": 2001,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P030_2001_Statistical_Modeling_The_Two_Cultures_with_comments_and_a_rejoinder_by_the_author.md",
+        "causal-statistics/P030_2001_Statistical_Modeling_The_Two_Cultures_with_comments_and_a_rejoinder_by_the_author.md"
+      ]
+    },
+    {
+      "key": "P031",
+      "title": "Measurement invariance conventions and reporting: The state of the art and future directions for psychological research",
+      "year": 2016,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P031_2016_Measurement_invariance_conventions_and_reporting_The_state_of_the_art_and_future_directions_for_psychological_resea.md"
+      ]
+    },
+    {
+      "key": "P032",
+      "title": "Beyond Accuracy: Behavioral Testing of NLP models with CheckList",
+      "year": 2020,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2005.04118",
+      "pdf_path": "_library/P032/paper.pdf",
+      "pdf_sha256": "357288dc12a905fa16cf5168e56957e37c5a5a253f30ca205cf3863c42a67a07",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P032_2020_Beyond_Accuracy_Behavioral_Testing_of_NLP_models_with_CheckList.md"
+      ]
+    },
+    {
+      "key": "P033",
+      "title": "Plug and Play Language Models: A Simple Approach to Controlled Text Generation",
+      "year": 2019,
+      "primary_topic": "prompt-generation",
+      "secondary_topics": [
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/1912.02164",
+      "pdf_path": "_library/P033/paper.pdf",
+      "pdf_sha256": "2029ef0fddf38ef72b75e6c8363f7b0f95c35355969167ff9ad57746f04f56a5",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P033_2019_Plug_and_Play_Language_Models_A_Simple_Approach_to_Controlled_Text_Generation.md",
+        "prompt-generation/P033_2019_Plug_and_Play_Language_Models_A_Simple_Approach_to_Controlled_Text_Generation.md"
+      ]
+    },
+    {
+      "key": "P034",
+      "title": "Evaluating Models’ Local Decision Boundaries via Contrast Sets",
+      "year": 2020,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2020.findings-emnlp.117.pdf",
+      "pdf_path": "_library/P034/paper.pdf",
+      "pdf_sha256": "5f47c76444f12bd33175e5cfb4b387895b2794970c619542c5027af3240844a4",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P034_2020_Evaluating_Models_Local_Decision_Boundaries_via_Contrast_Sets.md"
+      ]
+    },
+    {
+      "key": "P035",
+      "title": "FUDGE: Controlled Text Generation With Future Discriminators",
+      "year": 2021,
+      "primary_topic": "prompt-generation",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2021.naacl-main.276.pdf",
+      "pdf_path": "_library/P035/paper.pdf",
+      "pdf_sha256": "835e301a4982d0dc615310d566e587d90d6c0da1bcff9f75d9faef3108d16107",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P035_2021_FUDGE_Controlled_Text_Generation_With_Future_Discriminators.md"
+      ]
+    },
+    {
+      "key": "P036",
+      "title": "Self-Instruct: Aligning Language Models with Self-Generated Instructions",
+      "year": 2023,
+      "primary_topic": "prompt-generation",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.acl-long.754.pdf",
+      "pdf_path": "_library/P036/paper.pdf",
+      "pdf_sha256": "87f1d8476fa041d0c6b09b9239253ed698c4efac973347aebe83c487eab91c78",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P036_2023_Self_Instruct_Aligning_Language_Models_with_Self_Generated_Instructions.md",
+        "prompt-generation/P036_2023_Self_Instruct_Aligning_Language_Models_with_Self_Generated_Instructions.md"
+      ]
+    },
+    {
+      "key": "P037",
+      "title": "Text Embeddings Reveal (Almost) As Much As Text",
+      "year": 2023,
+      "primary_topic": "semantic-directions",
+      "secondary_topics": [
+        "prompt-generation",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.emnlp-main.765.pdf",
+      "pdf_path": "_library/P037/paper.pdf",
+      "pdf_sha256": "12c7cd97fc7cd17ec0c07abce932639c790748c43393c5b0ee0e6cbe66e87b78",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P037_2023_Text_Embeddings_Reveal_Almost_As_Much_As_Text.md",
+        "measurement-validation/P037_2023_Text_Embeddings_Reveal_Almost_As_Much_As_Text.md",
+        "prompt-generation/P037_2023_Text_Embeddings_Reveal_Almost_As_Much_As_Text.md"
+      ]
+    },
+    {
+      "key": "P038",
+      "title": "WizardLM: Empowering large pre-trained language models to follow complex instructions",
+      "year": 2023,
+      "primary_topic": "prompt-generation",
+      "secondary_topics": [
+        "judge-evaluation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2304.12244",
+      "pdf_path": "_library/P038/paper.pdf",
+      "pdf_sha256": "e5fc7a244d34703bd77c4cc73b2bf1daa8d84160a90af37cacabfa8573bdd538",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P038_2023_WizardLM_Empowering_large_pre_trained_language_models_to_follow_complex_instructions.md",
+        "judge-evaluation/P038_2023_WizardLM_Empowering_large_pre_trained_language_models_to_follow_complex_instructions.md"
+      ]
+    },
+    {
+      "key": "P039",
+      "title": "AI models collapse when trained on recursively generated data",
+      "year": 2024,
+      "primary_topic": "prompt-generation",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://www.nature.com/articles/s41586-024-07566-y.pdf",
+      "pdf_path": "_library/P039/paper.pdf",
+      "pdf_sha256": "474c820b5224b6bfa337e98a0ff942eca4b7808b44236121af828c6122a860ae",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P039_2024_AI_models_collapse_when_trained_on_recursively_generated_data.md",
+        "prompt-generation/P039_2024_AI_models_collapse_when_trained_on_recursively_generated_data.md"
+      ]
+    },
+    {
+      "key": "P040",
+      "title": "Evaluating Verifiability in Generative Search Engines",
+      "year": 2023,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "measurement-validation",
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.findings-emnlp.467.pdf",
+      "pdf_path": "_library/P040/paper.pdf",
+      "pdf_sha256": "2ca08791359f27082d6210b4dec0ed84fe8c7ad6dc70fa57030f1d0066a28c87",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P040_2023_Evaluating_Verifiability_in_Generative_Search_Engines.md",
+        "retrieval-search/P040_2023_Evaluating_Verifiability_in_Generative_Search_Engines.md",
+        "source-attribution/P040_2023_Evaluating_Verifiability_in_Generative_Search_Engines.md"
+      ]
+    },
+    {
+      "key": "P041",
+      "title": "Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "prompt-generation",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2304.09542",
+      "pdf_path": "_library/P041/paper.pdf",
+      "pdf_sha256": "3a2ca388b4a2fb17e58551f1a77b2c7decbbf6767255382cfa2d9e435c7a7e70",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P041_2023_Is_ChatGPT_Good_at_Search_Investigating_Large_Language_Models_as_Re_Ranking_Agents.md",
+        "prompt-generation/P041_2023_Is_ChatGPT_Good_at_Search_Investigating_Large_Language_Models_as_Re_Ranking_Agents.md",
+        "retrieval-search/P041_2023_Is_ChatGPT_Good_at_Search_Investigating_Large_Language_Models_as_Re_Ranking_Agents.md"
+      ]
+    },
+    {
+      "key": "P042",
+      "title": "Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection",
+      "year": 2023,
+      "primary_topic": "prompt-generation",
+      "secondary_topics": [
+        "retrieval-search",
+        "geo-source-visibility"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2302.12173",
+      "pdf_path": "_library/P042/paper.pdf",
+      "pdf_sha256": "428e23e8c7e4f89310e113e38d082b3f65548a8b887188ebc536099061800e81",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P042_2023_Not_What_You_ve_Signed_Up_For_Compromising_Real_World_LLM_Integrated_Applications_with_Indirect_Prompt_Injection.md",
+        "geo-source-visibility/P042_2023_Not_What_You_ve_Signed_Up_For_Compromising_Real_World_LLM_Integrated_Applications_with_Indirect_Prompt_Injection.md",
+        "retrieval-search/P042_2023_Not_What_You_ve_Signed_Up_For_Compromising_Real_World_LLM_Integrated_Applications_with_Indirect_Prompt_Injection.md"
+      ]
+    },
+    {
+      "key": "P043",
+      "title": "RankZephyr: Effective and Robust Zero-Shot Listwise Reranking is a Breeze!",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "order-ablation",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2312.02724",
+      "pdf_path": "_library/P043/paper.pdf",
+      "pdf_sha256": "aa198a0df997f39ecd064670ed17f62b22fc567502890832ba1206de99be464b",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P043_2023_RankZephyr_Effective_and_Robust_Zero_Shot_Listwise_Reranking_is_a_Breeze.md",
+        "retrieval-search/P043_2023_RankZephyr_Effective_and_Robust_Zero_Shot_Listwise_Reranking_is_a_Breeze.md",
+        "order-ablation/P043_2023_RankZephyr_Effective_and_Robust_Zero_Shot_Listwise_Reranking_is_a_Breeze.md"
+      ]
+    },
+    {
+      "key": "P044",
+      "title": "GEO: Generative Engine Optimization",
+      "year": 2024,
+      "primary_topic": "geo-source-visibility",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2311.09735",
+      "pdf_path": "_library/P044/paper.pdf",
+      "pdf_sha256": "beb95332fcbc6f32078c98cd37d0b8ea44f91968d11262344cf452beecf41f41",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P044_2024_GEO_Generative_Engine_Optimization.md",
+        "geo-source-visibility/P044_2024_GEO_Generative_Engine_Optimization.md"
+      ]
+    },
+    {
+      "key": "P045",
+      "title": "Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting",
+      "year": 2024,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "prompt-generation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2024.findings-naacl.97.pdf",
+      "pdf_path": "_library/P045/paper.pdf",
+      "pdf_sha256": "2449d1f79f102f1b2c79f8b2b535e13419c5e10a0cf1edee17cd4811daa35354",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P045_2024_Large_Language_Models_are_Effective_Text_Rankers_with_Pairwise_Ranking_Prompting.md",
+        "retrieval-search/P045_2024_Large_Language_Models_are_Effective_Text_Rankers_with_Pairwise_Ranking_Prompting.md"
+      ]
+    },
+    {
+      "key": "P046",
+      "title": "Automatic Document Editing for Improved Ranking",
+      "year": 2025,
+      "primary_topic": "geo-source-visibility",
+      "secondary_topics": [
+        "retrieval-search",
+        "prompt-generation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P046_2025_Automatic_Document_Editing_for_Improved_Ranking.md",
+        "geo-source-visibility/P046_2025_Automatic_Document_Editing_for_Improved_Ranking.md",
+        "retrieval-search/P046_2025_Automatic_Document_Editing_for_Improved_Ranking.md"
+      ]
+    },
+    {
+      "key": "P047",
+      "title": "Generative Engine Optimization: How to Dominate AI Search",
+      "year": 2025,
+      "primary_topic": "geo-source-visibility",
+      "secondary_topics": [
+        "retrieval-search",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2509.08919",
+      "pdf_path": "_library/P047/paper.pdf",
+      "pdf_sha256": "d68922e1275913c94198e0b0001f4585f22728aab5b31737839ce234896011dc",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P047_2025_Generative_Engine_Optimization_How_to_Dominate_AI_Search.md",
+        "geo-source-visibility/P047_2025_Generative_Engine_Optimization_How_to_Dominate_AI_Search.md",
+        "retrieval-search/P047_2025_Generative_Engine_Optimization_How_to_Dominate_AI_Search.md"
+      ]
+    },
+    {
+      "key": "P048",
+      "title": "Position: On the Risks of Generative Engine Optimization in the Era of LLMs",
+      "year": 2025,
+      "primary_topic": "geo-source-visibility",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "geo-source-visibility/P048_2025_Position_On_the_Risks_of_Generative_Engine_Optimization_in_the_Era_of_LLMs.md",
+        "retrieval-search/P048_2025_Position_On_the_Risks_of_Generative_Engine_Optimization_in_the_Era_of_LLMs.md"
+      ]
+    },
+    {
+      "key": "P049",
+      "title": "Diagnosing and Repairing Citation Failures in Generative Engine Optimization",
+      "year": 2026,
+      "primary_topic": "geo-source-visibility",
+      "secondary_topics": [
+        "source-attribution",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2603.09296",
+      "pdf_path": "_library/P049/paper.pdf",
+      "pdf_sha256": "b225f785b610efaee0d233c8bb9a264cbee5532d0c27d3c267297087f1d6bbda",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P049_2026_Diagnosing_and_Repairing_Citation_Failures_in_Generative_Engine_Optimization.md",
+        "geo-source-visibility/P049_2026_Diagnosing_and_Repairing_Citation_Failures_in_Generative_Engine_Optimization.md",
+        "source-attribution/P049_2026_Diagnosing_and_Repairing_Citation_Failures_in_Generative_Engine_Optimization.md"
+      ]
+    },
+    {
+      "key": "P050",
+      "title": "E-GEO: A Testbed for Generative Engine Optimization in E-Commerce",
+      "year": 2026,
+      "primary_topic": "geo-source-visibility",
+      "secondary_topics": [
+        "prompt-generation",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2511.20867",
+      "pdf_path": "_library/P050/paper.pdf",
+      "pdf_sha256": "8f19f19df929d9e798e70a902d844c70a552f4d13f830b63af1847b31475f38b",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P050_2026_E_GEO_A_Testbed_for_Generative_Engine_Optimization_in_E_Commerce.md",
+        "prompt-generation/P050_2026_E_GEO_A_Testbed_for_Generative_Engine_Optimization_in_E_Commerce.md",
+        "geo-source-visibility/P050_2026_E_GEO_A_Testbed_for_Generative_Engine_Optimization_in_E_Commerce.md"
+      ]
+    },
+    {
+      "key": "P051",
+      "title": "From Citation Selection to Citation Absorption: A Measurement Framework for Generative Engine Optimization Across AI Search Platforms",
+      "year": 2026,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "geo-source-visibility",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2604.25707",
+      "pdf_path": "_library/P051/paper.pdf",
+      "pdf_sha256": "943c6744d36be3537969b13df0ab5c9087f6189b8d5e8aa24f135f9d3cf245cb",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P051_2026_From_Citation_Selection_to_Citation_Absorption_A_Measurement_Framework_for_Generative_Engine_Optimization_Across_AI.md",
+        "geo-source-visibility/P051_2026_From_Citation_Selection_to_Citation_Absorption_A_Measurement_Framework_for_Generative_Engine_Optimization_Across_AI.md",
+        "source-attribution/P051_2026_From_Citation_Selection_to_Citation_Absorption_A_Measurement_Framework_for_Generative_Engine_Optimization_Across_AI.md"
+      ]
+    },
+    {
+      "key": "P052",
+      "title": "Structural Feature Engineering for Generative Engine Optimization: How Content Structure Shapes Citation Behavior",
+      "year": 2026,
+      "primary_topic": "geo-source-visibility",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2603.29979",
+      "pdf_path": "_library/P052/paper.pdf",
+      "pdf_sha256": "b6f2d1b5ede424168d886904ee8f96c4df6d0c5ed8eb63894f7316153b18fca9",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P052_2026_Structural_Feature_Engineering_for_Generative_Engine_Optimization_How_Content_Structure_Shapes_Citation_Behavior.md",
+        "geo-source-visibility/P052_2026_Structural_Feature_Engineering_for_Generative_Engine_Optimization_How_Content_Structure_Shapes_Citation_Behavior.md"
+      ]
+    },
+    {
+      "key": "P053",
+      "title": "Dense Passage Retrieval for Open-Domain Question Answering",
+      "year": 2020,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2020.emnlp-main.550.pdf",
+      "pdf_path": "_library/P053/paper.pdf",
+      "pdf_sha256": "2abfc7991519be2b8ce30215905516fdb593218b7bf59e50ece0d8a088a7c4d5",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P053_2020_Dense_Passage_Retrieval_for_Open_Domain_Question_Answering.md"
+      ]
+    },
+    {
+      "key": "P054",
+      "title": "Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering",
+      "year": 2020,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "source-attribution"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2007.01282",
+      "pdf_path": "_library/P054/paper.pdf",
+      "pdf_sha256": "f1ee7e927c3fb31beb2146f8c205692a91b40dadd65d80e025c6686e4d430953",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P054_2020_Leveraging_Passage_Retrieval_with_Generative_Models_for_Open_Domain_Question_Answering.md",
+        "source-attribution/P054_2020_Leveraging_Passage_Retrieval_with_Generative_Models_for_Open_Domain_Question_Answering.md"
+      ]
+    },
+    {
+      "key": "P055",
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "year": 2020,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "source-attribution"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2005.11401",
+      "pdf_path": "_library/P055/paper.pdf",
+      "pdf_sha256": "23e3249e9a1e75418d82efecab0ea8c4d033b89c93742f63208d47ce01f21233",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P055_2020_Retrieval_Augmented_Generation_for_Knowledge_Intensive_NLP_Tasks.md",
+        "source-attribution/P055_2020_Retrieval_Augmented_Generation_for_Knowledge_Intensive_NLP_Tasks.md"
+      ]
+    },
+    {
+      "key": "P056",
+      "title": "BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models",
+      "year": 2021,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2104.08663",
+      "pdf_path": "_library/P056/paper.pdf",
+      "pdf_sha256": "1925755aeb627123d1a63c66f02e5aa2432f7e92751a02bea7c8c3b6bbb6ec33",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P056_2021_BEIR_A_Heterogeneous_Benchmark_for_Zero_shot_Evaluation_of_Information_Retrieval_Models.md",
+        "retrieval-search/P056_2021_BEIR_A_Heterogeneous_Benchmark_for_Zero_shot_Evaluation_of_Information_Retrieval_Models.md"
+      ]
+    },
+    {
+      "key": "P057",
+      "title": "ReAct: Synergizing Reasoning and Acting in Language Models",
+      "year": 2022,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "intent-readiness",
+        "source-attribution"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2210.03629",
+      "pdf_path": "_library/P057/paper.pdf",
+      "pdf_sha256": "f285b0971ae4a790e402fb93966bed3adde2cf0a04977d08b2b40d6ab0cace69",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "intent-readiness/P057_2022_ReAct_Synergizing_Reasoning_and_Acting_in_Language_Models.md",
+        "retrieval-search/P057_2022_ReAct_Synergizing_Reasoning_and_Acting_in_Language_Models.md",
+        "source-attribution/P057_2022_ReAct_Synergizing_Reasoning_and_Acting_in_Language_Models.md"
+      ]
+    },
+    {
+      "key": "P058",
+      "title": "Active Retrieval Augmented Generation",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "source-attribution"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.emnlp-main.495.pdf",
+      "pdf_path": "_library/P058/paper.pdf",
+      "pdf_sha256": "5536c9136a510c9430a02a3424963ef7e3c2338e8e421ff51c98e7db3480d34c",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P058_2023_Active_Retrieval_Augmented_Generation.md",
+        "source-attribution/P058_2023_Active_Retrieval_Augmented_Generation.md"
+      ]
+    },
+    {
+      "key": "P059",
+      "title": "Citations as Queries: Source Attribution Using Language Models as Rerankers",
+      "year": 2023,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2306.17322",
+      "pdf_path": "_library/P059/paper.pdf",
+      "pdf_sha256": "4c343cf9207c47663d8b8663db3cc10a0e54090609d0fd4ab4fdc6d27891acc4",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P059_2023_Citations_as_Queries_Source_Attribution_Using_Language_Models_as_Rerankers.md",
+        "source-attribution/P059_2023_Citations_as_Queries_Source_Attribution_Using_Language_Models_as_Rerankers.md"
+      ]
+    },
+    {
+      "key": "P060",
+      "title": "Interleaving Retrieval with Chain-of-Thought Reasoning for Knowledge-Intensive Multi-Step Questions",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "source-attribution"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.acl-long.557.pdf",
+      "pdf_path": "_library/P060/paper.pdf",
+      "pdf_sha256": "d307211b02415e5a590e4a13165a2006ea53548d11566d33fd781ee1db80e3b6",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P060_2023_Interleaving_Retrieval_with_Chain_of_Thought_Reasoning_for_Knowledge_Intensive_Multi_Step_Questions.md",
+        "source-attribution/P060_2023_Interleaving_Retrieval_with_Chain_of_Thought_Reasoning_for_Knowledge_Intensive_Multi_Step_Questions.md"
+      ]
+    },
+    {
+      "key": "P061",
+      "title": "Precise Zero-Shot Dense Retrieval without Relevance Labels",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "prompt-generation",
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.acl-long.99.pdf",
+      "pdf_path": "_library/P061/paper.pdf",
+      "pdf_sha256": "cfc80c2ae284e1a3f36b4cec65122cc06707ac8088f107e43b328906305f609d",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P061_2023_Precise_Zero_Shot_Dense_Retrieval_without_Relevance_Labels.md",
+        "prompt-generation/P061_2023_Precise_Zero_Shot_Dense_Retrieval_without_Relevance_Labels.md",
+        "retrieval-search/P061_2023_Precise_Zero_Shot_Dense_Retrieval_without_Relevance_Labels.md"
+      ]
+    },
+    {
+      "key": "P062",
+      "title": "Query Rewriting for Retrieval-Augmented Large Language Models",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "prompt-generation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.emnlp-main.322.pdf",
+      "pdf_path": "_library/P062/paper.pdf",
+      "pdf_sha256": "47f985749bc248b330dd5b965a2c072413017972523f052c5702ae22f3bd75e3",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P062_2023_Query_Rewriting_for_Retrieval_Augmented_Large_Language_Models.md",
+        "retrieval-search/P062_2023_Query_Rewriting_for_Retrieval_Augmented_Large_Language_Models.md"
+      ]
+    },
+    {
+      "key": "P063",
+      "title": "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "source-attribution"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2310.11511",
+      "pdf_path": "_library/P063/paper.pdf",
+      "pdf_sha256": "d9eaa1398abac0df67a9d0933a5bf8b6d9d83d2e72da2a486073cd842dd52978",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P063_2023_Self_RAG_Learning_to_Retrieve_Generate_and_Critique_through_Self_Reflection.md",
+        "source-attribution/P063_2023_Self_RAG_Learning_to_Retrieve_Generate_and_Critique_through_Self_Reflection.md"
+      ]
+    },
+    {
+      "key": "P064",
+      "title": "Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models through Question Complexity",
+      "year": 2024,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2024.naacl-long.389.pdf",
+      "pdf_path": "_library/P064/paper.pdf",
+      "pdf_sha256": "1e5abee712c5d8552416b2fd456bcf2c37a0ba518372e64302db2b7b7bdf643f",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P064_2024_Adaptive_RAG_Learning_to_Adapt_Retrieval_Augmented_Large_Language_Models_through_Question_Complexity.md"
+      ]
+    },
+    {
+      "key": "P065",
+      "title": "M3-Embedding: Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation",
+      "year": 2024,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2024.findings-acl.137.pdf",
+      "pdf_path": "_library/P065/paper.pdf",
+      "pdf_sha256": "b16708f475d64bcace839d7af7556a034bd35b066df6f80b84586a7aa474cbf8",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P065_2024_M3_Embedding_Multi_Linguality_Multi_Functionality_Multi_Granularity_Text_Embeddings_Through_Self_Knowledge_Distilla.md",
+        "retrieval-search/P065_2024_M3_Embedding_Multi_Linguality_Multi_Functionality_Multi_Granularity_Text_Embeddings_Through_Self_Knowledge_Distilla.md"
+      ]
+    },
+    {
+      "key": "P066",
+      "title": "Fantastically Ordered Prompts and Where to Find Them: Overcoming Few-Shot Prompt Order Sensitivity",
+      "year": 2022,
+      "primary_topic": "order-ablation",
+      "secondary_topics": [
+        "prompt-generation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2022.acl-long.556.pdf",
+      "pdf_path": "_library/P066/paper.pdf",
+      "pdf_sha256": "2535437fd05477046953a04d0e03e93a933f46c98357d7ee3d575ee5781af6c4",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P066_2022_Fantastically_Ordered_Prompts_and_Where_to_Find_Them_Overcoming_Few_Shot_Prompt_Order_Sensitivity.md",
+        "order-ablation/P066_2022_Fantastically_Ordered_Prompts_and_Where_to_Find_Them_Overcoming_Few_Shot_Prompt_Order_Sensitivity.md"
+      ]
+    },
+    {
+      "key": "P067",
+      "title": "Making Retrieval-Augmented Language Models Robust to Irrelevant Context",
+      "year": 2023,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "source-attribution"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2310.01558",
+      "pdf_path": "_library/P067/paper.pdf",
+      "pdf_sha256": "e178520f788d43a161f55908938b93d48fb6d929fd2c0d7c408ea52208842908",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P067_2023_Making_Retrieval_Augmented_Language_Models_Robust_to_Irrelevant_Context.md",
+        "source-attribution/P067_2023_Making_Retrieval_Augmented_Language_Models_Robust_to_Irrelevant_Context.md"
+      ]
+    },
+    {
+      "key": "P068",
+      "title": "ContextCite: Attributing Model Generation to Context",
+      "year": 2024,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2409.00729",
+      "pdf_path": "_library/P068/paper.pdf",
+      "pdf_sha256": "306d70b2326a6d803406d18cfadb6542f8d3254794f3e99b3f65abc5fea8fa54",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P068_2024_ContextCite_Attributing_Model_Generation_to_Context.md",
+        "source-attribution/P068_2024_ContextCite_Attributing_Model_Generation_to_Context.md"
+      ]
+    },
+    {
+      "key": "P069",
+      "title": "Lost in the Middle: How Language Models Use Long Contexts",
+      "year": 2024,
+      "primary_topic": "order-ablation",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2307.03172",
+      "pdf_path": "_library/P069/paper.pdf",
+      "pdf_sha256": "653b29619eae2ae4b361d7bdcdc06db4bedcb1b0eabe31814036beca8c1af0b1",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P069_2024_Lost_in_the_Middle_How_Language_Models_Use_Long_Contexts.md",
+        "order-ablation/P069_2024_Lost_in_the_Middle_How_Language_Models_Use_Long_Contexts.md"
+      ]
+    },
+    {
+      "key": "P070",
+      "title": "The Power of Noise: Redefining Retrieval for RAG Systems",
+      "year": 2024,
+      "primary_topic": "retrieval-search",
+      "secondary_topics": [
+        "order-ablation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2401.14887",
+      "pdf_path": "_library/P070/paper.pdf",
+      "pdf_sha256": "47d354ddfd7f723605fe625edf53629c31a4dcfbed513f30604131109fb5ec9f",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P070_2024_The_Power_of_Noise_Redefining_Retrieval_for_RAG_Systems.md",
+        "order-ablation/P070_2024_The_Power_of_Noise_Redefining_Retrieval_for_RAG_Systems.md"
+      ]
+    },
+    {
+      "key": "P071",
+      "title": "A similarity measure for indefinite rankings",
+      "year": 2010,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://www.williamwebber.com/research/papers/wmz10_tois.pdf",
+      "pdf_path": "_library/P071/paper.pdf",
+      "pdf_sha256": "c63cfb23fc9c216f8e80ff55c2028dce62d15ad3eefbbd0d2add5fee70ba556c",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P071_2010_A_similarity_measure_for_indefinite_rankings.md",
+        "retrieval-search/P071_2010_A_similarity_measure_for_indefinite_rankings.md"
+      ]
+    },
+    {
+      "key": "P072",
+      "title": "Measuring Attribution in Natural Language Generation Models",
+      "year": 2021,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2112.12870",
+      "pdf_path": "_library/P072/paper.pdf",
+      "pdf_sha256": "a967c6def487a442c03ac49796b47198c7d6e2843b9682de0c34a9a7a8c10a4e",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P072_2021_Measuring_Attribution_in_Natural_Language_Generation_Models.md",
+        "source-attribution/P072_2021_Measuring_Attribution_in_Natural_Language_Generation_Models.md"
+      ]
+    },
+    {
+      "key": "P073",
+      "title": "RARR: Researching and Revising What Language Models Say, Using Language Models",
+      "year": 2022,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2210.08726",
+      "pdf_path": "_library/P073/paper.pdf",
+      "pdf_sha256": "0db512bdca989685404c96cf18608e8bc998787037c85bbd473c10b3d4c011ce",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P073_2022_RARR_Researching_and_Revising_What_Language_Models_Say_Using_Language_Models.md",
+        "source-attribution/P073_2022_RARR_Researching_and_Revising_What_Language_Models_Say_Using_Language_Models.md"
+      ]
+    },
+    {
+      "key": "P074",
+      "title": "Enabling Large Language Models to Generate Text with Citations",
+      "year": 2023,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "judge-evaluation",
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.emnlp-main.398.pdf",
+      "pdf_path": "_library/P074/paper.pdf",
+      "pdf_sha256": "ae9868f07f0f7ffaae5346778f79b7827d9ec6b13b1e6aae4dff6b2ffc37a2e1",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P074_2023_Enabling_Large_Language_Models_to_Generate_Text_with_Citations.md",
+        "source-attribution/P074_2023_Enabling_Large_Language_Models_to_Generate_Text_with_Citations.md",
+        "judge-evaluation/P074_2023_Enabling_Large_Language_Models_to_Generate_Text_with_Citations.md"
+      ]
+    },
+    {
+      "key": "P075",
+      "title": "FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation",
+      "year": 2023,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "source-attribution",
+        "judge-evaluation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2023.emnlp-main.741.pdf",
+      "pdf_path": "_library/P075/paper.pdf",
+      "pdf_sha256": "8486fe22a15aaf3fe2e1d7043d169000600205dde9c601c9fd31c0dd6f7380e9",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P075_2023_FActScore_Fine_grained_Atomic_Evaluation_of_Factual_Precision_in_Long_Form_Text_Generation.md",
+        "source-attribution/P075_2023_FActScore_Fine_grained_Atomic_Evaluation_of_Factual_Precision_in_Long_Form_Text_Generation.md",
+        "judge-evaluation/P075_2023_FActScore_Fine_grained_Atomic_Evaluation_of_Factual_Precision_in_Long_Form_Text_Generation.md"
+      ]
+    },
+    {
+      "key": "P076",
+      "title": "Attribute First, then Generate: Locally-attributable Grounded Text Generation",
+      "year": 2024,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2024.acl-long.182.pdf",
+      "pdf_path": "_library/P076/paper.pdf",
+      "pdf_sha256": "002048ec1e28b95a183d6f5d6aee0427cc05721e588cce5a12b14e380ea8085b",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "source-attribution/P076_2024_Attribute_First_then_Generate_Locally_attributable_Grounded_Text_Generation.md"
+      ]
+    },
+    {
+      "key": "P077",
+      "title": "LongCite: Enabling LLMs to Generate Fine-grained Citations in Long-Context QA",
+      "year": 2025,
+      "primary_topic": "source-attribution",
+      "secondary_topics": [
+        "judge-evaluation",
+        "prompt-generation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2025.findings-acl.264.pdf",
+      "pdf_path": "_library/P077/paper.pdf",
+      "pdf_sha256": "fa1cb09d03dcb90ee6f847c83516a737485e3d0db1f70b8829349430372175db",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "prompt-generation/P077_2025_LongCite_Enabling_LLMs_to_Generate_Fine_grained_Citations_in_Long_Context_QA.md",
+        "source-attribution/P077_2025_LongCite_Enabling_LLMs_to_Generate_Fine_grained_Citations_in_Long_Context_QA.md",
+        "judge-evaluation/P077_2025_LongCite_Enabling_LLMs_to_Generate_Fine_grained_Citations_in_Long_Context_QA.md"
+      ]
+    },
+    {
+      "key": "P078",
+      "title": "Weighted kappa: Nominal scale agreement provision for scaled disagreement or partial credit.",
+      "year": 1968,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "judge-evaluation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": "partial",
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P078_1968_Weighted_kappa_Nominal_scale_agreement_provision_for_scaled_disagreement_or_partial_credit.md",
+        "judge-evaluation/P078_1968_Weighted_kappa_Nominal_scale_agreement_provision_for_scaled_disagreement_or_partial_credit.md"
+      ]
+    },
+    {
+      "key": "P079",
+      "title": "Intraclass correlations: Uses in assessing rater reliability.",
+      "year": 1979,
+      "primary_topic": "measurement-validation",
+      "secondary_topics": [
+        "judge-evaluation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "unavailable",
+      "pdf_url": null,
+      "pdf_path": null,
+      "pdf_sha256": null,
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P079_1979_Intraclass_correlations_Uses_in_assessing_rater_reliability.md",
+        "judge-evaluation/P079_1979_Intraclass_correlations_Uses_in_assessing_rater_reliability.md"
+      ]
+    },
+    {
+      "key": "P080",
+      "title": "G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment",
+      "year": 2023,
+      "primary_topic": "judge-evaluation",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2303.16634",
+      "pdf_path": "_library/P080/paper.pdf",
+      "pdf_sha256": "3a822b8646dccda73b01eda9b07420072daf7601cb0d02d9bbc3b38325ab2fd2",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P080_2023_G_Eval_NLG_Evaluation_using_GPT_4_with_Better_Human_Alignment.md",
+        "judge-evaluation/P080_2023_G_Eval_NLG_Evaluation_using_GPT_4_with_Better_Human_Alignment.md"
+      ]
+    },
+    {
+      "key": "P081",
+      "title": "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena",
+      "year": 2023,
+      "primary_topic": "judge-evaluation",
+      "secondary_topics": [
+        "order-ablation",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2306.05685",
+      "pdf_path": "_library/P081/paper.pdf",
+      "pdf_sha256": "1574982845157569b85c1214bfa9987000384d7a5e3b5fbdcc5a29afec59cb81",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P081_2023_Judging_LLM_as_a_Judge_with_MT_Bench_and_Chatbot_Arena.md",
+        "order-ablation/P081_2023_Judging_LLM_as_a_Judge_with_MT_Bench_and_Chatbot_Arena.md",
+        "judge-evaluation/P081_2023_Judging_LLM_as_a_Judge_with_MT_Bench_and_Chatbot_Arena.md"
+      ]
+    },
+    {
+      "key": "P082",
+      "title": "Prometheus: Inducing Fine-grained Evaluation Capability in Language Models",
+      "year": 2023,
+      "primary_topic": "judge-evaluation",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2310.08491",
+      "pdf_path": "_library/P082/paper.pdf",
+      "pdf_sha256": "6d9290f7374e2c6b5be2d9fc6975cbdd874e9195881dc06c07502776615dab60",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P082_2023_Prometheus_Inducing_Fine_grained_Evaluation_Capability_in_Language_Models.md",
+        "judge-evaluation/P082_2023_Prometheus_Inducing_Fine_grained_Evaluation_Capability_in_Language_Models.md"
+      ]
+    },
+    {
+      "key": "P083",
+      "title": "ARES: An Automated Evaluation Framework for Retrieval-Augmented Generation Systems",
+      "year": 2024,
+      "primary_topic": "judge-evaluation",
+      "secondary_topics": [
+        "source-attribution",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2024.naacl-long.20.pdf",
+      "pdf_path": "_library/P083/paper.pdf",
+      "pdf_sha256": "5a585d88f7b63c06439a4ecb8fd3165615d637e2061f242bff3f6ec3a209bd34",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P083_2024_ARES_An_Automated_Evaluation_Framework_for_Retrieval_Augmented_Generation_Systems.md",
+        "source-attribution/P083_2024_ARES_An_Automated_Evaluation_Framework_for_Retrieval_Augmented_Generation_Systems.md",
+        "judge-evaluation/P083_2024_ARES_An_Automated_Evaluation_Framework_for_Retrieval_Augmented_Generation_Systems.md"
+      ]
+    },
+    {
+      "key": "P084",
+      "title": "LLM Evaluators Recognize and Favor Their Own Generations",
+      "year": 2024,
+      "primary_topic": "judge-evaluation",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/2404.13076",
+      "pdf_path": "_library/P084/paper.pdf",
+      "pdf_sha256": "e1466f5ade6144599fda01deafdd737b4623eaae273d71e4a0099d55b33189d3",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P084_2024_LLM_Evaluators_Recognize_and_Favor_Their_Own_Generations.md",
+        "judge-evaluation/P084_2024_LLM_Evaluators_Recognize_and_Favor_Their_Own_Generations.md"
+      ]
+    },
+    {
+      "key": "P085",
+      "title": "Large Language Models are not Fair Evaluators",
+      "year": 2024,
+      "primary_topic": "judge-evaluation",
+      "secondary_topics": [
+        "order-ablation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2024.acl-long.511.pdf",
+      "pdf_path": "_library/P085/paper.pdf",
+      "pdf_sha256": "e8b5a03e77b5661eae920959691613f0ef53e08d8ff0c20301c26b60b7256eae",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "order-ablation/P085_2024_Large_Language_Models_are_not_Fair_Evaluators.md",
+        "judge-evaluation/P085_2024_Large_Language_Models_are_not_Fair_Evaluators.md"
+      ]
+    },
+    {
+      "key": "P086",
+      "title": "RAGAs: Automated Evaluation of Retrieval Augmented Generation",
+      "year": 2024,
+      "primary_topic": "judge-evaluation",
+      "secondary_topics": [
+        "source-attribution",
+        "retrieval-search"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2024.eacl-demo.16.pdf",
+      "pdf_path": "_library/P086/paper.pdf",
+      "pdf_sha256": "e2038b8cff7574bf5302e1ceb6bfbac6d2471c352073b27f21460910936febce",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "retrieval-search/P086_2024_RAGAs_Automated_Evaluation_of_Retrieval_Augmented_Generation.md",
+        "source-attribution/P086_2024_RAGAs_Automated_Evaluation_of_Retrieval_Augmented_Generation.md",
+        "judge-evaluation/P086_2024_RAGAs_Automated_Evaluation_of_Retrieval_Augmented_Generation.md"
+      ]
+    },
+    {
+      "key": "P087",
+      "title": "The central role of the propensity score in observational studies for causal effects",
+      "year": 1983,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://www.stat.cmu.edu/~ryantibs/journalclub/rosenbaum_1983.pdf",
+      "pdf_path": "_library/P087/paper.pdf",
+      "pdf_sha256": "e945e4a5704146298ffec6f7f08f2621e8e9e10100985a8a38d44b949e221285",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "causal-statistics/P087_1983_The_central_role_of_the_propensity_score_in_observational_studies_for_causal_effects.md"
+      ]
+    },
+    {
+      "key": "P088",
+      "title": "A Practitioner’s Guide to Cluster-Robust Inference",
+      "year": 2015,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://cameron.econ.ucdavis.edu/research/Cameron_Miller_JHR_2015_February.pdf",
+      "pdf_path": "_library/P088/paper.pdf",
+      "pdf_sha256": "a2d6ef5622b5597ef2c18dd53d700c6b2ffbadaa4c202af0e21ddc0520072214",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P088_2015_A_Practitioners_Guide_to_Cluster_Robust_Inference.md",
+        "causal-statistics/P088_2015_A_Practitioners_Guide_to_Cluster_Robust_Inference.md"
+      ]
+    },
+    {
+      "key": "P089",
+      "title": "Sensitivity Analysis in Observational Research: Introducing the E-Value",
+      "year": 2017,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://dash.harvard.edu/server/api/core/bitstreams/7312037e-0f45-6bd4-e053-0100007fdf3b/content",
+      "pdf_path": "_library/P089/paper.pdf",
+      "pdf_sha256": "df030ac19bf81a1a1b6ab6c0d2f79a61e062a10dcdf5d6ae425e37982fef4af3",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P089_2017_Sensitivity_Analysis_in_Observational_Research_Introducing_the_E_Value.md",
+        "causal-statistics/P089_2017_Sensitivity_Analysis_in_Observational_Research_Introducing_the_E_Value.md"
+      ]
+    },
+    {
+      "key": "P090",
+      "title": "Double/debiased machine learning for treatment and structural parameters",
+      "year": 2018,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/1608.00060",
+      "pdf_path": "_library/P090/paper.pdf",
+      "pdf_sha256": "3186133dacb9f4a31c004a00150627de1e5cf26e203d1522a25a5444c7dbdf78",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "causal-statistics/P090_2018_Double_debiased_machine_learning_for_treatment_and_structural_parameters.md"
+      ]
+    },
+    {
+      "key": "P091",
+      "title": "Text and Causal Inference: A Review of Using Text to Remove Confounding from Causal Estimates",
+      "year": 2020,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [
+        "semantic-directions",
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://aclanthology.org/2020.acl-main.474.pdf",
+      "pdf_path": "_library/P091/paper.pdf",
+      "pdf_sha256": "e9ab461369711ade1c10af27b4b4b660833dcdd0b481cee731d7d68e8c88ad1c",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P091_2020_Text_and_Causal_Inference_A_Review_of_Using_Text_to_Remove_Confounding_from_Causal_Estimates.md",
+        "measurement-validation/P091_2020_Text_and_Causal_Inference_A_Review_of_Using_Text_to_Remove_Confounding_from_Causal_Estimates.md",
+        "causal-statistics/P091_2020_Text_and_Causal_Inference_A_Review_of_Using_Text_to_Remove_Confounding_from_Causal_Estimates.md"
+      ]
+    },
+    {
+      "key": "P092",
+      "title": "Multiway Cluster Robust Double/Debiased Machine Learning",
+      "year": 2021,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [
+        "measurement-validation"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/1909.03489",
+      "pdf_path": "_library/P092/paper.pdf",
+      "pdf_sha256": "116dedfe3f81635bb382e44114a3cefab6a2ed394c02ce5d7840960762622596",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "measurement-validation/P092_2021_Multiway_Cluster_Robust_Double_Debiased_Machine_Learning.md",
+        "causal-statistics/P092_2021_Multiway_Cluster_Robust_Double_Debiased_Machine_Learning.md"
+      ]
+    },
+    {
+      "key": "P093",
+      "title": "How to make causal inferences using texts",
+      "year": 2022,
+      "primary_topic": "causal-statistics",
+      "secondary_topics": [
+        "measurement-validation",
+        "semantic-directions"
+      ],
+      "abstract_status": "read",
+      "abstract_completeness": null,
+      "pdf_status": "downloaded",
+      "pdf_url": "https://arxiv.org/pdf/1802.02163",
+      "pdf_path": "_library/P093/paper.pdf",
+      "pdf_sha256": "c79ec3c0da2e02b0873e0ebfc0ee1ac95fbd0a7c665482996e82f9283ff05f6a",
+      "tag_basis": "abstract",
+      "topic_note_paths": [
+        "semantic-directions/P093_2022_How_to_make_causal_inferences_using_texts.md",
+        "measurement-validation/P093_2022_How_to_make_causal_inferences_using_texts.md",
+        "causal-statistics/P093_2022_How_to_make_causal_inferences_using_texts.md"
+      ]
+    }
+  ]
+}
