@@ -98,8 +98,8 @@ footer p { margin: 0; max-width: 78ch; }
 .where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B</span><span>SI-v4 development · 1 October 2026</span></div><h1>Test the shared answer map</h1><p class="lede">Valerian, the reported run stopped during frozen-input validation with <code>source hash does not match its dependency</code>. Start with the read-only diagnostic below. Keep the allocated shell open. The original launch instructions are retained for reference; do not repeat allocation or launch steps for this failed preparation.</p></header>
-<nav class="cycle" aria-label="Page shortcuts"><a href="#source-hash-diagnostic">Source-hash failure</a><a href="#reserve-slot">Reserve a queue slot</a><a href="#task-counts">Task counts</a><a href="#job-counts">Slurm jobs</a><a href="#qwen-bout-counts">Qwen bout counts</a><a href="#start-forecast">Hourly start forecast</a><a href="#summaries">Summaries and logs</a></nav>
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B</span><span>SI-v4 development · 1 October 2026</span></div><h1>Test the shared answer map</h1><p class="lede">Valerian, the reported run stopped during frozen-input validation with <code>source hash does not match its dependency</code>. The diagnostic confirmed 214 missing hashes and zero conflicting hashes. Use the corrected-preparation steps below. Keep the allocated shell open. The original launch instructions are retained for reference; do not repeat allocation or launch steps for this failed preparation.</p></header>
+<nav class="cycle" aria-label="Page shortcuts"><a href="#hash-recovery">Rebuild corrected inputs</a><a href="#existing-job-retry">Run in existing job</a><a href="#source-hash-diagnostic">Source-hash diagnostic</a><a href="#reserve-slot">Reserve a queue slot</a><a href="#task-counts">Task counts</a><a href="#job-counts">Slurm jobs</a><a href="#qwen-bout-counts">Qwen bout counts</a><a href="#start-forecast">Hourly start forecast</a><a href="#summaries">Summaries and logs</a></nav>
 <section class="step" id="source-hash-diagnostic"><div class="num">Fix</div><div class="body"><header class="step-head"><h2>Diagnose the source-hash failure</h2><span class="chip safe">Existing HoreKa shell · read-only</span></header><p>Updated 2 October 2026. Older SI-v3 cell records omitted <code>source_sha256</code>. The v4 bridge copied those records without filling the field, and the coordinator rejected them before the first judging pass. This reproduces the reported error locally. The check below determines whether the cluster inputs have that omission or a conflicting saved hash.</p><div class="code"><button class="copy" type="button" aria-label="Copy source hash diagnostic">Copy</button><pre><code>(
   set -euo pipefail
   python3 - &lt;&lt;&#x27;PY&#x27;
@@ -145,8 +145,119 @@ PY
     scontrol show job &quot;$SLURM_JOB_ID&quot;
     sacct -j &quot;$SLURM_JOB_ID&quot; --format=JobID,State,Elapsed,Timelimit,ExitCode
   fi
-)</code></pre></div><p class="look">Send the JSON counts and scheduler output. If every mismatch is a missing field, the legacy-format bug explains this failure. A conflicting hash or failed manifest check needs separate investigation. This command does not change files, start inference or allocate resources.</p><h3>Recovery status</h3><p>The local bridge fix derives only absent hashes from validated saved task records. Existing conflicting hashes remain errors. All 32 focused bridge and Gemma tests pass, including the legacy-format regression. The fix has not been applied to the cluster preparation.</p><p>After confirming the counts and remaining allocation time, rebuild the preparation into a new directory from the original verified bundles using the corrected committed code. Preserve the failed preparation, logs and attempts. Do not edit its manifests, bypass the coordinator check or rerun the old <code>run.sh</code>. A new or extended allocation requires a fresh runtime estimate and explicit wall-time approval.</p></div></section>
-<aside class="approval"><h2>Your one-hour test</h2><dl class="facts"><div><dt>Resources</dt><dd>1 exclusive accelerated node · 4 × A100 40 GB</dd></div><div><dt>CPU and memory</dt><dd>32 requested CPUs · whole-node memory, about 512 GiB</dd></div><div><dt>Maximum allocation cost</dt><dd>1 node-hour · 4 GPU-hours · exclusive node reserves up to 152 CPU-hours</dd></div><div><dt>Estimated work</dt><dd>20–50 minutes, including startup; 60-minute wall-time with margin</dd></div></dl><p>Prior Gemma wrappers took 8.9–10.9 minutes, with much shorter SI-v3 outputs. V4 throughput is unmeasured, so this queue may stop partially completed. Thirty minutes would halve allocation cost but could finish only the first pass. This page uses the hour you requested.</p><p>The 3× warm-compute ceiling is evaluated per completed eligible cell, including mapping and retries, with J1 separate. Three repeat passes test stability; their combined allocation cost is not that per-cell ratio.</p></aside>
+)</code></pre></div><p class="look">Send the JSON counts and scheduler output. If every mismatch is a missing field, the legacy-format bug explains this failure. A conflicting hash or failed manifest check needs separate investigation. This command does not change files, start inference or allocate resources.</p><h3>Confirmed diagnosis</h3><p>Your cluster diagnostic passed both frozen-file checks: 214 sources checked, 214 missing hashes, zero conflicting hashes. This confirms the legacy-format bug. Corrected commit <code>c82ff8120dee2f26ccd63478ff0d98bcb8cce779</code> is now published on <code>codex/pilot-continuation</code>. The original preparation remains unchanged.</p></div></section>
+<section class="step" id="hash-recovery"><div class="num">Fix</div><div class="body"><header class="step-head"><h2>1. Rebuild and validate corrected inputs</h2><span class="chip safe">HoreKa shell · preparation only</span></header><p>This creates a new directory ending in <code>hashfix-c82ff81</code>. It verifies the original bundles and frozen files, rebuilds with the corrected code, checks that every task is unchanged and only missing cell hashes were added, then runs all three coordinator imports without inference. Original attempts and logs stay intact. It refuses an existing destination.</p><p>Wait for <code>HASH_REPAIR_VERIFIED</code> before continuing. The combined v3 and v4 count should be 428 added hashes for your 214 source entries. A failure preserves the original run; do not launch from an unverified destination.</p><div class="code"><button class="copy" type="button" aria-label="Copy 1. Rebuild and validate corrected inputs">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  V4_FIX_PIN=c82ff8120dee2f26ccd63478ff0d98bcb8cce779
+  V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
+  if [ ! -d &quot;$V4_FIX_REPO&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$V4_FIX_REPO&quot; &quot;$V4_FIX_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$V4_FIX_REPO&quot; rev-parse HEAD)&quot; = &quot;$V4_FIX_PIN&quot;
+  test -z &quot;$(git -C &quot;$V4_FIX_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
+  &quot;$RT/bin/python&quot; - &quot;$W&quot; &lt;&lt;&#x27;PY&#x27;
+import copy
+import json
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+from analysis.scripts import horeka_si_v4 as pilot
+
+workspace = Path(sys.argv[1])
+old = workspace / &#x27;reviews/gemma-si-v4-development-20261001&#x27;
+new = workspace / &#x27;reviews/gemma-si-v4-development-20261001-hashfix-c82ff81&#x27;
+config = json.loads((old / &#x27;config.json&#x27;).read_text())
+if new.exists():
+    raise SystemExit(&#x27;STOP: corrected preparation already exists; preserve and inspect it.&#x27;)
+if config[&#x27;git_commit&#x27;] != &#x27;9aa5d90e0b310f3eea587a60787727787ab92757&#x27;:
+    raise SystemExit(&#x27;Unexpected original execution pin&#x27;)
+if pilot.judge.file_hash(old / &#x27;judge-config.json&#x27;) != config[&#x27;judge_config_sha256&#x27;]:
+    raise SystemExit(&#x27;Original judge configuration changed&#x27;)
+for name, manifest in config[&#x27;inventories&#x27;].items():
+    if json.loads((old / name / &#x27;manifest.json&#x27;).read_text()) != manifest:
+        raise SystemExit(&#x27;Original manifest changed: &#x27; + name)
+    for filename, expected in manifest[&#x27;files&#x27;].items():
+        if pilot.judge.file_hash(old / name / filename) != expected:
+            raise SystemExit(&#x27;Original frozen file changed: &#x27; + name + &#x27;/&#x27; + filename)
+for filename, expected in config[&#x27;source_files&#x27;].items():
+    if pilot.judge.file_hash(Path(filename)) != expected:
+        raise SystemExit(&#x27;Original source bundle changed: &#x27; + filename)
+
+pilot.prepare(SimpleNamespace(workspace=workspace, output=new,
+    bundle=[Path(p) for p in config[&#x27;source_files&#x27;]],
+    account=config[&#x27;account&#x27;], approval=config[&#x27;approval&#x27;]))
+# Compare semantic records, not gzip headers. Only missing cell hashes may change.
+filled = 0
+for name in (&#x27;v3-inputs&#x27;, &#x27;v4-inputs&#x27;, &#x27;constructed-inputs&#x27;):
+    before = list(pilot.judge.rows(old / name / &#x27;tasks.jsonl.gz&#x27;))
+    after = list(pilot.judge.rows(new / name / &#x27;tasks.jsonl.gz&#x27;))
+    if before != after:
+        raise SystemExit(&#x27;STOP: frozen task records changed: &#x27; + name)
+    original_cells = list(pilot.judge.rows(old / name / &#x27;cells.jsonl.gz&#x27;))
+    fixed_cells = list(pilot.judge.rows(new / name / &#x27;cells.jsonl.gz&#x27;))
+    expected_cells = copy.deepcopy(original_cells)
+    by_id = {r[&#x27;judge_task_id&#x27;]: r for r in before}
+    for cell in expected_cells:
+        for source in cell.get(&#x27;sources&#x27;, []):
+            task = by_id[source.get(&#x27;dependency_id&#x27;, source.get(&#x27;judge_task_id&#x27;))]
+            expected_hash = pilot.judge._digest({&#x27;title&#x27;: task[&#x27;source_title&#x27;], &#x27;text&#x27;: task[&#x27;source_text&#x27;]})
+            if &#x27;source_sha256&#x27; not in source:
+                source[&#x27;source_sha256&#x27;] = expected_hash
+                filled += 1
+            elif source[&#x27;source_sha256&#x27;] != expected_hash:
+                raise SystemExit(&#x27;STOP: conflicting original source hash&#x27;)
+    if expected_cells != fixed_cells:
+        raise SystemExit(&#x27;STOP: additional cell changes: &#x27; + name)
+    with tempfile.TemporaryDirectory(prefix=&#x27;input-check-&#x27;, dir=new) as temporary:
+        coordinator = pilot.judge.Coordinator(new / name, Path(temporary) / &#x27;results&#x27;, {&#x27;gpu_count&#x27;: 4})
+        coordinator.close()
+# Bind continuation to this allocation; do not authorize another allocation.
+fixed = json.loads((new / &#x27;config.json&#x27;).read_text())
+fixed.update(existing_job_id=&#x27;5174124&#x27;, minimum_remaining_seconds=1200,
+    recovery_from=str(old), original_config_sha256=pilot.judge.file_hash(old / &#x27;config.json&#x27;))
+pilot.atomic(new / &#x27;config.json&#x27;, pilot.judge.canonical(fixed).encode())
+pilot.atomic(new / &#x27;HASH_REPAIR_VERIFIED.json&#x27;, pilot.judge.canonical({
+    &#x27;config_sha256&#x27;: pilot.judge.file_hash(new / &#x27;config.json&#x27;),
+    &#x27;missing_cell_hashes_filled&#x27;: filled, &#x27;task_records_unchanged&#x27;: True,
+    &#x27;coordinator_imports_passed&#x27;: 3, &#x27;existing_job_id&#x27;: &#x27;5174124&#x27;,
+    &#x27;allocation_submitted&#x27;: False, &#x27;inference_started&#x27;: False}).encode())
+print(&#x27;HASH_REPAIR_VERIFIED&#x27;, new)
+print(&#x27;MISSING_CELL_HASHES_FILLED&#x27;, filled)
+print(&#x27;Original preparation and attempts preserved. No inference started.&#x27;)
+PY
+)</code></pre></div></div></section><section class="step" id="existing-job-retry"><div class="num">Fix</div><div class="body"><header class="step-head"><h2>2. Run only in existing job 5174124</h2><span class="chip safe">Allocated compute shell · no new allocation</span></header><p>Your pasted snapshot showed this allocation RUNNING on <code>hkn0617</code>, with 28:03 left and EndTime <code>2026-10-01T18:04:10</code> in the scheduler timezone. These are captured values, not live status. The command checks the live job and requires at least 20 minutes remaining. It refuses another job ID or an expired allocation.</p><p>The unchanged development queue is estimated at 20–50 minutes including startup; v4 throughput is still unmeasured. The existing allocation has one node, four A100 GPUs, 32 requested CPUs, 152 allocated CPUs and 497500 MiB memory. At the snapshot, the remaining budget was at most 0.468 node-hours and 1.87 GPU-hours. Execution respects the original Slurm end time and drain margin; it may produce partial work. There is no extension or replacement allocation. The cheaper alternative is to finish CPU validation only and leave inference pending.</p><p>If the remaining-time check fails, preserve this shell and the corrected preparation. Report the message before requesting a separately estimated and approved allocation. If the command runs, send <code>V4_EXIT</code> and inspect the new directory’s summaries.</p><div class="code"><button class="copy" type="button" aria-label="Copy 2. Run only in existing job 5174124">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  test &quot;${SLURM_JOB_ID:-}&quot; = 5174124
+  V4_FIX_PIN=c82ff8120dee2f26ccd63478ff0d98bcb8cce779
+  V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
+  V4_FIXED_RUN=&quot;$W/reviews/gemma-si-v4-development-20261001-hashfix-c82ff81&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
+  &quot;$RT/bin/python&quot; - &quot;$V4_FIXED_RUN&quot; &lt;&lt;&#x27;PY&#x27;
+import json
+from pathlib import Path
+import subprocess
+import sys
+from analysis.scripts import horeka_si_v4 as pilot
+root = Path(sys.argv[1])
+receipt = json.loads((root / &#x27;HASH_REPAIR_VERIFIED.json&#x27;).read_text())
+if receipt[&#x27;config_sha256&#x27;] != pilot.judge.file_hash(root / &#x27;config.json&#x27;):
+    raise SystemExit(&#x27;Corrected configuration differs from verification receipt&#x27;)
+config = json.loads((root / &#x27;config.json&#x27;).read_text())
+fields = dict(t.split(&#x27;=&#x27;, 1) for t in subprocess.check_output(
+    [&#x27;scontrol&#x27;, &#x27;show&#x27;, &#x27;job&#x27;, &#x27;5174124&#x27;, &#x27;-o&#x27;], text=True).split() if &#x27;=&#x27; in t)
+pilot.stage.check_bound_allocation(config, &#x27;5174124&#x27;, fields)
+print(&#x27;EXISTING_JOB_CHECK_PASSED&#x27;, fields.get(&#x27;EndTime&#x27;))
+PY
+  set +e
+  bash &quot;$V4_FIXED_RUN/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$V4_FIXED_RUN/console-job${SLURM_JOB_ID}.log&quot;
+  V4_EXIT=${PIPESTATUS[0]}
+  printf &#x27;V4_EXIT=%s\n&#x27; &quot;$V4_EXIT&quot;
+)</code></pre></div></div></section><aside class="approval"><h2>Your one-hour test</h2><dl class="facts"><div><dt>Resources</dt><dd>1 exclusive accelerated node · 4 × A100 40 GB</dd></div><div><dt>CPU and memory</dt><dd>32 requested CPUs · whole-node memory, about 512 GiB</dd></div><div><dt>Maximum allocation cost</dt><dd>1 node-hour · 4 GPU-hours · exclusive node reserves up to 152 CPU-hours</dd></div><div><dt>Estimated work</dt><dd>20–50 minutes, including startup; 60-minute wall-time with margin</dd></div></dl><p>Prior Gemma wrappers took 8.9–10.9 minutes, with much shorter SI-v3 outputs. V4 throughput is unmeasured, so this queue may stop partially completed. Thirty minutes would halve allocation cost but could finish only the first pass. This page uses the hour you requested.</p><p>The 3× warm-compute ceiling is evaluated per completed eligible cell, including mapping and retries, with J1 separate. Three repeat passes test stability; their combined allocation cost is not that per-cell ratio.</p></aside>
 <section class="status"><h2>What will run</h2><ol><li>SI-v4 on all 40 reviewed development cells, up to 40 maps + 214 source calls + 40 J1 calls.</li><li>SI-v3 on the same inputs and judge configuration, with the matched 4096-token source budget.</li><li>48 constructed development pairs, deduplicated to 13 maps, 28 source tasks and 13 J1 tasks.</li><li>Two further uncached SI-v4 passes, regenerating the maps each time.</li></ol><p>At most 1,190 first-attempt requests before N/A filtering, plus bounded retries. The model is <code>google/gemma-4-31B-it</code>, BF16, TP4, thinking off, concurrency 4. This is a finite development queue; no fresh held-out cases are consumed.</p><p>Saved judge inputs preserve the completed answers and source records. Original generator-trace provenance remains unresolved and is labeled accordingly. No source is fetched or rewritten.</p></section><section class="status"><h2>Preparation completed</h2><p>Your 40-cell corpus inputs and 48 constructed cases are already frozen. Use step 1 if the queue is full, then step 2. Do not repeat preparation, delete its folder, or alter its saved configuration.</p><p>The new helper records your approved one-run scheduling exception. Inference still uses the original pinned checkout and run.sh.</p></section><section class="step" id="reserve-slot"><div class="num">01</div><div class="body"><header class="step-head"><h2>Keep one account queue slot available</h2><span class="chip cond">HoreKa login shell · updates sender scripts</span></header><p>Run this once before step 2. It changes the existing Qwen sender scripts in the shared workspace to <code>CAP=294</code>, including when an older tmux loop passes <code>CAP=295</code>. The account limit remains 295. Each changed script gets a backup; rerunning this block is safe.</p><div class="code"><button class="copy" type="button" aria-label="Copy reserve one queue slot">Copy</button><pre><code>(
   set -euo pipefail
   W=/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen
