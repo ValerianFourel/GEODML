@@ -1,0 +1,302 @@
+[
+  {
+    "id": "1912.02164",
+    "url": "https://arxiv.org/abs/1912.02164",
+    "title": "Plug and Play Language Models: A Simple Approach to Controlled Text Generation",
+    "authors": [
+      "Dathathri, Sumanth",
+      "Madotto, Andrea",
+      "Lan, Janice",
+      "Hung, Jane",
+      "Frank, Eric",
+      "Molino, Piero",
+      "Yosinski, Jason",
+      "Liu, Rosanne"
+    ],
+    "date": "2019/12/04",
+    "doi": null,
+    "abstract": "Abstract: Large transformer-based language models (LMs) trained on huge text corpora have shown unparalleled generation capabilities. However, controlling attributes of the generated language (e.g. switching topic or sentiment) is difficult without modifying the model architecture or fine-tuning on attribute-specific data and entailing the significant cost of retraining. We propose a simple alternative: the Plug and Play Language Model (PPLM) for controllable language generation, which combines a pretrained LM with one or more simple attribute classifiers that guide text generation without any further training of the LM. In the canonical scenario we present, the attribute models are simple classifiers consisting of a user-specified bag of words or a single learned layer with 100,000 times fewer parameters than the LM. Sampling entails a forward and backward pass in which gradients from the attribute model push the LM's hidden activations and thus guide the generation. Model samples demonstrate control over a range of topics and sentiment styles, and extensive automated and human annotated evaluations show attribute alignment and fluency. PPLMs are flexible in that any combination of differentiable attribute models may be used to steer text generation, which will allow for diverse and creative applications beyond the examples given in this paper.",
+    "journal_ref": null
+  },
+  {
+    "id": "2106.00725",
+    "url": "https://arxiv.org/abs/2106.00725",
+    "title": "Coupler-Assisted Controlled-Phase Gate with Enhanced Adiabaticity",
+    "authors": [
+      "Chu, Ji",
+      "Yan, Fei"
+    ],
+    "date": "2021/06/01",
+    "doi": "10.1103/PhysRevApplied.16.054020",
+    "abstract": "Abstract: High-fidelity two-qubit entangling gates are essential building blocks for fault-tolerant quantum computers. Over the past decade, tremendous efforts have been made to develop scalable high-fidelity two-qubit gates with superconducting quantum circuits. Recently, an easy-to-scale controlled-phase gate scheme that utilizes the tunable-coupling architecture with fixed-frequency qubits [Phys. Rev. Lett. 125, 240502; Phys. Rev. Lett. 125, 240503] has been demonstrated with high fidelity and attracted broad interest. However, in-depth understanding of the underlying mechanism is still missing, preventing us from fully exploiting its potential. Here we present a comprehensive theoretical study, explaining the origin of the high-contrast ZZ interaction. Based on improved understanding, we develop a general yet convenient method for shaping an adiabatic pulse in a multilevel system, and identify how to optimize the gate performance from design. Given state-of-the-art coherence properties, we expect the scheme to potentially achieve a two-qubit gate error rate near $10^{-5}$, which would drastically speed up the progress towards fault-tolerant quantum computation.",
+    "journal_ref": "Phys. Rev. Applied 16, 054020 (2021)"
+  },
+  {
+    "id": "2104.05218",
+    "url": "https://arxiv.org/abs/2104.05218",
+    "title": "FUDGE: Controlled Text Generation With Future Discriminators",
+    "authors": [
+      "Yang, Kevin",
+      "Klein, Dan"
+    ],
+    "date": "2021/04/12",
+    "doi": "10.18653/v1/2021.naacl-main.276",
+    "abstract": "Abstract: We propose Future Discriminators for Generation (FUDGE), a flexible and modular method for controlled text generation. Given a pre-existing model G for generating text from a distribution of interest, FUDGE enables conditioning on a desired attribute a (for example, formality) while requiring access only to G's output logits. FUDGE learns an attribute predictor operating on a partial sequence, and uses this predictor's outputs to adjust G's original probabilities. We show that FUDGE models terms corresponding to a Bayesian decomposition of the conditional distribution of G given attribute a. Moreover, FUDGE can easily compose predictors for multiple desired attributes. We evaluate FUDGE on three tasks -- couplet completion in poetry, topic control in language generation, and formality change in machine translation -- and observe gains in all three tasks.",
+    "journal_ref": null
+  },
+  {
+    "id": "2304.12244",
+    "url": "https://arxiv.org/abs/2304.12244",
+    "title": "WizardLM: Empowering large pre-trained language models to follow complex instructions",
+    "authors": [
+      "Xu, Can",
+      "Sun, Qingfeng",
+      "Zheng, Kai",
+      "Geng, Xiubo",
+      "Zhao, Pu",
+      "Feng, Jiazhan",
+      "Tao, Chongyang",
+      "Lin, Qingwei",
+      "Jiang, Daxin"
+    ],
+    "date": "2023/04/24",
+    "doi": null,
+    "abstract": "Abstract: Training large language models (LLMs) with open-domain instruction following data brings colossal success. However, manually creating such instruction data is very time-consuming and labor-intensive. Moreover, humans may struggle to produce high-complexity instructions. In this paper, we show an avenue for creating large amounts of instruction data with varying levels of complexity using LLM instead of humans. Starting with an initial set of instructions, we use our proposed Evol-Instruct to rewrite them step by step into more complex instructions. Then, we mix all generated instruction data to fine-tune LLaMA. We call the resulting model WizardLM. Human evaluations on a complexity-balanced test bed and Vicuna's testset show that instructions from Evol-Instruct are superior to human-created ones. By analyzing the human evaluation results of the high complexity part, we demonstrate that outputs from our WizardLM are preferred to outputs from OpenAI ChatGPT. In GPT-4 automatic evaluation, WizardLM achieves more than 90\\% capacity of ChatGPT on 17 out of 29 skills. Even though WizardLM still lags behind ChatGPT in some aspects, our findings suggest that fine-tuning with AI-evolved instructions is a promising direction for enhancing LLMs. Our code and data are public at this https URL",
+    "journal_ref": "The Twelfth International Conference on Learning Representations (ICLR 2024)"
+  },
+  {
+    "id": "2304.09542",
+    "url": "https://arxiv.org/abs/2304.09542",
+    "title": "Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents",
+    "authors": [
+      "Sun, Weiwei",
+      "Yan, Lingyong",
+      "Ma, Xinyu",
+      "Wang, Shuaiqiang",
+      "Ren, Pengjie",
+      "Chen, Zhumin",
+      "Yin, Dawei",
+      "Ren, Zhaochun"
+    ],
+    "date": "2023/04/19",
+    "doi": null,
+    "abstract": "Abstract: Large Language Models (LLMs) have demonstrated remarkable zero-shot generalization across various language-related tasks, including search engines. However, existing work utilizes the generative ability of LLMs for Information Retrieval (IR) rather than direct passage ranking. The discrepancy between the pre-training objectives of LLMs and the ranking objective poses another challenge. In this paper, we first investigate generative LLMs such as ChatGPT and GPT-4 for relevance ranking in IR. Surprisingly, our experiments reveal that properly instructed LLMs can deliver competitive, even superior results to state-of-the-art supervised methods on popular IR benchmarks. Furthermore, to address concerns about data contamination of LLMs, we collect a new test set called NovelEval, based on the latest knowledge and aiming to verify the model's ability to rank unknown knowledge. Finally, to improve efficiency in real-world applications, we delve into the potential for distilling the ranking capabilities of ChatGPT into small specialized models using a permutation distillation scheme. Our evaluation results turn out that a distilled 440M model outperforms a 3B supervised model on the BEIR benchmark. The code to reproduce our results is available at this http URL .",
+    "journal_ref": null
+  },
+  {
+    "id": "2312.02724",
+    "url": "https://arxiv.org/abs/2312.02724",
+    "title": "RankZephyr: Effective and Robust Zero-Shot Listwise Reranking is a Breeze!",
+    "authors": [
+      "Pradeep, Ronak",
+      "Sharifymoghaddam, Sahel",
+      "Lin, Jimmy"
+    ],
+    "date": "2023/12/05",
+    "doi": null,
+    "abstract": "Abstract: In information retrieval, proprietary large language models (LLMs) such as GPT-4 and open-source counterparts such as LLaMA and Vicuna have played a vital role in reranking. However, the gap between open-source and closed models persists, with reliance on proprietary, non-transparent models constraining reproducibility. Addressing this gap, we introduce RankZephyr, a state-of-the-art, open-source LLM for listwise zero-shot reranking. RankZephyr not only bridges the effectiveness gap with GPT-4 but in some cases surpasses the proprietary model. Our comprehensive evaluations across several datasets (TREC Deep Learning Tracks; NEWS and COVID from BEIR) showcase this ability. RankZephyr benefits from strategic training choices and is resilient against variations in initial document ordering and the number of documents reranked. Additionally, our model outperforms GPT-4 on the NovelEval test set, comprising queries and passages past its training period, which addresses concerns about data contamination. To foster further research in this rapidly evolving field, we provide all code necessary to reproduce our results at this https URL .",
+    "journal_ref": null
+  },
+  {
+    "id": "2306.17563",
+    "url": "https://arxiv.org/abs/2306.17563",
+    "title": "Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting",
+    "authors": [
+      "Qin, Zhen",
+      "Jagerman, Rolf",
+      "Hui, Kai",
+      "Zhuang, Honglei",
+      "Wu, Junru",
+      "Yan, Le",
+      "Shen, Jiaming",
+      "Liu, Tianqi",
+      "Liu, Jialu",
+      "Metzler, Donald",
+      "Wang, Xuanhui",
+      "Bendersky, Michael"
+    ],
+    "date": "2023/06/30",
+    "doi": null,
+    "abstract": "Abstract: Ranking documents using Large Language Models (LLMs) by directly feeding the query and candidate documents into the prompt is an interesting and practical problem. However, researchers have found it difficult to outperform fine-tuned baseline rankers on benchmark datasets. We analyze pointwise and listwise ranking prompts used by existing methods and argue that off-the-shelf LLMs do not fully understand these challenging ranking formulations. In this paper, we propose to significantly reduce the burden on LLMs by using a new technique called Pairwise Ranking Prompting (PRP). Our results are the first in the literature to achieve state-of-the-art ranking performance on standard benchmarks using moderate-sized open-sourced LLMs. On TREC-DL 2019&2020, PRP based on the Flan-UL2 model with 20B parameters performs favorably with the previous best approach in the literature, which is based on the blackbox commercial GPT-4 that has 50x (estimated) model size, while outperforming other LLM-based solutions, such as InstructGPT which has 175B parameters, by over 10% for all ranking metrics. By using the same prompt template on seven BEIR tasks, PRP outperforms supervised baselines and outperforms the blackbox commercial ChatGPT solution by 4.2% and pointwise LLM-based solutions by more than 10% on average NDCG@10. Furthermore, we propose several variants of PRP to improve efficiency and show that it is possible to achieve competitive results even with linear complexity.",
+    "journal_ref": null
+  },
+  {
+    "id": "2104.08663",
+    "url": "https://arxiv.org/abs/2104.08663",
+    "title": "BEIR: A Heterogenous Benchmark for Zero-shot Evaluation of Information Retrieval Models",
+    "authors": [
+      "Thakur, Nandan",
+      "Reimers, Nils",
+      "Rücklé, Andreas",
+      "Srivastava, Abhishek",
+      "Gurevych, Iryna"
+    ],
+    "date": "2021/04/17",
+    "doi": null,
+    "abstract": "Abstract: Existing neural information retrieval (IR) models have often been studied in homogeneous and narrow settings, which has considerably limited insights into their out-of-distribution (OOD) generalization capabilities. To address this, and to facilitate researchers to broadly evaluate the effectiveness of their models, we introduce Benchmarking-IR (BEIR), a robust and heterogeneous evaluation benchmark for information retrieval. We leverage a careful selection of 18 publicly available datasets from diverse text retrieval tasks and domains and evaluate 10 state-of-the-art retrieval systems including lexical, sparse, dense, late-interaction and re-ranking architectures on the BEIR benchmark. Our results show BM25 is a robust baseline and re-ranking and late-interaction-based models on average achieve the best zero-shot performances, however, at high computational costs. In contrast, dense and sparse-retrieval models are computationally more efficient but often underperform other approaches, highlighting the considerable room for improvement in their generalization capabilities. We hope this framework allows us to better evaluate and understand existing retrieval systems, and contributes to accelerating progress towards better robust and generalizable systems in the future. BEIR is publicly available at this https URL .",
+    "journal_ref": null
+  },
+  {
+    "id": "2007.01282",
+    "url": "https://arxiv.org/abs/2007.01282",
+    "title": "Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering",
+    "authors": [
+      "Izacard, Gautier",
+      "Grave, Edouard"
+    ],
+    "date": "2020/07/02",
+    "doi": null,
+    "abstract": "Abstract: Generative models for open domain question answering have proven to be competitive, without resorting to external knowledge. While promising, this approach requires to use models with billions of parameters, which are expensive to train and query. In this paper, we investigate how much these models can benefit from retrieving text passages, potentially containing evidence. We obtain state-of-the-art results on the Natural Questions and TriviaQA open benchmarks. Interestingly, we observe that the performance of this method significantly improves when increasing the number of retrieved passages. This is evidence that generative models are good at aggregating and combining evidence from multiple passages.",
+    "journal_ref": null
+  },
+  {
+    "id": "2402.03216",
+    "url": "https://arxiv.org/abs/2402.03216",
+    "title": "M3-Embedding: Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation",
+    "authors": [
+      "Chen, Jianlv",
+      "Xiao, Shitao",
+      "Zhang, Peitian",
+      "Luo, Kun",
+      "Lian, Defu",
+      "Liu, Zheng"
+    ],
+    "date": "2024/02/05",
+    "doi": null,
+    "abstract": "Abstract: In this paper, we introduce a new embedding model called M3-Embedding, which is distinguished for its versatility in \\textit{Multi-Linguality}, \\textit{Multi-Functionality}, and \\textit{Multi-Granularity}. It provides a uniform support for the semantic retrieval of more than 100 working languages. It can simultaneously accomplish the three common retrieval functionalities: dense retrieval, multi-vector retrieval, and sparse retrieval. Besides, it is also capable of processing inputs of different granularities, spanning from short sentences to long documents of up to 8,192 tokens. The effective training of M3-Embedding presents a series of technical contributions. Notably, we propose a novel self-knowledge distillation approach, where the relevance scores from different retrieval functionalities can be integrated as the teacher signal to enhance the training quality. We also optimize the batching strategy, which enables a large batch size and high training throughput to improve the discriminativeness of embeddings. M3-Embedding exhibits a superior performance in our experiment, leading to new state-of-the-art results on multilingual, cross-lingual, and long-document retrieval benchmarks.",
+    "journal_ref": null
+  },
+  {
+    "id": "2004.07667",
+    "url": "https://arxiv.org/abs/2004.07667",
+    "title": "Null It Out: Guarding Protected Attributes by Iterative Nullspace Projection",
+    "authors": [
+      "Ravfogel, Shauli",
+      "Elazar, Yanai",
+      "Gonen, Hila",
+      "Twiton, Michael",
+      "Goldberg, Yoav"
+    ],
+    "date": "2020/04/16",
+    "doi": null,
+    "abstract": "Abstract: The ability to control for the kinds of information encoded in neural representation has a variety of use cases, especially in light of the challenge of interpreting these models. We present Iterative Null-space Projection (INLP), a novel method for removing information from neural representations. Our method is based on repeated training of linear classifiers that predict a certain property we aim to remove, followed by projection of the representations on their null-space. By doing so, the classifiers become oblivious to that target property, making it hard to linearly separate the data according to it. While applicable for multiple uses, we evaluate our method on bias and fairness use-cases, and show that our method is able to mitigate bias in word embeddings, as well as to increase fairness in a setting of multi-class classification.",
+    "journal_ref": null
+  },
+  {
+    "id": "1906.04732",
+    "url": "https://arxiv.org/abs/1906.04732",
+    "title": "Convergence analysis of a Crank-Nicolson Galerkin method for an inverse source problem for parabolic equations with boundary observations",
+    "authors": [
+      "Hao, Dinh Nho",
+      "Quyen, Tran Nhan Tam",
+      "Son, Nguyen Thanh"
+    ],
+    "date": "2019/06/10",
+    "doi": null,
+    "abstract": "Abstract: This work is devoted to an inverse problem of identifying a source term depending on both spatial and time variables in a parabolic equation from single Cauchy data on a part of the boundary. A Crank-Nicolson Galerkin method is applied to the least squares functional with an quadratic stabilizing penalty term. The convergence of finite dimensional regularized approximations to the sought source as measurement noise levels and mesh sizes approach to zero with an appropriate regularization parameter is proved. Moreover, under a suitable source condition, an error bound and corresponding convergence rates are proved. Finally, several numerical experiments are presented to illustrate the theoretical findings.",
+    "journal_ref": null
+  },
+  {
+    "id": "2112.12870",
+    "url": "https://arxiv.org/abs/2112.12870",
+    "title": "Measuring Attribution in Natural Language Generation Models",
+    "authors": [
+      "Rashkin, Hannah",
+      "Nikolaev, Vitaly",
+      "Lamm, Matthew",
+      "Aroyo, Lora",
+      "Collins, Michael",
+      "Das, Dipanjan",
+      "Petrov, Slav",
+      "Tomar, Gaurav Singh",
+      "Turc, Iulia",
+      "Reitter, David"
+    ],
+    "date": "2021/12/23",
+    "doi": null,
+    "abstract": "Abstract: With recent improvements in natural language generation (NLG) models for various applications, it has become imperative to have the means to identify and evaluate whether NLG output is only sharing verifiable information about the external world. In this work, we present a new evaluation framework entitled Attributable to Identified Sources (AIS) for assessing the output of natural language generation models, when such output pertains to the external world. We first define AIS and introduce a two-stage annotation pipeline for allowing annotators to appropriately evaluate model output according to AIS guidelines. We empirically validate this approach on generation datasets spanning three tasks (two conversational QA datasets, a summarization dataset, and a table-to-text dataset) via human evaluation studies that suggest that AIS could serve as a common framework for measuring whether model-generated statements are supported by underlying sources. We release guidelines for the human evaluation studies.",
+    "journal_ref": null
+  },
+  {
+    "id": "2309.15217",
+    "url": "https://arxiv.org/abs/2309.15217",
+    "title": "Ragas: Automated Evaluation of Retrieval Augmented Generation",
+    "authors": [
+      "Es, Shahul",
+      "James, Jithin",
+      "Espinosa-Anke, Luis",
+      "Schockaert, Steven"
+    ],
+    "date": "2023/09/26",
+    "doi": null,
+    "abstract": "Abstract: We introduce Ragas (Retrieval Augmented Generation Assessment), a framework for reference-free evaluation of Retrieval Augmented Generation (RAG) pipelines. RAG systems are composed of a retrieval and an LLM based generation module, and provide LLMs with knowledge from a reference textual database, which enables them to act as a natural language layer between a user and textual databases, reducing the risk of hallucinations. Evaluating RAG architectures is, however, challenging because there are several dimensions to consider: the ability of the retrieval system to identify relevant and focused context passages, the ability of the LLM to exploit such passages in a faithful way, or the quality of the generation itself. With Ragas, we put forward a suite of metrics which can be used to evaluate these different dimensions \\textit{without having to rely on ground truth human annotations}. We posit that such a framework can crucially contribute to faster evaluation cycles of RAG architectures, which is especially important given the fast adoption of LLMs.",
+    "journal_ref": null
+  },
+  {
+    "id": "2311.09476",
+    "url": "https://arxiv.org/abs/2311.09476",
+    "title": "ARES: An Automated Evaluation Framework for Retrieval-Augmented Generation Systems",
+    "authors": [
+      "Saad-Falcon, Jon",
+      "Khattab, Omar",
+      "Potts, Christopher",
+      "Zaharia, Matei"
+    ],
+    "date": "2023/11/16",
+    "doi": null,
+    "abstract": "Abstract: Evaluating retrieval-augmented generation (RAG) systems traditionally relies on hand annotations for input queries, passages to retrieve, and responses to generate. We introduce ARES, an Automated RAG Evaluation System, for evaluating RAG systems along the dimensions of context relevance, answer faithfulness, and answer relevance. By creating its own synthetic training data, ARES finetunes lightweight LM judges to assess the quality of individual RAG components. To mitigate potential prediction errors, ARES utilizes a small set of human-annotated datapoints for prediction-powered inference (PPI). Across eight different knowledge-intensive tasks in KILT, SuperGLUE, and AIS, ARES accurately evaluates RAG systems while using only a few hundred human annotations during evaluation. Furthermore, ARES judges remain effective across domain shifts, proving accurate even after changing the type of queries and/or documents used in the evaluated RAG systems. We make our code and datasets publicly available on Github.",
+    "journal_ref": null
+  },
+  {
+    "id": "2310.08491",
+    "url": "https://arxiv.org/abs/2310.08491",
+    "title": "Prometheus: Inducing Fine-grained Evaluation Capability in Language Models",
+    "authors": [
+      "Kim, Seungone",
+      "Shin, Jamin",
+      "Cho, Yejin",
+      "Jang, Joel",
+      "Longpre, Shayne",
+      "Lee, Hwaran",
+      "Yun, Sangdoo",
+      "Shin, Seongjin",
+      "Kim, Sungdong",
+      "Thorne, James",
+      "Seo, Minjoon"
+    ],
+    "date": "2023/10/12",
+    "doi": null,
+    "abstract": "Abstract: Recently, using a powerful proprietary Large Language Model (LLM) (e.g., GPT-4) as an evaluator for long-form responses has become the de facto standard. However, for practitioners with large-scale evaluation tasks and custom criteria in consideration (e.g., child-readability), using proprietary LLMs as an evaluator is unreliable due to the closed-source nature, uncontrolled versioning, and prohibitive costs. In this work, we propose Prometheus, a fully open-source LLM that is on par with GPT-4's evaluation capabilities when the appropriate reference materials (reference answer, score rubric) are accompanied. We first construct the Feedback Collection, a new dataset that consists of 1K fine-grained score rubrics, 20K instructions, and 100K responses and language feedback generated by GPT-4. Using the Feedback Collection, we train Prometheus, a 13B evaluator LLM that can assess any given long-form text based on customized score rubric provided by the user. Experimental results show that Prometheus scores a Pearson correlation of 0.897 with human evaluators when evaluating with 45 customized score rubrics, which is on par with GPT-4 (0.882), and greatly outperforms ChatGPT (0.392). Furthermore, measuring correlation with GPT-4 with 1222 customized score rubrics across four benchmarks (MT Bench, Vicuna Bench, Feedback Bench, Flask Eval) shows similar trends, bolstering Prometheus's capability as an evaluator LLM. Lastly, Prometheus achieves the highest accuracy on two human preference benchmarks (HHH Alignment & MT Bench Human Judgment) compared to open-sourced reward models explicitly trained on human preference datasets, highlighting its potential as an universal reward model. We open-source our code, dataset, and model at this https URL .",
+    "journal_ref": null
+  },
+  {
+    "id": "2406.04692",
+    "url": "https://arxiv.org/abs/2406.04692",
+    "title": "Mixture-of-Agents Enhances Large Language Model Capabilities",
+    "authors": [
+      "Wang, Junlin",
+      "Wang, Jue",
+      "Athiwaratkun, Ben",
+      "Zhang, Ce",
+      "Zou, James"
+    ],
+    "date": "2024/06/07",
+    "doi": null,
+    "abstract": "Abstract: Recent advances in large language models (LLMs) demonstrate substantial capabilities in natural language understanding and generation tasks. With the growing number of LLMs, how to harness the collective expertise of multiple LLMs is an exciting open direction. Toward this goal, we propose a new approach that leverages the collective strengths of multiple LLMs through a Mixture-of-Agents (MoA) methodology. In our approach, we construct a layered MoA architecture wherein each layer comprises multiple LLM agents. Each agent takes all the outputs from agents in the previous layer as auxiliary information in generating its response. MoA models achieves state-of-art performance on AlpacaEval 2.0, MT-Bench and FLASK, surpassing GPT-4 Omni. For example, our MoA using only open-source LLMs is the leader of AlpacaEval 2.0 by a substantial gap, achieving a score of 65.1% compared to 57.5% by GPT-4 Omni.",
+    "journal_ref": null
+  },
+  {
+    "id": "2403.02113",
+    "url": "https://arxiv.org/abs/2403.02113",
+    "title": "Evolving disorder and chaos enhances the wave speed of elastic waves",
+    "authors": [
+      "Ahumada, M.",
+      "Trujillo, L.",
+      "Marín, J. F."
+    ],
+    "date": "2024/03/04",
+    "doi": "10.1088/1742-5468/adac3d",
+    "abstract": "Abstract: Static or frozen disorder, characterised by spatial heterogeneities, influences diverse complex systems, encompassing many-body systems, equilibrium and nonequilibrium states of matter, intricate network topologies, biological systems, and wave-matter interactions. While static disorder has been thoroughly examined, delving into evolving disorder brings increased intricacy to the issue. An example of this complexity is the observation of stochastic acceleration of electromagnetic waves in evolving media, where noisy fluctuations in the propagation medium transfer effective momentum to the wave. Here, we investigate elastic wave propagation in a one-dimensional heterogeneous medium with diagonal disorder. We examine two types of complex elastic materials: one with static disorder, where mass density randomly varies in space, and the other with evolving disorder, featuring random variations in both space and time. Our results indicate that evolving disorder enhances the propagation speed of Gaussian pulses compared to static disorder. Additionally, we demonstrate that the enhanced speed effect also occurs when the medium evolves chaotically rather than randomly over time. The latter establishes that evolving randomness is not a unique prerequisite for observing the enhanced transport of wavefronts, introducing the concept of chaotic speed enhancement of waves in complex media.",
+    "journal_ref": "Journal of Statistical Mechanics: Theory and Experiment 2025 (2), 023302"
+  }
+]

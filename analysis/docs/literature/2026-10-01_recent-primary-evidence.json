@@ -1,0 +1,104 @@
+[
+  {
+    "id": "2509.08919",
+    "url": "https://arxiv.org/abs/2509.08919",
+    "title": "Generative Engine Optimization: How to Dominate AI Search",
+    "authors": [
+      "Chen, Mahe",
+      "Wang, Xiaoxuan",
+      "Chen, Kaiwen",
+      "Koudas, Nick"
+    ],
+    "date": "2025/09/10",
+    "doi": null,
+    "abstract": "Abstract: The rapid adoption of generative AI-powered search engines like ChatGPT, Perplexity, and Gemini is fundamentally reshaping information retrieval, moving from traditional ranked lists to synthesized, citation-backed answers. This shift challenges established Search Engine Optimization (SEO) practices and necessitates a new paradigm, which we term Generative Engine Optimization (GEO). This paper presents a comprehensive comparative analysis of AI Search and traditional web search (Google). Through a series of large-scale, controlled experiments across multiple verticals, languages, and query paraphrases, we quantify critical differences in how these systems source information. Our key findings reveal that AI Search exhibit a systematic and overwhelming bias towards Earned media (third-party, authoritative sources) over Brand-owned and Social content, a stark contrast to Google's more balanced mix. We further demonstrate that AI Search services differ significantly from each other in their domain diversity, freshness, cross-language stability, and sensitivity to phrasing. Based on these empirical results, we formulate a strategic GEO agenda. We provide actionable guidance for practitioners, emphasizing the critical need to: (1) engineer content for machine scannability and justification, (2) dominate earned media to build AI-perceived authority, (3) adopt engine-specific and language-aware strategies, and (4) overcome the inherent \"big brand bias\" for niche players. Our work provides the foundational empirical analysis and a strategic framework for achieving visibility in the new generative search landscape.",
+    "journal_ref": null
+  },
+  {
+    "id": "2603.09296",
+    "url": "https://arxiv.org/abs/2603.09296",
+    "title": "Diagnosing and Repairing Citation Failures in Generative Engine Optimization",
+    "authors": [
+      "Tian, Zhihua",
+      "Chen, Yuhan",
+      "Tang, Yao",
+      "Liu, Jian",
+      "Jia, Ruoxi"
+    ],
+    "date": "2026/03/10",
+    "doi": null,
+    "abstract": "Abstract: Generative Engine Optimization (GEO) aims to improve content visibility in AI-generated responses. However, existing methods measure contribution-how much a document influences a response-rather than citation, the mechanism that actually drives traffic back to creators. Also, these methods apply generic rewriting rules uniformly, failing to diagnose why individual document are not cited. This paper introduces a diagnostic approach to GEO that asks why a document fails to be cited and intervenes accordingly. We develop a unified framework comprising: (1) the first taxonomy of citation failure modes spanning different stages of a citation pipeline; (2) AgentGEO, an agentic system that diagnoses failures using this taxonomy, selects targeted repairs from a corresponding tool library, and iterates until citation is achieved; and (3) a document-centric benchmark evaluating whether optimizations generalize across held-out queries. AgentGEO achieves over 40% relative improvement in citation rates while modifying only 5% of content, compared to 25% for baselines. Our analysis reveals that generic optimization can harm long-tail content and some documents face challenges that optimization alone cannot fully address-findings with implications for equitable visibility in AI-mediated information access.",
+    "journal_ref": null
+  },
+  {
+    "id": "2604.25707",
+    "url": "https://arxiv.org/abs/2604.25707",
+    "title": "From Citation Selection to Citation Absorption: A Measurement Framework for Generative Engine Optimization Across AI Search Platforms",
+    "authors": [
+      "Kai, Zhang",
+      "Xinyue, He",
+      "Jingang, Yao"
+    ],
+    "date": "2026/04/28",
+    "doi": null,
+    "abstract": "Abstract: Generative search engines increasingly determine whether online information is merely discoverable, cited as a source, or actually absorbed into generated answers. This paper proposes a two-stage measurement framework for Generative Engine Optimization (GEO): citation selection, where a platform triggers search and chooses sources, and citation absorption, where a cited page contributes language, evidence, structure, or factual support to the final answer. We analyze the public geo-citation-lab dataset covering 602 controlled prompts across ChatGPT, Google AI Overview/Gemini, and Perplexity; 21,143 valid search-layer citations; 23,745 citation-level feature records; 18,151 successfully fetched pages; and 72 extracted features. The central descriptive finding is that citation breadth and citation depth diverge. Perplexity and Google cite more sources on average, while ChatGPT cites fewer sources but shows substantially higher average citation influence among fetched pages. High-influence pages tend to be longer, more structured, semantically aligned, and richer in extractable evidence such as definitions, numerical facts, comparisons, and procedural steps. The results suggest that GEO should be measured beyond citation counts, with answer-level absorption treated as a separate outcome.",
+    "journal_ref": null
+  },
+  {
+    "id": "2603.29979",
+    "url": "https://arxiv.org/abs/2603.29979",
+    "title": "Structural Feature Engineering for Generative Engine Optimization: How Content Structure Shapes Citation Behavior",
+    "authors": [
+      "Yu, Junwei",
+      "Yang, Mufeng",
+      "Ding, Yepeng",
+      "Sato, Hiroyuki"
+    ],
+    "date": "2026/03/31",
+    "doi": null,
+    "abstract": "Abstract: The proliferation of AI-powered search engines has shifted information discovery from traditional link-based retrieval to direct answer generation with selective source citation, creating new challenges for content visibility. While existing Generative Engine Optimization (GEO) approaches focus primarily on semantic content modification, the role of structural features in influencing citation behavior remains underexplored. In this paper, we propose GEO-SFE, a systematic framework for structural feature engineering in generative engine optimization. Our approach decomposes content structure into three hierarchical levels: macro-structure (document architecture), meso-structure (information chunking), and micro-structure (visual emphasis), and models their impact on citation probability across different generative engine architectures. We develop architecture-aware optimization strategies and predictive models that preserve semantic integrity while improving structural effectiveness. Experimental evaluation across six mainstream generative engines demonstrates consistent improvements in citation rate (17.3 percent) and subjective quality (18.5 percent), validating the effectiveness and generalizability of the proposed framework. This work establishes structural optimization as a foundational component of GEO, providing a data-driven methodology for enhancing content visibility in LLM-powered information ecosystems.",
+    "journal_ref": null
+  },
+  {
+    "id": "2603.10913",
+    "url": "https://arxiv.org/abs/2603.10913",
+    "title": "LLM2Vec-Gen: Generative Embeddings from Large Language Models",
+    "authors": [
+      "BehnamGhader, Parishad",
+      "Adlakha, Vaibhav",
+      "Schmidt, Fabian David",
+      "Chapados, Nicolas",
+      "Mosbach, Marius",
+      "Reddy, Siva"
+    ],
+    "date": "2026/03/11",
+    "doi": null,
+    "abstract": "Abstract: Fine-tuning LLM-based text embedders via contrastive learning maps inputs and outputs into a new representational space, discarding the LLM's output semantics. We propose LLM2Vec-Gen, a self-supervised alternative that instead produces embeddings directly in the LLM's output space by learning to represent the model's potential response. Specifically, trainable special tokens are appended to the input and optimized to compress the LLM's own response into a fixed-length embedding, guided by an unsupervised embedding teacher and a reconstruction objective. Crucially, the LLM backbone remains frozen and training requires only unlabeled queries. LLM2Vec-Gen achieves state-of-the-art self-supervised performance on the Massive Text Embedding Benchmark (MTEB), improving by 8.8% over the unsupervised embedding teacher. Since the embeddings preserve the LLM's response-space semantics, they inherit capabilities such as safety alignment (up to 22.6% reduction in harmful content retrieval) and reasoning (up to 35.6% improvement on reasoning-intensive retrieval). Finally, the learned embeddings are also interpretable: they can be decoded back into text to reveal their semantic content. Our code, data, and pretrained models are publicly available at this https URL .",
+    "journal_ref": null
+  },
+  {
+    "id": "2106.06599",
+    "url": "https://arxiv.org/abs/2106.06599",
+    "title": "The value of travel speed",
+    "authors": [
+      "van Goeverden, Cornelis Dirk"
+    ],
+    "date": "2021/06/11",
+    "doi": null,
+    "abstract": "Abstract: Travel speed is an intrinsic feature of transport, and enlarging the speed is considered as beneficial. The benefit of a speed increase is generally assessed as the value of the saved travel time. However, this approach conflicts with the observation that time spent on travelling is rather constant and might not be affected by speed changes. The paper aims to define the benefits of a speed increase and addresses two research questions. First, how will a speed increase in person transport work out, which factors are affected? Second, is the value of time a good proxy for the value of speed? Based on studies on time spending and research on the association between speed and land use, we argue that human wealth could be the main affected factor by speed changes, rather than time or access. Then the value of time is not a good proxy for the value of speed: the benefits of a wealth increase are negatively correlated with prosperity following the law of diminishing marginal utility, while the calculated benefits of saved travel time prove to be positively correlated. The inadequacy of the value of time is explained by some shortcomings with respect to the willingness to pay that is generally used for assessing the value of time: people do not predict correctly the personal benefits that will be gained from a decision, and they neglect the social impacts.",
+    "journal_ref": null
+  },
+  {
+    "id": "2306.17322",
+    "url": "https://arxiv.org/abs/2306.17322",
+    "title": "Citations as Queries: Source Attribution Using Language Models as Rerankers",
+    "authors": [
+      "Muther, Ryan",
+      "Smith, David"
+    ],
+    "date": "2023/06/29",
+    "doi": null,
+    "abstract": "Abstract: This paper explores new methods for locating the sources used to write a text, by fine-tuning a variety of language models to rerank candidate sources. After retrieving candidates sources using a baseline BM25 retrieval model, a variety of reranking methods are tested to see how effective they are at the task of source attribution. We conduct experiments on two datasets, English Wikipedia and medieval Arabic historical writing, and employ a variety of retrieval and generation based reranking models. In particular, we seek to understand how the degree of supervision required affects the performance of various reranking models. We find that semisupervised methods can be nearly as effective as fully supervised methods while avoiding potentially costly span-level annotation of the target and source documents.",
+    "journal_ref": null
+  }
+]

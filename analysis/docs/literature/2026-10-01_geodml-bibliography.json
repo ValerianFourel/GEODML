@@ -1,0 +1,2772 @@
+[
+  {
+    "title": "Construct validity in psychological tests.",
+    "authors": [
+      "Lee J. Cronbach",
+      "Paul E. Meehl"
+    ],
+    "year": 1955,
+    "venue": "Psychological Bulletin",
+    "doi": "10.1037/h0040957",
+    "url": "https://doi.org/10.1037/h0040957",
+    "abstract": "",
+    "themes": [
+      1,
+      3
+    ],
+    "relevance": "Anchor validation in a network of construct predictions, not predictive accuracy alone.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Construct+validity+in+psychological+tests&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P001",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Inside the search process: Information seeking from the user's perspective",
+    "authors": [
+      "Carol C. Kuhlthau"
+    ],
+    "year": 1991,
+    "venue": "Journal of the American Society for Information Science",
+    "doi": "10.1002/(sici)1097-4571(199106)42:5<361::aid-asi6>3.0.co;2-#",
+    "url": "https://doi.org/10.1002/(sici)1097-4571(199106)42:5<361::aid-asi6>3.0.co;2-#",
+    "abstract": "",
+    "themes": [
+      1
+    ],
+    "relevance": "Task-stage and uncertainty account for information seeking beyond query wording.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Inside+the+search+process%3A+Information+seeking+from+the+user%27s+perspective&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P002",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Implementation intentions and effective goal pursuit.",
+    "authors": [
+      "Peter M. Gollwitzer",
+      "Veronika Brandstätter"
+    ],
+    "year": 1997,
+    "venue": "Journal of Personality and Social Psychology",
+    "doi": "10.1037/0022-3514.73.1.186",
+    "url": "https://doi.org/10.1037/0022-3514.73.1.186",
+    "abstract": "The theoretical distinction between goal intentions (\"I intend to achieve -c\") and implementation intentions (\"I intend to perform goal-directed behavior y when I encounter situation z\"; P. M. Gollwitzer, 1993) is explored by assessing the completion rate of various goal projects. In correlational Study 1, difficult goal intentions were completed about 3 times more often when participants had furnished them with implementation intentions. In experimental Study 2, all participants were assigned the same difficult goal intention, and half were instructed to form implementation intentions. The beneficial effects of implementation intentions paralleled diose of Study 1. In experimental Study 3, implementation intentions were observed to facilitate the immediate initiation of goaldirected action when the intended opportunity was encountered. Implementation intentions are interpreted to be powerful self-regulatory tools for overcoming the typical obstacles associated with the initiation of goal-directed actions.",
+    "themes": [
+      1
+    ],
+    "relevance": "Compares deliberation, implementation, or goal pursuit; transfer from behavioral psychology to prompt language requires validation.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=title.search%3Agoal+intentions+implementation+intentions%2Cto_publication_date%3A2026-10-01&per-page=5",
+      "https://openalex.org/W2158545087"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P003",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Deliberative versus implemental mindsets in the control of action",
+    "authors": [
+      "Peter M. Gollwitzer",
+      "Ute C. Bayer"
+    ],
+    "year": 1999,
+    "venue": "KOPS (University of Konstanz)",
+    "doi": null,
+    "url": "http://nbn-resolving.de/urn:nbn:de:bsz:352-opus-55747",
+    "abstract": "",
+    "themes": [
+      1
+    ],
+    "relevance": "Compares deliberation, implementation, or goal pursuit; transfer from behavioral psychology to prompt language requires validation.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=title.search%3Adeliberative+implemental+mindsets%2Cto_publication_date%3A2026-10-01&per-page=5",
+      "https://openalex.org/W1870269665"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P004",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Implementation intentions: Strong effects of simple plans.",
+    "authors": [
+      "Peter M. Gollwitzer"
+    ],
+    "year": 1999,
+    "venue": "American Psychologist",
+    "doi": "10.1037/0003-066x.54.7.493",
+    "url": "https://doi.org/10.1037/0003-066x.54.7.493",
+    "abstract": "",
+    "themes": [
+      1
+    ],
+    "relevance": "Separate wanting an outcome from specifying how to act.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1037%2F0003-066X.54.7.493"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P005",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "A taxonomy of web search",
+    "authors": [
+      "Andrei Broder"
+    ],
+    "year": 2002,
+    "venue": "ACM SIGIR Forum",
+    "doi": "10.1145/792550.792552",
+    "url": "https://doi.org/10.1145/792550.792552",
+    "abstract": "Classic IR (information retrieval) is inherently predicated on users searching for information, the so-called \"information need\". But the need behind a web search is often not informational -- it might be navigational (give me the url of the site I want to reach) or transactional (show me sites where I can perform a certain transaction, e.g. shop, download a file, or find a map). We explore this taxonomy of web searches and discuss how global search engines evolved to deal with web-specific needs.",
+    "themes": [
+      1
+    ],
+    "relevance": "Distinguish informational, navigational and transactional intent from a continuous readiness measure.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=A+taxonomy+of+web+search&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P006",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Effects of Deliberative and Implemental Mindsets on Persistence in Goal-Directed Behavior",
+    "authors": [
+      "Veronika Brandstätter",
+      "Elisabeth Frank"
+    ],
+    "year": 2002,
+    "venue": "Personality and Social Psychology Bulletin",
+    "doi": "10.1177/014616702236868",
+    "url": "https://doi.org/10.1177/014616702236868",
+    "abstract": "In three experiments with a total of 243 students, the hypothesis was tested that mindsets affect goal-directed persistence in behavioral conflict situations. In Studies 1 and 2, an implemental mindset led to higher persistence as compared with a deliberative mindset in solving a puzzle or playing a computer game, respectively, when the characteristics of the task implied a behavioral conflict (i.e., when perceived desirability was low and perceived feasibility was high, or vice versa).No differences were found when the desirability and feasibility of the task were both low or both high. In Study 3, it was demonstrated that, depending on the functional value of persistence in the given situation, the implemental mindset leads to lower persistence compared with the deliberative mindset. These findings are interpreted to mean that the implemental mindset is a self-regulatory mechanism that permits a flexible response to the demands of a particular situation.",
+    "themes": [
+      1
+    ],
+    "relevance": "Compares deliberation, implementation, or goal pursuit; transfer from behavioral psychology to prompt language requires validation.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=title.search%3Adeliberative+implemental+mindsets%2Cto_publication_date%3A2026-10-01&per-page=5",
+      "https://openalex.org/W2075579114"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P007",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "The Effects of Mindset on Behavior: Self-Regulation in Deliberative and Implemental Frames of Mind",
+    "authors": [
+      "David A. Armor",
+      "Shelley E. Taylor"
+    ],
+    "year": 2003,
+    "venue": "Personality and Social Psychology Bulletin",
+    "doi": "10.1177/0146167202238374",
+    "url": "https://doi.org/10.1177/0146167202238374",
+    "abstract": "The effects of deliberative and implemental mindsets--cognitive and motivational states associated with predecisional and postdecisional frames of mind, respectively--were examined in the context of the self-regulation of behavior. Participants who had been induced to deliberate the merits of participating in a specified task formulated more pessimistic expectations about this task than did participants who had been induced to imagine implementing a plan to complete the task. Moreover, participants in the deliberation condition underperformed relative to the participants in the implemental condition, demonstrating that deliberative and implemental thinking can influence behavior as well as cognition.",
+    "themes": [
+      1
+    ],
+    "relevance": "Compares deliberation, implementation, or goal pursuit; transfer from behavioral psychology to prompt language requires validation.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=title.search%3Adeliberative+implemental+mindsets%2Cto_publication_date%3A2026-10-01&per-page=5",
+      "https://openalex.org/W2094055596"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P008",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "The Interplay Between Goal Intentions and Implementation Intentions",
+    "authors": [
+      "Paschal Sheeran",
+      "Thomas Llewelyn Webb",
+      "Peter M. Gollwitzer"
+    ],
+    "year": 2004,
+    "venue": "Personality and Social Psychology Bulletin",
+    "doi": "10.1177/0146167204271308",
+    "url": "https://doi.org/10.1177/0146167204271308",
+    "abstract": "Two studies tested whether action control by implementation intentions is sensitive to the activation and strength of participants' underlying goal intentions. In Study 1, participants formed implementation intentions (or did not) and their goal intentions were measured. Findings revealed a significant interaction between implementation intentions and the strength of respective goal intentions. Implementation intentions benefited the rate of goal attainment when participants had strong goal intentions but not when goal intentions were weak. Study 2 activated either a task-relevant or a neutral goal outside of participants' conscious awareness and found that implementation intentions affected performance only when the relevant goal had been activated. These findings indicate that the rate of goal attainment engendered by implementation intentions takes account of the state (strength, activation) of people's superordinate goal intentions.",
+    "themes": [
+      1
+    ],
+    "relevance": "Compares deliberation, implementation, or goal pursuit; transfer from behavioral psychology to prompt language requires validation.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=title.search%3Agoal+intentions+implementation+intentions%2Cto_publication_date%3A2026-10-01&per-page=5",
+      "https://openalex.org/W2144947807"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P009",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Exploratory search",
+    "authors": [
+      "Gary Marchionini"
+    ],
+    "year": 2006,
+    "venue": "Communications of the ACM",
+    "doi": "10.1145/1121949.1121979",
+    "url": "https://doi.org/10.1145/1121949.1121979",
+    "abstract": "Research tools critical for exploratory search success involve the creation of new interfaces that move the process beyond predictable fact retrieval.",
+    "themes": [
+      1
+    ],
+    "relevance": "Exploratory search moves beyond fact lookup; does not establish a calibrated readiness scale.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1145%2F1121949.1121979"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P010",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "How do implementation intentions promote goal attainment? A test of component processes",
+    "authors": [
+      "Thomas Llewelyn Webb",
+      "Paschal Sheeran"
+    ],
+    "year": 2006,
+    "venue": "Journal of Experimental Social Psychology",
+    "doi": "10.1016/j.jesp.2006.02.001",
+    "url": "https://doi.org/10.1016/j.jesp.2006.02.001",
+    "abstract": "",
+    "themes": [
+      1
+    ],
+    "relevance": "Compares deliberation, implementation, or goal pursuit; transfer from behavioral psychology to prompt language requires validation.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=title.search%3Agoal+intentions+implementation+intentions%2Cto_publication_date%3A2026-10-01&per-page=5",
+      "https://openalex.org/W2146804581"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P011",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Implementation Intentions and Goal Achievement: A Meta‐analysis of Effects and Processes",
+    "authors": [
+      "Peter M. Gollwitzer",
+      "Paschal Sheeran"
+    ],
+    "year": 2006,
+    "venue": "Advances in Experimental Social Psychology; Advances in Experimental Social Psychology Volume 38",
+    "doi": "10.1016/s0065-2601(06)38002-1",
+    "url": "https://doi.org/10.1016/s0065-2601(06)38002-1",
+    "abstract": "",
+    "themes": [
+      1
+    ],
+    "relevance": "Behavioral evidence is needed before treating prompt readiness as actual action propensity.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1016%2FS0065-2601%2806%2938002-1"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P012",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Determining the informational, navigational, and transactional intent of Web queries",
+    "authors": [
+      "Bernard J. Jansen",
+      "Danielle L. Booth",
+      "Amanda Spink"
+    ],
+    "year": 2008,
+    "venue": "Information Processing & Management",
+    "doi": "10.1016/j.ipm.2007.07.015",
+    "url": "https://doi.org/10.1016/j.ipm.2007.07.015",
+    "abstract": "",
+    "themes": [
+      1
+    ],
+    "relevance": "Query-language operationalization is directly relevant but its classes need not form a scalar.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Determining+the+informational%2C+navigational%2C+and+transactional+intent+of+Web+queries&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P013",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "The Role of Deliberative Versus Implemental Mindsets in Time Prediction and Task Accomplishment",
+    "authors": [
+      "Veronika Brandstätter",
+      "Lukas Giesinger",
+      "Veronika Job",
+      "Elisabeth Frank"
+    ],
+    "year": 2015,
+    "venue": "Social Psychology",
+    "doi": "10.1027/1864-9335/a000231",
+    "url": "https://doi.org/10.1027/1864-9335/a000231",
+    "abstract": "The Model of Action Phases ( Gollwitzer, 1990 , 2012 ) distinguishes an implemental mindset evoked by planning goal-directed actions, from a deliberative mindset evoked by pondering pros/cons of adopting a particular goal. The present research demonstrates that mindsets affect time predictions. In Study 1 (N = 151), participants in an implemental mindset made shorter time predictions with respect to completing personal goals than participants in a deliberative mindset. In Study 2 (N = 78), we tested a mediating mechanism for the mindset effect by varying the motivation to return a report. The mindset effect was replicated in the low- but not in the high-motivation condition with participants in an implemental mindset returning the report earlier, and being as accurate in their predictions as participants in a deliberative mindset. Results indicate that an implemental (vs. deliberative) mindset increases motivation and therefore leads to shorter, but equally biased time predictions.",
+    "themes": [
+      1
+    ],
+    "relevance": "Compares deliberation, implementation, or goal pursuit; transfer from behavioral psychology to prompt language requires validation.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=title.search%3Adeliberative+implemental+mindsets%2Cto_publication_date%3A2026-10-01&per-page=5",
+      "https://openalex.org/W2157753281"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P014",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Interpretability Beyond Feature Attribution: Quantitative Testing with Concept Activation Vectors (TCAV)",
+    "authors": [
+      "Kim, Been",
+      "Wattenberg, Martin",
+      "Gilmer, Justin",
+      "Cai, Carrie",
+      "Wexler, James",
+      "Viegas, Fernanda",
+      "Sayres, Rory"
+    ],
+    "year": 2017,
+    "venue": "ICML 2018",
+    "doi": null,
+    "url": "https://arxiv.org/abs/1711.11279",
+    "primary_url": "https://arxiv.org/abs/1711.11279",
+    "fulltext_url": null,
+    "abstract": "The interpretation of deep learning models is a challenge due to their size, complexity, and often opaque internal state. In addition, many systems, such as image classifiers, operate on low-level features rather than high-level concepts. To address these challenges, we introduce Concept Activation Vectors (CAVs), which provide an interpretation of a neural net's internal state in terms of human-friendly concepts. The key idea is to view the high-dimensional internal state of a neural net as an aid, not an obstacle. We show how to use CAVs as part of a technique, Testing with CAVs (TCAV), that uses directional derivatives to quantify the degree to which a user-defined concept is important to a classification result--for example, how sensitive a prediction of \"zebra\" is to the presence of stripes. Using the domain of image classification as a testing ground, we describe how CAVs may be used to explore hypotheses and generate insights for a standard image classification network as well as a medical application.",
+    "themes": [
+      2
+    ],
+    "relevance": "Compare concept-direction interpretation with supervised readiness probes.",
+    "verification_urls": [
+      "https://arxiv.org/abs/1711.11279"
+    ],
+    "arxiv_id": "1711.11279",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P015",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Designing and Interpreting Probes with Control Tasks",
+    "authors": [
+      "John Hewitt",
+      "Percy Liang"
+    ],
+    "year": 2019,
+    "venue": "Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)",
+    "doi": "10.18653/v1/d19-1275",
+    "url": "https://doi.org/10.18653/v1/d19-1275",
+    "abstract": "Probes, supervised models trained to predict properties (like parts-of-speech) from representations (like ELMo), have achieved high accuracy on a range of linguistic tasks. But does this mean that the representations encode linguistic structure or just that the probe has learned the linguistic task? In this paper, we propose control tasks, which associate word types with random outputs, to complement linguistic tasks. By construction, these tasks can only be learned by the probe itself. So a good probe, (one that reflects the representation), should be selective, achieving high linguistic task accuracy and low control task accuracy. The selectivity of a probe puts linguistic task accuracy in context with the probe's capacity to memorize from word types. We construct control tasks for English part-of-speech tagging and dependency edge prediction, and show that popular probes on ELMo representations are not selective. We also find that dropout, commonly used to control probe complexity, is ineffective for improving selectivity of MLPs, but that other forms of regularization are effective. Finally, we find that while probes on the first layer of ELMo yield slightly better part-of-speech tagging accuracy than the second, probes on the second layer are substantially more selective, which raises the question of which layer better represents parts-of-speech.",
+    "themes": [
+      2,
+      3
+    ],
+    "relevance": "Probe selectivity and control labels address overinterpretation of decoding accuracy.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Designing+and+Interpreting+Probes+with+Control+Tasks&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://arxiv.org/abs/1909.03368"
+    ],
+    "primary_url": "https://arxiv.org/abs/1909.03368",
+    "arxiv_id": "1909.03368",
+    "inspection": "abstract inspected",
+    "role": "critical/contrary evidence",
+    "key": "P016",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Similarity of Neural Network Representations Revisited",
+    "authors": [
+      "Simon Kornblith",
+      "Mohammad Norouzi",
+      "Honglak Lee",
+      "Geoffrey E. Hinton"
+    ],
+    "year": 2019,
+    "venue": "arXiv (Cornell University)",
+    "doi": "10.48550/arxiv.1905.00414",
+    "url": "http://arxiv.org/abs/1905.00414",
+    "abstract": "Recent work has sought to understand the behavior of neural networks by comparing representations between layers and between different trained models. We examine methods for comparing neural network representations based on canonical correlation analysis (CCA). We show that CCA belongs to a family of statistics for measuring multivariate similarity, but that neither CCA nor any other statistic that is invariant to invertible linear transformation can measure meaningful similarities between representations of higher dimension than the number of data points. We introduce a similarity index that measures the relationship between representational similarity matrices and does not suffer from this limitation. This similarity index is equivalent to centered kernel alignment (CKA) and is also closely connected to CCA. Unlike CCA, CKA can reliably identify correspondences between representations in networks trained from different initializations.",
+    "themes": [
+      2,
+      3
+    ],
+    "relevance": "Compare representation similarity with agreement in readiness predictions.",
+    "verification_urls": [
+      "https://openalex.org/W2942810103",
+      "https://arxiv.org/abs/1905.00414"
+    ],
+    "primary_url": "https://arxiv.org/abs/1905.00414",
+    "arxiv_id": "1905.00414",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P017",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Null It Out: Guarding Protected Attributes by Iterative Nullspace Projection",
+    "authors": [
+      "Ravfogel, Shauli",
+      "Elazar, Yanai",
+      "Gonen, Hila",
+      "Twiton, Michael",
+      "Goldberg, Yoav"
+    ],
+    "year": 2020,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2004.07667",
+    "primary_url": "https://arxiv.org/abs/2004.07667",
+    "fulltext_url": null,
+    "abstract": "The ability to control for the kinds of information encoded in neural representation has a variety of use cases, especially in light of the challenge of interpreting these models. We present Iterative Null-space Projection (INLP), a novel method for removing information from neural representations. Our method is based on repeated training of linear classifiers that predict a certain property we aim to remove, followed by projection of the representations on their null-space. By doing so, the classifiers become oblivious to that target property, making it hard to linearly separate the data according to it. While applicable for multiple uses, we evaluate our method on bias and fairness use-cases, and show that our method is able to mitigate bias in word embeddings, as well as to increase fairness in a setting of multi-class classification.",
+    "themes": [
+      2
+    ],
+    "relevance": "Concept removal offers a test of the limits of a single direction.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2004.07667"
+    ],
+    "arxiv_id": "2004.07667",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P018",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "SimCSE: Simple Contrastive Learning of Sentence Embeddings",
+    "authors": [
+      "Tianyu Gao",
+      "Xingcheng Yao",
+      "Danqi Chen"
+    ],
+    "year": 2021,
+    "venue": "Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing",
+    "doi": "10.18653/v1/2021.emnlp-main.552",
+    "url": "https://doi.org/10.18653/v1/2021.emnlp-main.552",
+    "abstract": "This paper presents SimCSE, a simple contrastive learning framework that greatly advances state-of-the-art sentence embeddings. We first describe an unsupervised approach, which takes an input sentence and predicts itself in a contrastive objective, with only standard dropout used as noise. This simple method works surprisingly well, performing on par with previous supervised counterparts. We find that dropout acts as minimal data augmentation, and removing it leads to a representation collapse. Then, we propose a supervised approach, which incorporates annotated pairs from natural language inference datasets into our contrastive learning framework by using \"entailment\" pairs as positives and \"contradiction\" pairs as hard negatives. We evaluate SimCSE on standard semantic textual similarity (STS) tasks, and our unsupervised and supervised models using BERT base achieve an average of 76.3% and 81.6% Spearman's correlation respectively, a 4.2% and 2.2% improvement compared to the previous best results. We also show -- both theoretically and empirically -- that the contrastive learning objective regularizes pre-trained embeddings' anisotropic space to be more uniform, and it better aligns positive pairs when supervised signals are available.",
+    "themes": [
+      2
+    ],
+    "relevance": "Explains the contrastive objective underlying a representation used by the project.",
+    "verification_urls": [
+      "https://openalex.org/W3156636935",
+      "https://openalex.org/W3213189520",
+      "https://arxiv.org/abs/2104.08821"
+    ],
+    "primary_url": "https://arxiv.org/abs/2104.08821",
+    "arxiv_id": "2104.08821",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P019",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Probing Classifiers: Promises, Shortcomings, and Advances",
+    "authors": [
+      "Yonatan Belinkov"
+    ],
+    "year": 2022,
+    "venue": "Computational Linguistics",
+    "doi": "10.1162/coli_a_00422",
+    "url": "https://doi.org/10.1162/coli_a_00422",
+    "abstract": "Abstract Probing classifiers have emerged as one of the prominent methodologies for interpreting and analyzing deep neural network models of natural language processing. The basic idea is simple—a classifier is trained to predict some linguistic property from a model’s representations—and has been used to examine a wide variety of models and properties. However, recent studies have demonstrated various methodological limitations of this approach. This squib critically reviews the probing classifiers framework, highlighting their promises, shortcomings, and advances.",
+    "themes": [
+      2,
+      3
+    ],
+    "relevance": "Use the probing literature to distinguish available information from model use.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Probing+Classifiers%3A+Promises%2C+Shortcomings%2C+and+Advances&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "abstract inspected",
+    "role": "critical/contrary evidence",
+    "key": "P020",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "LEACE: Perfect linear concept erasure in closed form",
+    "authors": [
+      "Nora Belrose",
+      "David Schneider-Joseph",
+      "Shauli Ravfogel",
+      "Ryan Cotterell",
+      "Edward Raff",
+      "Stella Biderman"
+    ],
+    "year": 2023,
+    "venue": "Advances in Neural Information Processing Systems 36",
+    "doi": "10.52202/075280-2884",
+    "url": "https://doi.org/10.52202/075280-2884",
+    "abstract": "Concept erasure aims to remove specified features from an embedding. It can improve fairness (e.g. preventing a classifier from using gender or race) and interpretability (e.g. removing a concept to observe changes in model behavior). We introduce LEAst-squares Concept Erasure (LEACE), a closed-form method which provably prevents all linear classifiers from detecting a concept while changing the embedding as little as possible, as measured by a broad class of norms. We apply LEACE to large language models with a novel procedure called \"concept scrubbing,\" which erases target concept information from every layer in the network. We demonstrate our method on two tasks: measuring the reliance of language models on part-of-speech information, and reducing gender bias in BERT embeddings. Code is available at this https URL .",
+    "themes": [
+      2
+    ],
+    "relevance": "Linear erasure can test residual predictability without proving psychological validity.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=LEACE%3A+Perfect+linear+concept+erasure+in+closed+form&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://arxiv.org/abs/2306.03819"
+    ],
+    "primary_url": "https://arxiv.org/abs/2306.03819",
+    "arxiv_id": "2306.03819",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P021",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Representation Engineering: A Top-Down Approach to AI Transparency",
+    "authors": [
+      "Zou, Andy",
+      "Phan, Long",
+      "Chen, Sarah",
+      "Campbell, James",
+      "Guo, Phillip",
+      "Ren, Richard",
+      "Pan, Alexander",
+      "Yin, Xuwang",
+      "Mazeika, Mantas",
+      "Dombrowski, Ann-Kathrin",
+      "Goel, Shashwat",
+      "Li, Nathaniel",
+      "Byun, Michael J.",
+      "Wang, Zifan",
+      "Mallen, Alex",
+      "Basart, Steven",
+      "Koyejo, Sanmi",
+      "Song, Dawn",
+      "Fredrikson, Matt",
+      "Kolter, J. Zico",
+      "Hendrycks, Dan"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2310.01405",
+    "primary_url": "https://arxiv.org/abs/2310.01405",
+    "fulltext_url": null,
+    "abstract": "In this paper, we identify and characterize the emerging area of representation engineering (RepE), an approach to enhancing the transparency of AI systems that draws on insights from cognitive neuroscience. RepE places population-level representations, rather than neurons or circuits, at the center of analysis, equipping us with novel methods for monitoring and manipulating high-level cognitive phenomena in deep neural networks (DNNs). We provide baselines and an initial analysis of RepE techniques, showing that they offer simple yet effective solutions for improving our understanding and control of large language models. We showcase how these methods can provide traction on a wide range of safety-relevant problems, including honesty, harmlessness, power-seeking, and more, demonstrating the promise of top-down transparency research. We hope that this work catalyzes further exploration of RepE and fosters advancements in the transparency and safety of AI systems.",
+    "themes": [
+      2
+    ],
+    "relevance": "Relevant direction-estimation and intervention methods; activation control differs from text measurement.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2310.01405"
+    ],
+    "arxiv_id": "2310.01405",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P022",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "The Linear Representation Hypothesis and the Geometry of Large Language Models",
+    "authors": [
+      "Park, Kiho",
+      "Choe, Yo Joong",
+      "Veitch, Victor"
+    ],
+    "year": 2023,
+    "venue": "In Proceedings of the 41st International Conference on Machine Learning (ICML), 2024",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2311.03658",
+    "primary_url": "https://arxiv.org/abs/2311.03658",
+    "fulltext_url": "https://arxiv.org/html/2311.03658",
+    "abstract": "Informally, the 'linear representation hypothesis' is the idea that high-level concepts are represented linearly as directions in some representation space. In this paper, we address two closely related questions: What does \"linear representation\" actually mean? And, how do we make sense of geometric notions (e.g., cosine similarity or projection) in the representation space? To answer these, we use the language of counterfactuals to give two formalizations of \"linear representation\", one in the output (word) representation space, and one in the input (sentence) space. We then prove these connect to linear probing and model steering, respectively. To make sense of geometric notions, we use the formalization to identify a particular (non-Euclidean) inner product that respects language structure in a sense we make precise. Using this causal inner product, we show how to unify all notions of linear representation. In particular, this allows the construction of probes and steering vectors using counterfactual pairs. Experiments with LLaMA-2 demonstrate the existence of linear representations of concepts, the connection to interpretation and control, and the fundamental role of the choice of inner product.",
+    "themes": [
+      2
+    ],
+    "relevance": "Separate linear concept geometry claims from evidence about this particular pooled embedding axis.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2311.03658"
+    ],
+    "arxiv_id": "2311.03658",
+    "inspection": "full-text sections inspected",
+    "role": "methodological foundation",
+    "key": "P023",
+    "research_question": "What does a linear concept representation mean?",
+    "method": "Counterfactual concept definitions, formal geometry and LLaMA-2 experiments.",
+    "finding": "The paper distinguishes embedding and unembedding representations and relates measurement and intervention through a specified inner product.",
+    "locator": "§§2.2–2.3; §3",
+    "limitation": "Assumptions about these representation spaces do not automatically transfer to a pooled readiness regressor."
+  },
+  {
+    "title": "LLM2Vec: Large Language Models Are Secretly Powerful Text Encoders",
+    "authors": [
+      "BehnamGhader, Parishad",
+      "Adlakha, Vaibhav",
+      "Mosbach, Marius",
+      "Bahdanau, Dzmitry",
+      "Chapados, Nicolas",
+      "Reddy, Siva"
+    ],
+    "year": 2024,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2404.05961",
+    "primary_url": "https://arxiv.org/abs/2404.05961",
+    "fulltext_url": "https://arxiv.org/html/2404.05961",
+    "abstract": "Large decoder-only language models (LLMs) are the state-of-the-art models on most of today's NLP tasks and benchmarks. Yet, the community is only slowly adopting these models for text embedding tasks, which require rich contextualized representations. In this work, we introduce LLM2Vec, a simple unsupervised approach that can transform any decoder-only LLM into a strong text encoder. LLM2Vec consists of three simple steps: 1) enabling bidirectional attention, 2) masked next token prediction, and 3) unsupervised contrastive learning. We demonstrate the effectiveness of LLM2Vec by applying it to 4 popular LLMs ranging from 1.3B to 8B parameters and evaluate the transformed models on English word- and sequence-level tasks. We outperform encoder-only models by a large margin on word-level tasks and reach a new unsupervised state-of-the-art performance on the Massive Text Embeddings Benchmark (MTEB). Moreover, when combining LLM2Vec with supervised contrastive learning, we achieve state-of-the-art performance on MTEB among models that train only on publicly available data (as of May 24, 2024). Our strong empirical results and extensive analysis demonstrate that LLMs can be effectively transformed into universal text encoders in a parameter-efficient manner without the need for expensive adaptation or synthetic GPT-4 generated data.",
+    "themes": [
+      2
+    ],
+    "relevance": "Direct foundation for the frozen embedding representation.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2404.05961"
+    ],
+    "arxiv_id": "2404.05961",
+    "inspection": "full-text sections inspected",
+    "role": "methodological foundation",
+    "key": "P024",
+    "research_question": "Can decoder-only LLMs become effective text encoders?",
+    "method": "Bidirectional attention, MNTP adaptation and contrastive learning; word- and sequence-level evaluation.",
+    "finding": "The paper evaluates this three-step conversion on multiple decoder models; enabling bidirectionality alone can reduce embedding performance before adaptation.",
+    "locator": "§2.1; §§3–4",
+    "limitation": "Embedding benchmarks do not validate the project's readiness labels."
+  },
+  {
+    "title": "LLM2Vec-Gen: Generative Embeddings from Large Language Models",
+    "authors": [
+      "BehnamGhader, Parishad",
+      "Adlakha, Vaibhav",
+      "Schmidt, Fabian David",
+      "Chapados, Nicolas",
+      "Mosbach, Marius",
+      "Reddy, Siva"
+    ],
+    "year": 2026,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2603.10913",
+    "primary_url": "https://arxiv.org/abs/2603.10913",
+    "fulltext_url": null,
+    "abstract": "Fine-tuning LLM-based text embedders via contrastive learning maps inputs and outputs into a new representational space, discarding the LLM's output semantics. We propose LLM2Vec-Gen, a self-supervised alternative that instead produces embeddings directly in the LLM's output space by learning to represent the model's potential response. Specifically, trainable special tokens are appended to the input and optimized to compress the LLM's own response into a fixed-length embedding, guided by an unsupervised embedding teacher and a reconstruction objective. Crucially, the LLM backbone remains frozen and training requires only unlabeled queries. LLM2Vec-Gen achieves state-of-the-art self-supervised performance on the Massive Text Embedding Benchmark (MTEB), improving by 8.8% over the unsupervised embedding teacher. Since the embeddings preserve the LLM's response-space semantics, they inherit capabilities such as safety alignment (up to 22.6% reduction in harmful content retrieval) and reasoning (up to 35.6% improvement on reasoning-intensive retrieval). Finally, the learned embeddings are also interpretable: they can be decoded back into text to reveal their semantic content. Our code, data, and pretrained models are publicly available at this https URL .",
+    "themes": [
+      2,
+      4
+    ],
+    "relevance": "Directly relevant generative embedding method; validate which space is decoded before using proposals for readiness targeting.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2603.10913"
+    ],
+    "arxiv_id": "2603.10913",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P025",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Convergent and discriminant validation by the multitrait-multimethod matrix.",
+    "authors": [
+      "Donald T. Campbell",
+      "Donald W. Fiske"
+    ],
+    "year": 1959,
+    "venue": "Psychological Bulletin",
+    "doi": "10.1037/h0046016",
+    "url": "https://doi.org/10.1037/h0046016",
+    "abstract": "",
+    "themes": [
+      3
+    ],
+    "relevance": "A foundation for separating rubric agreement from shared method effects.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1037%2Fh0046016"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P026",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "A Rationale and Test for the Number of Factors in Factor Analysis",
+    "authors": [
+      "John L. Horn"
+    ],
+    "year": 1965,
+    "venue": "Psychometrika",
+    "doi": "10.1007/bf02289447",
+    "url": "https://doi.org/10.1007/bf02289447",
+    "abstract": "It is suggested that if Guttman’s latent-root-one lower bound estimate for the rank of a correlation matrix is accepted as a psychometric upper bound, following the proofs and arguments of Kaiser and Dickman, then the rank for a sample matrix should be estimated by subtracting out the component in the latent roots which can be attributed to sampling error, and least-squares “capitalization” on this error, in the calculation of the correlations and the roots. A procedure based on the generation of random variables is given for estimating the component which needs to be subtracted.",
+    "themes": [
+      3
+    ],
+    "relevance": "Parallel analysis supplies a chance benchmark for dimensionality, adapted carefully to rubric-coefficient analysis.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1007%2FBF02289447"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P027",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "A Generalized Solution of the Orthogonal Procrustes Problem",
+    "authors": [
+      "Peter H. Schönemann"
+    ],
+    "year": 1966,
+    "venue": "Psychometrika",
+    "doi": "10.1007/bf02289451",
+    "url": "https://doi.org/10.1007/bf02289451",
+    "abstract": "A solution T of the least-squares problem AT = B + E , given A and B so that trace ( E′E )= minimum and T′T = I is presented. It is compared with a less general solution of the same problem which was given by Green [5]. The present solution, in contrast to Green's, is applicable to matrices A and B which are of less than full column rank. Some technical suggestions for the numerical computation of T and an illustrative example are given.",
+    "themes": [
+      3
+    ],
+    "relevance": "Mathematical foundation for development-fitted cross-view alignment.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=A+generalized+solution+of+the+orthogonal+procrustes+problem&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P028",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Measurement Invariance, Factor Analysis and Factorial Invariance",
+    "authors": [
+      "William Meredith"
+    ],
+    "year": 1993,
+    "venue": "Psychometrika",
+    "doi": "10.1007/bf02294825",
+    "url": "https://doi.org/10.1007/bf02294825",
+    "abstract": "Several concepts are introduced and defined: measurement invariance, structural bias, weak measurement invariance, strong factorial invariance, and strict factorial invariance. It is shown that factorial invariance has implications for (weak) measurement invariance. Definitions of fairness in employment/admissions testing and salary equity are provided and it is argued that strict factorial invariance is required for fairness/equity to exist. Implications for item and test bias are developed and it is argued that item or test bias probably depends on the existence of latent variables that are irrelevant to the primary goal of test constructers.",
+    "themes": [
+      3
+    ],
+    "relevance": "A basis for checking that score meaning transfers across source and linguistic groups.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1007%2FBF02294825"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P029",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Statistical Modeling: The Two Cultures (with comments and a rejoinder by the author)",
+    "authors": [
+      "Leo Breiman"
+    ],
+    "year": 2001,
+    "venue": "Statistical Science",
+    "doi": "10.1214/ss/1009213726",
+    "url": "https://doi.org/10.1214/ss/1009213726",
+    "abstract": "",
+    "themes": [
+      3,
+      10
+    ],
+    "relevance": "Distinguish predictive success from explanatory modeling.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1214%2Fss%2F1009213726"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P030",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Measurement invariance conventions and reporting: The state of the art and future directions for psychological research",
+    "authors": [
+      "Diane L. Putnick",
+      "Marc H. Bornstein"
+    ],
+    "year": 2016,
+    "venue": "Developmental Review",
+    "doi": "10.1016/j.dr.2016.06.004",
+    "url": "https://doi.org/10.1016/j.dr.2016.06.004",
+    "abstract": "",
+    "themes": [
+      3
+    ],
+    "relevance": "Transferable reporting guidance; not a ready-made test for an embedding axis.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Measurement+invariance+conventions+and+reporting%3A+The+state+of+the+art+and+future+directions+for+psychological+research&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P031",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Beyond Accuracy: Behavioral Testing of NLP models with CheckList",
+    "authors": [
+      "Ribeiro, Marco Tulio",
+      "Wu, Tongshuang",
+      "Guestrin, Carlos",
+      "Singh, Sameer"
+    ],
+    "year": 2020,
+    "venue": "Association for Computational Linguistics (ACL), 2020",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2005.04118",
+    "primary_url": "https://arxiv.org/abs/2005.04118",
+    "fulltext_url": null,
+    "abstract": "Although measuring held-out accuracy has been the primary approach to evaluate generalization, it often overestimates the performance of NLP models, while alternative approaches for evaluating models either focus on individual tasks or on specific behaviors. Inspired by principles of behavioral testing in software engineering, we introduce CheckList, a task-agnostic methodology for testing NLP models. CheckList includes a matrix of general linguistic capabilities and test types that facilitate comprehensive test ideation, as well as a software tool to generate a large and diverse number of test cases quickly. We illustrate the utility of CheckList with tests for three tasks, identifying critical failures in both commercial and state-of-art models. In a user study, a team responsible for a commercial sentiment analysis model found new and actionable bugs in an extensively tested model. In another user study, NLP practitioners with CheckList created twice as many tests, and found almost three times as many bugs as users without it.",
+    "themes": [
+      3,
+      4
+    ],
+    "relevance": "Organize targeted invariance and directional-expectation tests.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2005.04118"
+    ],
+    "arxiv_id": "2005.04118",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P032",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Plug and Play Language Models: A Simple Approach to Controlled Text Generation",
+    "authors": [
+      "Sumanth Dathathri",
+      "Andrea Madotto",
+      "Janice Lan",
+      "Jane Hung",
+      "Eric Frank",
+      "Piero Molino",
+      "Jason Yosinski",
+      "Rosanne Liu"
+    ],
+    "year": 2019,
+    "venue": "arXiv (Cornell University)",
+    "doi": "10.48550/arxiv.1912.02164",
+    "url": "http://arxiv.org/abs/1912.02164",
+    "abstract": "Large transformer-based language models (LMs) trained on huge text corpora have shown unparalleled generation capabilities. However, controlling attributes of the generated language (e.g. switching topic or sentiment) is difficult without modifying the model architecture or fine-tuning on attribute-specific data and entailing the significant cost of retraining. We propose a simple alternative: the Plug and Play Language Model (PPLM) for controllable language generation, which combines a pretrained LM with one or more simple attribute classifiers that guide text generation without any further training of the LM. In the canonical scenario we present, the attribute models are simple classifiers consisting of a user-specified bag of words or a single learned layer with 100,000 times fewer parameters than the LM. Sampling entails a forward and backward pass in which gradients from the attribute model push the LM's hidden activations and thus guide the generation. Model samples demonstrate control over a range of topics and sentiment styles, and extensive automated and human annotated evaluations show attribute alignment and fluency. PPLMs are flexible in that any combination of differentiable attribute models may be used to steer text generation, which will allow for diverse and creative applications beyond the examples given in this paper.",
+    "themes": [
+      4
+    ],
+    "relevance": "Control during generation differs from rejection sampling on readiness embeddings.",
+    "verification_urls": [
+      "https://openalex.org/W2997195635",
+      "https://openalex.org/W2993398598",
+      "https://arxiv.org/abs/1912.02164"
+    ],
+    "primary_url": "https://arxiv.org/abs/1912.02164",
+    "arxiv_id": "1912.02164",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P033",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Evaluating Models’ Local Decision Boundaries via Contrast Sets",
+    "authors": [
+      "Matt Gardner",
+      "Yoav Artzi",
+      "Victoria Basmov",
+      "Jonathan Berant",
+      "Ben Bogin",
+      "Sihao Chen",
+      "Pradeep Dasigi",
+      "Dheeru Dua",
+      "Yanai Elazar",
+      "Ananth Gottumukkala",
+      "Nitish Gupta",
+      "Hannaneh Hajishirzi",
+      "Gabriel Ilharco",
+      "Daniel Khashabi",
+      "Kevin Lin",
+      "Jiangming Liu",
+      "Nelson F. Liu",
+      "Phoebe Mulcaire",
+      "Qiang Ning",
+      "Sameer Singh",
+      "Noah A. Smith",
+      "Sanjay Subramanian",
+      "Reut Tsarfaty",
+      "Eric Wallace",
+      "Ally Zhang",
+      "Ben Zhou"
+    ],
+    "year": 2020,
+    "venue": "Findings of the Association for Computational Linguistics: EMNLP 2020",
+    "doi": "10.18653/v1/2020.findings-emnlp.117",
+    "url": "https://doi.org/10.18653/v1/2020.findings-emnlp.117",
+    "abstract": "Standard test sets for supervised learning evaluate in-distribution generalization. Unfortunately, when a dataset has systematic gaps (e.g., annotation artifacts), these evaluations are misleading: a model can learn simple decision rules that perform well on the test set but do not capture a dataset's intended capabilities. We propose a new annotation paradigm for NLP that helps to close systematic gaps in the test data. In particular, after a dataset is constructed, we recommend that the dataset authors manually perturb the test instances in small but meaningful ways that (typically) change the gold label, creating contrast sets. Contrast sets provide a local view of a model's decision boundary, which can be used to more accurately evaluate a model's true linguistic capabilities. We demonstrate the efficacy of contrast sets by creating them for 10 diverse NLP datasets (e.g., DROP reading comprehension, UD parsing, IMDb sentiment analysis). Although our contrast sets are not explicitly adversarial, model performance is significantly lower on them than on the original test sets---up to 25\\% in some cases. We release our contrast sets as new evaluation benchmarks and encourage future dataset construction efforts to follow similar annotation processes.",
+    "themes": [
+      4
+    ],
+    "relevance": "Minimal changes can reveal criterion leakage in prompt variants.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Evaluating+Models%27+Local+Decision+Boundaries+via+Contrast+Sets&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W3105928338",
+      "https://openalex.org/W3089631405"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P034",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "FUDGE: Controlled Text Generation With Future Discriminators",
+    "authors": [
+      "Yang, Kevin",
+      "Klein, Dan"
+    ],
+    "year": 2021,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": "10.18653/v1/2021.naacl-main.276",
+    "url": "https://arxiv.org/abs/2104.05218",
+    "primary_url": "https://arxiv.org/abs/2104.05218",
+    "fulltext_url": null,
+    "abstract": "We propose Future Discriminators for Generation (FUDGE), a flexible and modular method for controlled text generation. Given a pre-existing model G for generating text from a distribution of interest, FUDGE enables conditioning on a desired attribute a (for example, formality) while requiring access only to G's output logits. FUDGE learns an attribute predictor operating on a partial sequence, and uses this predictor's outputs to adjust G's original probabilities. We show that FUDGE models terms corresponding to a Bayesian decomposition of the conditional distribution of G given attribute a. Moreover, FUDGE can easily compose predictors for multiple desired attributes. We evaluate FUDGE on three tasks -- couplet completion in poetry, topic control in language generation, and formality change in machine translation -- and observe gains in all three tasks.",
+    "themes": [
+      4
+    ],
+    "relevance": "Classifier-guided generation is a useful comparison for semantic targeting.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2104.05218"
+    ],
+    "arxiv_id": "2104.05218",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P035",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Self-Instruct: Aligning Language Models with Self-Generated Instructions",
+    "authors": [
+      "Yi‐Zhong Wang",
+      "Yeganeh Kordi",
+      "Swaroop Ranjan Mishra",
+      "Alisa Liu",
+      "Noah A. Smith",
+      "Daniel Khashabi",
+      "Hannaneh Hajishirzi"
+    ],
+    "year": 2023,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2023.acl-long.754",
+    "url": "https://doi.org/10.18653/v1/2023.acl-long.754",
+    "abstract": "Large \"instruction-tuned\" language models (i.e., finetuned to respond to instructions) have demonstrated a remarkable ability to generalize zero-shot to new tasks. Nevertheless, they depend heavily on human-written instruction data that is often limited in quantity, diversity, and creativity, therefore hindering the generality of the tuned model. We introduce Self-Instruct, a framework for improving the instruction-following capabilities of pretrained language models by bootstrapping off their own generations. Our pipeline generates instructions, input, and output samples from a language model, then filters invalid or similar ones before using them to finetune the original model. Applying our method to the vanilla GPT3, we demonstrate a 33% absolute improvement over the original model on Super-NaturalInstructions, on par with the performance of InstructGPT-001, which was trained with private user data and human annotations. For further evaluation, we curate a set of expert-written instructions for novel tasks, and show through human evaluation that tuning GPT3 with Self-Instruct outperforms using existing public instruction datasets by a large margin, leaving only a 5% absolute gap behind InstructGPT-001. Self-Instruct provides an almost annotation-free method for aligning pre-trained language models with instructions, and we release our large synthetic dataset to facilitate future studies on instruction tuning. Our code and data are available at this https URL .",
+    "themes": [
+      4
+    ],
+    "relevance": "Direct comparison for synthetic instruction generation and filtering.",
+    "verification_urls": [
+      "https://openalex.org/W4385572634",
+      "https://openalex.org/W4312091890",
+      "https://arxiv.org/abs/2212.10560"
+    ],
+    "primary_url": "https://arxiv.org/abs/2212.10560",
+    "arxiv_id": "2212.10560",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P036",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Text Embeddings Reveal (Almost) As Much As Text",
+    "authors": [
+      "John X. Morris",
+      "Volodymyr Kuleshov",
+      "Vitaly Shmatikov",
+      "Alexander M. Rush"
+    ],
+    "year": 2023,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2023.emnlp-main.765",
+    "url": "https://doi.org/10.18653/v1/2023.emnlp-main.765",
+    "abstract": "How much private information do text embeddings reveal about the original text? We investigate the problem of embedding \\textit{inversion}, reconstructing the full text represented in dense text embeddings. We frame the problem as controlled generation: generating text that, when reembedded, is close to a fixed point in latent space. We find that although a naïve model conditioned on the embedding performs poorly, a multi-step method that iteratively corrects and re-embeds text is able to recover $92\\%$ of $32\\text{-token}$ text inputs exactly. We train our model to decode text embeddings from two state-of-the-art embedding models, and also show that our model can recover important personal information (full names) from a dataset of clinical notes. Our code is available on Github: \\href{ this https URL }{ this http URL }.",
+    "themes": [
+      4
+    ],
+    "relevance": "Embedding inversion is representation-specific; not proof of a universal inverse.",
+    "verification_urls": [
+      "https://openalex.org/W4389520346",
+      "https://openalex.org/W4387561517",
+      "https://arxiv.org/abs/2310.06816"
+    ],
+    "primary_url": "https://arxiv.org/abs/2310.06816",
+    "arxiv_id": "2310.06816",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P037",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "WizardLM: Empowering large pre-trained language models to follow complex instructions",
+    "authors": [
+      "Xu, Can",
+      "Sun, Qingfeng",
+      "Zheng, Kai",
+      "Geng, Xiubo",
+      "Zhao, Pu",
+      "Feng, Jiazhan",
+      "Tao, Chongyang",
+      "Lin, Qingwei",
+      "Jiang, Daxin"
+    ],
+    "year": 2023,
+    "venue": "The Twelfth International Conference on Learning Representations (ICLR 2024)",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2304.12244",
+    "primary_url": "https://arxiv.org/abs/2304.12244",
+    "fulltext_url": null,
+    "abstract": "Training large language models (LLMs) with open-domain instruction following data brings colossal success. However, manually creating such instruction data is very time-consuming and labor-intensive. Moreover, humans may struggle to produce high-complexity instructions. In this paper, we show an avenue for creating large amounts of instruction data with varying levels of complexity using LLM instead of humans. Starting with an initial set of instructions, we use our proposed Evol-Instruct to rewrite them step by step into more complex instructions. Then, we mix all generated instruction data to fine-tune LLaMA. We call the resulting model WizardLM. Human evaluations on a complexity-balanced test bed and Vicuna's testset show that instructions from Evol-Instruct are superior to human-created ones. By analyzing the human evaluation results of the high complexity part, we demonstrate that outputs from our WizardLM are preferred to outputs from OpenAI ChatGPT. In GPT-4 automatic evaluation, WizardLM achieves more than 90\\% capacity of ChatGPT on 17 out of 29 skills. Even though WizardLM still lags behind ChatGPT in some aspects, our findings suggest that fine-tuning with AI-evolved instructions is a promising direction for enhancing LLMs. Our code and data are public at this https URL",
+    "themes": [
+      4
+    ],
+    "relevance": "Instruction complexity evolution is an alternative construction objective to readiness coverage.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2304.12244"
+    ],
+    "arxiv_id": "2304.12244",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P038",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "AI models collapse when trained on recursively generated data",
+    "authors": [
+      "Ilia Shumailov",
+      "Zakhar Shumaylov",
+      "Yiren Zhao",
+      "Nicolas Papernot",
+      "Ross Anderson",
+      "Yarin Gal"
+    ],
+    "year": 2024,
+    "venue": "Nature",
+    "doi": "10.1038/s41586-024-07566-y",
+    "url": "https://doi.org/10.1038/s41586-024-07566-y",
+    "abstract": "Abstract Stable diffusion revolutionized image creation from descriptive text. GPT-2 (ref. 1 ), GPT-3(.5) (ref. 2 ) and GPT-4 (ref. 3 ) demonstrated high performance across a variety of language tasks. ChatGPT introduced such language models to the public. It is now clear that generative artificial intelligence (AI) such as large language models (LLMs) is here to stay and will substantially change the ecosystem of online text and images. Here we consider what may happen to GPT-{ n } once LLMs contribute much of the text found online. We find that indiscriminate use of model-generated content in training causes irreversible defects in the resulting models, in which tails of the original content distribution disappear. We refer to this effect as ‘model collapse’ and show that it can occur in LLMs as well as in variational autoencoders (VAEs) and Gaussian mixture models (GMMs). We build theoretical intuition behind the phenomenon and portray its ubiquity among all learned generative models. We demonstrate that it must be taken seriously if we are to sustain the benefits of training from large-scale data scraped from the web. Indeed, the value of data collected about genuine human interactions with systems will be increasingly valuable in the presence of LLM-generated content in data crawled from the Internet.",
+    "themes": [
+      4
+    ],
+    "relevance": "A warning about recursive synthetic training, not direct proof of bias in a fixed synthetic evaluation set.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1038%2Fs41586-024-07566-y"
+    ],
+    "inspection": "abstract inspected",
+    "role": "supporting context",
+    "key": "P039",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Evaluating Verifiability in Generative Search Engines",
+    "authors": [
+      "Nelson F. Liu",
+      "Tianyi Zhang",
+      "Percy Liang"
+    ],
+    "year": 2023,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2023.findings-emnlp.467",
+    "url": "https://doi.org/10.18653/v1/2023.findings-emnlp.467",
+    "abstract": "Generative search engines directly generate responses to user queries, along with in-line citations. A prerequisite trait of a trustworthy generative search engine is verifiability, i.e., systems should cite comprehensively (high citation recall; all statements are fully supported by citations) and accurately (high citation precision; every cite supports its associated statement). We conduct human evaluation to audit four popular generative search engines -- Bing Chat, NeevaAI, this http URL , and YouChat -- across a diverse set of queries from a variety of sources (e.g., historical Google user queries, dynamically-collected open-ended questions on Reddit, etc.). We find that responses from existing generative search engines are fluent and appear informative, but frequently contain unsupported statements and inaccurate citations: on average, a mere 51.5% of generated sentences are fully supported by citations and only 74.5% of citations support their associated sentence. We believe that these results are concerningly low for systems that may serve as a primary tool for information-seeking users, especially given their facade of trustworthiness. We hope that our results further motivate the development of trustworthy generative search engines and help researchers and users better understand the shortcomings of existing commercial systems.",
+    "themes": [
+      5,
+      8
+    ],
+    "relevance": "Citation support and completeness are separate from page visibility.",
+    "verification_urls": [
+      "https://openalex.org/W4389518954",
+      "https://openalex.org/W4366566346",
+      "https://arxiv.org/abs/2304.09848"
+    ],
+    "primary_url": "https://arxiv.org/abs/2304.09848",
+    "fulltext_url": "https://arxiv.org/html/2304.09848",
+    "arxiv_id": "2304.09848",
+    "inspection": "full-text sections inspected",
+    "role": "direct competitor",
+    "key": "P040",
+    "research_question": "Do generative search answers provide accurate, comprehensive citations?",
+    "method": "Human audit of four commercial search engines with separate citation precision and recall.",
+    "finding": "The audit finds unsupported statements and inaccurate citations despite fluent answers.",
+    "locator": "§§2.3–2.4; §4.2",
+    "limitation": "A snapshot of particular systems and query distributions, not a current universal error rate."
+  },
+  {
+    "title": "Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents",
+    "authors": [
+      "Sun, Weiwei",
+      "Yan, Lingyong",
+      "Ma, Xinyu",
+      "Wang, Shuaiqiang",
+      "Ren, Pengjie",
+      "Chen, Zhumin",
+      "Yin, Dawei",
+      "Ren, Zhaochun"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2304.09542",
+    "primary_url": "https://arxiv.org/abs/2304.09542",
+    "fulltext_url": null,
+    "abstract": "Large Language Models (LLMs) have demonstrated remarkable zero-shot generalization across various language-related tasks, including search engines. However, existing work utilizes the generative ability of LLMs for Information Retrieval (IR) rather than direct passage ranking. The discrepancy between the pre-training objectives of LLMs and the ranking objective poses another challenge. In this paper, we first investigate generative LLMs such as ChatGPT and GPT-4 for relevance ranking in IR. Surprisingly, our experiments reveal that properly instructed LLMs can deliver competitive, even superior results to state-of-the-art supervised methods on popular IR benchmarks. Furthermore, to address concerns about data contamination of LLMs, we collect a new test set called NovelEval, based on the latest knowledge and aiming to verify the model's ability to rank unknown knowledge. Finally, to improve efficiency in real-world applications, we delve into the potential for distilling the ranking capabilities of ChatGPT into small specialized models using a permutation distillation scheme. Our evaluation results turn out that a distilled 440M model outperforms a 3B supervised model on the BEIR benchmark. The code to reproduce our results is available at this http URL .",
+    "themes": [
+      5,
+      6
+    ],
+    "relevance": "Closest methodological comparison for direct LLM reranking.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2304.09542"
+    ],
+    "arxiv_id": "2304.09542",
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P041",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection",
+    "authors": [
+      "Kai Greshake",
+      "Sahar Abdelnabi",
+      "Shailesh Mishra",
+      "Christoph Endres",
+      "Thorsten Holz",
+      "Mario Fritz"
+    ],
+    "year": 2023,
+    "venue": "Proceedings of the 16th ACM Workshop on Artificial Intelligence and Security",
+    "doi": "10.1145/3605764.3623985",
+    "url": "https://doi.org/10.1145/3605764.3623985",
+    "abstract": "",
+    "themes": [
+      5,
+      7
+    ],
+    "relevance": "Untrusted page instructions can confound apparent page-property gains.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Not+what+you%27ve+signed+up+for%3A+Compromising+Real-World+LLM-Integrated+Applications+with+Indirect+Prompt+Injection&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "direct competitor",
+    "key": "P042",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "RankZephyr: Effective and Robust Zero-Shot Listwise Reranking is a Breeze!",
+    "authors": [
+      "Pradeep, Ronak",
+      "Sharifymoghaddam, Sahel",
+      "Lin, Jimmy"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2312.02724",
+    "primary_url": "https://arxiv.org/abs/2312.02724",
+    "fulltext_url": null,
+    "abstract": "In information retrieval, proprietary large language models (LLMs) such as GPT-4 and open-source counterparts such as LLaMA and Vicuna have played a vital role in reranking. However, the gap between open-source and closed models persists, with reliance on proprietary, non-transparent models constraining reproducibility. Addressing this gap, we introduce RankZephyr, a state-of-the-art, open-source LLM for listwise zero-shot reranking. RankZephyr not only bridges the effectiveness gap with GPT-4 but in some cases surpasses the proprietary model. Our comprehensive evaluations across several datasets (TREC Deep Learning Tracks; NEWS and COVID from BEIR) showcase this ability. RankZephyr benefits from strategic training choices and is resilient against variations in initial document ordering and the number of documents reranked. Additionally, our model outperforms GPT-4 on the NovelEval test set, comprising queries and passages past its training period, which addresses concerns about data contamination. To foster further research in this rapidly evolving field, we provide all code necessary to reproduce our results at this https URL .",
+    "themes": [
+      5,
+      6
+    ],
+    "relevance": "Useful listwise reranking comparator, not equivalent to agentic retrieval.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2312.02724"
+    ],
+    "arxiv_id": "2312.02724",
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P043",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "GEO: Generative Engine Optimization",
+    "authors": [
+      "Pranjal Aggarwal",
+      "Vishvak Murahari",
+      "Tanmay Rajpurohit",
+      "Ashwin Kalyan",
+      "Karthik Narasimhan",
+      "Ameet Deshpande"
+    ],
+    "year": 2024,
+    "venue": "Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining",
+    "doi": "10.1145/3637528.3671900",
+    "url": "https://doi.org/10.1145/3637528.3671900",
+    "abstract": "The advent of large language models (LLMs) has ushered in a new paradigm of search engines that use generative models to gather and summarize information to answer user queries. This emerging technology, which we formalize under the unified framework of generative engines (GEs), can generate accurate and personalized responses, rapidly replacing traditional search engines like Google and Bing. Generative Engines typically satisfy queries by synthesizing information from multiple sources and summarizing them using LLMs. While this shift significantly improves $\\textit{user}$ utility and $\\textit{generative search engine}$ traffic, it poses a huge challenge for the third stakeholder -- website and content creators. Given the black-box and fast-moving nature of generative engines, content creators have little to no control over $\\textit{when}$ and $\\textit{how}$ their content is displayed. With generative engines here to stay, we must ensure the creator economy is not disadvantaged. To address this, we introduce Generative Engine Optimization (GEO), the first novel paradigm to aid content creators in improving their content visibility in generative engine responses through a flexible black-box optimization framework for optimizing and defining visibility metrics. We facilitate systematic evaluation by introducing GEO-bench, a large-scale benchmark of diverse user queries across multiple domains, along with relevant web sources to answer these queries. Through rigorous evaluation, we demonstrate that GEO can boost visibility by up to $40\\%$ in generative engine responses. Moreover, we show the efficacy of these strategies varies across domains, underscoring the need for domain-specific optimization methods. Our work opens a new frontier in information discovery systems, with profound implications for both developers of generative engines and content creators.",
+    "themes": [
+      5
+    ],
+    "relevance": "Closest direct competitor on page modifications and generative-engine visibility.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=GEO%3A+Generative+Engine+Optimization&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W4401864200",
+      "https://arxiv.org/abs/2311.09735"
+    ],
+    "primary_url": "https://arxiv.org/abs/2311.09735",
+    "fulltext_url": "https://arxiv.org/html/2311.09735",
+    "arxiv_id": "2311.09735",
+    "inspection": "full-text sections inspected",
+    "role": "direct competitor",
+    "key": "P044",
+    "research_question": "Can document edits improve visibility in generative answers?",
+    "method": "GEO-bench, a top-five-source generative engine, page-edit strategies and visibility metrics.",
+    "finding": "The authors report gains that vary with optimization strategy and domain. The headline maximum is not a universal treatment effect.",
+    "locator": "§§3.1–3.4; §§4–5",
+    "limitation": "Visibility definition, retrieval access, model, domain and edit content affect generalization."
+  },
+  {
+    "title": "Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting",
+    "authors": [
+      "Zhen Qin",
+      "Rolf Jagerman",
+      "Kai Hui",
+      "Honglei Zhuang",
+      "Junru Wu",
+      "Le Yan",
+      "Jiaming Shen",
+      "Tianqi Liu",
+      "Jialu Liu",
+      "Donald Metzler",
+      "Xuanhui Wang",
+      "Michael Bendersky"
+    ],
+    "year": 2024,
+    "venue": "Findings of the Association for Computational Linguistics: NAACL 2024",
+    "doi": "10.18653/v1/2024.findings-naacl.97",
+    "url": "https://doi.org/10.18653/v1/2024.findings-naacl.97",
+    "abstract": "Ranking documents using Large Language Models (LLMs) by directly feeding the query and candidate documents into the prompt is an interesting and practical problem. However, researchers have found it difficult to outperform fine-tuned baseline rankers on benchmark datasets. We analyze pointwise and listwise ranking prompts used by existing methods and argue that off-the-shelf LLMs do not fully understand these challenging ranking formulations. In this paper, we propose to significantly reduce the burden on LLMs by using a new technique called Pairwise Ranking Prompting (PRP). Our results are the first in the literature to achieve state-of-the-art ranking performance on standard benchmarks using moderate-sized open-sourced LLMs. On TREC-DL 2019&2020, PRP based on the Flan-UL2 model with 20B parameters performs favorably with the previous best approach in the literature, which is based on the blackbox commercial GPT-4 that has 50x (estimated) model size, while outperforming other LLM-based solutions, such as InstructGPT which has 175B parameters, by over 10% for all ranking metrics. By using the same prompt template on seven BEIR tasks, PRP outperforms supervised baselines and outperforms the blackbox commercial ChatGPT solution by 4.2% and pointwise LLM-based solutions by more than 10% on average NDCG@10. Furthermore, we propose several variants of PRP to improve efficiency and show that it is possible to achieve competitive results even with linear complexity.",
+    "themes": [
+      5,
+      6
+    ],
+    "relevance": "Reranking format can influence selection and ordering.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Large+Language+Models+are+Effective+Text+Rankers+with+Pairwise+Ranking+Prompting&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://arxiv.org/abs/2306.17563"
+    ],
+    "primary_url": "https://arxiv.org/abs/2306.17563",
+    "arxiv_id": "2306.17563",
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P045",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Automatic Document Editing for Improved Ranking",
+    "authors": [
+      "Niv Bardas",
+      "Tommy Mordo",
+      "Oren Kurland",
+      "Moshe Tennenholtz"
+    ],
+    "year": 2025,
+    "venue": "Indexed scholarly record",
+    "doi": "10.1145/3726302.3730168",
+    "url": "https://doi.org/10.1145/3726302.3730168",
+    "abstract": "We present a study of using large language models (LLMs) to modify a document so as to have it highly ranked for a query by an undisclosed ranking function. We present different prompting methods inspired by work on using LLMs to induce ranking. Empirical evaluation attests to the merits of the best performing methods with respect to human modifications and a highly effective feature-based modification method.",
+    "themes": [
+      5
+    ],
+    "relevance": "Forward-citation discovery: document editing for ranking is an adjacent optimization comparator.",
+    "verification_urls": [
+      "https://api.openalex.org/works?filter=cites%3AW4401864200%2Cto_publication_date%3A2026-10-01&per-page=8&sort=cited_by_count%3Adesc",
+      "https://openalex.org/W4412376948"
+    ],
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P046",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Generative Engine Optimization: How to Dominate AI Search",
+    "authors": [
+      "Chen, Mahe",
+      "Wang, Xiaoxuan",
+      "Chen, Kaiwen",
+      "Koudas, Nick"
+    ],
+    "year": 2025,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2509.08919",
+    "primary_url": "https://arxiv.org/abs/2509.08919",
+    "fulltext_url": null,
+    "abstract": "The rapid adoption of generative AI-powered search engines like ChatGPT, Perplexity, and Gemini is fundamentally reshaping information retrieval, moving from traditional ranked lists to synthesized, citation-backed answers. This shift challenges established Search Engine Optimization (SEO) practices and necessitates a new paradigm, which we term Generative Engine Optimization (GEO). This paper presents a comprehensive comparative analysis of AI Search and traditional web search (Google). Through a series of large-scale, controlled experiments across multiple verticals, languages, and query paraphrases, we quantify critical differences in how these systems source information. Our key findings reveal that AI Search exhibit a systematic and overwhelming bias towards Earned media (third-party, authoritative sources) over Brand-owned and Social content, a stark contrast to Google's more balanced mix. We further demonstrate that AI Search services differ significantly from each other in their domain diversity, freshness, cross-language stability, and sensitivity to phrasing. Based on these empirical results, we formulate a strategic GEO agenda. We provide actionable guidance for practitioners, emphasizing the critical need to: (1) engineer content for machine scannability and justification, (2) dominate earned media to build AI-perceived authority, (3) adopt engine-specific and language-aware strategies, and (4) overcome the inherent \"big brand bias\" for niche players. Our work provides the foundational empirical analysis and a strategic framework for achieving visibility in the new generative search landscape.",
+    "themes": [
+      5
+    ],
+    "relevance": "Recent direct competitor on source ownership, engine differences and sensitivity to query paraphrases. Abstract claims require full-method review.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2509.08919"
+    ],
+    "arxiv_id": "2509.08919",
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P047",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited. Recent preprint; do not assume peer review or independent replication."
+  },
+  {
+    "title": "Position: On the Risks of Generative Engine Optimization in the Era of LLMs",
+    "authors": [
+      "Yizhu Wen",
+      "Nan Zhang",
+      "Haohan Yuan",
+      "Xun Chen",
+      "Haopeng Zhang",
+      "H. Guo"
+    ],
+    "year": 2025,
+    "venue": "Repository/preprint record; peer review unverified",
+    "doi": "10.36227/techrxiv.176620816.64043115/v1",
+    "url": "https://doi.org/10.36227/techrxiv.176620816.64043115/v1",
+    "abstract": "Large language models (LLMs) are increasingly used as answer engines instead of ranked link lists in traditional web search. This shift enables generative engine optimization (GEO), in which advertisers, merchants, and GEO service providers tune content to influence what LLMs retrieve, cite, and recommend. This position paper argues that GEO turns LLM-based search into a new advertising and security surface. We systematize academic GEO work on recommendation manipulation and show that most studies share a narrow assumption: the optimized adversarial content is already present in the topk retrieval context, while differing in optimization methods, stealth constraints, and transferability. We then survey emerging commercial GEO providers and technical blogs to document how GEO is offered as a service that combines visibility tracking with LLM-guided content generation and cross-platform distribution on high authority websites. To unify these perspectives, we formalize GEO in RAG pipelines using a retrieval booster and ranking shifter message framework. We illustrate, with case studies, how adversarial edits to target content can shift LLM recommendations. Finally, we discuss implications for advertising practice, transparency, fairness, and defenses, and outline directions for measurement, regulation, and robust LLM design.",
+    "themes": [
+      5,
+      7
+    ],
+    "relevance": "Recent competitor or critique. Publication status and full methods need further inspection.",
+    "verification_urls": [
+      "https://openalex.org/W4417519869"
+    ],
+    "inspection": "abstract inspected",
+    "role": "critical/contrary evidence",
+    "key": "P048",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Diagnosing and Repairing Citation Failures in Generative Engine Optimization",
+    "authors": [
+      "Tian, Zhihua",
+      "Chen, Yuhan",
+      "Tang, Yao",
+      "Liu, Jian",
+      "Jia, Ruoxi"
+    ],
+    "year": 2026,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2603.09296",
+    "primary_url": "https://arxiv.org/abs/2603.09296",
+    "fulltext_url": null,
+    "abstract": "Generative Engine Optimization (GEO) aims to improve content visibility in AI-generated responses. However, existing methods measure contribution-how much a document influences a response-rather than citation, the mechanism that actually drives traffic back to creators. Also, these methods apply generic rewriting rules uniformly, failing to diagnose why individual document are not cited. This paper introduces a diagnostic approach to GEO that asks why a document fails to be cited and intervenes accordingly. We develop a unified framework comprising: (1) the first taxonomy of citation failure modes spanning different stages of a citation pipeline; (2) AgentGEO, an agentic system that diagnoses failures using this taxonomy, selects targeted repairs from a corresponding tool library, and iterates until citation is achieved; and (3) a document-centric benchmark evaluating whether optimizations generalize across held-out queries. AgentGEO achieves over 40% relative improvement in citation rates while modifying only 5% of content, compared to 25% for baselines. Our analysis reveals that generic optimization can harm long-tail content and some documents face challenges that optimization alone cannot fully address-findings with implications for equitable visibility in AI-mediated information access.",
+    "themes": [
+      5,
+      8
+    ],
+    "relevance": "AgentGEO distinguishes citation failures from broad contribution metrics and studies document-centric repairs.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2603.09296"
+    ],
+    "arxiv_id": "2603.09296",
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P049",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited. Recent preprint; do not assume peer review or independent replication."
+  },
+  {
+    "title": "E-GEO: A Testbed for Generative Engine Optimization in E-Commerce",
+    "authors": [
+      "Puneet S. Bagga",
+      "Vivek F. Farias",
+      "Tamar Korkotashvili",
+      "Tianyi Peng",
+      "Yuhang Wu"
+    ],
+    "year": 2026,
+    "venue": "SSRN working-paper record; peer review unverified",
+    "doi": "10.2139/ssrn.7117338",
+    "url": "https://doi.org/10.2139/ssrn.7117338",
+    "abstract": "",
+    "themes": [
+      5
+    ],
+    "relevance": "Recent competitor on commercial-domain optimization; inspect publication status and task scope.",
+    "verification_urls": [
+      "https://openalex.org/W4416779147"
+    ],
+    "inspection": "metadata only",
+    "role": "direct competitor",
+    "key": "P050",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "From Citation Selection to Citation Absorption: A Measurement Framework for Generative Engine Optimization Across AI Search Platforms",
+    "authors": [
+      "Kai, Zhang",
+      "Xinyue, He",
+      "Jingang, Yao"
+    ],
+    "year": 2026,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2604.25707",
+    "primary_url": "https://arxiv.org/abs/2604.25707",
+    "fulltext_url": null,
+    "abstract": "Generative search engines increasingly determine whether online information is merely discoverable, cited as a source, or actually absorbed into generated answers. This paper proposes a two-stage measurement framework for Generative Engine Optimization (GEO): citation selection, where a platform triggers search and chooses sources, and citation absorption, where a cited page contributes language, evidence, structure, or factual support to the final answer. We analyze the public geo-citation-lab dataset covering 602 controlled prompts across ChatGPT, Google AI Overview/Gemini, and Perplexity; 21,143 valid search-layer citations; 23,745 citation-level feature records; 18,151 successfully fetched pages; and 72 extracted features. The central descriptive finding is that citation breadth and citation depth diverge. Perplexity and Google cite more sources on average, while ChatGPT cites fewer sources but shows substantially higher average citation influence among fetched pages. High-influence pages tend to be longer, more structured, semantically aligned, and richer in extractable evidence such as definitions, numerical facts, comparisons, and procedural steps. The results suggest that GEO should be measured beyond citation counts, with answer-level absorption treated as a separate outcome.",
+    "themes": [
+      5,
+      8
+    ],
+    "relevance": "Direct conceptual overlap with separating citation selection and answer absorption; abstract describes descriptive page-feature results.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2604.25707"
+    ],
+    "arxiv_id": "2604.25707",
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P051",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited. Recent preprint; do not assume peer review or independent replication."
+  },
+  {
+    "title": "Structural Feature Engineering for Generative Engine Optimization: How Content Structure Shapes Citation Behavior",
+    "authors": [
+      "Yu, Junwei",
+      "Yang, Mufeng",
+      "Ding, Yepeng",
+      "Sato, Hiroyuki"
+    ],
+    "year": 2026,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2603.29979",
+    "primary_url": "https://arxiv.org/abs/2603.29979",
+    "fulltext_url": null,
+    "abstract": "The proliferation of AI-powered search engines has shifted information discovery from traditional link-based retrieval to direct answer generation with selective source citation, creating new challenges for content visibility. While existing Generative Engine Optimization (GEO) approaches focus primarily on semantic content modification, the role of structural features in influencing citation behavior remains underexplored. In this paper, we propose GEO-SFE, a systematic framework for structural feature engineering in generative engine optimization. Our approach decomposes content structure into three hierarchical levels: macro-structure (document architecture), meso-structure (information chunking), and micro-structure (visual emphasis), and models their impact on citation probability across different generative engine architectures. We develop architecture-aware optimization strategies and predictive models that preserve semantic integrity while improving structural effectiveness. Experimental evaluation across six mainstream generative engines demonstrates consistent improvements in citation rate (17.3 percent) and subjective quality (18.5 percent), validating the effectiveness and generalizability of the proposed framework. This work establishes structural optimization as a foundational component of GEO, providing a data-driven methodology for enhancing content visibility in LLM-powered information ecosystems.",
+    "themes": [
+      5
+    ],
+    "relevance": "Direct overlap with structural page features and architecture-specific citation behavior.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2603.29979"
+    ],
+    "arxiv_id": "2603.29979",
+    "inspection": "abstract inspected",
+    "role": "direct competitor",
+    "key": "P052",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited. Recent preprint; do not assume peer review or independent replication."
+  },
+  {
+    "title": "Dense Passage Retrieval for Open-Domain Question Answering",
+    "authors": [
+      "Vladimir Karpukhin",
+      "Barlas Oguz",
+      "Sewon Min",
+      "Patrick Lewis",
+      "Ledell Wu",
+      "Sergey Edunov",
+      "Danqi Chen",
+      "Wen-tau Yih"
+    ],
+    "year": 2020,
+    "venue": "Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)",
+    "doi": "10.18653/v1/2020.emnlp-main.550",
+    "url": "https://doi.org/10.18653/v1/2020.emnlp-main.550",
+    "abstract": "Abstract Open-domain question answering relies on efficient passage retrieval to select candidate contexts, where traditional sparse vector space models, such as TF-IDF or BM25, are the de facto method. In this work, we show that retrieval can be practically implemented using dense representations alone, where embeddings are learned from a small number of questions and passages by a simple dual-encoder framework. When evaluated on a wide range of open-domain QA datasets, our dense retriever outperforms a strong Lucene-BM25 system greatly by 9%-19% absolute in terms of top-20 passage retrieval accuracy, and helps our end-to-end QA system establish new state-of-the-art on multiple open-domain QA benchmarks.",
+    "themes": [
+      6
+    ],
+    "relevance": "Separate retrieval quality from downstream answer quality.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Dense+Passage+Retrieval+for+Open-Domain+Question+Answering&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W3015883388",
+      "https://aclanthology.org/2020.emnlp-main.550/"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P053",
+    "primary_url": "https://aclanthology.org/2020.emnlp-main.550/",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering",
+    "authors": [
+      "Izacard, Gautier",
+      "Grave, Edouard"
+    ],
+    "year": 2020,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2007.01282",
+    "primary_url": "https://arxiv.org/abs/2007.01282",
+    "fulltext_url": null,
+    "abstract": "Generative models for open domain question answering have proven to be competitive, without resorting to external knowledge. While promising, this approach requires to use models with billions of parameters, which are expensive to train and query. In this paper, we investigate how much these models can benefit from retrieving text passages, potentially containing evidence. We obtain state-of-the-art results on the Natural Questions and TriviaQA open benchmarks. Interestingly, we observe that the performance of this method significantly improves when increasing the number of retrieved passages. This is evidence that generative models are good at aggregating and combining evidence from multiple passages.",
+    "themes": [
+      6
+    ],
+    "relevance": "Multiple passages and fusion provide a baseline for evidence use.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2007.01282"
+    ],
+    "arxiv_id": "2007.01282",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P054",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+    "authors": [
+      "Patrick Lewis",
+      "Ethan Perez",
+      "Aleksandra Piktus",
+      "Fabio Petroni",
+      "Vladimir Karpukhin",
+      "Naman Goyal",
+      "Heinrich Küttler",
+      "Mike Lewis",
+      "Wen-tau Yih",
+      "Tim Rocktäschel",
+      "Sebastian Riedel",
+      "Douwe Kiela"
+    ],
+    "year": 2020,
+    "venue": "UCL Discovery (University College London)",
+    "doi": null,
+    "url": "https://discovery.ucl.ac.uk/id/eprint/10100504/",
+    "abstract": "Large pre-trained language models have been shown to store factual knowledge in their parameters, and achieve state-of-the-art results when fine-tuned on downstream NLP tasks. However, their ability to access and precisely manipulate knowledge is still limited, and hence on knowledge-intensive tasks, their performance lags behind task-specific architectures. Additionally, providing provenance for their decisions and updating their world knowledge remain open research problems. Pre-trained models with a differentiable access mechanism to explicit non-parametric memory can overcome this issue, but have so far been only investigated for extractive downstream tasks. We explore a general-purpose fine-tuning recipe for retrieval-augmented generation (RAG) -- models which combine pre-trained parametric and non-parametric memory for language generation. We introduce RAG models where the parametric memory is a pre-trained seq2seq model and the non-parametric memory is a dense vector index of Wikipedia, accessed with a pre-trained neural retriever. We compare two RAG formulations, one which conditions on the same retrieved passages across the whole generated sequence, the other can use different passages per token. We fine-tune and evaluate our models on a wide range of knowledge-intensive NLP tasks and set the state-of-the-art on three open domain QA tasks, outperforming parametric seq2seq models and task-specific retrieve-and-extract architectures. For language generation tasks, we find that RAG models generate more specific, diverse and factual language than a state-of-the-art parametric-only seq2seq baseline.",
+    "themes": [
+      6
+    ],
+    "relevance": "Foundational fixed-retrieval generative architecture.",
+    "verification_urls": [
+      "https://openalex.org/W3098425262",
+      "https://arxiv.org/abs/2005.11401"
+    ],
+    "primary_url": "https://arxiv.org/abs/2005.11401",
+    "arxiv_id": "2005.11401",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P055",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "BEIR: A Heterogenous Benchmark for Zero-shot Evaluation of Information Retrieval Models",
+    "authors": [
+      "Thakur, Nandan",
+      "Reimers, Nils",
+      "Rücklé, Andreas",
+      "Srivastava, Abhishek",
+      "Gurevych, Iryna"
+    ],
+    "year": 2021,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2104.08663",
+    "primary_url": "https://arxiv.org/abs/2104.08663",
+    "fulltext_url": null,
+    "abstract": "Existing neural information retrieval (IR) models have often been studied in homogeneous and narrow settings, which has considerably limited insights into their out-of-distribution (OOD) generalization capabilities. To address this, and to facilitate researchers to broadly evaluate the effectiveness of their models, we introduce Benchmarking-IR (BEIR), a robust and heterogeneous evaluation benchmark for information retrieval. We leverage a careful selection of 18 publicly available datasets from diverse text retrieval tasks and domains and evaluate 10 state-of-the-art retrieval systems including lexical, sparse, dense, late-interaction and re-ranking architectures on the BEIR benchmark. Our results show BM25 is a robust baseline and re-ranking and late-interaction-based models on average achieve the best zero-shot performances, however, at high computational costs. In contrast, dense and sparse-retrieval models are computationally more efficient but often underperform other approaches, highlighting the considerable room for improvement in their generalization capabilities. We hope this framework allows us to better evaluate and understand existing retrieval systems, and contributes to accelerating progress towards better robust and generalizable systems in the future. BEIR is publicly available at this https URL .",
+    "themes": [
+      6
+    ],
+    "relevance": "Transfer across retrieval tasks should be tested rather than assumed.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2104.08663"
+    ],
+    "arxiv_id": "2104.08663",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P056",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "ReAct: Synergizing Reasoning and Acting in Language Models",
+    "authors": [
+      "Yao, Shunyu",
+      "Zhao, Jeffrey",
+      "Yu, Dian",
+      "Du, Nan",
+      "Shafran, Izhak",
+      "Narasimhan, Karthik",
+      "Cao, Yuan"
+    ],
+    "year": 2022,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2210.03629",
+    "primary_url": "https://arxiv.org/abs/2210.03629",
+    "fulltext_url": null,
+    "abstract": "While large language models (LLMs) have demonstrated impressive capabilities across tasks in language understanding and interactive decision making, their abilities for reasoning (e.g. chain-of-thought prompting) and acting (e.g. action plan generation) have primarily been studied as separate topics. In this paper, we explore the use of LLMs to generate both reasoning traces and task-specific actions in an interleaved manner, allowing for greater synergy between the two: reasoning traces help the model induce, track, and update action plans as well as handle exceptions, while actions allow it to interface with external sources, such as knowledge bases or environments, to gather additional information. We apply our approach, named ReAct, to a diverse set of language and decision making tasks and demonstrate its effectiveness over state-of-the-art baselines, as well as improved human interpretability and trustworthiness over methods without reasoning or acting components. Concretely, on question answering (HotpotQA) and fact verification (Fever), ReAct overcomes issues of hallucination and error propagation prevalent in chain-of-thought reasoning by interacting with a simple Wikipedia API, and generates human-like task-solving trajectories that are more interpretable than baselines without reasoning traces. On two interactive decision making benchmarks (ALFWorld and WebShop), ReAct outperforms imitation and reinforcement learning methods by an absolute success rate of 34% and 10% respectively, while being prompted with only one or two in-context examples. Project site with code: this https URL",
+    "themes": [
+      6
+    ],
+    "relevance": "Foundation for interleaving model decisions and external actions.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2210.03629"
+    ],
+    "arxiv_id": "2210.03629",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P057",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Active Retrieval Augmented Generation",
+    "authors": [
+      "Zhengbao Jiang",
+      "Frank Xu",
+      "Luyu Gao",
+      "Zhiqing Sun",
+      "Qian Liu",
+      "Jane Dwivedi-Yu",
+      "Yiming Yang",
+      "Jamie Callan",
+      "Graham Neubig"
+    ],
+    "year": 2023,
+    "venue": "Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing",
+    "doi": "10.18653/v1/2023.emnlp-main.495",
+    "url": "https://doi.org/10.18653/v1/2023.emnlp-main.495",
+    "abstract": "Abstract Despite the remarkable ability of large language models (LMs) to comprehend and generate language, they have a tendency to hallucinate and create factually inaccurate output. Augmenting LMs by retrieving information from external knowledge resources is one promising solution. Most existing retrieval augmented LMs employ a retrieve-and-generate setup that only retrieves information once based on the input. This is limiting, however, in more general scenarios involving generation of long texts, where continually gathering information throughout generation is essential. In this work, we provide a generalized view of active retrieval augmented generation, methods that actively decide when and what to retrieve across the course of the generation. We propose Forward-Looking Active REtrieval augmented generation (FLARE), a generic method which iteratively uses a prediction of the upcoming sentence to anticipate future content, which is then utilized as a query to retrieve relevant documents to regenerate the sentence if it contains low-confidence tokens. We test FLARE along with baselines comprehensively over 4 long-form knowledge-intensive generation tasks/datasets. FLARE achieves superior or competitive performance on all tasks, demonstrating the effectiveness of our method.",
+    "themes": [
+      6
+    ],
+    "relevance": "Generation-conditioned retrieval comparator.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Active+Retrieval+Augmented+Generation&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W4389519118",
+      "https://aclanthology.org/2023.emnlp-main.495/"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P058",
+    "primary_url": "https://aclanthology.org/2023.emnlp-main.495/",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Citations as Queries: Source Attribution Using Language Models as Rerankers",
+    "authors": [
+      "Muther, Ryan",
+      "Smith, David"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2306.17322",
+    "primary_url": "https://arxiv.org/abs/2306.17322",
+    "fulltext_url": null,
+    "abstract": "This paper explores new methods for locating the sources used to write a text, by fine-tuning a variety of language models to rerank candidate sources. After retrieving candidates sources using a baseline BM25 retrieval model, a variety of reranking methods are tested to see how effective they are at the task of source attribution. We conduct experiments on two datasets, English Wikipedia and medieval Arabic historical writing, and employ a variety of retrieval and generation based reranking models. In particular, we seek to understand how the degree of supervision required affects the performance of various reranking models. We find that semisupervised methods can be nearly as effective as fully supervised methods while avoiding potentially costly span-level annotation of the target and source documents.",
+    "themes": [
+      6,
+      8
+    ],
+    "relevance": "Post-generation source attribution by reranking should not be confused with evidence of original causal reliance.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2306.17322"
+    ],
+    "arxiv_id": "2306.17322",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P059",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Interleaving Retrieval with Chain-of-Thought Reasoning for Knowledge-Intensive Multi-Step Questions",
+    "authors": [
+      "Harsh K. Trivedi",
+      "Niranjan Balasubramanian",
+      "Tushar Khot",
+      "Ashish Sabharwal"
+    ],
+    "year": 2023,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2023.acl-long.557",
+    "url": "https://doi.org/10.18653/v1/2023.acl-long.557",
+    "abstract": "Prompting-based large language models (LLMs) are surprisingly powerful at generating natural language reasoning steps or Chains-of-Thoughts (CoT) for multi-step question answering (QA). They struggle, however, when the necessary knowledge is either unavailable to the LLM or not up-to-date within its parameters. While using the question to retrieve relevant text from an external knowledge source helps LLMs, we observe that this one-step retrieve-and-read approach is insufficient for multi-step QA. Here, \\textit{what to retrieve} depends on \\textit{what has already been derived}, which in turn may depend on \\textit{what was previously retrieved}. To address this, we propose IRCoT, a new approach for multi-step QA that interleaves retrieval with steps (sentences) in a CoT, guiding the retrieval with CoT and in turn using retrieved results to improve CoT. Using IRCoT with GPT3 substantially improves retrieval (up to 21 points) as well as downstream QA (up to 15 points) on four datasets: HotpotQA, 2WikiMultihopQA, MuSiQue, and IIRC. We observe similar substantial gains in out-of-distribution (OOD) settings as well as with much smaller models such as Flan-T5-large without additional training. IRCoT reduces model hallucination, resulting in factually more accurate CoT reasoning. Code, data, and prompts are available at \\url{ this https URL }",
+    "themes": [
+      6
+    ],
+    "relevance": "Compare iterative query decisions against fixed parallel expansion.",
+    "verification_urls": [
+      "https://openalex.org/W4385571271",
+      "https://openalex.org/W4312091845",
+      "https://arxiv.org/abs/2212.10509"
+    ],
+    "primary_url": "https://arxiv.org/abs/2212.10509",
+    "arxiv_id": "2212.10509",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P060",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Precise Zero-Shot Dense Retrieval without Relevance Labels",
+    "authors": [
+      "Luyu Gao",
+      "Xueguang Ma",
+      "Jimmy Lin",
+      "Jamie Callan"
+    ],
+    "year": 2023,
+    "venue": "Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
+    "doi": "10.18653/v1/2023.acl-long.99",
+    "url": "https://doi.org/10.18653/v1/2023.acl-long.99",
+    "abstract": "Abstract While dense retrieval has been shown to be effective and efficient across tasks and languages, it remains difficult to create effective fully zero-shot dense retrieval systems when no relevance labels are available. In this paper, we recognize the difficulty of zero-shot learning and encoding relevance. Instead, we propose to pivot through Hypothetical Document Embeddings (HyDE). Given a query, HyDE first zero-shot prompts an instruction-following language model (e.g., InstructGPT) to generate a hypothetical document. The document captures relevance patterns but is “fake” and may contain hallucinations. Then, an unsupervised contrastively learned encoder (e.g., Contriever) encodes the document into an embedding vector. This vector identifies a neighborhood in the corpus embedding space, from which similar real documents are retrieved based on vector similarity. This second step grounds the generated document to the actual corpus, with the encoder’s dense bottleneck filtering out the hallucinations. Our experiments show that HyDE significantly outperforms the state-of-the-art unsupervised dense retriever Contriever and shows strong performance comparable to fine-tuned retrievers across various tasks (e.g. web search, QA, fact verification) and in non-English languages (e.g., sw, ko, ja, bn).",
+    "themes": [
+      6
+    ],
+    "relevance": "Hypothetical-document expansion comparator.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Precise+Zero-Shot+Dense+Retrieval+without+Relevance+Labels&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://aclanthology.org/2023.acl-long.99/"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P061",
+    "primary_url": "https://aclanthology.org/2023.acl-long.99/",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Query Rewriting in Retrieval-Augmented Large Language Models",
+    "authors": [
+      "Xinbei Ma",
+      "Yeyun Gong",
+      "Pengcheng He",
+      "Hai Zhao",
+      "Nan Duan"
+    ],
+    "year": 2023,
+    "venue": "Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing",
+    "doi": "10.18653/v1/2023.emnlp-main.322",
+    "url": "https://doi.org/10.18653/v1/2023.emnlp-main.322",
+    "abstract": "Large Language Models (LLMs) play powerful, black-box readers in the retrieve-thenread pipeline, making remarkable progress in knowledge-intensive tasks.This work introduces a new framework, Rewrite-Retrieve-Read instead of the previous retrieve-then-read for the retrieval-augmented LLMs from the perspective of the query rewriting.Unlike prior studies focusing on adapting either the retriever or the reader, our approach pays attention to the adaptation of the search query itself, for there is inevitably a gap between the input text and the needed knowledge in retrieval.We first prompt an LLM to generate the query, then use a web search engine to retrieve contexts.Furthermore, to better align the query to the frozen modules, we propose a trainable scheme for our pipeline.A small language model is adopted as a trainable rewriter to cater to the black-box LLM reader.The rewriter is trained using the feedback of the LLM reader by reinforcement learning.Evaluation is conducted on downstream tasks, open-domain QA and multiple-choice QA.Experiments results show consistent performance improvement, indicating that our framework is proven effective and scalable, and brings a new framework for retrieval-augmented LLM 1 .",
+    "themes": [
+      6
+    ],
+    "relevance": "Query formulation can drive retrieval gains independently of reasoning.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Query+Rewriting+in+Retrieval-Augmented+Large+Language+Models&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W4389518671",
+      "https://openalex.org/W4378509387"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P062",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection",
+    "authors": [
+      "Asai, Akari",
+      "Wu, Zeqiu",
+      "Wang, Yizhong",
+      "Sil, Avirup",
+      "Hajishirzi, Hannaneh"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2310.11511",
+    "primary_url": "https://arxiv.org/abs/2310.11511",
+    "fulltext_url": "https://arxiv.org/html/2310.11511",
+    "abstract": "Despite their remarkable capabilities, large language models (LLMs) often produce responses containing factual inaccuracies due to their sole reliance on the parametric knowledge they encapsulate. Retrieval-Augmented Generation (RAG), an ad hoc approach that augments LMs with retrieval of relevant knowledge, decreases such issues. However, indiscriminately retrieving and incorporating a fixed number of retrieved passages, regardless of whether retrieval is necessary, or passages are relevant, diminishes LM versatility or can lead to unhelpful response generation. We introduce a new framework called Self-Reflective Retrieval-Augmented Generation (Self-RAG) that enhances an LM's quality and factuality through retrieval and self-reflection. Our framework trains a single arbitrary LM that adaptively retrieves passages on-demand, and generates and reflects on retrieved passages and its own generations using special tokens, called reflection tokens. Generating reflection tokens makes the LM controllable during the inference phase, enabling it to tailor its behavior to diverse task requirements. Experiments show that Self-RAG (7B and 13B parameters) significantly outperforms state-of-the-art LLMs and retrieval-augmented models on a diverse set of tasks. Specifically, Self-RAG outperforms ChatGPT and retrieval-augmented Llama2-chat on Open-domain QA, reasoning and fact verification tasks, and it shows significant gains in improving factuality and citation accuracy for long-form generations relative to these models.",
+    "themes": [
+      6
+    ],
+    "relevance": "Adaptive retrieval and critique require different training and budgets.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2310.11511"
+    ],
+    "arxiv_id": "2310.11511",
+    "inspection": "full-text sections inspected",
+    "role": "methodological foundation",
+    "key": "P063",
+    "research_question": "Can retrieval and self-critique be adapted during generation?",
+    "method": "Training with retrieval and reflection tokens; inference can select whether to retrieve.",
+    "finding": "The method uses a trained model and reflection-token controls, so comparison with a prompt-only agent changes more than query scheduling.",
+    "locator": "§3.1–§3.3; abstract",
+    "limitation": "Training, retrieval corpus and compute budgets differ from the project's snippet agents."
+  },
+  {
+    "title": "Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models through Question Complexity",
+    "authors": [
+      "Soyeong Jeong",
+      "Jinheon Baek",
+      "Sukmin Cho",
+      "Sung Ju Hwang",
+      "Jong Moon Park"
+    ],
+    "year": 2024,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2024.naacl-long.389",
+    "url": "https://doi.org/10.18653/v1/2024.naacl-long.389",
+    "abstract": "Abstract Retrieval-Augmented Large Language Models (LLMs), which incorporate the non-parametric knowledge from external knowledge bases into LLMs, have emerged as a promising approach to enhancing response accuracy in several tasks, such as Question-Answering (QA). However, even though there are various approaches dealing with queries of different complexities, they either handle simple queries with unnecessary computational overhead or fail to adequately address complex multi-step queries; yet, not all user requests fall into only one of the simple or complex categories. In this work, we propose a novel adaptive QA framework that can dynamically select the most suitable strategy for (retrieval-augmented) LLMs from the simplest to the most sophisticated ones based on the query complexity. Also, this selection process is operationalized with a classifier, which is a smaller LM trained to predict the complexity level of incoming queries with automatically collected labels, obtained from actual predicted outcomes of models and inherent inductive biases in datasets. This approach offers a balanced strategy, seamlessly adapting between the iterative and single-step retrieval-augmented LLMs, as well as the no-retrieval methods, in response to a range of query complexities. We validate our model on a set of open-domain QA datasets, covering multiple query complexities, and show that ours enhances the overall efficiency and accuracy of QA systems, compared to relevant baselines including the adaptive retrieval approaches. Code is available at: https://github.com/starsuzi/Adaptive-RAG .",
+    "themes": [
+      6
+    ],
+    "relevance": "Question complexity may moderate the value of adaptive retrieval.",
+    "verification_urls": [
+      "https://openalex.org/W4401042753",
+      "https://aclanthology.org/2024.naacl-long.389/"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P064",
+    "primary_url": "https://aclanthology.org/2024.naacl-long.389/",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "M3-Embedding: Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation",
+    "authors": [
+      "Jianlyu Chen",
+      "Shitao Xiao",
+      "Peitian Zhang",
+      "Kun Luo",
+      "Defu Lian",
+      "Zheng Liu"
+    ],
+    "year": 2024,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2024.findings-acl.137",
+    "url": "https://doi.org/10.18653/v1/2024.findings-acl.137",
+    "abstract": "In this paper, we introduce a new embedding model called M3-Embedding, which is distinguished for its versatility in \\textit{Multi-Linguality}, \\textit{Multi-Functionality}, and \\textit{Multi-Granularity}. It provides a uniform support for the semantic retrieval of more than 100 working languages. It can simultaneously accomplish the three common retrieval functionalities: dense retrieval, multi-vector retrieval, and sparse retrieval. Besides, it is also capable of processing inputs of different granularities, spanning from short sentences to long documents of up to 8,192 tokens. The effective training of M3-Embedding presents a series of technical contributions. Notably, we propose a novel self-knowledge distillation approach, where the relevance scores from different retrieval functionalities can be integrated as the teacher signal to enhance the training quality. We also optimize the batching strategy, which enables a large batch size and high training throughput to improve the discriminativeness of embeddings. M3-Embedding exhibits a superior performance in our experiment, leading to new state-of-the-art results on multilingual, cross-lingual, and long-document retrieval benchmarks.",
+    "themes": [
+      6
+    ],
+    "relevance": "Adjacent BGE embedding work; not direct validation of bge-reranker-v2-m3.",
+    "verification_urls": [
+      "https://openalex.org/W4402670856",
+      "https://arxiv.org/abs/2402.03216"
+    ],
+    "primary_url": "https://arxiv.org/abs/2402.03216",
+    "arxiv_id": "2402.03216",
+    "inspection": "abstract inspected",
+    "role": "supporting context",
+    "key": "P065",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Fantastically Ordered Prompts and Where to Find Them: Overcoming Few-Shot Prompt Order Sensitivity",
+    "authors": [
+      "Yao Lu",
+      "Max Bartolo",
+      "Alastair Moore",
+      "Sebastian Riedel",
+      "Pontus Stenetorp"
+    ],
+    "year": 2022,
+    "venue": "Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
+    "doi": "10.18653/v1/2022.acl-long.556",
+    "url": "https://doi.org/10.18653/v1/2022.acl-long.556",
+    "abstract": "Abstract When primed with only a handful of training samples, very large, pretrained language models such as GPT-3 have shown competitive results when compared to fully-supervised, fine-tuned, large, pretrained language models. We demonstrate that the order in which the samples are provided can make the difference between near state-of-the-art and random guess performance: essentially some permutations are “fantastic” and some not. We analyse this phenomenon in detail, establishing that: it is present across model sizes (even for the largest current models), it is not related to a specific subset of samples, and that a given good permutation for one model is not transferable to another. While one could use a development set to determine which permutations are performant, this would deviate from the true few-shot setting as it requires additional annotated data. Instead, we use the generative nature of language models to construct an artificial development set and based on entropy statistics of the candidate permutations on this set, we identify performant prompts. Our method yields a 13% relative improvement for GPT-family models across eleven different established text classification tasks.",
+    "themes": [
+      7,
+      9
+    ],
+    "relevance": "Demonstration order is adjacent evidence, not the same treatment as document order.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Fantastically+Ordered+Prompts+and+Where+to+Find+Them%3A+Overcoming+Few-Shot+Prompt+Order+Sensitivity&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://aclanthology.org/2022.acl-long.556/"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P066",
+    "primary_url": "https://aclanthology.org/2022.acl-long.556/",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Making Retrieval-Augmented Language Models Robust to Irrelevant Context",
+    "authors": [
+      "Yoran, Ori",
+      "Wolfson, Tomer",
+      "Ram, Ori",
+      "Berant, Jonathan"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2310.01558",
+    "primary_url": "https://arxiv.org/abs/2310.01558",
+    "fulltext_url": null,
+    "abstract": "Retrieval-augmented language models (RALMs) hold promise to produce language understanding systems that are are factual, efficient, and up-to-date. An important desideratum of RALMs, is that retrieved information helps model performance when it is relevant, and does not harm performance when it is not. This is particularly important in multi-hop reasoning scenarios, where misuse of irrelevant evidence can lead to cascading errors. However, recent work has shown that retrieval augmentation can sometimes have a negative effect on performance. In this work, we present a thorough analysis on five open-domain question answering benchmarks, characterizing cases when retrieval reduces accuracy. We then propose two methods to mitigate this issue. First, a simple baseline that filters out retrieved passages that do not entail question-answer pairs according to a natural language inference (NLI) model. This is effective in preventing performance reduction, but at a cost of also discarding relevant passages. Thus, we propose a method for automatically generating data to fine-tune the language model to properly leverage retrieved passages, using a mix of relevant and irrelevant contexts at training time. We empirically show that even 1,000 examples suffice to train the model to be robust to irrelevant contexts while maintaining high performance on examples with relevant ones.",
+    "themes": [
+      7
+    ],
+    "relevance": "Irrelevant evidence is a distinct intervention from source order.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2310.01558"
+    ],
+    "arxiv_id": "2310.01558",
+    "inspection": "abstract inspected",
+    "role": "critical/contrary evidence",
+    "key": "P067",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "ContextCite: Attributing Model Generation to Context",
+    "authors": [
+      "Cohen-Wang, Benjamin",
+      "Shah, Harshay",
+      "Georgiev, Kristian",
+      "Madry, Aleksander"
+    ],
+    "year": 2024,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2409.00729",
+    "primary_url": "https://arxiv.org/abs/2409.00729",
+    "fulltext_url": "https://arxiv.org/html/2409.00729",
+    "abstract": "How do language models use information provided as context when generating a response? Can we infer whether a particular generated statement is actually grounded in the context, a misinterpretation, or fabricated? To help answer these questions, we introduce the problem of context attribution: pinpointing the parts of the context (if any) that led a model to generate a particular statement. We then present ContextCite, a simple and scalable method for context attribution that can be applied on top of any existing language model. Finally, we showcase the utility of ContextCite through three applications: (1) helping verify generated statements (2) improving response quality by pruning the context and (3) detecting poisoning attacks. We provide code for ContextCite at this https URL .",
+    "themes": [
+      7,
+      8
+    ],
+    "relevance": "Direct comparator for intervention-based contextual contribution.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2409.00729"
+    ],
+    "arxiv_id": "2409.00729",
+    "inspection": "full-text sections inspected",
+    "role": "methodological foundation",
+    "key": "P068",
+    "research_question": "Which context sources affect a selected generated statement?",
+    "method": "Random context ablations and a fitted linear surrogate for model behavior.",
+    "finding": "Source weights support context attribution; the paper recommends evaluating surrogate faithfulness and warns about redundant-source failures.",
+    "locator": "§3; Appendix C.4",
+    "limitation": "Linearity can fail when many sources contain the same information; conditional attribution is not an unconditional unique-contribution measure."
+  },
+  {
+    "title": "Lost in the Middle: How Language Models Use Long Contexts",
+    "authors": [
+      "Nelson F. Liu",
+      "Kevin Lin",
+      "John Hewitt",
+      "Ashwin Paranjape",
+      "Michele Bevilacqua",
+      "Fabio Petroni",
+      "Percy Liang"
+    ],
+    "year": 2024,
+    "venue": "Transactions of the Association for Computational Linguistics",
+    "doi": "10.1162/tacl_a_00638",
+    "url": "https://doi.org/10.1162/tacl_a_00638",
+    "abstract": "While recent language models have the ability to take long contexts as input, relatively little is known about how well they use longer context. We analyze the performance of language models on two tasks that require identifying relevant information in their input contexts: multi-document question answering and key-value retrieval. We find that performance can degrade significantly when changing the position of relevant information, indicating that current language models do not robustly make use of information in long input contexts. In particular, we observe that performance is often highest when relevant information occurs at the beginning or end of the input context, and significantly degrades when models must access relevant information in the middle of long contexts, even for explicitly long-context models. Our analysis provides a better understanding of how language models use their input context and provides new evaluation protocols for future long-context language models.",
+    "themes": [
+      7
+    ],
+    "relevance": "Core position-sensitivity comparator for retained-evidence shuffling.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Lost+in+the+Middle%3A+How+Language+Models+Use+Long+Contexts&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W4391876619",
+      "https://openalex.org/W4383605243",
+      "https://arxiv.org/abs/2307.03172"
+    ],
+    "primary_url": "https://arxiv.org/abs/2307.03172",
+    "fulltext_url": "https://arxiv.org/html/2307.03172",
+    "arxiv_id": "2307.03172",
+    "inspection": "full-text sections inspected",
+    "role": "critical/contrary evidence",
+    "key": "P069",
+    "research_question": "Does the position of relevant evidence affect use of long context?",
+    "method": "Multi-document QA and synthetic key-value retrieval with position and length interventions.",
+    "finding": "Performance often falls when answer-bearing information is in the middle; the experiments also distinguish order from context length.",
+    "locator": "§2.1–§2.3; §3",
+    "limitation": "Long-context tasks and specific models do not determine the magnitude for seven-snippet contexts."
+  },
+  {
+    "title": "The Power of Noise: Redefining Retrieval for RAG Systems",
+    "authors": [
+      "Florin Cuconasu",
+      "Giovanni Trappolini",
+      "Federico Siciliano",
+      "Simone Filice",
+      "Cesare Campagnano",
+      "Yoelle Maarek",
+      "Nicola Tonellotto",
+      "Fabrizio Silvestri"
+    ],
+    "year": 2024,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.1145/3626772.3657834",
+    "url": "https://doi.org/10.1145/3626772.3657834",
+    "abstract": "Retrieval-Augmented Generation (RAG) has recently emerged as a method to extend beyond the pre-trained knowledge of Large Language Models by augmenting the original prompt with relevant passages or documents retrieved by an Information Retrieval (IR) system. RAG has become increasingly important for Generative AI solutions, especially in enterprise settings or in any domain in which knowledge is constantly refreshed and cannot be memorized in the LLM. We argue here that the retrieval component of RAG systems, be it dense or sparse, deserves increased attention from the research community, and accordingly, we conduct the first comprehensive and systematic examination of the retrieval strategy of RAG systems. We focus, in particular, on the type of passages IR systems within a RAG solution should retrieve. Our analysis considers multiple factors, such as the relevance of the passages included in the prompt context, their position, and their number. One counter-intuitive finding of this work is that the retriever's highest-scoring documents that are not directly relevant to the query (e.g., do not contain the answer) negatively impact the effectiveness of the LLM. Even more surprising, we discovered that adding random documents in the prompt improves the LLM accuracy by up to 35%. These results highlight the need to investigate the appropriate strategies when integrating retrieval with LLMs, thereby laying the groundwork for future research in this area.",
+    "themes": [
+      7
+    ],
+    "relevance": "Negative or unexpected evidence on adding documents challenges simple monotonicity assumptions.",
+    "verification_urls": [
+      "https://openalex.org/W4391376033",
+      "https://arxiv.org/abs/2401.14887"
+    ],
+    "primary_url": "https://arxiv.org/abs/2401.14887",
+    "fulltext_url": "https://arxiv.org/html/2401.14887",
+    "arxiv_id": "2401.14887",
+    "inspection": "full-text sections inspected",
+    "role": "critical/contrary evidence",
+    "key": "P070",
+    "research_question": "How do document relevance, position and number affect RAG?",
+    "method": "Controlled retrieval compositions including relevant, distracting and random documents.",
+    "finding": "The paper reports different effects for distracting versus random documents, challenging a simple more-relevant-context-is-always-better rule.",
+    "locator": "§4.2; §5; abstract",
+    "limitation": "Effects depend on document composition, model and QA setup; not a rule to inject noise into production."
+  },
+  {
+    "title": "A similarity measure for indefinite rankings",
+    "authors": [
+      "William Webber",
+      "Alistair Moffat",
+      "Justin Zobel"
+    ],
+    "year": 2010,
+    "venue": "ACM Transactions on Information Systems",
+    "doi": "10.1145/1852102.1852106",
+    "url": "https://doi.org/10.1145/1852102.1852106",
+    "abstract": "Ranked lists are encountered in research and daily life and it is often of interest to compare these lists even when they are incomplete or have only some members in common. An example is document rankings returned for the same query by different search engines. A measure of the similarity between incomplete rankings should handle nonconjointness, weight high ranks more heavily than low, and be monotonic with increasing depth of evaluation; but no measure satisfying all these criteria currently exists. In this article, we propose a new measure having these qualities, namely rank-biased overlap (RBO). The RBO measure is based on a simple probabilistic user model. It provides monotonicity by calculating, at a given depth of evaluation, a base score that is non-decreasing with additional evaluation, and a maximum score that is nonincreasing. An extrapolated score can be calculated between these bounds if a point estimate is required. RBO has a parameter which determines the strength of the weighting to top ranks. We extend RBO to handle tied ranks and rankings of different lengths. Finally, we give examples of the use of the measure in comparing the results produced by public search engines and in assessing retrieval systems in the laboratory.",
+    "themes": [
+      8
+    ],
+    "relevance": "RBO is relevant to comparing partial source rankings.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=A+similarity+measure+for+indefinite+rankings&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W2021581601"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P071",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Measuring Attribution in Natural Language Generation Models",
+    "authors": [
+      "Rashkin, Hannah",
+      "Nikolaev, Vitaly",
+      "Lamm, Matthew",
+      "Aroyo, Lora",
+      "Collins, Michael",
+      "Das, Dipanjan",
+      "Petrov, Slav",
+      "Tomar, Gaurav Singh",
+      "Turc, Iulia",
+      "Reitter, David"
+    ],
+    "year": 2021,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2112.12870",
+    "primary_url": "https://arxiv.org/abs/2112.12870",
+    "fulltext_url": null,
+    "abstract": "With recent improvements in natural language generation (NLG) models for various applications, it has become imperative to have the means to identify and evaluate whether NLG output is only sharing verifiable information about the external world. In this work, we present a new evaluation framework entitled Attributable to Identified Sources (AIS) for assessing the output of natural language generation models, when such output pertains to the external world. We first define AIS and introduce a two-stage annotation pipeline for allowing annotators to appropriately evaluate model output according to AIS guidelines. We empirically validate this approach on generation datasets spanning three tasks (two conversational QA datasets, a summarization dataset, and a table-to-text dataset) via human evaluation studies that suggest that AIS could serve as a common framework for measuring whether model-generated statements are supported by underlying sources. We release guidelines for the human evaluation studies.",
+    "themes": [
+      8
+    ],
+    "relevance": "Compare textual attribution metrics with source-importance grades.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2112.12870"
+    ],
+    "arxiv_id": "2112.12870",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P072",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "RARR: Researching and Revising What Language Models Say, Using Language Models",
+    "authors": [
+      "Gao, Luyu",
+      "Dai, Zhuyun",
+      "Pasupat, Panupong",
+      "Chen, Anthony",
+      "Chaganty, Arun Tejasvi",
+      "Fan, Yicheng",
+      "Zhao, Vincent Y.",
+      "Lao, Ni",
+      "Lee, Hongrae",
+      "Juan, Da-Cheng",
+      "Guu, Kelvin"
+    ],
+    "year": 2022,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2210.08726",
+    "primary_url": "https://arxiv.org/abs/2210.08726",
+    "fulltext_url": null,
+    "abstract": "Language models (LMs) now excel at many tasks such as few-shot learning, question answering, reasoning, and dialog. However, they sometimes generate unsupported or misleading content. A user cannot easily determine whether their outputs are trustworthy or not, because most LMs do not have any built-in mechanism for attribution to external evidence. To enable attribution while still preserving all the powerful advantages of recent generation models, we propose RARR (Retrofit Attribution using Research and Revision), a system that 1) automatically finds attribution for the output of any text generation model and 2) post-edits the output to fix unsupported content while preserving the original output as much as possible. When applied to the output of several state-of-the-art LMs on a diverse set of generation tasks, we find that RARR significantly improves attribution while otherwise preserving the original input to a much greater degree than previously explored edit models. Furthermore, the implementation of RARR requires only a handful of training examples, a large language model, and standard web search.",
+    "themes": [
+      8
+    ],
+    "relevance": "Post-hoc attribution and revision are not evidence of original causal reliance.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2210.08726"
+    ],
+    "arxiv_id": "2210.08726",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P073",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Enabling Large Language Models to Generate Text with Citations",
+    "authors": [
+      "Tianyu Gao",
+      "Howard Yen",
+      "Jiatong Yu",
+      "Danqi Chen"
+    ],
+    "year": 2023,
+    "venue": "Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing",
+    "doi": "10.18653/v1/2023.emnlp-main.398",
+    "url": "https://doi.org/10.18653/v1/2023.emnlp-main.398",
+    "abstract": "Large language models (LLMs) have emerged as a widely-used tool for information seeking, but their generated outputs are prone to hallucination. In this work, our aim is to allow LLMs to generate text with citations, improving their factual correctness and verifiability. Existing work mainly relies on commercial search engines and human evaluation, making it challenging to reproduce and compare different modeling approaches. We propose ALCE, the first benchmark for Automatic LLMs' Citation Evaluation. ALCE collects a diverse set of questions and retrieval corpora and requires building end-to-end systems to retrieve supporting evidence and generate answers with citations. We develop automatic metrics along three dimensions -- fluency, correctness, and citation quality -- and demonstrate their strong correlation with human judgements. Our experiments with state-of-the-art LLMs and novel prompting strategies show that current systems have considerable room for improvement -- For example, on the ELI5 dataset, even the best models lack complete citation support 50% of the time. Our analyses further highlight promising future directions, including developing better retrievers, advancing long-context LLMs, and improving the ability to synthesize information from multiple sources.",
+    "themes": [
+      8
+    ],
+    "relevance": "ALCE separates answer quality from citation quality.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Enabling+Large+Language+Models+to+Generate+Text+with+Citations&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W4389520670",
+      "https://openalex.org/W4378473170",
+      "https://arxiv.org/abs/2305.14627"
+    ],
+    "primary_url": "https://arxiv.org/abs/2305.14627",
+    "fulltext_url": "https://arxiv.org/html/2305.14627",
+    "arxiv_id": "2305.14627",
+    "inspection": "full-text sections inspected",
+    "role": "methodological foundation",
+    "key": "P074",
+    "research_question": "How should generated citations be evaluated?",
+    "method": "ALCE benchmark with fluency, correctness, citation recall and citation precision, plus human checks.",
+    "finding": "Citation quality needs separate support/coverage measures; the limitations identify incomplete claim coverage and partial-support errors in NLI-based scoring.",
+    "locator": "§3.3; §6; Limitations",
+    "limitation": "NLI errors and open-ended answer coverage can bias automatic scores."
+  },
+  {
+    "title": "FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation",
+    "authors": [
+      "Sewon Min",
+      "Kalpesh Krishna",
+      "Xinxi Lyu",
+      "Mike Lewis",
+      "Wen-tau Yih",
+      "Pang Koh",
+      "Mohit Iyyer",
+      "Luke Zettlemoyer",
+      "Hannaneh Hajishirzi"
+    ],
+    "year": 2023,
+    "venue": "Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing",
+    "doi": "10.18653/v1/2023.emnlp-main.741",
+    "url": "https://doi.org/10.18653/v1/2023.emnlp-main.741",
+    "abstract": "Evaluating the factuality of long-form text generated by large language models (LMs) is non-trivial because (1) generations often contain a mixture of supported and unsupported pieces of information, making binary judgments of quality inadequate, and (2) human evaluation is time-consuming and costly. In this paper, we introduce FACTSCORE, a new evaluation that breaks a generation into a series of atomic facts and computes the percentage of atomic facts supported by a reliable knowledge source. We conduct an extensive human evaluation to obtain FACTSCOREs of people biographies generated by several state-of-the-art commercial LMs -- InstructGPT, ChatGPT, and the retrieval-augmented PerplexityAI -- and report new analysis demonstrating the need for such a fine-grained score (e.g., ChatGPT only achieves 58%). Since human evaluation is costly, we also introduce an automated model that estimates FACTSCORE using retrieval and a strong language model, with less than a 2% error rate. Finally, we use this automated metric to evaluate 6,500 generations from a new set of 13 recent LMs that would have cost $26K if evaluated by humans, with various findings: GPT-4 and ChatGPT are more factual than public models, and Vicuna and Alpaca are some of the best public models. FACTSCORE is available for public use via `pip install factscore`.",
+    "themes": [
+      8,
+      9
+    ],
+    "relevance": "Atomic factual claims help evaluate support but may omit recommendation centrality.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=FActScore%3A+Fine-grained+Atomic+Evaluation+of+Factual+Precision+in+Long+Form+Text+Generation&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://arxiv.org/abs/2305.14251"
+    ],
+    "primary_url": "https://arxiv.org/abs/2305.14251",
+    "fulltext_url": "https://arxiv.org/html/2305.14251",
+    "arxiv_id": "2305.14251",
+    "inspection": "full-text sections inspected",
+    "role": "methodological foundation",
+    "key": "P075",
+    "research_question": "How can long-form factual precision be evaluated at a finer grain?",
+    "method": "Decompose text into atomic facts and estimate the fraction supported by a knowledge source.",
+    "finding": "Atomic-fact support distinguishes mixtures of supported and unsupported content that a binary answer label would miss.",
+    "locator": "§3.1; Limitations",
+    "limitation": "Main experiments use biographies and Wikipedia; nuanced or debatable recommendations require further validation."
+  },
+  {
+    "title": "Attribute First, then Generate: Locally-attributable Grounded Text Generation",
+    "authors": [
+      "Aviv Slobodkin",
+      "Eran Hirsch",
+      "Arie Cattan",
+      "Tal Schuster",
+      "Ido Dagan"
+    ],
+    "year": 2024,
+    "venue": "Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
+    "doi": "10.18653/v1/2024.acl-long.182",
+    "url": "https://doi.org/10.18653/v1/2024.acl-long.182",
+    "abstract": "Recent efforts to address hallucinations in Large Language Models (LLMs) have focused on attributed text generation, which supplements generated texts with citations of supporting sources for post-generation fact-checking and corrections. Yet, these citations often point to entire documents or paragraphs, burdening users with extensive verification work. In this paper, we introduce a locally-attributable text generation approach, prioritizing concise attributions. Our method, named \"Attribute First, then Generate\", breaks down the conventional end-to-end generation process into three intuitive steps: content selection, sentence planning, and sequential sentence generation. By initially identifying relevant source segments (\"select first\") and then conditioning the generation process on them (\"then generate\"), we ensure these segments also act as the output's fine-grained attributions (\"select\" becomes \"attribute\"). Tested on Multi-document Summarization and Long-form Question-answering, our method not only yields more concise citations than the baselines but also maintains - and in some cases enhances - both generation quality and attribution accuracy. Furthermore, it significantly reduces the time required for fact verification by human assessors.",
+    "themes": [
+      8
+    ],
+    "relevance": "Attribution-first generation differs from post-hoc answer mapping.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Attribute+First%2C+then+Generate%3A+Locally-attributable+Grounded+Text+Generation&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W4402684029",
+      "https://openalex.org/W4393284419"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P076",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "LongCite: Enabling LLMs to Generate Fine-grained Citations in Long-Context QA",
+    "authors": [
+      "Jiajie Zhang",
+      "Yushi Bai",
+      "Xin Lv",
+      "Wanjun Gu",
+      "Danqing Liu",
+      "Minhao Zou",
+      "Shulin Cao",
+      "Lei Jing Hou",
+      "Yuxiao Dong",
+      "Ling Feng",
+      "Juanzi Li"
+    ],
+    "year": 2025,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2025.findings-acl.264",
+    "url": "https://doi.org/10.18653/v1/2025.findings-acl.264",
+    "abstract": "Though current long-context large language models (LLMs) have demonstrated impressive capacities in answering various questions based on extensive text, the lack of citations in their responses makes user verification difficult, leading to concerns about their trustworthiness due to the potential hallucinations.In this work, we aim to enable long-context LLMs to generate responses with fine-grained sentence-level citations on the fly, thereby improving their faithfulness and verifiability.We first introduce LongBench-Cite, an automated benchmark for assessing current LLMs' performance in long-context question answering with citations (LQAC), revealing considerable room for improvement.To this end, we propose CoF (Coarse to Fine), a novel pipeline that utilizes off-the-shelf LLMs to automatically construct long-context QA instances with precise sentence-level citations, and leverage this pipeline to construct LongCite-45k, a largescale SFT dataset for LQAC.Finally, we train LongCite-8B and LongCite-9B using the constructed dataset, successfully enabling the generation of accurate responses and fine-grained citations in one pass.The evaluation results on LongBench-Cite show that our trained models achieve state-of-the-art citation quality, surpassing advanced proprietary models including GPT-4o.We also discover that SFT with citation information can further improve the correctness of model responses compared to standard long-context SFT.",
+    "themes": [
+      8
+    ],
+    "relevance": "Fine-grained citation comparator for span-level support.",
+    "verification_urls": [
+      "https://openalex.org/W4412888613"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P077",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Weighted kappa: Nominal scale agreement provision for scaled disagreement or partial credit.",
+    "authors": [
+      "Jacob Cohen"
+    ],
+    "year": 1968,
+    "venue": "Psychological Bulletin",
+    "doi": "10.1037/h0026256",
+    "url": "https://doi.org/10.1037/h0026256",
+    "abstract": "",
+    "themes": [
+      9
+    ],
+    "relevance": "Ordinal disagreements should not all receive the same weight.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Weighted+kappa%3A+Nominal+scale+agreement+provision+for+scaled+disagreement+or+partial+credit&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P078",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Intraclass correlations: Uses in assessing rater reliability.",
+    "authors": [
+      "Patrick E. Shrout",
+      "Joseph L. Fleiss"
+    ],
+    "year": 1979,
+    "venue": "Psychological Bulletin",
+    "doi": "10.1037/0033-2909.86.2.420",
+    "url": "https://doi.org/10.1037/0033-2909.86.2.420",
+    "abstract": "",
+    "themes": [
+      9
+    ],
+    "relevance": "Reliability depends on the scoring and sampling design.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.1037%2F0033-2909.86.2.420"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P079",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment",
+    "authors": [
+      "Liu, Yang",
+      "Iter, Dan",
+      "Xu, Yichong",
+      "Wang, Shuohang",
+      "Xu, Ruochen",
+      "Zhu, Chenguang"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2303.16634",
+    "primary_url": "https://arxiv.org/abs/2303.16634",
+    "fulltext_url": null,
+    "abstract": "The quality of texts generated by natural language generation (NLG) systems is hard to measure automatically. Conventional reference-based metrics, such as BLEU and ROUGE, have been shown to have relatively low correlation with human judgments, especially for tasks that require creativity and diversity. Recent studies suggest using large language models (LLMs) as reference-free metrics for NLG evaluation, which have the benefit of being applicable to new tasks that lack human references. However, these LLM-based evaluators still have lower human correspondence than medium-size neural evaluators. In this work, we present G-Eval, a framework of using large language models with chain-of-thoughts (CoT) and a form-filling paradigm, to assess the quality of NLG outputs. We experiment with two generation tasks, text summarization and dialogue generation. We show that G-Eval with GPT-4 as the backbone model achieves a Spearman correlation of 0.514 with human on summarization task, outperforming all previous methods by a large margin. We also propose preliminary analysis on the behavior of LLM-based evaluators, and highlight the potential issue of LLM-based evaluators having a bias towards the LLM-generated texts. The code is at this https URL",
+    "themes": [
+      9
+    ],
+    "relevance": "Rubric and reasoning design can affect evaluator agreement.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2303.16634"
+    ],
+    "arxiv_id": "2303.16634",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P080",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena",
+    "authors": [
+      "Lianmin Zheng",
+      "Wei-Lin Chiang",
+      "Ying Sheng",
+      "Siyuan Zhuang",
+      "Zhanghao Wu",
+      "Yonghao Zhuang",
+      "Zi Lin",
+      "Zhuohan Li",
+      "Dacheng Li",
+      "Eric Xing",
+      "Hao Zhang",
+      "Joseph Gonzalez",
+      "Ion Stoica"
+    ],
+    "year": 2023,
+    "venue": "Advances in Neural Information Processing Systems 36",
+    "doi": "10.52202/075280-2020",
+    "url": "https://doi.org/10.52202/075280-2020",
+    "abstract": "Evaluating large language model (LLM) based chat assistants is challenging due to their broad capabilities and the inadequacy of existing benchmarks in measuring human preferences. To address this, we explore using strong LLMs as judges to evaluate these models on more open-ended questions. We examine the usage and limitations of LLM-as-a-judge, including position, verbosity, and self-enhancement biases, as well as limited reasoning ability, and propose solutions to mitigate some of them. We then verify the agreement between LLM judges and human preferences by introducing two benchmarks: MT-bench, a multi-turn question set; and Chatbot Arena, a crowdsourced battle platform. Our results reveal that strong LLM judges like GPT-4 can match both controlled and crowdsourced human preferences well, achieving over 80% agreement, the same level of agreement between humans. Hence, LLM-as-a-judge is a scalable and explainable way to approximate human preferences, which are otherwise very expensive to obtain. Additionally, we show our benchmark and traditional benchmarks complement each other by evaluating several variants of LLaMA and Vicuna. The MT-bench questions, 3K expert votes, and 30K conversations with human preferences are publicly available at this https URL .",
+    "themes": [
+      9
+    ],
+    "relevance": "Judge biases and human agreement must be measured for this rubric.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Judging+LLM-as-a-Judge+with+MT-Bench+and+Chatbot+Arena&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://arxiv.org/abs/2306.05685"
+    ],
+    "primary_url": "https://arxiv.org/abs/2306.05685",
+    "fulltext_url": "https://arxiv.org/html/2306.05685",
+    "arxiv_id": "2306.05685",
+    "inspection": "full-text sections inspected",
+    "role": "methodological foundation",
+    "key": "P081",
+    "research_question": "How well do strong LLM judges match human preferences?",
+    "method": "MT-Bench and Chatbot Arena comparisons with human judgments and bias diagnostics.",
+    "finding": "The paper documents position, verbosity and self-enhancement biases while finding substantial agreement for the studied tasks.",
+    "locator": "§3.3; §4.2",
+    "limitation": "Agreement on chat preference does not validate Nemotron or Gemma on the SI-v4 rubric."
+  },
+  {
+    "title": "Prometheus: Inducing Fine-grained Evaluation Capability in Language Models",
+    "authors": [
+      "Kim, Seungone",
+      "Shin, Jamin",
+      "Cho, Yejin",
+      "Jang, Joel",
+      "Longpre, Shayne",
+      "Lee, Hwaran",
+      "Yun, Sangdoo",
+      "Shin, Seongjin",
+      "Kim, Sungdong",
+      "Thorne, James",
+      "Seo, Minjoon"
+    ],
+    "year": 2023,
+    "venue": "arXiv preprint; published version not verified here",
+    "doi": null,
+    "url": "https://arxiv.org/abs/2310.08491",
+    "primary_url": "https://arxiv.org/abs/2310.08491",
+    "fulltext_url": null,
+    "abstract": "Recently, using a powerful proprietary Large Language Model (LLM) (e.g., GPT-4) as an evaluator for long-form responses has become the de facto standard. However, for practitioners with large-scale evaluation tasks and custom criteria in consideration (e.g., child-readability), using proprietary LLMs as an evaluator is unreliable due to the closed-source nature, uncontrolled versioning, and prohibitive costs. In this work, we propose Prometheus, a fully open-source LLM that is on par with GPT-4's evaluation capabilities when the appropriate reference materials (reference answer, score rubric) are accompanied. We first construct the Feedback Collection, a new dataset that consists of 1K fine-grained score rubrics, 20K instructions, and 100K responses and language feedback generated by GPT-4. Using the Feedback Collection, we train Prometheus, a 13B evaluator LLM that can assess any given long-form text based on customized score rubric provided by the user. Experimental results show that Prometheus scores a Pearson correlation of 0.897 with human evaluators when evaluating with 45 customized score rubrics, which is on par with GPT-4 (0.882), and greatly outperforms ChatGPT (0.392). Furthermore, measuring correlation with GPT-4 with 1222 customized score rubrics across four benchmarks (MT Bench, Vicuna Bench, Feedback Bench, Flask Eval) shows similar trends, bolstering Prometheus's capability as an evaluator LLM. Lastly, Prometheus achieves the highest accuracy on two human preference benchmarks (HHH Alignment & MT Bench Human Judgment) compared to open-sourced reward models explicitly trained on human preference datasets, highlighting its potential as an universal reward model. We open-source our code, dataset, and model at this https URL .",
+    "themes": [
+      9
+    ],
+    "relevance": "Rubric-based trained evaluators offer a comparator, not automatic validity.",
+    "verification_urls": [
+      "https://arxiv.org/abs/2310.08491"
+    ],
+    "arxiv_id": "2310.08491",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P082",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "ARES: An Automated Evaluation Framework for Retrieval-Augmented Generation Systems",
+    "authors": [
+      "Jon Saad-Falcon",
+      "Omar Khattab",
+      "Christopher Potts",
+      "Matei Zaharia"
+    ],
+    "year": 2024,
+    "venue": "Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)",
+    "doi": "10.18653/v1/2024.naacl-long.20",
+    "url": "https://doi.org/10.18653/v1/2024.naacl-long.20",
+    "abstract": "Evaluating retrieval-augmented generation (RAG) systems traditionally relies on hand annotations for input queries, passages to retrieve, and responses to generate. We introduce ARES, an Automated RAG Evaluation System, for evaluating RAG systems along the dimensions of context relevance, answer faithfulness, and answer relevance. By creating its own synthetic training data, ARES finetunes lightweight LM judges to assess the quality of individual RAG components. To mitigate potential prediction errors, ARES utilizes a small set of human-annotated datapoints for prediction-powered inference (PPI). Across eight different knowledge-intensive tasks in KILT, SuperGLUE, and AIS, ARES accurately evaluates RAG systems while using only a few hundred human annotations during evaluation. Furthermore, ARES judges remain effective across domain shifts, proving accurate even after changing the type of queries and/or documents used in the evaluated RAG systems. We make our code and datasets publicly available on Github.",
+    "themes": [
+      9
+    ],
+    "relevance": "Calibration against labeled examples is relevant to validation design.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=ARES%3A+An+Automated+Evaluation+Framework+for+Retrieval-Augmented+Generation+Systems&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W4401042808",
+      "https://arxiv.org/abs/2311.09476"
+    ],
+    "primary_url": "https://arxiv.org/abs/2311.09476",
+    "arxiv_id": "2311.09476",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P083",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "LLM Evaluators Recognize and Favor Their Own Generations",
+    "authors": [
+      "Arjun Panickssery",
+      "Samuel Bowman",
+      "Shi Feng"
+    ],
+    "year": 2024,
+    "venue": "Advances in Neural Information Processing Systems 37",
+    "doi": "10.52202/079017-2197",
+    "url": "https://doi.org/10.52202/079017-2197",
+    "abstract": "",
+    "themes": [
+      9
+    ],
+    "relevance": "Model-family preference can contaminate multi-model comparisons.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=LLM+Evaluators+Recognize+and+Favor+Their+Own+Generations&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "critical/contrary evidence",
+    "key": "P084",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Large Language Models are not Fair Evaluators",
+    "authors": [
+      "Peiyi Wang",
+      "Lei Li",
+      "Liang Chen",
+      "Zefan Cai",
+      "Dawei Zhu",
+      "Binghuai Lin",
+      "Yunbo Cao",
+      "Lingpeng Kong",
+      "Qi Liu",
+      "Tianyu Liu",
+      "Zhifang Sui"
+    ],
+    "year": 2024,
+    "venue": "Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
+    "doi": "10.18653/v1/2024.acl-long.511",
+    "url": "https://doi.org/10.18653/v1/2024.acl-long.511",
+    "abstract": "In this paper, we uncover a systematic bias in the evaluation paradigm of adopting large language models~(LLMs), e.g., GPT-4, as a referee to score and compare the quality of responses generated by candidate models. We find that the quality ranking of candidate responses can be easily hacked by simply altering their order of appearance in the context. This manipulation allows us to skew the evaluation result, making one model appear considerably superior to the other, e.g., Vicuna-13B could beat ChatGPT on 66 over 80 tested queries with ChatGPT as an evaluator. To address this issue, we propose a calibration framework with three simple yet effective strategies: 1) Multiple Evidence Calibration, which requires the evaluator model to generate multiple evaluation evidence before assigning ratings; 2) Balanced Position Calibration, which aggregates results across various orders to determine the final score; 3) Human-in-the-Loop Calibration, which introduces a balanced position diversity entropy to measure the difficulty of each example and seeks human assistance when needed. We also manually annotate the \"win/tie/lose\" outcomes of responses from ChatGPT and Vicuna-13B in the Vicuna Benchmark's question prompt, and extensive experiments demonstrate that our approach successfully mitigates evaluation bias, resulting in closer alignment with human judgments. We release our code and human annotation at \\url{ this https URL } to facilitate future research.",
+    "themes": [
+      9
+    ],
+    "relevance": "Order effects can bias pairwise judgments.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Large+Language+Models+are+not+Fair+Evaluators&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://arxiv.org/abs/2305.17926"
+    ],
+    "primary_url": "https://arxiv.org/abs/2305.17926",
+    "arxiv_id": "2305.17926",
+    "inspection": "abstract inspected",
+    "role": "critical/contrary evidence",
+    "key": "P085",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "RAGAs: Automated Evaluation of Retrieval Augmented Generation",
+    "authors": [
+      "Shahul Es",
+      "Jithin James",
+      "Luis Espinosa-Anke",
+      "Steven Schockaert"
+    ],
+    "year": 2024,
+    "venue": "OpenAlex indexed record; venue unconfirmed",
+    "doi": "10.18653/v1/2024.eacl-demo.16",
+    "url": "https://doi.org/10.18653/v1/2024.eacl-demo.16",
+    "abstract": "We introduce Ragas (Retrieval Augmented Generation Assessment), a framework for reference-free evaluation of Retrieval Augmented Generation (RAG) pipelines. RAG systems are composed of a retrieval and an LLM based generation module, and provide LLMs with knowledge from a reference textual database, which enables them to act as a natural language layer between a user and textual databases, reducing the risk of hallucinations. Evaluating RAG architectures is, however, challenging because there are several dimensions to consider: the ability of the retrieval system to identify relevant and focused context passages, the ability of the LLM to exploit such passages in a faithful way, or the quality of the generation itself. With Ragas, we put forward a suite of metrics which can be used to evaluate these different dimensions \\textit{without having to rely on ground truth human annotations}. We posit that such a framework can crucially contribute to faster evaluation cycles of RAG architectures, which is especially important given the fast adoption of LLMs.",
+    "themes": [
+      9
+    ],
+    "relevance": "Separate retrieval-context, answer and faithfulness evaluation.",
+    "verification_urls": [
+      "https://openalex.org/W4411630045",
+      "https://arxiv.org/abs/2309.15217"
+    ],
+    "primary_url": "https://arxiv.org/abs/2309.15217",
+    "arxiv_id": "2309.15217",
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P086",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "The central role of the propensity score in observational studies for causal effects",
+    "authors": [
+      "PAUL R. ROSENBAUM",
+      "DONALD B. RUBIN"
+    ],
+    "year": 1983,
+    "venue": "Biometrika",
+    "doi": "10.1093/biomet/70.1.41",
+    "url": "https://doi.org/10.1093/biomet/70.1.41",
+    "abstract": "",
+    "themes": [
+      10
+    ],
+    "relevance": "Overlap and exchangeability remain substantive assumptions.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=The+central+role+of+the+propensity+score+in+observational+studies+for+causal+effects&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P087",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "A Practitioner’s Guide to Cluster-Robust Inference",
+    "authors": [
+      "A. Colin Cameron",
+      "Douglas L. Miller"
+    ],
+    "year": 2015,
+    "venue": "Journal of Human Resources",
+    "doi": "10.3368/jhr.50.2.317",
+    "url": "https://doi.org/10.3368/jhr.50.2.317",
+    "abstract": "",
+    "themes": [
+      10
+    ],
+    "relevance": "Repeated observations require appropriate dependence handling.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=A+Practitioner%27s+Guide+to+Cluster-Robust+Inference&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P088",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Sensitivity Analysis in Observational Research: Introducing the E-Value",
+    "authors": [
+      "Tyler J. VanderWeele",
+      "Peng Ding"
+    ],
+    "year": 2017,
+    "venue": "Annals of Internal Medicine",
+    "doi": "10.7326/m16-2607",
+    "url": "https://doi.org/10.7326/m16-2607",
+    "abstract": "",
+    "themes": [
+      10
+    ],
+    "relevance": "Sensitivity tools address assumptions that DML does not eliminate.",
+    "verification_urls": [
+      "https://api.crossref.org/works/10.7326%2FM16-2607"
+    ],
+    "inspection": "metadata only",
+    "role": "methodological foundation",
+    "key": "P089",
+    "locator": "Bibliographic record only",
+    "limitation": "Metadata only: no empirical finding is established by this inspection."
+  },
+  {
+    "title": "Double/debiased machine learning for treatment and structural parameters",
+    "authors": [
+      "Victor Chernozhukov",
+      "Denis Chetverikov",
+      "Mert Demirer",
+      "Esther Duflo",
+      "Christian Hansen",
+      "Whitney K. Newey",
+      "James M. Robins"
+    ],
+    "year": 2018,
+    "venue": "The Econometrics Journal",
+    "doi": "10.1111/ectj.12097",
+    "url": "https://doi.org/10.1111/ectj.12097",
+    "abstract": "Most modern supervised statistical/machine learning (ML) methods are explicitly designed to solve prediction problems very well. Achieving this goal does not imply that these methods automatically deliver good estimators of causal parameters. Examples of such parameters include individual regression coefficients, average treatment effects, average lifts, and demand or supply elasticities. In fact, estimates of such causal parameters obtained via naively plugging ML estimators into estimating equations for such parameters can behave very poorly due to the regularization bias. Fortunately, this regularization bias can be removed by solving auxiliary prediction problems via ML tools. Specifically, we can form an orthogonal score for the target low-dimensional parameter by combining auxiliary and main ML predictions. The score is then used to build a de-biased estimator of the target parameter which typically will converge at the fastest possible 1/root(n) rate and be approximately unbiased and normal, and from which valid confidence intervals for these parameters of interest may be constructed. The resulting method thus could be called a \"double ML\" method because it relies on estimating primary and auxiliary predictive models. In order to avoid overfitting, our construction also makes use of the K-fold sample splitting, which we call cross-fitting. This allows us to use a very broad set of ML predictive methods in solving the auxiliary and main prediction problems, such as random forest, lasso, ridge, deep neural nets, boosted trees, as well as various hybrids and aggregators of these methods.",
+    "themes": [
+      10
+    ],
+    "relevance": "Orthogonality and cross-fitting address nuisance estimation under identification assumptions.",
+    "verification_urls": [
+      "https://openalex.org/W3123436326",
+      "https://openalex.org/W2890118063",
+      "https://openalex.org/W2622003161",
+      "https://arxiv.org/abs/1608.00060",
+      "https://api.crossref.org/works/10.1111%2Fectj.12097"
+    ],
+    "primary_url": "https://arxiv.org/abs/1608.00060",
+    "fulltext_url": "https://arxiv.org/html/1608.00060",
+    "arxiv_id": "1608.00060",
+    "preprint_year": 2016,
+    "inspection": "full-text sections inspected",
+    "role": "critical/contrary evidence",
+    "key": "P090",
+    "research_question": "How can ML nuisance estimates support valid low-dimensional inference?",
+    "method": "Neyman-orthogonal scores and cross-fitting with theory and applications.",
+    "finding": "Orthogonalization and sample splitting address regularization/overfitting bias under the relevant assumptions. Treatment-effect examples impose identification assumptions.",
+    "locator": "§§2–3; §5.1",
+    "limitation": "DML does not establish unconfoundedness, fix construct invalidity, or randomize observed readiness."
+  },
+  {
+    "title": "Text and Causal Inference: A Review of Using Text to Remove Confounding from Causal Estimates",
+    "authors": [
+      "Katherine Keith",
+      "David Jensen",
+      "Brendan O’Connor"
+    ],
+    "year": 2020,
+    "venue": "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics",
+    "doi": "10.18653/v1/2020.acl-main.474",
+    "url": "https://doi.org/10.18653/v1/2020.acl-main.474",
+    "abstract": "Abstract Many applications of computational social science aim to infer causal conclusions from non-experimental data. Such observational data often contains confounders, variables that influence both potential causes and potential effects. Unmeasured or latent confounders can bias causal estimates, and this has motivated interest in measuring potential confounders from observed text. For example, an individual’s entire history of social media posts or the content of a news article could provide a rich measurement of multiple confounders. Yet, methods and applications for this problem are scattered across different communities and evaluation practices are inconsistent. This review is the first to gather and categorize these examples and provide a guide to data-processing and evaluation decisions. Despite increased attention on adjusting for confounding using text, there are still many open problems, which we highlight in this paper.",
+    "themes": [
+      10
+    ],
+    "relevance": "Distinguish text as outcome, treatment and adjustment variable.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Text+and+Causal+Inference%3A+A+Review+of+Using+Text+to+Remove+Confounding+from+Causal+Estimates&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://aclanthology.org/2020.acl-main.474/"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P091",
+    "primary_url": "https://aclanthology.org/2020.acl-main.474/",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "Multiway Cluster Robust Double/Debiased Machine Learning",
+    "authors": [
+      "Harold D. Chiang",
+      "Kengo Kato",
+      "Yukun Ma",
+      "Yuya Sasaki"
+    ],
+    "year": 2021,
+    "venue": "Journal of Business & Economic Statistics",
+    "doi": "10.1080/07350015.2021.1895815",
+    "url": "https://doi.org/10.1080/07350015.2021.1895815",
+    "abstract": "This paper investigates double/debiased machine learning (DML) under multiway clustered sampling environments. We propose a novel multiway cross fitting algorithm and a multiway DML estimator based on this algorithm. We also develop a multiway cluster robust standard error formula. Simulations indicate that the proposed procedure has favorable finite sample performance. Applying the proposed method to market share data for demand analysis, we obtain larger two-way cluster robust standard errors than non-robust ones.",
+    "themes": [
+      10
+    ],
+    "relevance": "Relevant to crossed dependence, with assumptions to match to keyword and source clusters.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=Multiway+Cluster+Robust+Double%2FDebiased+Machine+Learning&rows=3&filter=until-pub-date%3A2026-10-01",
+      "https://openalex.org/W3134431563",
+      "https://openalex.org/W2971763008"
+    ],
+    "inspection": "abstract inspected",
+    "role": "critical/contrary evidence",
+    "key": "P092",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  },
+  {
+    "title": "How to make causal inferences using texts",
+    "authors": [
+      "Naoki Egami",
+      "Christian J. Fong",
+      "Justin Grimmer",
+      "Margaret E. Roberts",
+      "Brandon M. Stewart"
+    ],
+    "year": 2022,
+    "venue": "Science Advances",
+    "doi": "10.1126/sciadv.abg2652",
+    "url": "https://doi.org/10.1126/sciadv.abg2652",
+    "abstract": "Text as data techniques offer a great promise: the ability to inductively discover measures that are useful for testing social science theories with large collections of text. Nearly all text-based causal inferences depend on a latent representation of the text, but we show that estimating this latent representation from the data creates underacknowledged risks: we may introduce an identification problem or overfit. To address these risks, we introduce a split-sample workflow for making rigorous causal inferences with discovered measures as treatments or outcomes. We then apply it to estimate causal effects from an experiment on immigration attitudes and a study on bureaucratic responsiveness.",
+    "themes": [
+      10
+    ],
+    "relevance": "Text treatments require explicit interventions and assumptions.",
+    "verification_urls": [
+      "https://api.crossref.org/works?query.title=How+to+Make+Causal+Inferences+Using+Texts&rows=3&filter=until-pub-date%3A2026-10-01"
+    ],
+    "inspection": "abstract inspected",
+    "role": "methodological foundation",
+    "key": "P093",
+    "locator": "Abstract",
+    "limitation": "Abstract-level evidence only; full methods, effect sizes and validity were not audited."
+  }
+]
