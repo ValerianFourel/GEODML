@@ -152,3 +152,52 @@ def test_saved_bundle_bridge_rejects_conflicting_source_hash(baseline, tmp_path)
     bundle["cells"][0]["sources"][0]["source_sha256"] = "0" * 64
     with pytest.raises(ValueError, match="saved source hash"):
         pilot.freeze_saved([bundle], tmp_path / "conflict", pilot.v4.PROTOCOL)
+
+
+@pytest.mark.parametrize("walltime,hours", [("01:00:00", 1), ("03:00:00", 3)])
+def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_path, monkeypatch, walltime, hours):
+    import hashlib
+    import sys
+    from pathlib import Path
+    bundle = replay.freeze_baseline(baseline)
+    extra = copy.deepcopy(bundle["cells"])
+    for cell in extra:
+        cell["cell_id"] += "-second"
+    bundle["cells"] += extra
+    bundle_path = tmp_path / "bundle.json"
+    bundle_path.write_text(json.dumps(bundle))
+    snapshot = tmp_path / "model"
+    snapshot.mkdir()
+    receipt = pilot.gemma.prep(tmp_path) / "models-verified.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps({"status": "verified", "models": [
+        {"repo_id": repo, "revision": revision, "snapshot": str(snapshot)}
+        for repo, revision in pilot.gemma.MODELS]}))
+    template_path = Path(pilot.__file__).resolve().parents[2] / "analysis/config/si_v4_gemma.template.json"
+    template = json.loads(template_path.read_text())
+    template["chat_template_sha256"] = hashlib.sha256(b"fixture template").hexdigest()
+    read = pilot.stage.read
+    monkeypatch.setattr(pilot.stage, "read", lambda path: copy.deepcopy(template) if Path(path) == template_path else read(path))
+    versions = {**template["runtime_versions"], "vllm": template["serving_version"].removeprefix("vllm-")}
+    monkeypatch.setattr(pilot.gemma, "runtime_check", lambda: versions)
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=SimpleNamespace(
+        from_pretrained=lambda *a, **kw: SimpleNamespace(get_chat_template=lambda: "fixture template"))))
+    monkeypatch.setattr(pilot, "schema_check", lambda inputs: None)
+    monkeypatch.setattr(pilot.subprocess, "check_output", lambda cmd, **kw: "" if "status" in cmd else "a" * 40)
+    out = tmp_path / "prepared"
+    assert pilot.main(["prepare", "--workspace", str(tmp_path), "--output", str(out),
+                       "--bundle", str(bundle_path), "--account", "fixture",
+                       "--approval", "User approved " + walltime, "--walltime", walltime]) == 0
+    config = json.loads((out / "config.json").read_text())
+    assert config["walltime"] == walltime
+    assert config["estimate"]["node_hours_max"] == hours
+    assert config["estimate"]["gpu_hours_max"] == 4 * hours
+    assert config["inventories"]["v4-inputs"]["cells"] == 40
+    from analysis.scripts import capture_agentic_scheduler_snapshot as scheduler
+    monkeypatch.setattr(scheduler, "capture", lambda **kw: {
+        "complete": True, "captured_at_epoch": int(pilot.time.time()), "jobs": [], "owners": []})
+    monkeypatch.setattr(pilot.subprocess, "run", lambda *a, **kw: None)
+    monkeypatch.setattr(pilot, "capture_quota", lambda *a: {"fixture": True})
+    monkeypatch.setattr(pilot.judge, "check_storage", lambda *a: {"safe_to_admit": True, "quota_verified": True})
+    assert pilot.main(["check", "--output", str(out)]) == 0
+    assert json.loads((out / "admission.json").read_text())["approved_exception"] is None

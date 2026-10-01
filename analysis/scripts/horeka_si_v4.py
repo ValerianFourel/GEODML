@@ -105,7 +105,11 @@ def prepare(args):
     if subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"], text=True).strip():
         raise ValueError("clean committed checkout required")
     if not args.approval.strip():
-        raise ValueError("explicit one-hour approval required")
+        raise ValueError("explicit wall-time approval required")
+    walltime = getattr(args, "walltime", "01:00:00")
+    if walltime not in ("01:00:00", "03:00:00"):
+        raise ValueError("supported development wall-times are one or three hours")
+    hours = int(walltime.split(":")[0])
     pin = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     workspace, out = args.workspace.resolve(), args.output.resolve()
     if out.exists():
@@ -141,12 +145,12 @@ def prepare(args):
         "model_id": gemma.MODEL, "model_revision": gemma.REVISION, "serving": stage.SERVING,
         "trial": "si-v4-development", "judge_protocol": v4.PROTOCOL, "cache_prefix": "gemma4-si-v4",
         "development_config": str(out / "config.json"), "job_name": JOB_NAME,
-        "walltime": "01:00:00", "approval": args.approval, "account": args.account,
+        "walltime": walltime, "approval": args.approval, "account": args.account,
         "runtime": versions, "scientific_result": False, "inventories": inventories,
         "source_files": {str(p.resolve()): judge.file_hash(p) for p in args.bundle},
         "judge_config_sha256": judge.file_hash(out / "judge-config.json"),
         "estimate": {"minutes": [20, 50], "nodes": 1, "gpus": 4, "cpus_requested": 32,
-                     "memory": "whole A100 node", "node_hours_max": 1, "gpu_hours_max": 4,
+                     "memory": "whole A100 node", "node_hours_max": hours, "gpu_hours_max": 4 * hours,
                      "basis": "historical Gemma wrapper 8.9-10.9 minutes; v4 throughput unmeasured"}}
     atomic(out / "config.json", judge.canonical(run_config).encode())
     atomic(out / "run.sh", gemma.run_script(repo, out))
@@ -175,11 +179,12 @@ def check(args):
     from analysis.scripts.capture_agentic_scheduler_snapshot import capture
     out = args.output.resolve()
     config = stage.read(out / "config.json")
-    if config["job_name"] != JOB_NAME or config["walltime"] != "01:00:00" or not config["approval"]:
-        raise ValueError("not an approved one-hour SI-v4 preparation")
+    if config["job_name"] != JOB_NAME or config["walltime"] not in ("01:00:00", "03:00:00") or not config["approval"]:
+        raise ValueError("not an approved SI-v4 preparation")
     exception = getattr(args, "approved_existing_queue_exception", False)
     if exception and (
         out != Path(config["workspace"]).resolve() / "reviews/gemma-si-v4-development-20261001"
+        or config.get("walltime") != "01:00:00"
         or config.get("git_commit") != "9aa5d90e0b310f3eea587a60787727787ab92757"
         or config.get("model_id") != gemma.MODEL or config.get("model_revision") != gemma.REVISION
         or config.get("trial") != "si-v4-development"
@@ -213,7 +218,7 @@ def check(args):
                                                        "Do not cancel or modify other jobs."
                                                        if exception else None),
                                                    "checked_at_epoch": int(time.time())}).encode())
-    print("CHECK PASSED. Run the separate one-hour salloc once, promptly; recheck if delayed.")
+    print("CHECK PASSED. Run the separately approved salloc once, promptly; recheck if delayed.")
     return 0
 
 
@@ -287,6 +292,7 @@ def main(argv=None):
     p.add_argument("--bundle", type=Path, action="append", required=True)
     p.add_argument("--account", required=True)
     p.add_argument("--approval", required=True)
+    p.add_argument("--walltime", choices=("01:00:00", "03:00:00"), default="01:00:00")
     c = commands.add_parser("check")
     c.add_argument("--output", type=Path, required=True)
     c.add_argument("--approved-existing-queue-exception", action="store_true",
