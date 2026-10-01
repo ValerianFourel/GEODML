@@ -1,0 +1,36 @@
+\section{Introduction}
+A request to explain the differences between two investment platforms and a request for instructions to transfer an account concern the same topic, but ask for different kinds of help. A source useful for the comparison may provide little evidence for the transfer procedure. In generative search, this distinction matters twice: when a system selects and orders sources, and when it produces an answer from the available evidence. An answer can list apparently relevant sources without those sources supporting the instructions that the answer gives.
+
+We study how these source orderings vary with the meaning of the request. A \emph{prompt} is the user request supplied to the search-and-answer system. Its \emph{semantic space} is an external text-embedding representation in which nearby points are intended to describe similar meanings. One interpretable direction extends from seeking information toward requesting a decision or an action-enabling procedure. This direction is a measured property of prompt text, not a randomized treatment or a direct observation of a user's readiness to act.
+
+The objects being compared also require care. A \emph{request-relevance ranking} orders supplied sources by how well they could help answer the request. An \emph{answer-support ranking} orders them by the importance of the answer content that their text supports. We obtain these assessments from judges with different inputs. The generator's own emitted ordering is a third observable, which does not by itself identify either relevance or support. In particular, a judge's finding that a source supports a statement is not evidence that the generator internally relied on that source.
+
+These distinctions lead to two research questions:
+\begin{enumerate}
+\item \textbf{RQ1:} Do semantically similar prompts produce similar source orderings, and how do those orderings vary along interpretable semantic directions?
+\item \textbf{RQ2:} How does this relationship differ between request-relevance rankings and answer-support rankings?
+\end{enumerate}
+We organize the investigation around \emph{local stability}, or agreement between orderings for nearby prompts; \emph{directional changes}, or systematic changes along a measured semantic coordinate; and \emph{relevance--support divergence}, or disagreement between the two judge-derived assessments. Models, engine snapshots, and search strategies are comparison conditions. They are not assumed to represent all language models or commercial search products.
+
+The study uses a retained population of 26,009 synthetic requests associated with 1,011 keyword topics. Search is a deterministic local operation over frozen DuckDuckGo and SearxNG result snapshots. A prompt can nevertheless change the generated search queries, the evidence selected from those snapshots, and the sources available to the answer generator. Thus, two outputs are permutations of the same candidates only when the underlying evidence actually matches. The analysis separates membership changes from order changes rather than treating every pair of source lists as interchangeable permutations.
+
+This paper makes three distinct contributions:
+\begin{enumerate}
+\item \textbf{A comparison framework.} We relate measured prompt semantics to source orderings while distinguishing evidence membership, generator-emitted lists, request relevance, and textual answer support.
+\item \textbf{An auditable study resource.} We document prompt construction, semantic measurement, frozen retrieval, and execution units, including verified retained-population counts and gaps between intended and completed coverage.
+\item \textbf{An empirical assessment with explicit scope.} We provide a real worked example and a source-by-source support procedure, and organize the empirical comparison around the two research questions. \todo{Replace this draft contribution's evidence-status clause with the substantive, qualified ranking findings once the matched analysis is verified.}
+\end{enumerate}
+The present draft reports verified descriptive checks and marks missing research results explicitly. It does not transfer the earlier manuscript's page-feature estimates or hidden-state findings to this experiment.
+
+\section{Related Work}
+\paragraph{Search intent and prompt meaning.}
+Search requests have long been distinguished by what users seek to accomplish. Broder's taxonomy separates informational, navigational, and transactional search \citep{P006}. Our information-to-action direction is related to this concern with intent, but it is a continuous model-based description of text rather than a replacement for that taxonomy or a label of real user behavior. LLM2Vec provides a method for representing text with adapted language models \citep{P024}. Its general embedding results motivate a representation choice; they do not independently validate our readiness construct. We therefore keep the external encoder, its supervised semantic map, and the answer generator separate.
+
+\paragraph{Language models as rankers.}
+LLM-based reranking asks a model to order retrieved material for a request \citep{P041}. Our interest is the structure of variation across requests, rather than a claim of higher retrieval effectiveness. Fixed-pool reranking offers a direct comparison of permutations, whereas a search-and-answer pipeline may change the pool before producing an ordering. This distinction limits which observations in our agentic search records can answer an ordering-only question.
+
+\paragraph{Visibility in generative search.}
+Generative Engine Optimization studies how source content can change visibility in generated answers \citep{P044}. Content-centered benchmarks likewise examine source influence in generative search \citep{A002}. GEO includes comparisons of modified source content. Our focus is variation in prompt semantics and the distinction between request-relevant evidence and textual support for a completed answer. This places the request, rather than source-content optimization, at the center of the comparison.
+
+\paragraph{Attribution, support, and reliance.}
+Work on attribution evaluates whether generated statements can be supported by identified sources \citep{P072}; citation generation adds explicit references and evaluates their relationship to the answer \citep{P074}. ARES separates aspects of retrieval-augmented generation such as context relevance and answer faithfulness \citep{P083}. Our assessments also ask different questions, but support is graded here by the importance of the supported content within the answer. ContextCite studies attribution of model generation to context \citep{P068}, and \citet{A006} distinguish correctness from faithfulness in retrieval-augmented attribution. Matching source text to an answer is not an intervention on the generator and does not establish internal dependence. We use the narrower term \emph{textual answer support} throughout.

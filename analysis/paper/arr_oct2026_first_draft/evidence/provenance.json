@@ -1,0 +1,66 @@
+{
+  "code_revision_inspected": "9c92c93d3d2af3d8a6d38db010f46a272ca8c1ae",
+  "population_snapshot": "74e64ff6ef3907de3fc8f242d51ca840652e2926",
+  "construction_summaries": [
+    {
+      "snapshot_path": "checkpoint/strict-selection/run_manifest.json",
+      "copied_to": "evidence/saved-summaries/checkpoint__strict-selection__run_manifest.json",
+      "sha256": "b172e65be1bc4dbebc086bcc2b64694487ba625777d4aa7b6636509c540be9ce"
+    },
+    {
+      "snapshot_path": "checkpoint/verified_round_summary.json",
+      "copied_to": "evidence/saved-summaries/checkpoint__verified_round_summary.json",
+      "sha256": "73c362b67260622352e349c058a9a94faed1461c988a4c9d9398bc26879c1332"
+    },
+    {
+      "snapshot_path": "extra/unification-summary.json",
+      "copied_to": "evidence/saved-summaries/extra__unification-summary.json",
+      "sha256": "a10d24003bbd2d1bc506b86131ec10cc40876509e506233f96702554b5d98907"
+    },
+    {
+      "snapshot_path": "final-audit/final-audit-summary.json",
+      "copied_to": "evidence/saved-summaries/final-audit__final-audit-summary.json",
+      "sha256": "46607bcd1916c518e84b9a22551cd53b714628a34ff5f2dcd1877007ff79278d"
+    },
+    {
+      "snapshot_path": "plan/plan_manifest.json",
+      "copied_to": "evidence/saved-summaries/plan__plan_manifest.json",
+      "sha256": "fbee214feec1e4abec8fe4cc34054548b8df1dfb34119a11446af979940d589b"
+    },
+    {
+      "snapshot_path": "selection/selection-manifest.json",
+      "copied_to": "evidence/saved-summaries/selection__selection-manifest.json",
+      "sha256": "cf1d42d4ee18a42941b224d908176c1d41dc1cf010e6d38f67abf9ce277123cd"
+    },
+    {
+      "snapshot_path": "battery/battery_manifest.json",
+      "copied_to": "evidence/saved-summaries/battery__battery_manifest.json",
+      "sha256": "c241db6f2310cf88e6329d82ce2395c2dc459a21c4eccefddaa97eeb21dc6789"
+    },
+    {
+      "snapshot_path": "battery/readiness_robustness_battery.json",
+      "copied_to": "evidence/saved-summaries/battery__readiness_robustness_battery.json",
+      "sha256": "b10775071009908b8a413b718fe55ccbf7007003d248c7a50b91601036fd4401"
+    }
+  ],
+  "code_sha256": {
+    "analysis/interpretability/pipeline/readiness_prompt_population.py": "5551618b608a2b599643a38d493ae614eedb4d8ea3afa1612549b6059de252f9",
+    "analysis/interpretability/pipeline/readiness_embedding_map.py": "3c1879fc8ad4643c9e4ae1bc8fe12e24aae7ec2b2127711e3664d642d5a9d842",
+    "analysis/interpretability/pipeline/readiness_subspace_battery.py": "02a8f97839dd49ba267651dac5ab3f0e7b79eb4da75452006aed82f2009d44bc",
+    "analysis/scripts/run_agentic_search_integration_smoke.py": "d10086bf1cd989ddea697e9747166e11e3438d08de65499be1d63e22c598c87a",
+    "analysis/interpretability/pipeline/agentic_search.py": "5367fb16a9b5c94e9100d68a9b0c54046759da084f036efc5d7f2a544c0102d8",
+    "analysis/interpretability/pipeline/agentic_judging.py": "354fe0f7ed3630eb68d4db88cee68a5894394d02e229687aa3b8de1d7f2d2a92",
+    "analysis/interpretability/pipeline/source_importance.py": "24d40a1ab6c387006f0c757c165abd03c81bd85701362ac3fd01d79f647bafba",
+    "analysis/interpretability/pipeline/source_importance_v4.py": "0b326d80603425929047090ce47752f08d0d6aa790fc4e06894275933200f68a",
+    "analysis/interpretability/pipeline/axis_permutation_metrics.py": "5ad3a66699b38bae1f60effc8ac83e8e6862c1a119fb41fd92b584016a7c40b8",
+    "analysis/interpretability/pipeline/axis_permutation_report.py": "fd762bbea0a84df554d38f12c7cb40cba24028147837b48f187dcb4dbc29f660",
+    "analysis/config/si_v4_gemma.template.json": "9dceaa31b00b942d780e8d6cbcfa16d09f3a415af6e8481b1b5e93be43bc6b08",
+    "analysis/scripts/prepare_horeka_qwen.py": "73ca3ad89204833c7160be3a0c874febf0772b932f7e4002fea2eb5faae8f550",
+    "analysis/scripts/prepare_agentic_adaptive_500.py": "5d8563eec2957b41f10fadbc68532f7994d42f6b3e7d356d51107f70de100cc7"
+  },
+  "old_manuscript_sha256": "5c5097b802262ab553573fa04488de5e9213f2c6674dbbaa02844ec791336c11",
+  "old_manuscript_preserved": true,
+  "bootstrap_code_verified_at": "976bae5110ec4b985b7c6e7c972bce021b8efdba",
+  "bootstrap_method": "1000 confirmation-row resamples, fixed predictions; percentile endpoints; no fitting or cluster resampling",
+  "review_sources": "Old manuscript PDF, supplied editorial/reviewer text, local scientific review; original reviewer files not located."
+}

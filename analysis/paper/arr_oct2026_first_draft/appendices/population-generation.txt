@@ -1,0 +1,32 @@
+Write one natural-language online-search trigger associated with the assigned topic below.
+
+Assigned search topic (metadata; it need not appear verbatim): {task.keyword}
+
+Semantic destination:
+- Readiness stage: {a1}
+- Decision mode: {a2}
+- Control rule: {continuous_control}
+- Surface realization: {surface_control}
+{high_axis_control}
+
+Iteration feedback: {task.feedback}
+Candidate slot: {candidate_slot}
+
+Contract precedence:
+- Any iteration feedback asking for the exact keyword or a question frame comes
+  from question-v1 and is superseded by search-trigger-v2.
+
+Hard constraints:
+- Express a genuine information need that warrants an online search about the
+  assigned topic when the topic metadata is supplied.
+- At the high-readiness end, request action-enabling instructions needed to act
+  now; do not pretend that the search system has already performed the action.
+- A question, imperative request, or concise search phrase is allowed.
+- Use 4 to 60 words and one normalized line.
+- The exact assigned topic phrase is optional, and hidden topic context is allowed.
+- Do not answer the information need.
+- Do not mention axes, coordinates, readiness scores, embeddings, reranking,
+  publishers, or source-preference policies.
+- Make this candidate materially different from obvious generic phrasings.
+
+Return only JSON: {"search_trigger":"..."}

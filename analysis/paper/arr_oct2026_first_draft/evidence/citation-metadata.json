@@ -1,0 +1,169 @@
+[
+  {
+    "key": "P006",
+    "title": "A taxonomy of web search",
+    "authors": [
+      "Andrei Broder"
+    ],
+    "year": 2002,
+    "doi": "10.1145/792550.792552",
+    "source_url": "https://doi.org/10.1145/792550.792552",
+    "abstract_source_url": "https://doi.org/10.1145/792550.792552",
+    "pdf_identity_check": "PDF magic and successful first-page pdftotext; expected title words and author surname matched."
+  },
+  {
+    "key": "P024",
+    "title": "LLM2Vec: Large Language Models Are Secretly Powerful Text Encoders",
+    "authors": [
+      "BehnamGhader, Parishad",
+      "Adlakha, Vaibhav",
+      "Mosbach, Marius",
+      "Bahdanau, Dzmitry",
+      "Chapados, Nicolas",
+      "Reddy, Siva"
+    ],
+    "year": 2024,
+    "doi": null,
+    "source_url": "https://arxiv.org/abs/2404.05961",
+    "abstract_source_url": "https://arxiv.org/abs/2404.05961",
+    "pdf_identity_check": "PDF magic and pdftotext first-page parse passed; title tokens and an expected author surname matched."
+  },
+  {
+    "key": "P041",
+    "title": "Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents",
+    "authors": [
+      "Sun, Weiwei",
+      "Yan, Lingyong",
+      "Ma, Xinyu",
+      "Wang, Shuaiqiang",
+      "Ren, Pengjie",
+      "Chen, Zhumin",
+      "Yin, Dawei",
+      "Ren, Zhaochun"
+    ],
+    "year": 2023,
+    "doi": null,
+    "source_url": "https://arxiv.org/abs/2304.09542",
+    "abstract_source_url": "https://arxiv.org/abs/2304.09542",
+    "pdf_identity_check": "PDF magic and pdftotext verified; first-page title matches and author Sun present."
+  },
+  {
+    "key": "P044",
+    "title": "GEO: Generative Engine Optimization",
+    "authors": [
+      "Pranjal Aggarwal",
+      "Vishvak Murahari",
+      "Tanmay Rajpurohit",
+      "Ashwin Kalyan",
+      "Karthik Narasimhan",
+      "Ameet Deshpande"
+    ],
+    "year": 2024,
+    "doi": "10.1145/3637528.3671900",
+    "source_url": "https://doi.org/10.1145/3637528.3671900",
+    "abstract_source_url": "https://doi.org/10.1145/3637528.3671900",
+    "pdf_identity_check": "PDF magic and pdftotext verified; first-page title matches and author Aggarwal present."
+  },
+  {
+    "key": "P068",
+    "title": "ContextCite: Attributing Model Generation to Context",
+    "authors": [
+      "Cohen-Wang, Benjamin",
+      "Shah, Harshay",
+      "Georgiev, Kristian",
+      "Madry, Aleksander"
+    ],
+    "year": 2024,
+    "doi": null,
+    "source_url": "https://arxiv.org/abs/2409.00729",
+    "abstract_source_url": "https://arxiv.org/abs/2409.00729",
+    "pdf_identity_check": "PDF magic verified; pdftotext full text 118006 characters; first-page title words 80% match and author surnames cohenwang, shah, georgiev, madry present."
+  },
+  {
+    "key": "P072",
+    "title": "Measuring Attribution in Natural Language Generation Models",
+    "authors": [
+      "Rashkin, Hannah",
+      "Nikolaev, Vitaly",
+      "Lamm, Matthew",
+      "Aroyo, Lora",
+      "Collins, Michael",
+      "Das, Dipanjan",
+      "Petrov, Slav",
+      "Tomar, Gaurav Singh",
+      "Turc, Iulia",
+      "Reitter, David"
+    ],
+    "year": 2021,
+    "doi": null,
+    "source_url": "https://arxiv.org/abs/2112.12870",
+    "abstract_source_url": "https://arxiv.org/abs/2112.12870",
+    "pdf_identity_check": "PDF magic verified; pdftotext full text 149281 characters; first-page title words 100% match and author surnames rashkin, nikolaev, lamm, aroyo, collins, das, petrov, tomar, turc, reitter present."
+  },
+  {
+    "key": "P074",
+    "title": "Enabling Large Language Models to Generate Text with Citations",
+    "authors": [
+      "Tianyu Gao",
+      "Howard Yen",
+      "Jiatong Yu",
+      "Danqi Chen"
+    ],
+    "year": 2023,
+    "doi": "10.18653/v1/2023.emnlp-main.398",
+    "source_url": "https://doi.org/10.18653/v1/2023.emnlp-main.398",
+    "abstract_source_url": "https://arxiv.org/abs/2305.14627",
+    "pdf_identity_check": "PDF magic verified; pdftotext full text 97335 characters; first-page title words 100% match and author surnames gao, yen, yu, chen present."
+  },
+  {
+    "key": "P083",
+    "title": "ARES: An Automated Evaluation Framework for Retrieval-Augmented Generation Systems",
+    "authors": [
+      "Jon Saad-Falcon",
+      "Omar Khattab",
+      "Christopher Potts",
+      "Matei Zaharia"
+    ],
+    "year": 2024,
+    "doi": "10.18653/v1/2024.naacl-long.20",
+    "source_url": "https://doi.org/10.18653/v1/2024.naacl-long.20",
+    "abstract_source_url": "https://arxiv.org/abs/2311.09476",
+    "pdf_identity_check": "PDF magic verified; pdftotext full text 62202 characters; first-page title words 100% match and author surnames saadfalcon, khattab, potts, zaharia present."
+  },
+  {
+    "key": "A002",
+    "title": "CC-GSEO-Bench: A Content-Centric Benchmark for Measuring Source Influence in Generative Search Engines",
+    "authors": [
+      "Chen, Qiyuan",
+      "Chen, Jiahe",
+      "Huang, Hongsen",
+      "Shao, Qian",
+      "Chen, Jintai",
+      "Hua, Renjie",
+      "Xu, Hongxia",
+      "Wu, Ruijia",
+      "Chuan, Ren",
+      "Wu, Jian"
+    ],
+    "year": 2025,
+    "doi": null,
+    "source_url": "https://arxiv.org/abs/2509.05607",
+    "abstract_source_url": "https://arxiv.org/abs/2509.05607",
+    "pdf_identity_check": "PDF magic, pdftotext parsing, title-word match 100% and expected author surname matched."
+  },
+  {
+    "key": "A006",
+    "title": "Correctness is not Faithfulness in RAG Attributions",
+    "authors": [
+      "Wallat, Jonas",
+      "Heuss, Maria",
+      "de Rijke, Maarten",
+      "Anand, Avishek"
+    ],
+    "year": 2024,
+    "doi": null,
+    "source_url": "https://arxiv.org/abs/2412.18004",
+    "abstract_source_url": "https://arxiv.org/abs/2412.18004",
+    "pdf_identity_check": "PDF magic, pdftotext parsing, title-word match 100% and expected author surname matched."
+  }
+]

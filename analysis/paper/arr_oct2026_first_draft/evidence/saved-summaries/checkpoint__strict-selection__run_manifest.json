@@ -1,0 +1,70 @@
+{
+  "acceptance_contract_version": "search-trigger-v2",
+  "candidate_count": 1314060,
+  "candidate_files": [
+    {
+      "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/.checkpoint-attempt-1652093-2544098/merged/candidates.jsonl",
+      "sha256": "2535cb0df52127d3140a405759d93db1d78a6e1429675972ea02fb4553849814",
+      "size_bytes": 1202440101
+    }
+  ],
+  "candidate_projection_manifest": {
+    "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/.checkpoint-attempt-1652093-2544098/merged/projections/mistral/projection_manifest.json",
+    "sha256": "ac7a8c8099902fe2b4748a548c2e49efca50ad040a23148e2bd08b01d0407a22",
+    "size_bytes": 47872
+  },
+  "coordinate_acceptance_contract": {
+    "axes": [
+      "axis_1"
+    ],
+    "distance_tolerance": 0.035,
+    "enabled": true,
+    "rule": "Both frozen embedding views must be within the preregistered absolute axis-1 tolerance of the assigned axis-1 target; axis 2 is measured but does not enter acceptance.",
+    "version": "strict-dual-frozen-view-axis-1-verification-v1"
+  },
+  "created_at": "2026-09-03T21:22:14.730716Z",
+  "elapsed_seconds": 109.03685878997203,
+  "format_version": "readiness-question-population-v2",
+  "git_commit_sha": "0564b985a6215c48564207dfd6818dfc871134a7",
+  "jointly_accepted_candidate_count": 1296908,
+  "next_round_task_count": 4321,
+  "plan_manifest": {
+    "path": "/e/project1/scifi/fourel1/geodml/runs/readiness-30k-axis1/plans/axis1-uniform-001-8b6446f/plan_manifest.json",
+    "sha256": "ee6d0f1ee353a81ece3d2ce026d0691cecf21e59daf4871a425f08612217f703",
+    "size_bytes": 1977
+  },
+  "reference_projection_manifest": {
+    "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/.checkpoint-attempt-1652093-2544098/merged/projections/qwen/projection_manifest.json",
+    "sha256": "6759a20cf33e86862ff647d9fcb1bb9b2282f80aa8318efa8d323f668ef6f1a5",
+    "size_bytes": 47416
+  },
+  "robustness_battery_manifest": {
+    "path": "/e/project1/scifi/fourel1/geodml/runs/semantic-readiness-subspace/7679b31479d5d438ae56cb7229020858ca6fb638-20260820T104733Z/robustness/qwen3-vs-mistral7b-976bae5110ec4b985b7c6e7c972bce021b8efdba/battery_manifest.json",
+    "sha256": "c241db6f2310cf88e6329d82ce2395c2dc459a21c4eccefddaa97eeb21dc6789",
+    "size_bytes": 836
+  },
+  "scientific_guard": "Aligned prompt coordinates describe text and do not define the randomized policy B.",
+  "selected_count": 26009,
+  "slurm": {
+    "cuda_visible_devices": null,
+    "slurm_cpus_per_task": "32",
+    "slurm_job_id": "1652093",
+    "slurm_job_name": "axisv2-merge-hf",
+    "slurm_job_nodelist": "jpbo-103-42",
+    "slurm_nnodes": "1",
+    "slurm_ntasks": "1"
+  },
+  "surface_acceptance_contract": {
+    "enabled": true,
+    "rule": "After replacing the exact keyword phrase when present and normalizing case, punctuation, and numbers, no selected search-trigger template may occur more than once.",
+    "version": "metadata-topic-template-uniqueness-v2"
+  },
+  "text_contract": "search-trigger-v2",
+  "validation_files": [
+    {
+      "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/.checkpoint-attempt-1652093-2544098/merged/validation.jsonl",
+      "sha256": "6f977aecc524657797af4612878d58d27a9b76945035e95b3d62729a0a1cbc0a",
+      "size_bytes": 941025097
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+The search-action budget is exhausted. You must finish now. Return strict JSON with action set to finish, ranking, and answer. Ranking may contain only observed evidence_id values. Do not request another search. Keep answer at most 1200 characters.
+
+USER REQUEST:
+<request>
+
+OBSERVATIONS:
+<evidence_records_json>

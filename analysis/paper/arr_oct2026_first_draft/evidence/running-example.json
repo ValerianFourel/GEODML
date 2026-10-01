@@ -1,0 +1,733 @@
+{
+  "selection_rule": "lexicographically smallest natural-condition cell_id in the saved 40-cell SI-v3 audit",
+  "cell": {
+    "answer_mask_spans": [],
+    "answer_source": "stored",
+    "cell_id": "14f3d6e1e67650a4eb97",
+    "condition": "natural",
+    "condition_audit": {
+      "calls": [
+        {
+          "condition": "natural",
+          "input_count": 20,
+          "input_urls_sha256": "70bcb9468a95068fc0129e0144aaac6772eac7dd1a6908710d56ed164f0eb379",
+          "output_count": 20,
+          "output_urls_sha256": "70bcb9468a95068fc0129e0144aaac6772eac7dd1a6908710d56ed164f0eb379",
+          "target_count_after": 1,
+          "target_count_before": 1,
+          "target_removed_count": 0
+        },
+        {
+          "condition": "natural",
+          "input_count": 20,
+          "input_urls_sha256": "70bcb9468a95068fc0129e0144aaac6772eac7dd1a6908710d56ed164f0eb379",
+          "output_count": 20,
+          "output_urls_sha256": "70bcb9468a95068fc0129e0144aaac6772eac7dd1a6908710d56ed164f0eb379",
+          "target_count_after": 1,
+          "target_count_before": 1,
+          "target_removed_count": 0
+        },
+        {
+          "condition": "natural",
+          "input_count": 20,
+          "input_urls_sha256": "70bcb9468a95068fc0129e0144aaac6772eac7dd1a6908710d56ed164f0eb379",
+          "output_count": 20,
+          "output_urls_sha256": "70bcb9468a95068fc0129e0144aaac6772eac7dd1a6908710d56ed164f0eb379",
+          "target_count_after": 1,
+          "target_count_before": 1,
+          "target_removed_count": 0
+        }
+      ],
+      "target_observed": true,
+      "target_removed_count": 0,
+      "target_url": "https://www.benzinga.com/money/robinhood-vs-etrade"
+    },
+    "engine": "duckduckgo",
+    "fingerprint": "c7e4584dd0a753333594e752b2a7090105fab99074875f47c5df2fec780cc5e1",
+    "generation_record_id": "generation-c7e4584dd0a753333594e752b2a7090105fab99074875f47c5df2fec780cc5e1-g1",
+    "generator_output": {
+      "answer_truncated": false,
+      "dropped_ranking_references": [],
+      "final_attempts": 4,
+      "final_validation_failures": 0,
+      "malformed_json_recovered": false,
+      "raw_ranking": [
+        "S1",
+        "S2",
+        "S3"
+      ],
+      "repaired": false
+    },
+    "generator_ranking": [
+      "https://www.benzinga.com/money/robinhood-vs-etrade",
+      "https://thesmartinvestor.com/brokers/etrade-vs-robinhood/",
+      "https://www.investopedia.com/robinhood-vs-e-trade-4587955"
+    ],
+    "j1_task_id": "agentic-fulfilment-v3-095505f6ba63358dc482cbc0",
+    "judged_answer_chars": 625,
+    "judged_answer_sha256": "6d730036a08f7db4ba30856278e888efd048ea1daec503e507494d687ce21490",
+    "masked_answer_sha256": "6d730036a08f7db4ba30856278e888efd048ea1daec503e507494d687ce21490",
+    "method": "Reactive-Snippet-Loop-v1",
+    "model": "llama4",
+    "presented": [
+      "https://www.benzinga.com/money/robinhood-vs-etrade",
+      "https://thesmartinvestor.com/brokers/etrade-vs-robinhood/",
+      "https://www.investopedia.com/robinhood-vs-e-trade-4587955"
+    ],
+    "prompt_id": "readiness-question:5f09b6606e92bc15e931c09b",
+    "sources": [
+      {
+        "answer_masked": false,
+        "answer_names_source_url": false,
+        "judge_task_id": "source-importance-task-v3-c2508fde8541e58039ab4f7a",
+        "presented_position": 0,
+        "url": "https://www.benzinga.com/money/robinhood-vs-etrade"
+      },
+      {
+        "answer_masked": false,
+        "answer_names_source_url": false,
+        "judge_task_id": "source-importance-task-v3-0479ccd55e2a738524b002e8",
+        "presented_position": 1,
+        "url": "https://thesmartinvestor.com/brokers/etrade-vs-robinhood/"
+      },
+      {
+        "answer_masked": false,
+        "answer_names_source_url": false,
+        "judge_task_id": "source-importance-task-v3-a21c98b1d4f67da385950bd9",
+        "presented_position": 2,
+        "url": "https://www.investopedia.com/robinhood-vs-e-trade-4587955"
+      }
+    ],
+    "status": "ok",
+    "stored_answer_chars": 625,
+    "trace_record_id": "trace-c7e4584dd0a753333594e752b2a7090105fab99074875f47c5df2fec780cc5e1-g1",
+    "truncated": false,
+    "grades": {
+      "https://www.benzinga.com/money/robinhood-vs-etrade": 0,
+      "https://thesmartinvestor.com/brokers/etrade-vs-robinhood/": 0,
+      "https://www.investopedia.com/robinhood-vs-e-trade-4587955": 0
+    },
+    "metrics": {
+      "observed": 3,
+      "listed": 3,
+      "complete": true,
+      "coverage": 1.0,
+      "list_in_presented_order": true,
+      "rank_groups": {
+        "groups": [],
+        "zero": [
+          "https://thesmartinvestor.com/brokers/etrade-vs-robinhood/",
+          "https://www.benzinga.com/money/robinhood-vs-etrade",
+          "https://www.investopedia.com/robinhood-vs-e-trade-4587955"
+        ]
+      },
+      "top_source_alignment": null,
+      "first_presented_alignment": null,
+      "ordering_tau_b": null,
+      "presented_order_tau_b": 1.0,
+      "important_source_omission": null,
+      "reasons": {
+        "top": "all_grades_zero",
+        "order": "constant_grades_over_list",
+        "omission": "no_grade_4_or_5_sources"
+      }
+    },
+    "j1": 5
+  },
+  "prompt": {
+    "candidate_id": "readiness-question:5f09b6606e92bc15e931c09b",
+    "task_id": "readiness-question-task:a058a0eb269b2e7daa0458ef",
+    "keyword_id": "keyword:c76abed09bad303a47b2463e",
+    "keyword": "robinhood vs etrade",
+    "target_id": "readiness-axis-1-target:027-lattice-0924",
+    "target_index": 27,
+    "target_normalized_axis_1": 0.924,
+    "target_normalized_axis_2": 0.5,
+    "target_raw_axis_1": 0.05731992726129276,
+    "target_raw_axis_2": -0.0025210585530575785,
+    "round_index": 63,
+    "generator_id": "qwen3-32b",
+    "generator_model": "/e/project1/scifi/fourel1/geodml/models/qwen/Qwen3-32B/9216db5781bf21249d130ec9da846c4624c16137",
+    "candidate_slot": 1,
+    "generation_seed": 11554161775862484378,
+    "question": "I’m trying to transfer my investments this afternoon — what exact steps do I need to follow to set up a full transfer between robinhood vs etrade?",
+    "question_sha256": "acc90bb5cac32258f8264730e204da2bc792a8dfaa33b6d7fe120504cbe3498b",
+    "proposal_kind": "causal-lm"
+  },
+  "axis": {
+    "candidate_id": "readiness-question:5f09b6606e92bc15e931c09b",
+    "text_sha256": "acc90bb5cac32258f8264730e204da2bc792a8dfaa33b6d7fe120504cbe3498b",
+    "reference_raw_axis_1": -0.022315976603454208,
+    "reference_raw_axis_2": -0.006857103285911073,
+    "candidate_aligned_raw_axis_1": -0.022213375869377504,
+    "candidate_aligned_raw_axis_2": 0.0033099141910755835,
+    "reference_axis_1_z": -0.32980915055768106,
+    "reference_axis_2_z": -0.19769952412986688,
+    "candidate_aligned_axis_1_z": -0.32829280818316925,
+    "candidate_aligned_axis_2_z": 0.09542928452468188,
+    "axis_1_absolute_difference": 0.0015163423745118143,
+    "axis_2_absolute_difference": 0.29312880865454877,
+    "reference_scalar_readiness": 0.6233501990787456,
+    "candidate_scalar_readiness": 0.6117036176056174,
+    "consensus_axis_1_z": -0.32905097937042516,
+    "axis_1_rank": 15233,
+    "axis_1_percentile_0_1": 0.5857043986465703
+  },
+  "variants": [
+    {
+      "prompt": {
+        "candidate_id": "readiness-question:23037d3b75069f60ba2ea409",
+        "task_id": "readiness-question-task:26ba9de9305ddbdceeb65213",
+        "keyword_id": "keyword:c76abed09bad303a47b2463e",
+        "keyword": "robinhood vs etrade",
+        "target_id": "readiness-axis-1-target:001-lattice-0029",
+        "target_index": 1,
+        "target_normalized_axis_1": 0.029,
+        "target_normalized_axis_2": 0.5,
+        "target_raw_axis_1": -0.1123802115037208,
+        "target_raw_axis_2": -0.0025210585530575785,
+        "round_index": 18,
+        "generator_id": "gemma4-31b",
+        "generator_model": "/e/project1/scifi/fourel1/geodml/models/gemma/gemma-4-31B-it/842da3794eaa0b77d5f08bae87a17459d91ff475",
+        "candidate_slot": 3,
+        "generation_seed": 2790716543991351259,
+        "question": "What are the fundamental structural differences in how the platforms operate when looking at robinhood vs etrade?",
+        "question_sha256": "b4e9cc476304d2db8c78822403dad13d1ffae0e8bc0908f14970f05d294c5f77",
+        "proposal_kind": "causal-lm"
+      },
+      "axis": {
+        "candidate_id": "readiness-question:23037d3b75069f60ba2ea409",
+        "text_sha256": "b4e9cc476304d2db8c78822403dad13d1ffae0e8bc0908f14970f05d294c5f77",
+        "reference_raw_axis_1": -0.11365033068047085,
+        "reference_raw_axis_2": -0.030228576590176456,
+        "candidate_aligned_raw_axis_1": -0.11482671600408477,
+        "candidate_aligned_raw_axis_2": -0.06080680144637602,
+        "reference_axis_1_z": -1.6796450224151864,
+        "reference_axis_2_z": -0.8715305804537109,
+        "candidate_aligned_axis_1_z": -1.6970308913468457,
+        "candidate_aligned_axis_2_z": -1.753141991386909,
+        "axis_1_absolute_difference": 0.017385868931659276,
+        "axis_2_absolute_difference": 0.8816114109331982,
+        "reference_scalar_readiness": 0.2325000269654695,
+        "candidate_scalar_readiness": 0.22723257208514325,
+        "consensus_axis_1_z": -1.688337956881016,
+        "axis_1_rank": 557,
+        "axis_1_percentile_0_1": 0.021416487234697017
+      }
+    },
+    {
+      "prompt": {
+        "candidate_id": "readiness-question:5f09b6606e92bc15e931c09b",
+        "task_id": "readiness-question-task:a058a0eb269b2e7daa0458ef",
+        "keyword_id": "keyword:c76abed09bad303a47b2463e",
+        "keyword": "robinhood vs etrade",
+        "target_id": "readiness-axis-1-target:027-lattice-0924",
+        "target_index": 27,
+        "target_normalized_axis_1": 0.924,
+        "target_normalized_axis_2": 0.5,
+        "target_raw_axis_1": 0.05731992726129276,
+        "target_raw_axis_2": -0.0025210585530575785,
+        "round_index": 63,
+        "generator_id": "qwen3-32b",
+        "generator_model": "/e/project1/scifi/fourel1/geodml/models/qwen/Qwen3-32B/9216db5781bf21249d130ec9da846c4624c16137",
+        "candidate_slot": 1,
+        "generation_seed": 11554161775862484378,
+        "question": "I’m trying to transfer my investments this afternoon — what exact steps do I need to follow to set up a full transfer between robinhood vs etrade?",
+        "question_sha256": "acc90bb5cac32258f8264730e204da2bc792a8dfaa33b6d7fe120504cbe3498b",
+        "proposal_kind": "causal-lm"
+      },
+      "axis": {
+        "candidate_id": "readiness-question:5f09b6606e92bc15e931c09b",
+        "text_sha256": "acc90bb5cac32258f8264730e204da2bc792a8dfaa33b6d7fe120504cbe3498b",
+        "reference_raw_axis_1": -0.022315976603454208,
+        "reference_raw_axis_2": -0.006857103285911073,
+        "candidate_aligned_raw_axis_1": -0.022213375869377504,
+        "candidate_aligned_raw_axis_2": 0.0033099141910755835,
+        "reference_axis_1_z": -0.32980915055768106,
+        "reference_axis_2_z": -0.19769952412986688,
+        "candidate_aligned_axis_1_z": -0.32829280818316925,
+        "candidate_aligned_axis_2_z": 0.09542928452468188,
+        "axis_1_absolute_difference": 0.0015163423745118143,
+        "axis_2_absolute_difference": 0.29312880865454877,
+        "reference_scalar_readiness": 0.6233501990787456,
+        "candidate_scalar_readiness": 0.6117036176056174,
+        "consensus_axis_1_z": -0.32905097937042516,
+        "axis_1_rank": 15233,
+        "axis_1_percentile_0_1": 0.5857043986465703
+      }
+    },
+    {
+      "prompt": {
+        "candidate_id": "readiness-question:80205d536e496395499e87bc",
+        "task_id": "readiness-question-task:9229848d450321353469b660",
+        "keyword_id": "keyword:c76abed09bad303a47b2463e",
+        "keyword": "robinhood vs etrade",
+        "target_id": "readiness-axis-1-target:026-lattice-0885",
+        "target_index": 26,
+        "target_normalized_axis_1": 0.885,
+        "target_normalized_axis_2": 0.5,
+        "target_raw_axis_1": 0.049925172611197194,
+        "target_raw_axis_2": -0.0025210585530575785,
+        "round_index": 80,
+        "generator_id": "qwen3-32b",
+        "generator_model": "/e/project1/scifi/fourel1/geodml/models/qwen/Qwen3-32B/9216db5781bf21249d130ec9da846c4624c16137",
+        "candidate_slot": 3,
+        "generation_seed": 10532094945852265140,
+        "question": "Set up and verify same-day stock transfer from Robinhood to E*TRADE with account confirmation steps",
+        "question_sha256": "64d448b759d30e48d6002b83fdfaa9f8833e82db35d93cff888087a4a9460e58",
+        "proposal_kind": "causal-lm"
+      },
+      "axis": {
+        "candidate_id": "readiness-question:80205d536e496395499e87bc",
+        "text_sha256": "64d448b759d30e48d6002b83fdfaa9f8833e82db35d93cff888087a4a9460e58",
+        "reference_raw_axis_1": 0.03406775268330895,
+        "reference_raw_axis_2": 0.015545887888436456,
+        "candidate_aligned_raw_axis_1": 0.03321537369048504,
+        "candidate_aligned_raw_axis_2": 0.016439279558957968,
+        "reference_axis_1_z": 0.5034893508605001,
+        "reference_axis_2_z": 0.4482088878601168,
+        "candidate_aligned_axis_1_z": 0.4908919908358013,
+        "candidate_aligned_axis_2_z": 0.47396657310405765,
+        "axis_1_absolute_difference": 0.012597360024698745,
+        "axis_2_absolute_difference": 0.025757685243940842,
+        "reference_scalar_readiness": 0.8577014730968728,
+        "candidate_scalar_readiness": 0.8264577246765482,
+        "consensus_axis_1_z": 0.4971906708481507,
+        "axis_1_rank": 23961,
+        "axis_1_percentile_0_1": 0.9212934481697939
+      }
+    }
+  ],
+  "tasks": {
+    "agentic-fulfilment-v3-095505f6ba63358dc482cbc0": {
+      "answer": "To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section. 2) Initiate a transfer to an external account, selecting E*TRADE as the recipient. 3) Enter your E*TRADE account information. 4) Confirm the transfer details and submit. 5) Log in to your E*TRADE account to confirm the transfer. 6) If required, complete any additional paperwork or verification steps. Please note that specific steps may vary depending on individual circumstances. For detailed guidance, consult Robinhood and E*TRADE's official support resources.",
+      "judge_task_id": "agentic-fulfilment-v3-095505f6ba63358dc482cbc0",
+      "max_tokens": 64,
+      "prompt_sha256": "d96821325648605b608578597f5bb408c888599d4ce8a1477f351faeb242955e",
+      "protocol": "agentic-source-importance-v3",
+      "request": "I’m trying to transfer my investments this afternoon — what exact steps do I need to follow to set up a full transfer between robinhood vs etrade?",
+      "retry_contract": "claims-v3-identical-prompt-retry-v1",
+      "schema_sha256": "8a5945f629a36563e294cd1a610792bf1a78352b2b6e9e32e69ebc43be3b71a3",
+      "seed": 1330927256,
+      "task": "fulfilment",
+      "task_version": "agentic-fulfilment-v3"
+    },
+    "source-importance-task-v3-0479ccd55e2a738524b002e8": {
+      "evidence_units": [
+        {
+          "end": 11,
+          "field": "title",
+          "start": 0,
+          "text": "E*TRADE vs.",
+          "unit_id": "title1"
+        },
+        {
+          "end": 56,
+          "field": "title",
+          "start": 12,
+          "text": "Robinhood: Compare Brokerage Account Options",
+          "unit_id": "title2"
+        },
+        {
+          "end": 286,
+          "field": "text",
+          "start": 0,
+          "text": "E*TRADE vs Robinhood : Compare Investing Features While Robinhood simplifies trading with a focus on cost-efficiency and ease of use, making it ideal for new investors, E*TRADE offers a more robust and versatile trading environment suitable for a broader range of investment strategies.",
+          "unit_id": "text1"
+        }
+      ],
+      "judge_task_id": "source-importance-task-v3-0479ccd55e2a738524b002e8",
+      "masked_answer": "To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section. 2) Initiate a transfer to an external account, selecting E*TRADE as the recipient. 3) Enter your E*TRADE account information. 4) Confirm the transfer details and submit. 5) Log in to your E*TRADE account to confirm the transfer. 6) If required, complete any additional paperwork or verification steps. Please note that specific steps may vary depending on individual circumstances. For detailed guidance, consult Robinhood and E*TRADE's official support resources.",
+      "max_tokens": 640,
+      "prompt_sha256": "1d544f7dbb468a6efd44fb4e0ced0e7f354841bd17e91f9140afb63f6b335da8",
+      "protocol": "agentic-source-importance-v3",
+      "request": "I’m trying to transfer my investments this afternoon — what exact steps do I need to follow to set up a full transfer between robinhood vs etrade?",
+      "retry_contract": "si-selection-retry-v3",
+      "schema_sha256": "cf0e277e5b41cf9cc882863d4268481de6e78db3e1641a446e21fbbd38130af6",
+      "seed": 673343534,
+      "source_text": "E*TRADE vs Robinhood : Compare Investing Features While Robinhood simplifies trading with a focus on cost-efficiency and ease of use, making it ideal for new investors, E*TRADE offers a more robust and versatile trading environment suitable for a broader range of investment strategies.",
+      "source_title": "E*TRADE vs. Robinhood: Compare Brokerage Account Options",
+      "task": "source_importance",
+      "task_version": "source-importance-task-v3",
+      "units": [
+        {
+          "end": 160,
+          "start": 0,
+          "text": "To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section.",
+          "unit_id": "a1"
+        },
+        {
+          "end": 243,
+          "start": 161,
+          "text": "2) Initiate a transfer to an external account, selecting E*TRADE as the recipient.",
+          "unit_id": "a2"
+        },
+        {
+          "end": 286,
+          "start": 244,
+          "text": "3) Enter your E*TRADE account information.",
+          "unit_id": "a3"
+        },
+        {
+          "end": 330,
+          "start": 287,
+          "text": "4) Confirm the transfer details and submit.",
+          "unit_id": "a4"
+        },
+        {
+          "end": 389,
+          "start": 331,
+          "text": "5) Log in to your E*TRADE account to confirm the transfer.",
+          "unit_id": "a5"
+        },
+        {
+          "end": 462,
+          "start": 390,
+          "text": "6) If required, complete any additional paperwork or verification steps.",
+          "unit_id": "a6"
+        },
+        {
+          "end": 542,
+          "start": 463,
+          "text": "Please note that specific steps may vary depending on individual circumstances.",
+          "unit_id": "a7"
+        },
+        {
+          "end": 625,
+          "start": 543,
+          "text": "For detailed guidance, consult Robinhood and E*TRADE's official support resources.",
+          "unit_id": "a8"
+        }
+      ]
+    },
+    "source-importance-task-v3-a21c98b1d4f67da385950bd9": {
+      "evidence_units": [
+        {
+          "end": 13,
+          "field": "title",
+          "start": 0,
+          "text": "Robinhood vs.",
+          "unit_id": "title1"
+        },
+        {
+          "end": 36,
+          "field": "title",
+          "start": 14,
+          "text": "E*TRADE - Investopedia",
+          "unit_id": "title2"
+        },
+        {
+          "end": 177,
+          "field": "text",
+          "start": 0,
+          "text": "Robinhood offers commission-free trading but has cut corners to book profits while E*TRADE's competitive commissions allow customers to access an impressive basket of resources.",
+          "unit_id": "text1"
+        }
+      ],
+      "judge_task_id": "source-importance-task-v3-a21c98b1d4f67da385950bd9",
+      "masked_answer": "To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section. 2) Initiate a transfer to an external account, selecting E*TRADE as the recipient. 3) Enter your E*TRADE account information. 4) Confirm the transfer details and submit. 5) Log in to your E*TRADE account to confirm the transfer. 6) If required, complete any additional paperwork or verification steps. Please note that specific steps may vary depending on individual circumstances. For detailed guidance, consult Robinhood and E*TRADE's official support resources.",
+      "max_tokens": 640,
+      "prompt_sha256": "463599b0d0216f0961f02ef070842804f8f072e2228a5f67367ed7a1ae58d2b1",
+      "protocol": "agentic-source-importance-v3",
+      "request": "I’m trying to transfer my investments this afternoon — what exact steps do I need to follow to set up a full transfer between robinhood vs etrade?",
+      "retry_contract": "si-selection-retry-v3",
+      "schema_sha256": "cf0e277e5b41cf9cc882863d4268481de6e78db3e1641a446e21fbbd38130af6",
+      "seed": 1735514045,
+      "source_text": "Robinhood offers commission-free trading but has cut corners to book profits while E*TRADE's competitive commissions allow customers to access an impressive basket of resources.",
+      "source_title": "Robinhood vs. E*TRADE - Investopedia",
+      "task": "source_importance",
+      "task_version": "source-importance-task-v3",
+      "units": [
+        {
+          "end": 160,
+          "start": 0,
+          "text": "To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section.",
+          "unit_id": "a1"
+        },
+        {
+          "end": 243,
+          "start": 161,
+          "text": "2) Initiate a transfer to an external account, selecting E*TRADE as the recipient.",
+          "unit_id": "a2"
+        },
+        {
+          "end": 286,
+          "start": 244,
+          "text": "3) Enter your E*TRADE account information.",
+          "unit_id": "a3"
+        },
+        {
+          "end": 330,
+          "start": 287,
+          "text": "4) Confirm the transfer details and submit.",
+          "unit_id": "a4"
+        },
+        {
+          "end": 389,
+          "start": 331,
+          "text": "5) Log in to your E*TRADE account to confirm the transfer.",
+          "unit_id": "a5"
+        },
+        {
+          "end": 462,
+          "start": 390,
+          "text": "6) If required, complete any additional paperwork or verification steps.",
+          "unit_id": "a6"
+        },
+        {
+          "end": 542,
+          "start": 463,
+          "text": "Please note that specific steps may vary depending on individual circumstances.",
+          "unit_id": "a7"
+        },
+        {
+          "end": 625,
+          "start": 543,
+          "text": "For detailed guidance, consult Robinhood and E*TRADE's official support resources.",
+          "unit_id": "a8"
+        }
+      ]
+    },
+    "source-importance-task-v3-c2508fde8541e58039ab4f7a": {
+      "evidence_units": [
+        {
+          "end": 13,
+          "field": "title",
+          "start": 0,
+          "text": "Robinhood vs.",
+          "unit_id": "title1"
+        },
+        {
+          "end": 59,
+          "field": "title",
+          "start": 14,
+          "text": "E*TRADE • Which is Better for You? • Benzinga",
+          "unit_id": "title2"
+        },
+        {
+          "end": 193,
+          "field": "text",
+          "start": 0,
+          "text": "Robinhood offers commission-free trades and a user-friendly app for beginner investors, while E*TRADE provides more comprehensive research tools and a wider range of investment products for ...",
+          "unit_id": "text1"
+        }
+      ],
+      "judge_task_id": "source-importance-task-v3-c2508fde8541e58039ab4f7a",
+      "masked_answer": "To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section. 2) Initiate a transfer to an external account, selecting E*TRADE as the recipient. 3) Enter your E*TRADE account information. 4) Confirm the transfer details and submit. 5) Log in to your E*TRADE account to confirm the transfer. 6) If required, complete any additional paperwork or verification steps. Please note that specific steps may vary depending on individual circumstances. For detailed guidance, consult Robinhood and E*TRADE's official support resources.",
+      "max_tokens": 640,
+      "prompt_sha256": "e785123da20cdbcbd490056308c458214e3d3b7cd4aac1de84a95e821b524406",
+      "protocol": "agentic-source-importance-v3",
+      "request": "I’m trying to transfer my investments this afternoon — what exact steps do I need to follow to set up a full transfer between robinhood vs etrade?",
+      "retry_contract": "si-selection-retry-v3",
+      "schema_sha256": "cf0e277e5b41cf9cc882863d4268481de6e78db3e1641a446e21fbbd38130af6",
+      "seed": 3210045948,
+      "source_text": "Robinhood offers commission-free trades and a user-friendly app for beginner investors, while E*TRADE provides more comprehensive research tools and a wider range of investment products for ...",
+      "source_title": "Robinhood vs. E*TRADE • Which is Better for You? • Benzinga",
+      "task": "source_importance",
+      "task_version": "source-importance-task-v3",
+      "units": [
+        {
+          "end": 160,
+          "start": 0,
+          "text": "To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section.",
+          "unit_id": "a1"
+        },
+        {
+          "end": 243,
+          "start": 161,
+          "text": "2) Initiate a transfer to an external account, selecting E*TRADE as the recipient.",
+          "unit_id": "a2"
+        },
+        {
+          "end": 286,
+          "start": 244,
+          "text": "3) Enter your E*TRADE account information.",
+          "unit_id": "a3"
+        },
+        {
+          "end": 330,
+          "start": 287,
+          "text": "4) Confirm the transfer details and submit.",
+          "unit_id": "a4"
+        },
+        {
+          "end": 389,
+          "start": 331,
+          "text": "5) Log in to your E*TRADE account to confirm the transfer.",
+          "unit_id": "a5"
+        },
+        {
+          "end": 462,
+          "start": 390,
+          "text": "6) If required, complete any additional paperwork or verification steps.",
+          "unit_id": "a6"
+        },
+        {
+          "end": 542,
+          "start": 463,
+          "text": "Please note that specific steps may vary depending on individual circumstances.",
+          "unit_id": "a7"
+        },
+        {
+          "end": 625,
+          "start": 543,
+          "text": "For detailed guidance, consult Robinhood and E*TRADE's official support resources.",
+          "unit_id": "a8"
+        }
+      ]
+    }
+  },
+  "results": {
+    "agentic-fulfilment-v3-095505f6ba63358dc482cbc0": {
+      "started_at": "2026-09-30T06:30:28.007706Z",
+      "raw_output": "{\"request_fulfillment\": 5}",
+      "usage": {
+        "prompt_tokens": 328,
+        "total_tokens": 337,
+        "completion_tokens": 9,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null,
+        "finish_reason": "stop"
+      },
+      "request_sha256": "49d0d64312df45fa12bed4af5db416594d39ee9c5b3bd73a071e231e438e8b71",
+      "validation_attempt_count": 1,
+      "rejected_output_sha256": [],
+      "parsed_output": {
+        "request_fulfillment": 5
+      },
+      "ok": true,
+      "finished_at": "2026-09-30T06:30:28.600193Z",
+      "duration_seconds": 0.5924967818427831,
+      "judge_task_id": "agentic-fulfilment-v3-095505f6ba63358dc482cbc0",
+      "task": "fulfilment",
+      "prompt_sha256": "d96821325648605b608578597f5bb408c888599d4ce8a1477f351faeb242955e"
+    },
+    "source-importance-task-v3-0479ccd55e2a738524b002e8": {
+      "started_at": "2026-09-30T06:30:28.115384Z",
+      "raw_output": "{\"matches\": [], \"importance\": 0}",
+      "usage": {
+        "prompt_tokens": 944,
+        "total_tokens": 955,
+        "completion_tokens": 11,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null,
+        "finish_reason": "stop"
+      },
+      "request_sha256": "45409a6a3c277d8030a0e7ab45a018937bed96e947e039741b6c893dc59e8bfd",
+      "validation_attempt_count": 1,
+      "rejected_output_sha256": [],
+      "validation_attempts": [
+        {
+          "attempt": 1,
+          "seed": 673343534,
+          "prompt_sha256": "1d544f7dbb468a6efd44fb4e0ced0e7f354841bd17e91f9140afb63f6b335da8",
+          "raw_output": "{\"matches\": [], \"importance\": 0}",
+          "usage": {
+            "prompt_tokens": 944,
+            "total_tokens": 955,
+            "completion_tokens": 11,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": null,
+            "finish_reason": "stop"
+          },
+          "ok": true
+        }
+      ],
+      "parsed_output": {
+        "importance": 0,
+        "matches": []
+      },
+      "ok": true,
+      "finished_at": "2026-09-30T06:30:28.816269Z",
+      "duration_seconds": 0.7008956600911915,
+      "judge_task_id": "source-importance-task-v3-0479ccd55e2a738524b002e8",
+      "task": "source_importance",
+      "prompt_sha256": "1d544f7dbb468a6efd44fb4e0ced0e7f354841bd17e91f9140afb63f6b335da8"
+    },
+    "source-importance-task-v3-a21c98b1d4f67da385950bd9": {
+      "started_at": "2026-09-30T06:30:28.600641Z",
+      "raw_output": "{\"matches\": [], \"importance\": 0}",
+      "usage": {
+        "prompt_tokens": 919,
+        "total_tokens": 930,
+        "completion_tokens": 11,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null,
+        "finish_reason": "stop"
+      },
+      "request_sha256": "61028edc297ac9e8c13ebd33a9a9fad885907424f5ceb9cd56541f06bb92ac4a",
+      "validation_attempt_count": 1,
+      "rejected_output_sha256": [],
+      "validation_attempts": [
+        {
+          "attempt": 1,
+          "seed": 1735514045,
+          "prompt_sha256": "463599b0d0216f0961f02ef070842804f8f072e2228a5f67367ed7a1ae58d2b1",
+          "raw_output": "{\"matches\": [], \"importance\": 0}",
+          "usage": {
+            "prompt_tokens": 919,
+            "total_tokens": 930,
+            "completion_tokens": 11,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": null,
+            "finish_reason": "stop"
+          },
+          "ok": true
+        }
+      ],
+      "parsed_output": {
+        "importance": 0,
+        "matches": []
+      },
+      "ok": true,
+      "finished_at": "2026-09-30T06:30:29.300768Z",
+      "duration_seconds": 0.7001377658452839,
+      "judge_task_id": "source-importance-task-v3-a21c98b1d4f67da385950bd9",
+      "task": "source_importance",
+      "prompt_sha256": "463599b0d0216f0961f02ef070842804f8f072e2228a5f67367ed7a1ae58d2b1"
+    },
+    "source-importance-task-v3-c2508fde8541e58039ab4f7a": {
+      "started_at": "2026-09-30T06:30:28.601447Z",
+      "raw_output": "{\"matches\": [], \"importance\": 0}",
+      "usage": {
+        "prompt_tokens": 930,
+        "total_tokens": 941,
+        "completion_tokens": 11,
+        "prompt_tokens_details": null,
+        "completion_tokens_details": null,
+        "finish_reason": "stop"
+      },
+      "request_sha256": "4ff83ef0e39102e1eb797526e360d6f9529481a4b7198dc4331df531cbdf754e",
+      "validation_attempt_count": 1,
+      "rejected_output_sha256": [],
+      "validation_attempts": [
+        {
+          "attempt": 1,
+          "seed": 3210045948,
+          "prompt_sha256": "e785123da20cdbcbd490056308c458214e3d3b7cd4aac1de84a95e821b524406",
+          "raw_output": "{\"matches\": [], \"importance\": 0}",
+          "usage": {
+            "prompt_tokens": 930,
+            "total_tokens": 941,
+            "completion_tokens": 11,
+            "prompt_tokens_details": null,
+            "completion_tokens_details": null,
+            "finish_reason": "stop"
+          },
+          "ok": true
+        }
+      ],
+      "parsed_output": {
+        "importance": 0,
+        "matches": []
+      },
+      "ok": true,
+      "finished_at": "2026-09-30T06:30:29.301141Z",
+      "duration_seconds": 0.6997040719725192,
+      "judge_task_id": "source-importance-task-v3-c2508fde8541e58039ab4f7a",
+      "task": "source_importance",
+      "prompt_sha256": "e785123da20cdbcbd490056308c458214e3d3b7cd4aac1de84a95e821b524406"
+    }
+  },
+  "artifact": "/tmp/gemma-v3-audit/data/gemma4-si-v3-ddc93fe/attempts/job5171305/trial/pass1/cells.jsonl"
+}

@@ -1,0 +1,22 @@
+Independently evaluate whether the candidate is a useful online-search trigger.
+
+Assigned search topic metadata: {candidate.keyword}
+Candidate trigger: {candidate.question}
+
+Judge the text together with its assigned topic metadata, not the generator. A valid candidate must:
+- remain semantically about the assigned topic; the exact topic phrase is optional;
+- express a genuine information need suitable for an online search;
+- be answerable using information that could reasonably be found on the web;
+- read as natural language rather than an answer, model-manipulation command, or
+  meta-comment about an experiment.
+
+The trigger may be a question, imperative request, or concise search phrase. It may
+depend on the supplied topic metadata and therefore need not stand alone. Still report
+whether it is standalone and whether it is a single question; those fields are measured
+but are not acceptance gates in search-trigger-v2.
+
+Return only one JSON object with exactly these fields:
+{"topic_relevant":true,"search_intent":true,"web_answerable":true,
+"standalone":false,"natural_language":true,"relevance_score_1_5":5,
+"concise_reason":"short reason"}
+

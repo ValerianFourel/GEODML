@@ -1,0 +1,194 @@
+\clearpage
+\onecolumn
+\nolinenumbers
+\section{Configuration and execution inventory}
+\label{app:config}
+This appendix records inspected settings, not a claim that a single configuration applies to every execution. Repository evidence was read at commit \code{9c92c93}; the manuscript handoff records the draft commit separately. Execution revisions must be read from each cell's manifest. The scientific output audit is dated 2026-10-01; no new inference was run to prepare this draft.
+
+\begin{table}[!htbp]
+\small
+\begin{tabularx}{\textwidth}{@{}p{.20\textwidth}Yp{.34\textwidth}@{}}
+\toprule
+Role & Model identifier & Recorded revision\\
+\midrule
+Prompt construction & \code{Qwen/Qwen3-32B} & \path{9216db5781bf21249d130ec9da846c4624c16137}\\
+Prompt construction / SI-v4 development & \code{google/gemma-4-31B-it} & \path{842da3794eaa0b77d5f08bae87a17459d91ff475}\\
+Answer generator & \code{Qwen/Qwen3.8-27B} & \path{1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0}\\
+Answer generator & \code{meta-llama/Llama-4-Scout-17B-16E-Instruct} & \path{92f3b1597a195b523d8d9e5700e57e4fbb8f20d3}\\
+Relevance judge configuration & \code{nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16} & \path{bf77c3174f68ad409e1c2aa60daeb46e32d1c606}\\
+Evidence cross-encoder & \code{BAAI/bge-reranker-v2-m3} & \path{953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e}\\
+External encoder base & \code{Qwen/Qwen3-8B} & \path{b968826d9c46dd6066d109eabc6255188de91218}\\
+External encoder base & \code{mistralai/Mistral-7B-Instruct-v0.2} & \path{63a8b081895390a26e140280378bc85ec8bce07a}\\
+\bottomrule
+\end{tabularx}
+\caption{Identifiers found in construction records and inspected configuration/code. These roles must not be conflated: the Qwen prompt constructor, external encoder, and answer generator are different models. Base-encoder identifiers do not specify the full LLM2Vec adapters. Condition-level configuration joins and missing revisions remain explicit tasks; this table is not proof that every planned role has completed outputs.}
+\label{tab:models}
+\end{table}
+
+\paragraph{Generation settings.}
+The inspected Qwen bout settings use temperature 0, a master seed of 20260911 with cell-derived seeding, query/final output caps of 256/2,048 tokens, and disabled thinking. The inspected Llama adaptive settings use 256/4,096 output-token caps; its false thinking-disable flag does not mean thinking was forcibly disabled. Both strategies retain the separate 1,200-character answer contract. \todo{Record actual per-cell temperature, seed, context length, precision, tensor parallelism, runtime versions, and budget transitions from pinned manifests; reconcile repaired and trace-recovered answers.}
+
+\paragraph{Support-development settings.}
+The SI-v4 Gemma template specifies bfloat16 precision (BF16), tensor parallel size 4, concurrency 4, context length 73,728 tokens, temperature 0, disabled thinking, and semantic-task-derived seeds. Stage A and Stage B use 4,096 output-token caps and a maximum of two validation attempts. The recorded runtime is vLLM 0.28.0, Transformers 5.17.0, PyTorch 2.13.0, and XGrammar 0.2.7, on four A100-SXM4-40GB GPUs. These are prepared development settings, not a verified completed-run configuration. The full template accompanies this source in \code{appendices/si-v4-development-config.json}; its local tokenizer path remains an explicit deployment placeholder.
+
+\paragraph{Snapshot and selection settings.}
+The retrieval adapter's lexical term is four times query/keyword token overlap plus query/title-and-snippet overlap, followed by stored position and deterministic tie breakers. Both strategies retrieve at most 20 records per query and deduplicate by URL. \todo{Supply snapshot collection times, exact snapshot hashes, engine parameters, query language/locale, any upstream snippet truncation rule, and the executed cross-encoder input truncation settings.} Search count limits and final answer character limits do not specify encoder tokenization or upstream text truncation.
+
+\paragraph{Exploratory fitter.}
+The documented split seed is 20260916 and the content-hash modulus is 5. Axis standardization uses training data only; ridge penalty is 1; eligibility defaults require six training questions and two test questions. Matched evidence/configuration/presentation strata are required. These defaults must be checked against a saved report before any result is attributed to them. Current report metadata explicitly states that it is not a scientific result.
+
+\section{Worked-example record and verification scope}
+\label{app:example}
+The illustrated cell is \code{14f3d6e1e67650a4eb97}, with prompt identifier \code{readiness-question:5f09b6606e92bc15e931c09b}. Its exact UTF-8 prompt hash is
+\begin{quote}\small\path{acc90bb5cac32258f8264730e204da2bc792a8dfaa33b6d7fe120504cbe3498b}.\end{quote}
+The saved audit uses the labels \code{llama4}, \code{Reactive-Snippet-Loop-v1}, \code{duckduckgo}, and \code{natural}. Selection by minimum natural-condition cell ID occurs within a development sample; it is not random sampling from all executions. The source export preserves saved-input integrity, but original generator traces were not included in that SI-v3 export. This limits independent verification of the original presentation sequence.
+
+Exact snippets, the full answer, prompt variants, measured coordinates, and historical parsed outputs are included in \code{evidence/running-example.json}. Only the selected cell's task records are retained in that manuscript evidence file. Appendix~\ref{app:example-full} reproduces the answer and snippets for reading without a separate parser. All three grades refer to SI-v3. Request relevance and SI-v4 outputs are absent, and the manuscript does not replace them with invented values.
+
+\section{Artifact inventory and outstanding evidence}
+\label{app:artifacts}
+The accompanying evidence inventory distinguishes direct file checks, published manifest audits, source-code behavior, and missing scientific outputs. The retained prompt file has SHA-256
+\begin{quote}\small\path{1718321f8fc86f63d00aab30e87991ada9b62a59c5ef4ce99b5acef0df4d32e9},\end{quote}
+and the final coordinate file has SHA-256
+\begin{quote}\small\path{43189f68bcafc77f9dceb7a1a8d993251d4c2a739b401ef4fd24cb64e292682e}.\end{quote}
+Both were read directly, joined by candidate identity, and checked against text hashes. The small population census and plot-bin counts accompany the draft. Full raw candidate archives and all execution payloads were not reanalyzed.
+
+Before submission, essential evidence includes original topic provenance and independent-information-need mapping; reconciled construction chronology; exact execution/pool/configuration joins; condition-specific valid counts; validated relevance/SI-v4 records; local and directional ranking outputs with uncertainty; and a tested anonymous release with appropriate content permissions. These missing elements are not replaced by registry completion, calibration correlations, pilot repeatability, or the previous paper's results.
+
+\clearpage
+\section{Metric and denominator reference}
+\label{app:metrics}
+\begin{table}[!htbp]
+\small
+\begin{tabularx}{\textwidth}{@{}p{.24\textwidth}Yp{.26\textwidth}@{}}
+\toprule
+Measurement & Definition and interpretation & Denominator / undefined case\\
+\midrule
+Intended target & Normalized construction destination, 0--1; not an observed embedding. & Candidate generation task.\\
+Measured axis 1 & Aligned, supervised embedding coordinate; final map stores consensus $z$. & Exact retained prompt text.\\
+Population percentile & Axis-1 rank divided by $N-1$, for $N=26,009$. & Retained population; not a probability.\\
+Retained-slot coverage & Selected prompts / planned topic--target slots. & 26,009 / 30,330.\\
+Execution coverage & Validated completed cells / specified planned registry. & State generator, strata, and audit date.\\
+Exact ordering agreement & Whether both specified ordered lists are identical. & Valid matched list pair.\\
+Top-source agreement & Whether first sources agree; support top group needs separate handling. & Undefined if required top group is empty.\\
+Top-$k$ overlap & Shared top-$k$ sources / $k$, $k=\min(3,|L_1|,|L_2|)$. & Empty list: no positive $k$.\\
+Common-source Kendall & Relative ordering agreement restricted to shared source identities. & Fewer than two common sources: undefined.\\
+Support grade & Ordinal 0--5; importance of supported content within an answer. & One eligible source--answer pair.\\
+Positive support ordering & Descending tied groups for grades 1--5; zero set recorded separately. & Missing grade invalidates complete-cell summary.\\
+Tie-aware agreement & Kendall $\tau_b$ accommodates grade ties for a specified comparison. & Constant side can make it undefined.\\
+Held-out log loss/Brier & Prediction errors for observed ordered source pairs; smaller is better. & Eligible held-out pairs with within-task weights.\\
+Pooled exploratory metric & Unweighted mean of valid report comparison rows. & Metric-specific valid-row count; not equal topic weight.\\
+\bottomrule
+\end{tabularx}
+\caption{Terminology and metric reference. Existing generator-versus-support metrics must not be relabeled relevance-versus-support metrics. Missing observations, zero grades, and undefined statistics are distinct. Full-space neighborhood statistics, matched RQ2 exports, and uncertainty calculations remain to be supplied.}
+\end{table}
+
+\section{Full prompt templates and rendering details}
+\label{app:templates}
+The following blocks are instructional text extracted from the inspected implementation. Angle-bracket fields denote record-specific substitutions; braces in the population templates retain the renderer's variable names. They are not instructions to downstream judges to expose implementation metadata. Accompanying source excerpts preserve dynamic branches, evidence serialization, and schema builders. Exact per-execution rendered prompt and schema hashes must still be joined from original manifests. Historical template changes are not silently replaced by these current definitions.
+
+\Needspace{8\baselineskip}
+\subsection{Population generation and validation}
+\lstinputlisting{appendices/population-generation.txt}
+The readiness description interpolates adjacent anchors: understanding/explanation; investigating evidence or implications; evaluating alternatives; preparing a decision or plan; and requesting an immediate action-enabling step. An axis-1-only target leaves decision mode unconstrained. The renderer derives surface wording from the task seed and candidate slot. A high-axis recovery profile adds instructions favoring action-enabling language. The initial support-aware design also interpolates a decision-mode direction from comparing alternatives to implementation. Full branches, exact anchor strings, the earlier question-only contract, and high-axis instructions are retained in \code{appendices/population-renderers.py}; their generation-round use requires the provenance reconciliation in Section~\ref{sec:population}.
+\lstinputlisting{appendices/population-validation.txt}
+The independent validation prompt sees assigned topic metadata and candidate text. The answer generator's separate request does not automatically inherit that metadata. Hidden-context candidates therefore need an audit of what the executed request included; topic membership alone does not prove that the generator saw enough context.
+
+\clearpage
+\subsection{Search strategy templates}
+\Needspace{12\baselineskip}
+\medskip\noindent\textbf{Parallel query generation.}\par\smallskip
+\lstinputlisting{appendices/parallel-query.txt}
+\Needspace{12\baselineskip}
+\medskip\noindent\textbf{Answer after parallel evidence selection.}\par\smallskip
+\lstinputlisting{appendices/search-final.txt}
+\Needspace{12\baselineskip}
+\medskip\noindent\textbf{Reactive action.}\par\smallskip
+\lstinputlisting{appendices/reactive.txt}
+\Needspace{12\baselineskip}
+\medskip\noindent\textbf{Forced finish after search budget.}\par\smallskip
+\lstinputlisting{appendices/forced-finish.txt}
+The evidence placeholder is a JSON array of records with \code{evidence_id}, \code{url}, \code{title}, and \code{text}, serialized with sorted keys and non-ASCII characters preserved. Identifiers such as S1 are local to the supplied evidence sequence, not global source names. The code supplies JSON response schemas and validates references after generation. Literal renderers and schema definitions accompany the source in \code{appendices/search-renderers.py}.
+
+\Needspace{8\baselineskip}
+\subsection{Request-relevance template}
+\lstinputlisting{appendices/relevance.txt}
+The evidence element is repeated for each candidate. The exact schema requires every evidence ID once. No answer is inserted. \code{appendices/relevance-renderer.py} retains dynamic rendering and schema source.
+
+\Needspace{8\baselineskip}
+\subsection{SI-v4 Stage A: source-blind answer map}
+\lstinputlisting{appendices/si-v4-map.txt}
+The shared suffix is:
+\begin{lstlisting}
+USER REQUEST:
+<request>
+
+ORIGINAL ANSWER UNITS:
+[<answer_unit_id>] <original answer unit>
+...
+
+ANSWER WORD IDS:
+[<word_id>] <original word>
+...
+\end{lstlisting}
+Inputs use the configured citation-masking version while preserving the answer being evaluated. Word identifiers bind spans to the original answer; they do not authorize the judge to paraphrase or improve it. Dynamic schemas restrict fields and allowed identifiers. The schema builders and task rendering are retained in \code{appendices/si-v4-schemas.py}; a valid map is a prerequisite for dependent source tasks. \todo{Record the actual preprocessing version per judgment and its rendered-input hash in the final analysis export.}
+
+\Needspace{8\baselineskip}
+\subsection{SI-v4 Stage B: independent source support}
+\lstinputlisting{appendices/si-v4-source.txt}
+Stage B appends the same request/answer suffix, then:
+\begin{lstlisting}
+FIXED ANSWER MAP:
+<validated answer map serialized as JSON>
+
+SOURCE PASSAGES:
+[<title_passage_id>] <unchanged title passage>
+[<text_passage_id>] <unchanged source-text passage>
+...
+\end{lstlisting}
+The source contains the entire supplied title/text record, partitioned into indexed passages. The prompt supplies neither its URL nor other sources. Representative witnesses locate support but are not a numerical scoring formula. Exact role, claim-kind, status, span, and grade constraints are defined in the accompanying schema excerpt. These templates document a development protocol, not verified accuracy or completed population judgments.
+
+\clearpage
+\section{Full answer and evidence for the running example}
+\label{app:example-full}
+The following answer is reproduced from the saved source-importance task. It is an experimental output, not financial advice or a verified procedure.
+\begin{quote}
+To set up a full transfer between Robinhood and E*TRADE, follow these steps: 1) Log in to your Robinhood account and go to the 'Transfers' or 'Account' section. 2) Initiate a transfer to an external account, selecting E*TRADE as the recipient. 3) Enter your E*TRADE account information. 4) Confirm the transfer details and submit. 5) Log in to your E*TRADE account to confirm the transfer. 6) If required, complete any additional paperwork or verification steps. Please note that specific steps may vary depending on individual circumstances. For detailed guidance, consult Robinhood and E*TRADE's official support resources.
+\end{quote}
+\begin{table}[!htbp]
+\small
+\begin{tabularx}{\textwidth}{@{}lp{.27\textwidth}Yr@{}}
+\toprule
+Generator rank & Title and source & Exact supplied snippet text & SI-v3 grade\\
+\midrule
+1 & Robinhood vs. E*TRADE • Which is Better for You? • Benzinga\newline \url{https://www.benzinga.com/money/robinhood-vs-etrade} & Robinhood offers commission-free trades and a user-friendly app for beginner investors, while E*TRADE provides more comprehensive research tools and a wider range of investment products for ... & 0\\[4pt]
+2 & E*TRADE vs. Robinhood: Compare Brokerage Account Options\newline \url{https://thesmartinvestor.com/brokers/etrade-vs-robinhood/} & E*TRADE vs Robinhood : Compare Investing Features While Robinhood simplifies trading with a focus on cost-efficiency and ease of use, making it ideal for new investors, E*TRADE offers a more robust and versatile trading environment suitable for a broader range of investment strategies. & 0\\[4pt]
+3 & Robinhood vs. E*TRADE - Investopedia\newline \url{https://www.investopedia.com/robinhood-vs-e-trade-4587955} & Robinhood offers commission-free trading but has cut corners to book profits while E*TRADE's competitive commissions allow customers to access an impressive basket of resources. & 0\\
+\bottomrule
+\end{tabularx}
+\caption{Complete saved evidence for prompt B. Text, including the first snippet's trailing ellipsis, is copied from historical task input. Ranks are generator-emitted; grades are SI-v3 judge outputs, not human labels or SI-v4 results. The positive-support order is empty, the zero-grade set contains all three sources, and relevance remains unverified. Source URLs identify archived snippet records; current page contents were not used to replace them.}
+\end{table}
+
+\clearpage
+\section{Reviewer-concern mapping for this draft}
+\label{app:reviewer}
+This editorial appendix maps supplied reviewer concerns to the revision. It is an author working aid and can be removed from the submission without removing scientific limitations or evidence placeholders.
+\begin{table}[!htbp]
+\small
+\begin{tabularx}{\textwidth}{@{}p{.25\textwidth}Y@{}}
+\toprule
+Concern & Where addressed and what remains\\
+\midrule
+1. Readable abstract & Plain-language question, design, evidence boundary, and interpretation; under 200 words. Main findings remain explicit TODOs.\\
+2. Clear introduction & Specific example, definitions, two research questions, and three distinct contributions. No priority or universal-model claim.\\
+3. Methods before mathematics & Sections~\ref{sec:methods}--\ref{sec:judges} explain process, example, and judgments before Equations~\ref{eq:utility}--\ref{eq:bt}.\\
+4. Complete dataset description & Section~\ref{sec:population} and Table~\ref{tab:counts} distinguish topics, strings, information needs, candidate stages, targets, and executions. Missing provenance and stage counts are marked.\\
+5. Transparent setup & Sections~\ref{sec:generation}--\ref{sec:judges} and Appendices~\ref{app:config}, \ref{app:templates} specify inputs, models, budgets, characters versus tokens, filtering, and templates. Historical configuration joins remain TODOs.\\
+6. Interpretable results & Section~\ref{sec:analysis} defines weighting and valid denominators. Section~\ref{sec:results} follows question, evidence, missing magnitude/uncertainty, condition differences, and interpretation.\\
+7. Claims match evidence & Abstract, Results, Discussion, Conclusion, and Limitations distinguish semantic association, textual support, internal reliance, and development evidence.\\
+8. Readable presentation & Distinct overview, population plot, design table, example, and strategy listing; captions below visuals; metric reference in Appendix~\ref{app:metrics}. Missing result plots are not fabricated.\\
+9. Reproducibility and limitations & Appendices~\ref{app:config}--\ref{app:artifacts} document hashes, versions, and verification scope. Limitations follows Conclusion and explains consequences. Anonymous artifact access remains unverified.\\
+\bottomrule
+\end{tabularx}
+\caption{Changes responding to the supplied editorial concerns. Original reviewer files were not available for separate inspection; this mapping addresses the supplied concerns without attributing additional claims to individual reviewers.}
+\end{table}

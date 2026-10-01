@@ -1,0 +1,34 @@
+{
+  "input_sha256": {
+    "compliant-candidates.jsonl": "1718321f8fc86f63d00aab30e87991ada9b62a59c5ef4ce99b5acef0df4d32e9",
+    "final-axis-map.jsonl": "43189f68bcafc77f9dceb7a1a8d993251d4c2a739b401ef4fd24cb64e292682e"
+  },
+  "rows": 26009,
+  "unique_strings": 26009,
+  "topic_ids": 1011,
+  "min_per_topic": 18,
+  "max_per_topic": 30,
+  "topic_size_distribution": {
+    "18": 1,
+    "19": 1,
+    "20": 9,
+    "21": 14,
+    "22": 32,
+    "23": 56,
+    "24": 129,
+    "25": 184,
+    "26": 217,
+    "27": 192,
+    "28": 126,
+    "29": 44,
+    "30": 6
+  },
+  "prompt_generators": {
+    "qwen3-32b": 13515,
+    "gemma4-31b": 12494
+  },
+  "exact_text_axis_joins": 26009,
+  "full_design_cells_per_generator": 312108,
+  "target_slot_coverage": 0.8575337949225189,
+  "scope": "Exact final text/axis files; no population ranking results or inference."
+}

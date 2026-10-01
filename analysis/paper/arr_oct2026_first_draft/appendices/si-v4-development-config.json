@@ -1,0 +1,21 @@
+{
+  "model_id": "google/gemma-4-31B-it",
+  "model_revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+  "chat_template_sha256": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+  "chat_template_kwargs": {"enable_thinking": false},
+  "precision": "bfloat16",
+  "serving_version": "vllm-0.28.0",
+  "runtime_versions": {"transformers": "5.17.0", "torch": "2.13.0", "xgrammar": "0.2.7"},
+  "hardware": "4 x NVIDIA A100-SXM4-40GB",
+  "gpu_count": 4,
+  "tensor_parallel_size": 4,
+  "concurrency": 4,
+  "temperature": 0.0,
+  "seed_policy": "semantic-task-derived-v1",
+  "context_length": 73728,
+  "eager": true,
+  "gpu_memory_utilization": 0.85,
+  "tokenizer_path": "REPLACE_WITH_VERIFIED_LOCAL_PINNED_SNAPSHOT",
+  "request_timeout": 300,
+  "repetition_id": "development-e2e-1"
+}

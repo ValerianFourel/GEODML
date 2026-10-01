@@ -1,0 +1,39 @@
+{
+  "created_at": "2026-08-22T10:21:37.569601Z",
+  "embedding_model": "qwen3-8b-mntp-unsup-simcse:Qwen/Qwen3-8B@b968826d9c46dd6066d109eabc6255188de91218",
+  "format_version": "readiness-question-population-v2",
+  "generation_control": "continuous-adjacent-anchor-blend-v1",
+  "generator_ids": [
+    "gemma4-31b",
+    "qwen3-32b"
+  ],
+  "git_commit_sha": "5819251839cac634984980e267f47e824ec75878",
+  "inputs": {
+    "keywords": {
+      "path": "/e/project1/scifi/fourel1/geodml/runs/semantic-readiness-subspace/7679b31479d5d438ae56cb7229020858ca6fb638-20260820T104733Z/question-populations/support-aware-30k-84e36dd5-20260821T011756Z/input/keywords-1011.txt",
+      "sha256": "a4a7794696f7f6e094a601e72921f1792535e08333b7b64398ca31064bfc1899",
+      "size_bytes": 27126
+    },
+    "map": {
+      "path": "/e/project1/scifi/fourel1/geodml/runs/semantic-readiness-subspace/7679b31479d5d438ae56cb7229020858ca6fb638-20260820T104733Z/maps/qwen3-8b-mntp-unsup-simcse-three-judge-gpu-v2/readiness_embedding_map.json",
+      "sha256": "82376c68c485a5603a19cbaf2756cace2d32e4463909f9cf97cd5557f181b7d2",
+      "size_bytes": 2453435
+    },
+    "reference_coordinates": {
+      "path": "/e/project1/scifi/fourel1/geodml/runs/semantic-readiness-subspace/7679b31479d5d438ae56cb7229020858ca6fb638-20260820T104733Z/maps/qwen3-8b-mntp-unsup-simcse-three-judge-gpu-v2/readiness_supervised_subspace_coordinates.jsonl",
+      "sha256": "0b2f976d965309337abfd076c9cf74a6421187e684cca0d2c83822cb3d31a082",
+      "size_bytes": 4916110
+    }
+  },
+  "keyword_count": 1011,
+  "map_id": "readiness-map:e29fee4e9fbf7b7effedb170",
+  "map_version": "llm2vec-readiness-map-v3",
+  "master_seed": 20260820,
+  "maximum_planned_candidate_count": 121320,
+  "requested_candidates_per_task": 4,
+  "round_index": 0,
+  "scientific_guard": "The target design describes prompt embeddings. It does not define or replace B.",
+  "target_count_per_keyword": 30,
+  "target_design": "support-aware-random",
+  "task_count": 30330
+}

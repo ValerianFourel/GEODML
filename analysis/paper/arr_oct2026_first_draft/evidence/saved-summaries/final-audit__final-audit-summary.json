@@ -1,0 +1,75 @@
+{
+  "candidate_count": 26009,
+  "consensus_axis_1_z": {
+    "count": 26009,
+    "maximum": 1.1228377833964631,
+    "median": -0.5359433495999937,
+    "minimum": -1.7710036274865564,
+    "q25": -1.1369065836870786,
+    "q75": 0.06561355733043912
+  },
+  "created_at": "2026-09-04T11:43:06.718187Z",
+  "final_axis_map": {
+    "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint/final-audit-4gpu-a452213/final-axis-map.jsonl",
+    "sha256": "43189f68bcafc77f9dceb7a1a8d993251d4c2a739b401ef4fd24cb64e292682e",
+    "size_bytes": 21148832
+  },
+  "format_version": "readiness-final-audit-4gpu-v1",
+  "projection_comparison": {
+    "axis_1": {
+      "item_count": 26009,
+      "mean_absolute_difference": 0.04596334829030351,
+      "pearson": 0.9964147609640656,
+      "spearman": 0.9968303248891671
+    },
+    "axis_2": {
+      "item_count": 26009,
+      "mean_absolute_difference": 0.4636461259457932,
+      "pearson": 0.904092511306638,
+      "spearman": 0.9000258868951692
+    },
+    "candidate_count": 26009,
+    "candidate_map_id": "readiness-map:d6f3947ba112821b485bdbfc",
+    "format_version": "readiness-question-population-v2",
+    "interpretation_guard": "Alignment was learned only from the original development corpus; these generated questions were not used to fit it.",
+    "reference_map_id": "readiness-map:e29fee4e9fbf7b7effedb170",
+    "scalar_readiness": {
+      "item_count": 26009,
+      "mean_absolute_difference": 0.03168231482814321,
+      "pearson": 0.9824944117323273,
+      "spearman": 0.9843425167765107
+    }
+  },
+  "relaxed_compliance": {
+    "acceptance_contract": "search-trigger-v2",
+    "created_at": "2026-09-04T11:36:25.045484Z",
+    "delexicalized_template_unique": true,
+    "explicit_search_query_keyword_binding_required": true,
+    "failed_prompt_count": 0,
+    "format_version": "readiness-final-audit-4gpu-v1",
+    "gate_failures": {},
+    "keyword_metadata_binding_required": true,
+    "literal_keyword_in_prompt_required": false,
+    "question_mark_required": false,
+    "relaxed_contract_pass_count": 26009,
+    "search_intent_required": true,
+    "selected_prompt_count": 26009,
+    "source_candidates": {
+      "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint/merged/candidates.jsonl",
+      "sha256": "2535cb0df52127d3140a405759d93db1d78a6e1429675972ea02fb4553849814",
+      "size_bytes": 1202440101
+    },
+    "source_selection": {
+      "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint/strict-selection/spatially_selected_questions.jsonl",
+      "sha256": "50ea7b1bd30d8c6a4cf8305b593e61173be08db0781c2859e661a70823ccaa46",
+      "size_bytes": 30355885
+    },
+    "source_validation": {
+      "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint/merged/validation.jsonl",
+      "sha256": "6f977aecc524657797af4612878d58d27a9b76945035e95b3d62729a0a1cbc0a",
+      "size_bytes": 941025097
+    },
+    "web_answerable_required": true
+  },
+  "result": "PASS"
+}

@@ -1,0 +1,18 @@
+{
+  "abstract_word_count_including_TODO": 167,
+  "pages": 22,
+  "citation_keys_resolved": 10,
+  "exact_research_questions": 2,
+  "required_sections_present": true,
+  "limitations_after_conclusion": true,
+  "latex_warnings": [],
+  "old_manuscript_hash_unchanged": true,
+  "pipeline_changes": false,
+  "new_inference": false,
+  "visual_review": "All rendered pages inspected; template frames and orphan headings corrected; figures, tables, captions, equations and references reviewed. No clipping or overlap observed.",
+  "pdf_sha256": "d155db35b61c68e6a25d3c784cf368b88239f7d2e20b2a79c4f465293883b2b1",
+  "verbatim_whitespace_exceptions": [
+    "acl_natbib.bst retains upstream whitespace and its verified hash.",
+    "population-validation.txt preserves the extracted prompt trailing newline."
+  ]
+}

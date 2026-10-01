@@ -1,0 +1,252 @@
+{
+  "format_version": "geodml-jupiter-remote-hf-audit-v1",
+  "checked_at_utc": "2026-10-01T05:26:47.677099+00:00",
+  "scope": "Five recorded JUPITER export repositories, inspected from the Mac. No cluster access or remote writes.",
+  "repositories": [
+    {
+      "repo": "ValerianFourel/geodml-jupiter-archive-private",
+      "revision": "c872bbd48711a54628e57bae8a7fc2f9b1ae8d32",
+      "private": true,
+      "files": 44,
+      "bytes": 20200805232,
+      "inventory_sha256": "1528f295e5e49509d6e7efd3d203f286b732388336be817a0c8d21a3c324a05d"
+    },
+    {
+      "repo": "ValerianFourel/geoaxis-prompts-generation-26k",
+      "revision": "74e64ff6ef3907de3fc8f242d51ca840652e2926",
+      "private": true,
+      "files": 272,
+      "bytes": 9656843476,
+      "inventory_sha256": "5ab6403db5a2e137d5ddc95715f71b85989337d73cbab7e0205dcde0a779d4a3"
+    },
+    {
+      "repo": "ValerianFourel/geoaxis-readiness-axis",
+      "revision": "7869da0f1f0c36128395b52aabe601fd29a27289",
+      "private": true,
+      "files": 953,
+      "bytes": 1284818271,
+      "inventory_sha256": "67266429e8bafd16e701008f6497e5e1f64d9137c624a9a3cf62988f4e7da04f"
+    },
+    {
+      "repo": "ValerianFourel/geodml-emnlp-2026-probing-activations",
+      "revision": "0503c8f2ff7a9e3754c759e695dec2c27438cf84",
+      "private": false,
+      "files": 8022,
+      "bytes": 551713914048,
+      "inventory_sha256": "385ad70e62e0a06a237a2d674b89a734d0eab9a4e0ed4c86ce5f3142088e4a30"
+    },
+    {
+      "repo": "ValerianFourel/geodml-experiment-v2-paper-private",
+      "revision": "098d3f467b4a0f3fec6da2789043421428390770",
+      "private": true,
+      "files": 22321,
+      "bytes": 73333042466,
+      "inventory_sha256": "bb89107a8bb4ee85c2417cc024e7c1526ccba8e1d7a4c874e7e389e4bbfc2d73"
+    }
+  ],
+  "heads_unchanged_at_end": true,
+  "llama": {
+    "planned": 310380,
+    "completed": 310374,
+    "terminal_failed": 6,
+    "remaining": 0,
+    "packages": 1008,
+    "package_statuses": {
+      "complete": 1006,
+      "blocked": 2
+    },
+    "owned_packages": 0,
+    "error": "LLM transport failed",
+    "attempts_per_failed_cell": 2
+  },
+  "bundles": {
+    "llama_checkpoint_bundles": 60,
+    "qwen_bundles": 26,
+    "bundle_manifests_hashed": 86,
+    "registry_outcome_mismatches": [],
+    "qwen_unique_completed": 24218,
+    "qwen_unique_failed": 0,
+    "unique_objects_present": 21336,
+    "object_bytes": 59932438112,
+    "lfs_object_hashes_checked": 2062,
+    "plain_object_hashes_pending": 19274,
+    "plain_object_bytes": 5186075783,
+    "row_level_payload_check": false
+  },
+  "general_archive": {
+    "status": "remote_manifest_and_lfs_hash_match",
+    "units": [
+      {
+        "unit": "home/unit-0001",
+        "original_entries": 1735,
+        "original_bytes": 105762151,
+        "parts": 1,
+        "compressed_bytes": 18891874
+      },
+      {
+        "unit": "fscratch-scifi/unit-0001",
+        "original_entries": 333403,
+        "original_bytes": 9995303707,
+        "parts": 1,
+        "compressed_bytes": 1782719690
+      },
+      {
+        "unit": "fscratch-scifi/unit-0002",
+        "original_entries": 345294,
+        "original_bytes": 9973940515,
+        "parts": 1,
+        "compressed_bytes": 1532196955
+      },
+      {
+        "unit": "fscratch-scifi/unit-0003",
+        "original_entries": 251757,
+        "original_bytes": 9995610429,
+        "parts": 1,
+        "compressed_bytes": 1470369850
+      },
+      {
+        "unit": "fscratch-scifi/unit-0004",
+        "original_entries": 201093,
+        "original_bytes": 9997176573,
+        "parts": 1,
+        "compressed_bytes": 1464422627
+      },
+      {
+        "unit": "fscratch-scifi/unit-0005",
+        "original_entries": 319341,
+        "original_bytes": 8158700413,
+        "parts": 1,
+        "compressed_bytes": 2417680415
+      },
+      {
+        "unit": "scratch-scifi/unit-0001",
+        "original_entries": 1509,
+        "original_bytes": 2672898964,
+        "parts": 1,
+        "compressed_bytes": 956129478
+      },
+      {
+        "unit": "project1-scifi/unit-0001",
+        "original_entries": 181396,
+        "original_bytes": 9999977340,
+        "parts": 1,
+        "compressed_bytes": 2174746600
+      },
+      {
+        "unit": "project1-scifi/unit-0002",
+        "original_entries": 208317,
+        "original_bytes": 9999920388,
+        "parts": 1,
+        "compressed_bytes": 2071986085
+      },
+      {
+        "unit": "project1-scifi/unit-0003",
+        "original_entries": 296140,
+        "original_bytes": 9999780296,
+        "parts": 1,
+        "compressed_bytes": 2431719017
+      },
+      {
+        "unit": "project1-scifi/unit-0004",
+        "original_entries": 334275,
+        "original_bytes": 9990441249,
+        "parts": 1,
+        "compressed_bytes": 2016474986
+      },
+      {
+        "unit": "project1-scifi/unit-0005",
+        "original_entries": 388800,
+        "original_bytes": 7107483666,
+        "parts": 1,
+        "compressed_bytes": 1662845382
+      }
+    ],
+    "total_original_entries": 2863060,
+    "total_original_bytes": 97996995691,
+    "total_compressed_bytes": 20000182959,
+    "local_receipts_checked": false,
+    "archive_restored": false
+  },
+  "geoaxis": {
+    "geoaxis-prompts-generation-26k": {
+      "status": "all_manifest_hashes_match",
+      "manifest_payload_files": 269,
+      "payload_bytes": 9656756240,
+      "lfs_metadata_sha256": 81,
+      "downloaded_content_sha256": 188,
+      "full_restore": false
+    },
+    "geoaxis-readiness-axis": {
+      "status": "all_manifest_hashes_match",
+      "manifest_payload_files": 950,
+      "payload_bytes": 1284356876,
+      "lfs_metadata_sha256": 294,
+      "downloaded_content_sha256": 656,
+      "full_restore": false
+    }
+  },
+  "activations": {
+    "status": "remote_inventory_present",
+    "remote_files": 8022,
+    "remote_bytes": 551713914048,
+    "t7_chunks_full_files": 6488,
+    "t7_chunks_full_bytes": 471192891368,
+    "probing_roots": {
+      "probing_Llama-3.3-70B-Instruct_biased": {
+        "files": 1007,
+        "bytes": 70928703851
+      },
+      "probing_Llama-3.3-70B-Instruct_biased_rag": {
+        "files": 1002,
+        "bytes": 70689769949
+      },
+      "probing_Llama-3.3-70B-Instruct_neutral": {
+        "files": 930,
+        "bytes": 66867503654
+      },
+      "probing_Llama-3.3-70B-Instruct_neutral_rag": {
+        "files": 931,
+        "bytes": 66920604117
+      },
+      "probing_Qwen2.5-72B-Instruct_biased": {
+        "files": 978,
+        "bytes": 69776785465
+      },
+      "probing_Qwen2.5-72B-Instruct_biased_rag": {
+        "files": 975,
+        "bytes": 69617425641
+      },
+      "probing_Qwen2.5-72B-Instruct_neutral": {
+        "files": 916,
+        "bytes": 66485298604
+      },
+      "probing_Qwen2.5-72B-Instruct_neutral_rag": {
+        "files": 917,
+        "bytes": 66538385135
+      }
+    },
+    "local_inventory_compared": false,
+    "full_content_verification": false,
+    "full_restore": false
+  },
+  "gemma_v3_export": {
+    "path": "reviews/gemma-si-v3/exports/31f3666c64e2f44d58cc4f06411f87f828ad454fee9c1b506c6c915dba77e62f.zip",
+    "sha256": "31f3666c64e2f44d58cc4f06411f87f828ad454fee9c1b506c6c915dba77e62f",
+    "bytes": 1253914
+  },
+  "v4_review_export_present_in_paper_repository": false,
+  "code_at_start": {
+    "local_head": "6cb478f89563c4aa982d725c6a9ccbb5feadcd1a",
+    "remote_branch": "codex/pilot-continuation",
+    "remote_head": "6cb478f89563c4aa982d725c6a9ccbb5feadcd1a",
+    "local_worktree_clean": true
+  },
+  "limitations": [
+    "No current JUPITER jobs, transfer processes, local Git checkouts or unpublished files were inspected.",
+    "Archive scope is the uploaded filtered plan. Unit member lists and indexes are present; their entries and archive contents were not restored.",
+    "GeoAxis large-file SHA256 checks use Hub LFS metadata; small files were downloaded and hashed.",
+    "Bundle payload rows were not reread. All object sizes were checked; 2062 LFS hashes matched, while 19274 plain Git objects totaling 5186075783 bytes were not downloaded for SHA256 verification.",
+    "Activation inventory was not compared with a current JUPITER filesystem inventory, and activation content was not restored.",
+    "Published counts do not prove answer quality or judge validity. No cleanup or allocation was performed."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "candidate_count": 1314060,
+  "complete_30330_population_passed": false,
+  "created_at": "2026-09-03T21:23:51.308739Z",
+  "dataset_root": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/axisgeo-unified-hf-dataset",
+  "dataset_table_counts": {
+    "candidate_compliance_annotations": 1314060,
+    "fully_compliant_prompts": 26009,
+    "generated_candidates": 1314060,
+    "likert_annotations": 71695,
+    "likert_failures": 1,
+    "likert_graded_prompts": 71695,
+    "likert_missing_tasks": 1336,
+    "likert_prompts": 18258,
+    "likert_sources": 23
+  },
+  "final_checkpoint": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint",
+  "format_version": "axisgeo-unified-count-summary-v1",
+  "fully_compliant_prompt_count": 26009,
+  "independently_accepted_count": 1296908,
+  "remaining_target_count": 4321,
+  "verified_population_passed": false
+}

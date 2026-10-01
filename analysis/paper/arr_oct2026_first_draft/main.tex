@@ -1,0 +1,24 @@
+\documentclass[11pt]{article}
+\usepackage[review]{acl}
+\usepackage{times,latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype,graphicx,booktabs,tabularx,array,amsmath,amssymb,xcolor,listings,xurl,needspace}
+\newcommand{\todo}[1]{\textcolor{black!72}{\textbf{[TODO: #1]}}}
+\newcommand{\code}[1]{\path{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\lstset{basicstyle=\small\ttfamily,breaklines=true,breakatwhitespace=false,columns=fullflexible,keepspaces=true,showstringspaces=false,frame=single,framerule=.25pt,framesep=5pt}
+\title{From Prompt Semantics to Source Rankings in Generative Search}
+\author{Anonymous ACL submission}
+\begin{document}
+\maketitle
+\begin{abstract}
+Requests about the same topic can ask for explanation, comparison, or immediate practical guidance. We study whether such differences in prompt meaning correspond to changes in source orderings in generative search. Our dataset contains 26,009 distinct prompt strings across 1,011 topics. We measure prompt semantics with external text embeddings and examine a direction from information seeking toward action readiness. Two answer generators use two strategies over frozen snapshots from two search engines. We distinguish sources ranked for relevance to a request from sources judged to support the answer actually produced, and separate source membership from ordering. Verified records establish the prompt population and partial execution coverage; a development example illustrates that an emitted source list can coexist with zero judged answer support. \todo{Insert verified findings and uncertainty for local stability, directional ranking changes, and relevance--support divergence, including condition-specific qualifications.} Population-level answers remain unverified. The study is descriptive: semantic associations do not establish why a model selected a source, and textual support does not establish internal source reliance.
+\end{abstract}
+\input{sections/introduction}
+\input{sections/methods}
+\input{sections/results}
+\bibliography{references}
+\appendix
+\input{sections/appendices}
+\end{document}

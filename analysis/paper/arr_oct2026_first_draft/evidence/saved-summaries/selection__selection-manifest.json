@@ -1,0 +1,144 @@
+{
+  "artifacts": {
+    "axis_map": {
+      "path": "pilot-axis.jsonl",
+      "rows": 500,
+      "sha256": "126b752aa4ca566157dc311b1e1dc1aa86e21c63d24dd86dd92e92fce219ba2d"
+    },
+    "prompts": {
+      "path": "pilot-prompts.jsonl",
+      "rows": 500,
+      "sha256": "4977a46102d0cfa7b5a0c46276adbc13b378164e9f272291a61e2735dc90d3b0"
+    },
+    "selection_records": {
+      "path": "selection-records.jsonl",
+      "rows": 500,
+      "sha256": "fad23b972447d5e4cdec3d2625b6336ee61c998cb067796bb4e55279bc6007c6"
+    }
+  },
+  "diagnostics": {
+    "axis_bin_population_counts": {
+      "0": 1301,
+      "1": 1300,
+      "10": 1301,
+      "11": 1300,
+      "12": 1301,
+      "13": 1300,
+      "14": 1300,
+      "15": 1301,
+      "16": 1300,
+      "17": 1301,
+      "18": 1300,
+      "19": 1301,
+      "2": 1301,
+      "3": 1300,
+      "4": 1300,
+      "5": 1301,
+      "6": 1300,
+      "7": 1301,
+      "8": 1300,
+      "9": 1300
+    },
+    "axis_bin_sample_counts": {
+      "0": 25,
+      "1": 25,
+      "10": 25,
+      "11": 25,
+      "12": 25,
+      "13": 25,
+      "14": 25,
+      "15": 25,
+      "16": 25,
+      "17": 25,
+      "18": 25,
+      "19": 25,
+      "2": 25,
+      "3": 25,
+      "4": 25,
+      "5": 25,
+      "6": 25,
+      "7": 25,
+      "8": 25,
+      "9": 25
+    },
+    "axis_bins": 20,
+    "keyword_count": 1011,
+    "keyword_sample_count_maximum": 1,
+    "keyword_sample_count_minimum": 1,
+    "population_assigned_axis": {
+      "maximum": 1.0,
+      "median": 0.822,
+      "minimum": 0.0,
+      "q10": 0.233,
+      "q25": 0.593,
+      "q75": 0.928,
+      "q90": 0.975
+    },
+    "population_observed_axis_percentiles": {
+      "maximum": 1.0,
+      "median": 0.5,
+      "minimum": 0.0,
+      "q10": 0.1,
+      "q25": 0.25,
+      "q75": 0.75,
+      "q90": 0.9
+    },
+    "population_question_characters": {
+      "maximum": 260.0,
+      "median": 135.0,
+      "minimum": 52.0,
+      "q10": 97.0,
+      "q25": 114.0,
+      "q75": 156.0,
+      "q90": 174.0
+    },
+    "population_size": 26009,
+    "sample_assigned_axis": {
+      "maximum": 1.0,
+      "median": 0.8234999999999999,
+      "minimum": 0.004,
+      "q10": 0.24137931034482757,
+      "q25": 0.598,
+      "q75": 0.92425,
+      "q90": 0.9711000000000001
+    },
+    "sample_observed_axis_percentiles": {
+      "maximum": 0.9926176561058137,
+      "median": 0.49976930175330664,
+      "minimum": 0.0024992310058443556,
+      "q10": 0.1063288219009536,
+      "q25": 0.25161488772685325,
+      "q75": 0.7487696093509688,
+      "q90": 0.8900722854506308
+    },
+    "sample_question_characters": {
+      "maximum": 211.0,
+      "median": 136.0,
+      "minimum": 64.0,
+      "q10": 94.9,
+      "q25": 114.75,
+      "q75": 156.0,
+      "q90": 174.10000000000002
+    },
+    "sample_size": 500
+  },
+  "format_version": "readiness-axis-balanced-pilot-v1",
+  "interpretation_guard": "The consensus embedding coordinate stratifies the audited prompt population. It does not define the assigned experimental variable.",
+  "master_seed": 20260912,
+  "scientific_result": false,
+  "selection_design": "exact equal-mass observed-axis bins with near-equal keyword quotas and deterministic within-stratum selection",
+  "selection_id": "610d4e26814bc0a202300b54729dfc59cb7a526018115f0b56927dde5b524ed0",
+  "source_git_commit": "a559b705827754f6c5c151557d1ee6b976fbe7a8",
+  "sources": {
+    "axis_map": {
+      "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint/final-audit-4gpu-a452213/final-axis-map.jsonl",
+      "rows": 26009,
+      "sha256": "43189f68bcafc77f9dceb7a1a8d993251d4c2a739b401ef4fd24cb64e292682e"
+    },
+    "prompts": {
+      "path": "/e/fscratch/scifi/fourel1/geodml/runs/readiness-30k-high-axis-v2/ten-section-20260902T131831Z/global-merge-hf-20260903T210857Z/checkpoint/final-audit-4gpu-a452213/compliant-candidates.jsonl",
+      "rows": 26009,
+      "sha256": "1718321f8fc86f63d00aab30e87991ada9b62a59c5ef4ce99b5acef0df4d32e9"
+    }
+  }
+}

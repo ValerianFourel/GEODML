@@ -1,0 +1,4 @@
+Generate exactly three distinct search queries for the user request. Return strict JSON with one key named queries and no prose.
+
+USER REQUEST:
+<request>

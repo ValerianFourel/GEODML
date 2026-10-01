@@ -1,0 +1,25 @@
+{
+  "artifacts": {
+    "readiness_robustness_battery.json": {
+      "sha256": "b10775071009908b8a413b718fe55ccbf7007003d248c7a50b91601036fd4401",
+      "size_bytes": 27366
+    },
+    "readiness_robustness_battery_report.md": {
+      "sha256": "88e5639a237f3bd01c883fd5da5def2d2bfa2b8a46c4c0743c15862912bbd5a7",
+      "size_bytes": 1550
+    }
+  },
+  "assessment": {
+    "all_checks_passed": true,
+    "passed_check_count": 11,
+    "status": "strongly-supportive",
+    "total_check_count": 11
+  },
+  "bootstrap_replicates": 1000,
+  "candidate_map_id": "readiness-map:d6f3947ba112821b485bdbfc",
+  "format_version": "readiness-robustness-battery-v1",
+  "git_commit_sha": "976bae5110ec4b985b7c6e7c972bce021b8efdba",
+  "permutation_replicates": 200,
+  "random_seed": 20260820,
+  "reference_map_id": "readiness-map:e29fee4e9fbf7b7effedb170"
+}

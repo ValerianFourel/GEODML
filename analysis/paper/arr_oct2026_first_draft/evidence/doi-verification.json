@@ -1,0 +1,191 @@
+[
+  {
+    "key": "P006",
+    "doi": "10.1145/792550.792552",
+    "title": [
+      "A taxonomy of web search"
+    ],
+    "type": "journal-article",
+    "container": [
+      "ACM SIGIR Forum"
+    ],
+    "published": {
+      "date-parts": [
+        [
+          2002,
+          9
+        ]
+      ]
+    },
+    "volume": "36",
+    "issue": "2",
+    "page": "3-10",
+    "publisher": "Association for Computing Machinery (ACM)",
+    "authors": [
+      {
+        "given": "Andrei",
+        "family": "Broder",
+        "sequence": "first",
+        "affiliation": [
+          {
+            "name": "IBM Research"
+          }
+        ],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "P044",
+    "error": "HTTP Error 429: Too Many Requests"
+  },
+  {
+    "key": "P074",
+    "doi": "10.18653/v1/2023.emnlp-main.398",
+    "title": [
+      "Enabling Large Language Models to Generate Text with Citations"
+    ],
+    "type": "proceedings-article",
+    "container": [
+      "Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing"
+    ],
+    "published": {
+      "date-parts": [
+        [
+          2023
+        ]
+      ]
+    },
+    "volume": null,
+    "issue": null,
+    "page": "6465-6488",
+    "publisher": "Association for Computational Linguistics",
+    "authors": [
+      {
+        "given": "Tianyu",
+        "family": "Gao",
+        "sequence": "first",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Howard",
+        "family": "Yen",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Jiatong",
+        "family": "Yu",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Danqi",
+        "family": "Chen",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "key": "P083",
+    "doi": "10.18653/v1/2024.naacl-long.20",
+    "title": [
+      "ARES: An Automated Evaluation Framework for Retrieval-Augmented Generation Systems"
+    ],
+    "type": "proceedings-article",
+    "container": [
+      "Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)"
+    ],
+    "published": {
+      "date-parts": [
+        [
+          2024
+        ]
+      ]
+    },
+    "volume": null,
+    "issue": null,
+    "page": "338-354",
+    "publisher": "Association for Computational Linguistics",
+    "authors": [
+      {
+        "given": "Jon",
+        "family": "Saad-Falcon",
+        "sequence": "first",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Omar",
+        "family": "Khattab",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Christopher",
+        "family": "Potts",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Matei",
+        "family": "Zaharia",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ]
+  }
+]
