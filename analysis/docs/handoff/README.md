@@ -63,3 +63,4 @@ supersede them with a new dated document that links back.
 - 2026-10-01 — [Qwen bout counts and queue target 294](2026-10-01_qwen-counts-queue294_handoff.md)
 - 2026-10-01 — [Qwen CAP update refused; inspect live setting](2026-10-01_qwen-cap-inspection_handoff.md)
 - 2026-10-01 — [Recognize the older Qwen CAP default of 300](2026-10-01_qwen-cap300-compatibility_handoff.md)
+- 2026-10-01 — [SI-v4 existing allocation detected](2026-10-01_si-v4-existing-allocation_handoff.md)
