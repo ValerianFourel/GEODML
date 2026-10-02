@@ -106,3 +106,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [Gemma failure diagnostic HTML](2026-10-02_gemma-failure-diagnostic-html_handoff.md)
 
 - 2026-10-02 — [Gemma compact JSON and validation-feedback fix](2026-10-02_gemma-compact-json-fix_handoff.md)
+
+- 2026-10-02 — [Gemma recovery: insufficient remaining allocation time](2026-10-02_gemma-recovery-time-budget_handoff.md)
