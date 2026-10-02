@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gemma failure diagnostic · job 5175121</title><style>
+:root { color-scheme: light; --paper:#f3f5f4; --card:#fff; --ink:#172b32; --muted:#50646b; --line:#cbd6d6; --accent:#006c70; --tint:#e0f0ed; --code:#10242c; --code-ink:#e2edef; }
+@media (prefers-color-scheme:dark) { :root { color-scheme:dark; --paper:#0e1a20; --card:#15272e; --ink:#e2edef; --muted:#b2c4c9; --line:#415860; --accent:#8bd3cb; --tint:#1d3c3d; --code:#09171d; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 system-ui,-apple-system,sans-serif; }
+main { max-width:950px; margin:auto; padding:34px 24px 60px; }
+h1 { font-size:clamp(29px,5vw,44px); line-height:1.15; letter-spacing:-.025em; margin:12px 0 18px; }
+h2 { font-size:24px; line-height:1.25; margin:0 0 14px; }
+p { margin:0 0 14px; }
+a { color:var(--accent); text-underline-offset:3px; }
+.eyebrow,.terminal { font-size:12px; font-weight:700; letter-spacing:.055em; text-transform:uppercase; color:var(--accent); }
+.terminal { margin:0 0 5px; }
+.lede { max-width:70ch; font-size:18px; }
+.note { margin:24px 0; padding:20px; border:1px solid var(--line); background:var(--card); border-radius:10px; }
+.note p:last-child { margin:0; }
+nav { display:flex; gap:10px; flex-wrap:wrap; margin:22px 0; }
+nav a { border:1px solid var(--line); border-radius:6px; padding:9px 12px; background:var(--card); font-weight:600; }
+section { padding:26px 0; border-top:1px solid var(--line); scroll-margin-top:18px; }
+.step-heading { display:flex; gap:14px; align-items:flex-start; }
+.step-number { color:var(--accent); background:var(--tint); font-size:23px; line-height:1; padding:12px; border-radius:7px; font-weight:700; }
+code { font: .88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; overflow-wrap:anywhere; }
+p code,td code { background:var(--tint); padding:2px 4px; border-radius:3px; }
+.command { border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--code); color:var(--code-ink); }
+.toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; padding:12px 16px; border-bottom:1px solid #496069; font-size:13px; }
+button { min-height:44px; padding:9px 16px; border:1px solid #9bd8cf; background:#d5efe9; color:#113a3a; border-radius:6px; font:600 14px/1.3 system-ui,sans-serif; cursor:pointer; }
+button:hover { background:white; }
+button:focus-visible,a:focus-visible,pre:focus-visible { outline:3px solid #3bafbb; outline-offset:3px; }
+pre { margin:0; padding:18px; overflow:auto; max-height:25rem; font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+pre code { font:inherit; overflow-wrap:normal; }
+.check { margin:12px 0 0; padding-left:12px; border-left:3px solid var(--accent); }
+table { width:100%; border-collapse:collapse; margin:10px 0; font-size:14px; }
+th,td { text-align:left; padding:12px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:600; }
+td:first-child { width:35%; }
+#copy-status { min-height:26px; color:var(--muted); }
+footer { margin-top:16px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:14px; }
+@media(max-width:540px) { main { padding:24px 14px 40px; } .note { padding:15px; } th,td { padding:10px 5px; } }
+</style></head>
+<body><main><header><p class="eyebrow">HoreKa · job 5175121 · saved-run diagnostic</p>
+<h1>Find why Gemma's judgments failed</h1>
+<p class="lede">Valerian, copy the command below into your existing HoreKa login shell, then send back its output. It reads the saved task database and prints the actual errors.</p>
+<p>Keep the allocation-owning compute shell open. The page copies a command; it does not connect to HoreKa.</p></header>
+<section aria-labelledby="summary-heading"><h2 id="summary-heading">What your run reported</h2>
+<table><thead><tr><th scope="col">Measure</th><th scope="col">Reported count</th></tr></thead><tbody>
+<tr><td>Complete cells</td><td>4 of 20</td></tr><tr><td>Scored sources</td><td>55</td></tr>
+<tr><td>Sources blocked by failed answer maps</td><td>52</td></tr>
+<tr><td>Direct source-judgment failures</td><td>6</td></tr>
+<tr><td>Failed inference tasks across task types</td><td>17</td></tr>
+</tbody></table>
+<p>These counts come from your pasted report, not a live query. <code>GEMMA_EXIT=2</code> reflects <code>finished_with_failures</code>. The launcher and model ran. The <code>done=101</code> state includes both successful and failed requests.</p></section>
+<section aria-labelledby="diagnostic-heading"><p class="terminal">EXISTING HOREKA LOGIN SHELL · read-only</p><h2 id="diagnostic-heading">Copy the failure diagnostic</h2>
+<p>This prints task counts and the error, failure category, token usage, output tail and validation-attempt details for each failed request. The database is opened in read-only mode.</p>
+<div class="command"><div class="toolbar"><span>Job 5175121 · v4-pass1</span><button type="button" class="copy" aria-label="Copy diagnostic command" aria-controls="diagnostic-code">Copy diagnostic</button></div><div id="diagnostic-code"><pre><code>python3 - /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-selected-xsk1n4bx/run/attempts/job5175121/trial/v4-pass1 &lt;&lt;&#x27;PY&#x27;
+from collections import Counter
+from contextlib import closing
+import json
+from pathlib import Path
+import sqlite3
+import sys
+
+path = Path(sys.argv[1]) / &#x27;control/index.sqlite&#x27;
+with closing(sqlite3.connect(path.resolve().as_uri() + &#x27;?mode=ro&#x27;, uri=True)) as db:
+    db.execute(&#x27;PRAGMA query_only=ON&#x27;)
+    rows = db.execute(&#x27;SELECT id,kind,state,result FROM tasks ORDER BY kind,id&#x27;).fetchall()
+counts = Counter()
+failures = []
+for task_id, kind, state, raw in rows:
+    result = json.loads(raw) if raw else {}
+    outcome = &#x27;ok&#x27; if result.get(&#x27;ok&#x27;) is True else &#x27;failed&#x27; if result.get(&#x27;ok&#x27;) is False else &#x27;unknown&#x27;
+    counts[(kind, state, outcome)] += 1
+    if state == &#x27;done&#x27; and result.get(&#x27;ok&#x27;) is False:
+        failures.append((task_id, kind, result))
+print(&#x27;TASK_COUNTS&#x27;)
+for (kind, state, outcome), count in sorted(counts.items()):
+    print(kind, state, outcome, count)
+print(&#x27;FAILED_REQUESTS&#x27;, len(failures))
+for task_id, kind, result in failures:
+    print(json.dumps({
+        &#x27;task_id&#x27;: task_id, &#x27;kind&#x27;: kind,
+        &#x27;error&#x27;: result.get(&#x27;error&#x27;),
+        &#x27;failure_category&#x27;: result.get(&#x27;failure_category&#x27;),
+        &#x27;usage&#x27;: result.get(&#x27;usage&#x27;),
+        &#x27;duration_seconds&#x27;: result.get(&#x27;duration_seconds&#x27;),
+        &#x27;raw_tail&#x27;: str(result.get(&#x27;raw_output&#x27;) or &#x27;&#x27;)[-350:],
+        &#x27;attempts&#x27;: [{
+            &#x27;attempt&#x27;: a.get(&#x27;attempt&#x27;), &#x27;error&#x27;: a.get(&#x27;error&#x27;),
+            &#x27;failure_category&#x27;: a.get(&#x27;failure_category&#x27;), &#x27;usage&#x27;: a.get(&#x27;usage&#x27;)
+        } for a in result.get(&#x27;validation_attempts&#x27;, [])]
+    }, ensure_ascii=False))
+PY</code></pre></div></div>
+<p class="check">Send back everything starting at <code>TASK_COUNTS</code>. The diagnostic does not launch inference, submit an allocation, delete locks or modify saved results.</p></section>
+<section aria-labelledby="next-heading"><h2 id="next-heading">What the errors will tell us</h2>
+<p>The summary alone cannot distinguish truncated output, validation errors and transport failures. The saved error details identify which repair is needed. Preserve the successful judgments while we inspect the failures.</p>
+<p>If Python reports that it cannot open the database, send that error with the path shown. The command targets <code>gemma-selected-xsk1n4bx/run/attempts/job5175121/trial/v4-pass1</code>.</p></section>
+<p id="copy-status" role="status" aria-live="polite"></p><noscript><p>Select and copy the command manually. JavaScript is only used for the copy button.</p></noscript>
+<footer><p>Prepared 2 October 2026. Failure causes and current allocation state remain unverified until the diagnostic output is returned.</p></footer>
+</main><script>
+document.querySelectorAll('pre').forEach(pre => { pre.tabIndex = 0; });
+document.querySelectorAll('button.copy').forEach(button => {
+  button.addEventListener('click', async () => {
+    const code = button.closest('.command').querySelector('code');
+    let copied = false;
+    try { await navigator.clipboard.writeText(code.textContent); copied = true; }
+    catch (_) {
+      const range = document.createRange(); range.selectNodeContents(code);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    document.getElementById('copy-status').textContent = copied ? button.textContent + ': copied. Paste in the terminal named above that block.' : 'Clipboard unavailable. The command is selected; copy it manually.';
+  });
+});
+</script></body></html>

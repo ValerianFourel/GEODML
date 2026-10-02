@@ -102,3 +102,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [Gemma chosen cells and fresh existing-allocation workflow](2026-10-02_gemma-selected-cells_handoff.md)
 
 - 2026-10-02 — [Gemma selected run: inference-failure diagnosis](2026-10-02_gemma-selected-inference-failures_handoff.md)
+
+- 2026-10-02 — [Gemma failure diagnostic HTML](2026-10-02_gemma-failure-diagnostic-html_handoff.md)
