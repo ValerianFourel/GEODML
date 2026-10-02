@@ -1,0 +1,237 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Inference progress and Hugging Face update</title><style>body{margin:0;background:#f3f5f4;color:#1b3039;font:17px/1.6 system-ui,sans-serif}main{max-width:1060px;margin:auto;padding:36px 22px}h1{font-size:clamp(30px,5vw,46px);line-height:1.14}h2{line-height:1.25}section{background:#fff;border:1px solid #ced9d5;border-radius:12px;margin:24px 0;padding:24px}.tag{font-weight:700;color:#17624f}.notice{padding:18px;border-left:5px solid #c58122;background:#fff3df}pre{white-space:pre;overflow:auto;background:#142930;color:#ecf6f2;padding:20px;border-radius:7px;font:14px/1.55 ui-monospace,monospace}button{background:#17624f;color:white;border:0;padding:10px 18px;font:inherit;border-radius:6px;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #ca7829;outline-offset:4px}.copy-status{margin-left:12px}table{border-collapse:collapse;width:100%}th,td{padding:10px 8px;text-align:left;border-bottom:1px solid #dde4e1}code{overflow-wrap:anywhere}a{color:#125c8a}nav{display:flex;gap:18px;flex-wrap:wrap}.muted{color:#52656d}details{margin-top:12px}summary{cursor:pointer;font-weight:600}.table-wrap{overflow:auto}</style></head><body><main><p class="tag">HoreKa · Inference progress · 2 October 2026</p><h1>Count saved work.<br>Update the dataset.</h1>
+<p>Valerian, run step 1 in your already-open <strong>HoreKa login shell</strong> to see how many Qwen generation cells finished. Use step 2 for local failures and Gemma progress, then step 3 to publish saved Qwen results and count all published Qwen/Llama cells.</p>
+<p class="notice">This page is a command guide. Counts refresh when you run a command. It has no connection to the cluster and displays no invented live totals. No GPU allocation or inference is launched.</p>
+<nav><a href="#quick-section">1. Count Qwen</a><a href="#audit-section">2. Audit local inference</a><a href="#publish-section">3. Update Hugging Face</a><a href="#remote-section">4. Recount published totals</a></nav>
+<section id="quick-section"><p class="tag">1 · HOREKA LOGIN SHELL · start here</p><h2>How much Qwen work has finished?</h2><p>This fetches the tested code into its own pinned checkout and reads the current bout division. You can repeat it to refresh the counts.</p><button type="button" data-copy="quick">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="quick" tabindex="0">(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  INFERENCE_PIN=7a5d3bb89f2b3349cfdd2c80748f2fa5bf3a3f11
+  INFERENCE_CODE=&quot;$W/checkouts/inference-status-$INFERENCE_PIN&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/gemma-selected-cells
+  if [ ! -d &quot;$INFERENCE_CODE&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$INFERENCE_CODE&quot; &quot;$INFERENCE_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$INFERENCE_CODE&quot; rev-parse HEAD)&quot; = &quot;$INFERENCE_PIN&quot;
+  test -z &quot;$(git -C &quot;$INFERENCE_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$INFERENCE_CODE&quot;
+  &quot;$RT/bin/python&quot; &quot;$INFERENCE_CODE/analysis/scripts/audit_horeka_saved_progress.py&quot; \
+    &quot;$W&quot; --qwen-counts-only
+)
+</pre><p><a href="horeka-count-qwen.sh" download>Download count command</a></p>
+<div class="table-wrap"><table><thead><tr><th>Output field under qwen_unique_cells</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>total</code></td><td>Unique planned cells in CURRENT, counting overlapping bouts once</td></tr>
+<tr><td><code>recorded_finished</code></td><td>Cells recorded as completed in the local ledger</td></tr>
+<tr><td><code>known_unfinished</code></td><td>Known cells without success, including terminal failures</td></tr>
+<tr><td><code>unknown</code></td><td>Cells whose stripe could not be read safely</td></tr>
+<tr><td><code>states</code></td><td>Completed, terminal_failed, running, claimed, result_saved, retryable, checkpointed and unattempted counts</td></tr></tbody></table></div>
+<p><code>total = recorded_finished + known_unfinished + unknown</code>. These are generation cells. Each cell can involve multiple model calls and retries. Slurm job totals and API request counts measure different things.</p>
+<p>The CURRENT division covers its own backlog. Earlier completed/imported cells may be outside it. Busy ledger stripes are unknown; this is a per-stripe operational snapshot, without fresh result checksum validation.</p></section>
+<section id="audit-section"><p class="tag">2 · HOREKA LOGIN SHELL · after step 1</p><h2>Check unfinished cells and saved failures</h2><p>The full audit reads Qwen bout progress, known Gemma runs, Slurm status, storage evidence and bounded log tails. It writes a new audit directory each time.</p><button type="button" data-copy="audit">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="audit" tabindex="0">(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  INFERENCE_PIN=7a5d3bb89f2b3349cfdd2c80748f2fa5bf3a3f11
+  INFERENCE_CODE=&quot;$W/checkouts/inference-status-$INFERENCE_PIN&quot;
+  test &quot;$(git -C &quot;$INFERENCE_CODE&quot; rev-parse HEAD)&quot; = &quot;$INFERENCE_PIN&quot;
+  test -z &quot;$(git -C &quot;$INFERENCE_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$INFERENCE_CODE&quot;
+  mkdir -p &quot;$W/reviews&quot;
+  &quot;$RT/bin/python&quot; &quot;$INFERENCE_CODE/analysis/scripts/audit_horeka_saved_progress.py&quot;     &quot;$W&quot; hk-project-p0026831
+)
+</pre><p><a href="horeka-audit-inference.sh" download>Download full audit command</a></p><p>Look for <code>QWEN_UNIQUE_CELLS</code>, <code>FAILED QWEN saved progress</code>, <code>GEMMA_PASS</code> and <code>GEMMA_UNFINISHED_CELL</code>. Save the printed <code>AUDIT_DIRECTORY</code>; it contains <code>summary.txt</code>, <code>audit.json</code> and <code>audit.tar.gz</code>.</p>
+<p>The last returned Gemma selected run had 18/20 cells complete, two failed maps and ten blocked sources. That is historical evidence from job 5175156. This command checks what is saved now and keeps separate executions separate. <a href="horeka-repair-and-audit.html">Open the existing two-map repair instructions</a>.</p></section>
+<section id="publish-section"><p class="tag">3 · HOREKA LOGIN SHELL · after step 1</p><h2>Publish saved Qwen results and recount the dataset</h2>
+<p>This runs the existing finite Qwen publisher against <a href="https://huggingface.co/datasets/ValerianFourel/geodml-experiment-v2-paper-private">the private experiment dataset</a>. It verifies sealed result references, uploads missing terminal outcomes and verifies the remote copies before updating the Qwen index. Failed cells remain failures.</p>
+<p>It uses your saved Hugging Face login or <code>HF_TOKEN</code>. If neither exists, enter a write token at the hidden terminal prompt. Do not paste a token into this page or chat. The ledger snapshot briefly locks its stripes; running workers may wait during that read.</p><button type="button" data-copy="publish">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="publish" tabindex="0">(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  INFERENCE_PIN=7a5d3bb89f2b3349cfdd2c80748f2fa5bf3a3f11
+  INFERENCE_CODE=&quot;$W/checkouts/inference-status-$INFERENCE_PIN&quot;
+  test &quot;$(git -C &quot;$INFERENCE_CODE&quot; rev-parse HEAD)&quot; = &quot;$INFERENCE_PIN&quot;
+  test -z &quot;$(git -C &quot;$INFERENCE_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$INFERENCE_CODE&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  &quot;$RT/bin/python&quot; -u - &quot;$W&quot; &quot;$INFERENCE_CODE&quot; &quot;$INFERENCE_PIN&quot; &lt;&lt;&#x27;PY&#x27;
+from collections import Counter
+from datetime import datetime, timezone
+import fcntl
+import getpass
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import warnings
+
+workspace, code, pin = Path(sys.argv[1]).resolve(strict=True), Path(sys.argv[2]), sys.argv[3]
+sys.path.insert(0, str(code))
+from analysis.scripts import publish_qwen_results as publisher
+from analysis.scripts.audit_horeka_saved_progress import qwen_counts
+from analysis.scripts.report_inference_hub_progress import collect as published_counts
+from huggingface_hub import get_token
+from analysis.interpretability.pipeline.agentic_hour_sync import Exchange, HubStore
+
+def save(path, value):
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + &#x27;\n&#x27;)
+
+reviews = workspace / &#x27;reviews&#x27;
+reviews.mkdir(exist_ok=True)
+with (reviews / &#x27;qwen-hf-update.lock&#x27;).open(&#x27;a&#x27;) as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(&#x27;An update from this page is already running. Keep it and inspect its UPDATE_DIRECTORY.&#x27;)
+    output = Path(tempfile.mkdtemp(prefix=&#x27;qwen-hf-update-&#x27; + datetime.now(timezone.utc).strftime(&#x27;%Y%m%dT%H%M%S%fZ-&#x27;), dir=reviews))
+    print(&#x27;UPDATE_DIRECTORY&#x27;, output, flush=True)
+    token = &#x27;&#x27;
+    try:
+        division_path = Path((workspace / &#x27;qwen-bouts/CURRENT&#x27;).read_text().strip())
+        if not division_path.is_absolute():
+            raise ValueError(&#x27;CURRENT must contain an absolute division path&#x27;)
+        division_bytes = (division_path / &#x27;division.json&#x27;).read_bytes()
+        division = json.loads(division_bytes)
+        if division.get(&#x27;format_version&#x27;) != &#x27;geodml-horeka-qwen-bouts-v1&#x27; or division.get(&#x27;model&#x27;) != &#x27;qwen38&#x27;:
+            raise ValueError(&#x27;Expected the existing Qwen bout division&#x27;)
+        dataset = Path(division[&#x27;dataset_root&#x27;]).resolve(strict=True)
+        contract_bytes = (dataset / &#x27;contract.json&#x27;).read_bytes()
+        if json.loads(contract_bytes).get(&#x27;format_version&#x27;) != &#x27;geodml-incremental-dataset-v1&#x27;:
+            raise ValueError(&#x27;Unsupported dataset contract&#x27;)
+        layout = qwen_counts(workspace)
+        local = layout[&#x27;qwen_unique_cells&#x27;]
+        if local.get(&#x27;unavailable&#x27;) or layout.get(&#x27;division&#x27;) != str(division_path):
+            raise ValueError(&#x27;Cannot establish the current dataset ledger layout: &#x27; + str(local))
+        stripes = local[&#x27;ledger_stripes&#x27;]
+        save(output / &#x27;qwen-counts-before.json&#x27;, layout)
+        destination = &#x27;ValerianFourel/geodml-experiment-v2-paper-private&#x27;
+        context = {&#x27;started_utc&#x27;: datetime.now(timezone.utc).isoformat(), &#x27;dataset_root&#x27;: str(dataset),
+                   &#x27;division&#x27;: str(division_path), &#x27;division_sha256&#x27;: hashlib.sha256(division_bytes).hexdigest(),
+                   &#x27;contract_sha256&#x27;: hashlib.sha256(contract_bytes).hexdigest(), &#x27;repo_id&#x27;: destination,
+                   &#x27;publication_code_commit&#x27;: pin, &#x27;ledger_stripes&#x27;: stripes, &#x27;source_commit_meaning&#x27;: &#x27;publication helper, not generator execution&#x27;,
+                   &#x27;source_settings_changed&#x27;: False, &#x27;new_inference_started&#x27;: False}
+        save(output / &#x27;context.json&#x27;, context)
+        warnings.simplefilter(&#x27;error&#x27;, getpass.GetPassWarning)
+        token = get_token() or &#x27;&#x27;
+        if not token:
+            with open(&#x27;/dev/tty&#x27;, &#x27;r+&#x27;) as terminal:
+                token = getpass.getpass(&#x27;HF WRITE token for the private dataset (hidden): &#x27;, stream=terminal).strip()
+        if not token:
+            raise ValueError(&#x27;A write token is required in the terminal prompt&#x27;)
+        os.environ[&#x27;HF_TOKEN&#x27;] = token
+        os.environ[&#x27;HUGGING_FACE_HUB_TOKEN&#x27;] = token
+        # HubStore verifies that the destination already exists and is private.
+        store = HubStore(destination)
+        exchange = Exchange(store, output / &#x27;journal&#x27;)
+        print(&#x27;CHECK_AND_PUBLISH&#x27;, dataset, &#x27;-&gt;&#x27;, destination, flush=True)
+        print(&#x27;Checking saved task identities and sealed references. This can take time before upload progress appears.&#x27;, flush=True)
+        result = publisher.publish(exchange, dataset, stripes=stripes, apply=True, source_commit=pin)
+        save(output / &#x27;publish.json&#x27;, result)
+        revision = store.head()
+        index = publisher.read_index(store, revision)
+        save(output / &#x27;index-after.json&#x27;, index)
+        indexed = {entry[&#x27;bundle&#x27;]: entry for entry in index[&#x27;bundles&#x27;]}
+        new_completed = new_failed = 0
+        for entry in result[&#x27;bundles&#x27;]:
+            if indexed.get(entry[&#x27;bundle&#x27;]) != entry:
+                raise ValueError(&#x27;Published bundle receipt does not match the saved remote index&#x27;)
+            manifest = exchange.manifest(entry[&#x27;bundle&#x27;], revision=revision)
+            counts = Counter(event[&#x27;state&#x27;] for event in manifest[&#x27;outcomes&#x27;].values())
+            if counts.get(&#x27;completed&#x27;, 0) != entry[&#x27;completed&#x27;] or counts.get(&#x27;terminal_failed&#x27;, 0) != entry[&#x27;failed&#x27;]:
+                raise ValueError(&#x27;Published outcome counts differ from the remote index&#x27;)
+            if set(counts) - {&#x27;completed&#x27;, &#x27;terminal_failed&#x27;}:
+                raise ValueError(&#x27;Unexpected nonterminal outcome in the published bundle&#x27;)
+            new_completed += entry[&#x27;completed&#x27;]
+            new_failed += entry[&#x27;failed&#x27;]
+        receipt = {&#x27;status&#x27;: &#x27;partial_with_blocked_writers&#x27; if result[&#x27;blocked&#x27;] else
+                   &#x27;updated&#x27; if result[&#x27;bundles&#x27;] else &#x27;nothing_new_at_snapshot&#x27;,
+                   &#x27;repo_id&#x27;: destination, &#x27;revision&#x27;: revision,
+                   &#x27;new_completed_published&#x27;: new_completed, &#x27;new_terminal_failures_recorded&#x27;: new_failed,
+                   &#x27;blocked_writers&#x27;: result[&#x27;blocked&#x27;], &#x27;new_bundles_checked&#x27;: len(result[&#x27;bundles&#x27;]),
+                   &#x27;remote_data_verification&#x27;: &#x27;performed by existing publisher before index update&#x27;,
+                   &#x27;finished_utc&#x27;: datetime.now(timezone.utc).isoformat(),
+                   &#x27;full_population_complete&#x27;: None}
+        save(output / &#x27;verification.json&#x27;, receipt)
+        print(json.dumps(receipt, indent=2), flush=True)
+        print(&#x27;UPDATE_DIRECTORY&#x27;, output, flush=True)
+        progress = published_counts(exchange, revision=revision)
+        progress[&#x27;repo_id&#x27;] = destination
+        save(output / &#x27;hub-progress.json&#x27;, progress)
+        print(&#x27;PUBLISHED_INFERENCE_COUNTS&#x27;, json.dumps(progress, indent=2), flush=True)
+        print(&#x27;HF_REPORT&#x27;, output / &#x27;hub-progress.json&#x27;, flush=True)
+        if result[&#x27;blocked&#x27;] or progress[&#x27;status&#x27;] != &#x27;counted&#x27;:
+            raise SystemExit(2)
+    except Exception as error:
+        message = str(error).replace(token, &#x27;[REDACTED]&#x27;) if token else str(error)
+        save(output / &#x27;error.json&#x27;, {&#x27;error_type&#x27;: type(error).__name__, &#x27;message&#x27;: message,
+                                   &#x27;time_utc&#x27;: datetime.now(timezone.utc).isoformat(),
+                                   &#x27;partial_remote_upload_possible&#x27;: True})
+        print(&#x27;UPDATE_FAILED&#x27;, type(error).__name__, message, file=sys.stderr, flush=True)
+        print(&#x27;INSPECT_UPDATE_DIRECTORY&#x27;, output, file=sys.stderr, flush=True)
+        raise SystemExit(1)
+PY
+)
+</pre><p><a href="horeka-update-hf-inference.sh" download>Download dataset update command</a></p>
+<p>At completion, <code>PUBLISHED_INFERENCE_COUNTS</code> contains the deduplicated remote totals. <code>UPDATE_DIRECTORY</code> contains the publication receipt and <code>hub-progress.json</code>. A blocked writer or incomplete remote evidence returns status 2 with details. Preserve those files and rerun the same command after resolving the reported issue; verified uploads are reused.</p>
+<p>This transfers terminal Qwen records present on this HoreKa dataset. Llama and Nemotron counts come from their existing published checkpoints. Gemma development reviews remain local diagnostics; this Qwen uploader does not publish or merge them. Data saved only on JUPITER must be synchronized through its owning workflow before it can appear in published totals.</p></section>
+<section id="remote-section"><p class="tag">4 · HOREKA LOGIN SHELL · after step 1 · read only</p><h2>Check total published inference without uploading</h2><p>Run this whenever you only need the remote counts. The report reads the Qwen index and registered hour checkpoints at one fixed Hugging Face revision, counting each identity once across overlapping bundles and replans.</p><button type="button" data-copy="remote">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="remote" tabindex="0">(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  INFERENCE_PIN=7a5d3bb89f2b3349cfdd2c80748f2fa5bf3a3f11
+  INFERENCE_CODE=&quot;$W/checkouts/inference-status-$INFERENCE_PIN&quot;
+  test &quot;$(git -C &quot;$INFERENCE_CODE&quot; rev-parse HEAD)&quot; = &quot;$INFERENCE_PIN&quot;
+  test -z &quot;$(git -C &quot;$INFERENCE_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$INFERENCE_CODE&quot;
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  mkdir -p &quot;$W/reviews&quot;
+  &quot;$RT/bin/python&quot; -u - &quot;$W&quot; &lt;&lt;&#x27;PY&#x27;
+from datetime import datetime, timezone
+import getpass
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import warnings
+from huggingface_hub import get_token
+from analysis.interpretability.pipeline.agentic_hour_sync import Exchange, HubStore
+from analysis.scripts.report_inference_hub_progress import collect
+
+workspace = Path(sys.argv[1])
+output = Path(tempfile.mkdtemp(prefix=&#x27;inference-hub-counts-&#x27;, dir=workspace / &#x27;reviews&#x27;))
+token = get_token() or &#x27;&#x27;
+try:
+    if not token:
+        warnings.simplefilter(&#x27;error&#x27;, getpass.GetPassWarning)
+        with open(&#x27;/dev/tty&#x27;, &#x27;r+&#x27;) as terminal:
+            token = getpass.getpass(&#x27;HF token for private dataset read access (hidden): &#x27;, stream=terminal).strip()
+    if not token:
+        raise ValueError(&#x27;HF read access is required&#x27;)
+    os.environ[&#x27;HF_TOKEN&#x27;] = token
+    destination = &#x27;ValerianFourel/geodml-experiment-v2-paper-private&#x27;
+    report = collect(Exchange(HubStore(destination), output / &#x27;unused-journal&#x27;))
+    report[&#x27;repo_id&#x27;] = destination
+    path = output / &#x27;hub-progress.json&#x27;
+    path.write_text(json.dumps(report, indent=2) + &#x27;\n&#x27;)
+    print(json.dumps(report, indent=2), flush=True)
+    print(&#x27;HF_REPORT&#x27;, path, flush=True)
+    raise SystemExit(0 if report[&#x27;status&#x27;] == &#x27;counted&#x27; else 2)
+except Exception as error:
+    message = str(error).replace(token, &#x27;[REDACTED]&#x27;) if token else str(error)
+    print(&#x27;HF_COUNTS_UNAVAILABLE&#x27;, type(error).__name__, message, file=sys.stderr)
+    raise SystemExit(1)
+PY
+)
+</pre><p><a href="horeka-count-published-inference.sh" download>Download published-count command</a></p>
+<div class="table-wrap"><table><thead><tr><th>Report field</th><th>What it counts</th></tr></thead><tbody>
+<tr><td><code>generator_totals.completed</code></td><td>Total known unique published Qwen + Llama successful generation cells</td></tr>
+<tr><td><code>models.qwen38.completed</code></td><td>Published Qwen successes, including indexed historical results</td></tr>
+<tr><td><code>models.llama4.completed</code></td><td>Published Llama successes backed by registered checkpoints</td></tr>
+<tr><td><code>models.nemotron.completed</code></td><td>Published Nemotron task identities, separate from generation cells</td></tr>
+<tr><td><code>terminal_failed</code> / <code>conflicts</code></td><td>Terminal failures and disputed identities, excluded from successes</td></tr>
+<tr><td><code>registry_expected</code> / <code>registry_unresolved</code></td><td>Unique identities in registered hours and those lacking consistent terminal evidence</td></tr></tbody></table></div>
+<p><code>status: partial</code> means the counts cover only readable consistent evidence; inspect <code>issues</code>. Null means unavailable. <code>expected_total: null</code> means the full frozen-population denominator is unknown, so a whole-experiment completion percentage cannot be calculated from these indexes.</p>
+<p>Do not add local and published counts: many cells are in both. The remote report checks manifest hashes, identities and registry joins. It does not download every result shard or establish scientific acceptance.</p></section>
+<footer class="muted"><p>Executable code pinned to <code>7a5d3bb89f2b3349cfdd2c80748f2fa5bf3a3f11</code>. Commands preserve claims, jobs, original answers and saved results. No cluster command or dataset upload has been executed by Codex.</p></footer>
+</main><script>
+for(const button of document.querySelectorAll('[data-copy]'))button.addEventListener('click',async()=>{const block=document.getElementById(button.dataset.copy);const status=button.nextElementSibling;try{await navigator.clipboard.writeText(block.textContent);status.textContent='Copied.';}catch(error){const selection=window.getSelection();const range=document.createRange();range.selectNodeContents(block);selection.removeAllRanges();selection.addRange(range);status.textContent='Selected. Press Cmd+C or Ctrl+C to copy.';}});
+</script></body></html>

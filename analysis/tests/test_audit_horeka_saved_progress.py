@@ -142,3 +142,57 @@ def test_unique_qwen_counts_deduplicate_spill_and_keep_unreadable_stripes_unknow
     assert result["unknown"] == (2 if unavailable else 0)
     assert result["states"].get("terminal_failed", 0) == (0 if unavailable else 1)
     assert {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
+
+
+@pytest.mark.parametrize("metadata", ["valid", "corrupt", "conflicting_stripes", "wrong_division"])
+def test_qwen_counts_cli_uses_only_existing_qwen_evidence(tmp_path, monkeypatch, capsys, metadata):
+    workspace = tmp_path / "workspace"
+    division = workspace / "qwen-bouts/division"
+    dataset = workspace / "dataset"
+    fingerprint = "a" * 64
+    put(division / "division.json", {"format_version": "geodml-horeka-qwen-bouts-v1",
+        "model": "llama4" if metadata == "wrong_division" else "qwen38",
+        "bouts": [{"number": 1}], "dataset_root": str(dataset)})
+    (workspace / "qwen-bouts/CURRENT").write_text(str(division))
+    bout = division / "bouts/bout-0001"
+    put(bout / "bout.json", {"primary_fingerprints": [fingerprint], "spill_fingerprints": []})
+    put(bout / "config.json", {"dataset_root": str(dataset)})
+    put(bout / "attempts/job1/results/run_manifest.json", {"direct_dataset": {"ledger_stripes": 1}})
+    result = put(bout / "attempts/job1/bout-result.json", {
+        "direct_dataset": {"ledger_stripes": 2 if metadata == "conflicting_stripes" else 1}})
+    if metadata == "corrupt":
+        result.write_text("{")
+    ledger = dataset / "control/task-ledger"
+    (ledger / "locks").mkdir(parents=True)
+    (ledger / "locks/stripe-0000.lock").touch()
+    put(ledger / "events/stripe-0000.jsonl", {
+        "format_version": "geodml-agentic-task-event-v1", "fingerprint": fingerprint, "state": "completed"})
+    put(workspace / "reviews/gemma-selected-fixture/run/config.json", {"unrelated": True})
+    (bout / "attempts/job1/server.log").write_text("unrelated log")
+    before = {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
+    original_open = audit.Path.open
+
+    def scoped_open(path, *args, **kwargs):
+        assert "reviews" not in path.parts and path.suffix != ".log", "counts read unrelated artifacts"
+        return original_open(path, *args, **kwargs)
+
+    def no_commands(*args, **kwargs):
+        pytest.fail("counts-only must not execute scheduler, quota or other subprocesses")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(audit.Path, "open", scoped_open)
+        patch.setattr(audit.subprocess, "run", no_commands)
+        patch.setattr(sys, "argv", ["audit", str(workspace), "--qwen-counts-only"])
+        code = audit.main()
+    report = json.loads(capsys.readouterr().out)
+    assert report["started_utc"] <= report["ended_utc"]
+    counts = report["qwen_unique_cells"]
+    if metadata == "valid":
+        assert code == 0
+        assert counts["total"] == counts["recorded_finished"] == 1
+        assert counts["ledger_stripes"] == 1
+        assert counts["known_unfinished"] == counts["unknown"] == 0
+    else:
+        assert code == 1 and counts.get("unavailable")
+        assert "recorded_finished" not in counts
+    assert {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()} == before
