@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gemma recovery · job 5175111</title><style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gemma: choose cells and run</title><style>
 :root { color-scheme: light; --paper:#f3f5f4; --card:#fff; --ink:#172b32; --muted:#50646b; --line:#cbd6d6; --accent:#006c70; --tint:#e0f0ed; --code:#10242c; --code-ink:#e2edef; }
 @media (prefers-color-scheme:dark) { :root { color-scheme:dark; --paper:#0e1a20; --card:#15272e; --ink:#e2edef; --muted:#b2c4c9; --line:#415860; --accent:#8bd3cb; --tint:#1d3c3d; --code:#09171d; } }
 * { box-sizing:border-box; }
@@ -37,235 +37,46 @@ td:first-child { width:35%; }
 footer { margin-top:16px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:14px; }
 @media(max-width:540px) { main { padding:24px 14px 40px; } .note { padding:15px; } th,td { padding:10px 5px; } }
 </style></head>
-<body><main><header><p class="eyebrow">Rebuilt 2 October 2026 · Existing HoreKa allocation 5175111</p>
-<h1>Repair Gemma and use the existing job</h1>
-<p class="lede">Valerian, start at step 1 on this page. Prepare the repaired copy in a login terminal, then run it in the compute shell already belonging to <code>5175111</code>. Keep that compute shell open.</p>
-<p>The commands below use the published repair at <code>1bf21cb…</code>. The failed original remains in <code>gemma-si-v4-development-20261001</code>. The corrected run has a separate directory ending in <code>hashfix-job5175111</code>.</p></header>
-<nav aria-label="Recovery steps"><a href="#prepare">1. Prepare</a><a href="#run">2. Run</a><a href="#task-counts">3. Results and errors</a></nav>
-<div class="note"><p><strong>Use this page from the beginning.</strong> Your latest paste still runs the original <code>9aa5d90…</code> launcher and its admission check. The last <code>FileExistsError</code> protects the original attempt directory. Leave that directory and its markers in place.</p>
-<p>The account count of 208 and <code>CAP=294</code> do not repair the input mismatch. No queue-cap change is needed for this recovery.</p></div>
+<body><main><header><p class="eyebrow">HoreKa · 2 October 2026 · Selected development cells</p>
+<h1>Choose cells. Run one Gemma pass.</h1>
+<p class="lede">Valerian, paste step 1 in a HoreKa login terminal. It offers saved cells at random, lets you choose, then prepares a separate run for an existing Gemma allocation.</p>
+<p>Your old attempts and results stay in place. Keep the allocation-owning shell open. Use the new command below in place of the old <code>f256b688… check</code> block.</p></header>
+<nav aria-label="Workflow"><a href="#prepare">1. Choose cells</a><a href="#run">2. Run your selection</a><a href="#task-counts">3. Results and errors</a></nav>
 <section id="prepare" aria-labelledby="prepare-heading">
-<div class="step-heading"><span class="step-number">1</span><div><p class="terminal">LOGIN TERMINAL · hkn1991 or hkn1993</p><h2 id="prepare-heading">Prepare the corrected copy</h2></div></div>
-<p>Paste the whole block into a separate HoreKa login terminal. It verifies the published checkout, the original frozen files and prior task state, then adds only missing source-hash metadata in a separate copy. A previously verified, unattempted corrected copy is rechecked and reused.</p><div class="command"><div class="toolbar"><span>LOGIN TERMINAL · hkn1991 or hkn1993</span><button type="button" class="copy" aria-label="Copy step 1" aria-controls="prepare-code">Copy step 1</button></div><div id="prepare-code"><pre><code>(
+<div class="step-heading"><span class="step-number">1</span><div><p class="terminal">LOGIN TERMINAL · hkn1991 or hkn1993</p><h2 id="prepare-heading">Offer cells and save your choices</h2></div></div>
+<p>The helper verifies the original saved source bundles and offers up to 20 cells. Each entry shows its number, model, request, source count and answer preview. Type numbers such as <code>2,5,9</code>, or <code>all</code>, then press Enter. An empty answer cancels.</p>
+<div class="command"><div class="toolbar"><span>LOGIN TERMINAL · select and prepare</span><button type="button" class="copy" aria-label="Copy selection command" aria-controls="selection-code">Copy selection</button></div><div id="selection-code"><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_FIX_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
-  V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
-  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
-  if [ ! -d &quot;$V4_FIX_REPO&quot; ]; then
-    git -C &quot;$REPO&quot; worktree add --detach &quot;$V4_FIX_REPO&quot; &quot;$V4_FIX_PIN&quot;
+  GEMMA_PICK_PIN=d47418b81b93057a02cc54e0383492835400be79
+  GEMMA_PICK_REPO=&quot;$W/checkouts/gemma-selected-$GEMMA_PICK_PIN&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/gemma-selected-cells
+  if [ ! -d &quot;$GEMMA_PICK_REPO&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$GEMMA_PICK_REPO&quot; &quot;$GEMMA_PICK_PIN&quot;
   fi
-  test &quot;$(git -C &quot;$V4_FIX_REPO&quot; rev-parse HEAD)&quot; = &quot;$V4_FIX_PIN&quot;
-  test -z &quot;$(git -C &quot;$V4_FIX_REPO&quot; status --porcelain --untracked-files=all)&quot;
-  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
-  &quot;$RT/bin/python&quot; - &quot;$W&quot; &quot;$V4_FIX_REPO&quot; &lt;&lt;&#x27;PY&#x27;
-import copy
-import json
-import os
-import sqlite3
-import subprocess
-import time
-from contextlib import closing
-from pathlib import Path
-import sys
-import tempfile
-from types import SimpleNamespace
-sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
-from analysis.scripts import horeka_si_v4 as pilot
-
-workspace = Path(sys.argv[1]).resolve()
-old = workspace / &#x27;reviews/gemma-si-v4-development-20261001&#x27;
-new = workspace / &#x27;reviews/gemma-si-v4-development-20261002-hashfix-job5175111&#x27;
-config = json.loads((old / &#x27;config.json&#x27;).read_text())
-reuse = new.exists()
-if reuse:
-    if any((new / &#x27;attempts&#x27;).glob(&#x27;job*&#x27;)):
-        raise SystemExit(&#x27;CORRECTED_RUN_ALREADY_ATTEMPTED: run step 3 and send the output; do not retry.&#x27;)
-    receipt_path = new / &#x27;HASH_REPAIR_VERIFIED.json&#x27;
-    if not receipt_path.is_file() or not (new / &#x27;config.json&#x27;).is_file():
-        raise SystemExit(&#x27;REPAIR_INCOMPLETE: preserve this directory and send step 3 output.&#x27;)
-    receipt = json.loads(receipt_path.read_text())
-    fixed = json.loads((new / &#x27;config.json&#x27;).read_text())
-    if (receipt.get(&#x27;config_sha256&#x27;) != pilot.judge.file_hash(new / &#x27;config.json&#x27;)
-            or receipt.get(&#x27;existing_job_id&#x27;) != &#x27;5175111&#x27;
-            or fixed.get(&#x27;existing_job_id&#x27;) != &#x27;5175111&#x27;
-            or fixed.get(&#x27;git_commit&#x27;) != &#x27;1bf21cb0e37374634be30a07bca9079ec18d6f87&#x27;
-            or fixed.get(&#x27;repository&#x27;) != str(Path(sys.argv[2]).resolve())
-            or fixed.get(&#x27;original_config_sha256&#x27;) != pilot.judge.file_hash(old / &#x27;config.json&#x27;)):
-        raise SystemExit(&#x27;REPAIR_MISMATCH: preserve files and send step 3 output.&#x27;)
-    if (new / &#x27;run.sh&#x27;).read_bytes() != pilot.gemma.run_script(Path(fixed[&#x27;repository&#x27;]), new):
-        raise SystemExit(&#x27;REPAIR_MISMATCH: saved launcher differs from the verified preparation.&#x27;)
-    for name, manifest in fixed[&#x27;inventories&#x27;].items():
-        if json.loads((new / name / &#x27;manifest.json&#x27;).read_text()) != manifest:
-            raise SystemExit(&#x27;REPAIR_MISMATCH: saved manifest changed: &#x27; + name)
-        for filename, expected in manifest[&#x27;files&#x27;].items():
-            if pilot.judge.file_hash(new / name / filename) != expected:
-                raise SystemExit(&#x27;REPAIR_MISMATCH: frozen file changed: &#x27; + name + &#x27;/&#x27; + filename)
-if config[&#x27;git_commit&#x27;] != &#x27;9aa5d90e0b310f3eea587a60787727787ab92757&#x27;:
-    raise SystemExit(&#x27;Unexpected original execution pin&#x27;)
-fields = dict(t.split(&#x27;=&#x27;, 1) for t in subprocess.check_output(
-    [&#x27;scontrol&#x27;, &#x27;show&#x27;, &#x27;job&#x27;, &#x27;5175111&#x27;, &#x27;-o&#x27;], text=True, timeout=30).split() if &#x27;=&#x27; in t)
-pilot.stage.check_bound_allocation({&#x27;existing_job_id&#x27;: &#x27;5175111&#x27;, &#x27;minimum_remaining_seconds&#x27;: 1200},
-                                  &#x27;5175111&#x27;, fields)
-if (fields.get(&#x27;JobId&#x27;) != &#x27;5175111&#x27; or fields.get(&#x27;JobName&#x27;) != pilot.JOB_NAME
-        or fields.get(&#x27;TimeLimit&#x27;) != &#x27;01:00:00&#x27; or fields.get(&#x27;Account&#x27;) != config[&#x27;account&#x27;]
-        or fields.get(&#x27;Partition&#x27;) != &#x27;dev_accelerated&#x27;
-        or not fields.get(&#x27;UserId&#x27;, &#x27;&#x27;).endswith(&#x27;(&#x27; + str(os.getuid()) + &#x27;)&#x27;)):
-    raise SystemExit(&#x27;STOP: existing allocation identity or resources differ from the supplied job.&#x27;)
-print(&#x27;EXISTING_ALLOCATION&#x27;, fields[&#x27;JobId&#x27;], fields[&#x27;JobState&#x27;], &#x27;END&#x27;, fields[&#x27;EndTime&#x27;], flush=True)
-# The failed import rolls back its task transaction. Refuse to replay saved work.
-prior_indexes = []
-for attempt in sorted((old / &#x27;attempts&#x27;).glob(&#x27;job*&#x27;)):
-    result = attempt / &#x27;trial-result.json&#x27;
-    if not result.is_file() or json.loads(result.read_text()).get(&#x27;status&#x27;) not in (&#x27;completed&#x27;, &#x27;failed&#x27;, &#x27;deadline&#x27;):
-        raise SystemExit(&#x27;STOP: prior attempt is not reconciled; inspect &#x27; + str(attempt))
-    for index in sorted((attempt / &#x27;trial&#x27;).glob(&#x27;*/control/index.sqlite&#x27;)):
-        with closing(sqlite3.connect(index.resolve().as_uri() + &#x27;?mode=ro&#x27;, uri=True)) as db:
-            count = db.execute(&#x27;SELECT COUNT(*) FROM tasks&#x27;).fetchone()[0]
-        prior_indexes.append({&#x27;path&#x27;: str(index), &#x27;tasks&#x27;: count})
-        print(&#x27;PRIOR_INDEX&#x27;, index, &#x27;TASKS&#x27;, count, flush=True)
-        if count != 0:
-            raise SystemExit(&#x27;STOP: prior task state exists; reconcile it instead of repeating judgments.&#x27;)
-if not prior_indexes:
-    raise SystemExit(&#x27;STOP: expected failed-import indexes are missing; inspect the old attempts.&#x27;)
-if pilot.judge.file_hash(old / &#x27;judge-config.json&#x27;) != config[&#x27;judge_config_sha256&#x27;]:
-    raise SystemExit(&#x27;Original judge configuration changed&#x27;)
-for name, manifest in config[&#x27;inventories&#x27;].items():
-    if json.loads((old / name / &#x27;manifest.json&#x27;).read_text()) != manifest:
-        raise SystemExit(&#x27;Original manifest changed: &#x27; + name)
-    for filename, expected in manifest[&#x27;files&#x27;].items():
-        if pilot.judge.file_hash(old / name / filename) != expected:
-            raise SystemExit(&#x27;Original frozen file changed: &#x27; + name + &#x27;/&#x27; + filename)
-for filename, expected in config[&#x27;source_files&#x27;].items():
-    if pilot.judge.file_hash(Path(filename)) != expected:
-        raise SystemExit(&#x27;Original source bundle changed: &#x27; + filename)
-
-if not reuse:
-    pilot.prepare(SimpleNamespace(workspace=workspace, output=new,
-        bundle=[Path(p) for p in config[&#x27;source_files&#x27;]],
-        account=config[&#x27;account&#x27;], walltime=&#x27;01:00:00&#x27;,
-        approval=&#x27;Valerian requested source-hash repair and continuation only inside existing one-hour job 5175111. No new allocation.&#x27;))
-if (new / &#x27;judge-config.json&#x27;).read_bytes() != (old / &#x27;judge-config.json&#x27;).read_bytes():
-    raise SystemExit(&#x27;STOP: judge configuration changed&#x27;)
-# Compare semantic records, not gzip headers. Only missing cell hashes may change.
-filled = 0
-for name in (&#x27;v3-inputs&#x27;, &#x27;v4-inputs&#x27;, &#x27;constructed-inputs&#x27;):
-    before = list(pilot.judge.rows(old / name / &#x27;tasks.jsonl.gz&#x27;))
-    after = list(pilot.judge.rows(new / name / &#x27;tasks.jsonl.gz&#x27;))
-    if before != after:
-        raise SystemExit(&#x27;STOP: frozen task records changed: &#x27; + name)
-    original_cells = list(pilot.judge.rows(old / name / &#x27;cells.jsonl.gz&#x27;))
-    fixed_cells = list(pilot.judge.rows(new / name / &#x27;cells.jsonl.gz&#x27;))
-    expected_cells = copy.deepcopy(original_cells)
-    by_id = {r[&#x27;judge_task_id&#x27;]: r for r in before}
-    for cell in expected_cells:
-        for source in cell.get(&#x27;sources&#x27;, []):
-            task = by_id[source.get(&#x27;dependency_id&#x27;, source.get(&#x27;judge_task_id&#x27;))]
-            expected_hash = pilot.judge._digest({&#x27;title&#x27;: task[&#x27;source_title&#x27;], &#x27;text&#x27;: task[&#x27;source_text&#x27;]})
-            if &#x27;source_sha256&#x27; not in source:
-                source[&#x27;source_sha256&#x27;] = expected_hash
-                filled += 1
-            elif source[&#x27;source_sha256&#x27;] != expected_hash:
-                raise SystemExit(&#x27;STOP: conflicting original source hash&#x27;)
-    if expected_cells != fixed_cells:
-        raise SystemExit(&#x27;STOP: additional cell changes: &#x27; + name)
-    with tempfile.TemporaryDirectory(prefix=&#x27;input-check-&#x27;, dir=new) as temporary:
-        coordinator = pilot.judge.Coordinator(new / name, Path(temporary) / &#x27;results&#x27;, {&#x27;gpu_count&#x27;: 4})
-        coordinator.close()
-if not reuse:
-    # Bind continuation to this allocation; do not authorize another allocation.
-    fixed = json.loads((new / &#x27;config.json&#x27;).read_text())
-    fixed.update(existing_job_id=&#x27;5175111&#x27;, minimum_remaining_seconds=1200,
-        recovery_from=str(old), original_config_sha256=pilot.judge.file_hash(old / &#x27;config.json&#x27;),
-        cache_prefix=&#x27;gemma4-si-v4-hashfix&#x27;, recovery_prior_indexes=prior_indexes,
-        recovery_allocation={key: fields.get(key) for key in
-            (&#x27;JobId&#x27;, &#x27;JobName&#x27;, &#x27;JobState&#x27;, &#x27;Account&#x27;, &#x27;Partition&#x27;, &#x27;TimeLimit&#x27;, &#x27;EndTime&#x27;, &#x27;NodeList&#x27;)})
-    fixed[&#x27;estimate&#x27;].update(new_allocation=False, additional_allocation_hours=0,
-        remaining_seconds_at_recovery=int(pilot.stage.datetime.fromisoformat(fields[&#x27;EndTime&#x27;]).timestamp() - time.time()))
-    pilot.atomic(new / &#x27;config.json&#x27;, pilot.judge.canonical(fixed).encode())
-    pilot.atomic(new / &#x27;HASH_REPAIR_VERIFIED.json&#x27;, pilot.judge.canonical({
-        &#x27;config_sha256&#x27;: pilot.judge.file_hash(new / &#x27;config.json&#x27;),
-        &#x27;missing_cell_hashes_filled&#x27;: filled, &#x27;task_records_unchanged&#x27;: True,
-        &#x27;coordinator_imports_passed&#x27;: 3, &#x27;existing_job_id&#x27;: &#x27;5175111&#x27;,
-        &#x27;allocation_submitted&#x27;: False, &#x27;inference_started&#x27;: False}).encode())
-print(&#x27;PREPARATION_REUSED&#x27; if reuse else &#x27;PREPARATION_CREATED&#x27;, new)
-print(&#x27;HASH_REPAIR_VERIFIED&#x27;, new)
-print(&#x27;MISSING_CELL_HASHES_FILLED&#x27;, filled)
-print(&#x27;Original preparation and attempts preserved. No inference started.&#x27;)
-PY
+  test &quot;$(git -C &quot;$GEMMA_PICK_REPO&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_PICK_PIN&quot;
+  test -z &quot;$(git -C &quot;$GEMMA_PICK_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_PICK_REPO/analysis/scripts/horeka_si_v4.py&quot; fresh \
+    --workspace &quot;$W&quot; \
+    --source-run &quot;$W/reviews/gemma-si-v4-development-20261001&quot;
 )</code></pre></div></div>
-<p class="check">Continue only after <code>HASH_REPAIR_VERIFIED</code>. If a check stops, copy its output and step 3 output. Existing task rows require reconciliation; they are not repeated.</p></section>
+<p class="check">Expect <code>FRESH_DIRECTORY</code>, your candidate list, and a selection prompt. This step saves inputs and prepares the run; model execution starts in step 2.</p>
+<p>The sample comes from the saved development pool, normally 40 cells. The recorded seed is <code>20261002</code>, so the same pool gives the same candidate list. This is a diagnostic selection with your choice of cells. It is not a random sample of the full dataset. Only selected cells enter the new run.</p>
+<p>If several Gemma allocations are running, the helper asks which job ID to use. If none is running, it prints <code>SELECTION_SAVED_NO_RUNNING_ALLOCATION</code> and keeps your selection. If preparation stops, its error is saved beside <code>selected-inputs.json</code>.</p></section>
 <section id="run" aria-labelledby="run-heading">
-<div class="step-heading"><span class="step-number">2</span><div><p class="terminal">COMPUTE TERMINAL · job 5175111 on hkn0402</p><h2 id="run-heading">Run the corrected preparation</h2></div></div>
-<p>After step 1 succeeds, switch to the compute shell you already opened. This checks its job ID, the repair receipt, corrected launcher, remaining time and fresh storage evidence before loading the model. Leave this shell open while the command runs.</p><div class="command"><div class="toolbar"><span>COMPUTE TERMINAL · job 5175111 on hkn0402</span><button type="button" class="copy" aria-label="Copy step 2" aria-controls="run-code">Copy step 2</button></div><div id="run-code"><pre><code>(
-  set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  if [ &quot;${SLURM_JOB_ID:-}&quot; != 5175111 ]; then
-    printf &#x27;%s\n&#x27; &#x27;WRONG_SHELL: use the compute shell already owned by job 5175111.&#x27;
-    exit 1
-  fi
-  V4_FIX_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
-  V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
-  V4_FIXED_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-hashfix-job5175111&quot;
-  if [ ! -f &quot;$V4_FIX_REPO/analysis/scripts/horeka_si_v4.py&quot; ]; then
-    printf &#x27;%s\n&#x27; &#x27;STOP: corrected checkout missing. Run step 1: Rebuild and validate corrected inputs.&#x27;
-    exit 1
-  fi
-  if [ ! -f &quot;$V4_FIXED_RUN/HASH_REPAIR_VERIFIED.json&quot; ]; then
-    printf &#x27;%s\n&#x27; &#x27;STOP: repair receipt missing. Step 1 has not completed successfully. Send its output.&#x27;
-    exit 1
-  fi
-  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
-  &quot;$RT/bin/python&quot; - &quot;$V4_FIXED_RUN&quot; &quot;$V4_FIX_REPO&quot; &lt;&lt;&#x27;PY&#x27;
-import json
-from pathlib import Path
-import subprocess
-import sys
-sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
-from analysis.scripts import horeka_si_v4 as pilot
-import os
-root = Path(sys.argv[1]).resolve()
-if (root / &#x27;attempts/job5175111&#x27;).exists():
-    raise SystemExit(&#x27;CORRECTED_RUN_ALREADY_ATTEMPTED: run step 3 and send the output; do not retry.&#x27;)
-receipt = json.loads((root / &#x27;HASH_REPAIR_VERIFIED.json&#x27;).read_text())
-if receipt[&#x27;config_sha256&#x27;] != pilot.judge.file_hash(root / &#x27;config.json&#x27;):
-    raise SystemExit(&#x27;Corrected configuration differs from verification receipt&#x27;)
-config = json.loads((root / &#x27;config.json&#x27;).read_text())
-if config.get(&#x27;existing_job_id&#x27;) != &#x27;5175111&#x27; or receipt.get(&#x27;existing_job_id&#x27;) != &#x27;5175111&#x27;:
-    raise SystemExit(&#x27;STOP: recovery is not bound to job 5175111&#x27;)
-if config.get(&#x27;git_commit&#x27;) != &#x27;1bf21cb0e37374634be30a07bca9079ec18d6f87&#x27;:
-    raise SystemExit(&#x27;STOP: unexpected recovery execution pin&#x27;)
-if config.get(&#x27;repository&#x27;) != str(Path(sys.argv[2]).resolve()):
-    raise SystemExit(&#x27;STOP: recovery repository differs from the verified checkout&#x27;)
-if (root / &#x27;run.sh&#x27;).read_bytes() != pilot.gemma.run_script(Path(config[&#x27;repository&#x27;]), root):
-    raise SystemExit(&#x27;STOP: saved launcher differs from the corrected preparation&#x27;)
-fields = dict(t.split(&#x27;=&#x27;, 1) for t in subprocess.check_output(
-    [&#x27;scontrol&#x27;, &#x27;show&#x27;, &#x27;job&#x27;, &#x27;5175111&#x27;, &#x27;-o&#x27;], text=True, timeout=30).split() if &#x27;=&#x27; in t)
-pilot.stage.check_bound_allocation(config, os.environ.get(&#x27;SLURM_JOB_ID&#x27;), fields)
-if fields.get(&#x27;JobName&#x27;) != config[&#x27;job_name&#x27;] or fields.get(&#x27;TimeLimit&#x27;) != config[&#x27;walltime&#x27;]:
-    raise SystemExit(&#x27;STOP: allocation does not match this one-hour preparation&#x27;)
-quota = pilot.capture_quota(Path(config[&#x27;workspace&#x27;]), config[&#x27;account&#x27;])
-quota_path = root / &#x27;recovery-quota.json&#x27;
-pilot.atomic(quota_path, pilot.judge.canonical(quota).encode())
-health = pilot.judge.check_storage(config[&#x27;workspace&#x27;], quota_path, root)
-if health.get(&#x27;safe_to_admit&#x27;) is not True or health.get(&#x27;quota_verified&#x27;) is not True:
-    raise SystemExit(&#x27;STOP: storage or quota check failed; preserve existing work.&#x27;)
-print(&#x27;EXISTING_JOB_CHECK_PASSED&#x27;, fields.get(&#x27;EndTime&#x27;))
-print(&#x27;EXECUTION_DIRECTORY&#x27;, root)
-PY
-  set +e
-  bash &quot;$V4_FIXED_RUN/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$V4_FIXED_RUN/console-job${SLURM_JOB_ID}.log&quot;
-  V4_EXIT=${PIPESTATUS[0]}
-  printf &#x27;V4_EXIT=%s\n&#x27; &quot;$V4_EXIT&quot;
-  exit &quot;$V4_EXIT&quot;
-)</code></pre></div></div>
-<p class="check">The command prints <code>EXECUTION_DIRECTORY</code> before launch and <code>V4_EXIT</code> when it returns. If <code>CORRECTED_RUN_ALREADY_ATTEMPTED</code> appears, use step 3. Do not rerun the original launcher.</p></section>
+<div class="step-heading"><span class="step-number">2</span><div><p class="terminal">EXISTING COMPUTE SHELL · match the printed job ID</p><h2 id="run-heading">Paste the generated compute command</h2></div></div>
+<p>After <code>PREPARED_SELECTED_RUN</code>, step 1 prints <code>PASTE_IN_EXISTING_COMPUTE_SHELL</code> and a complete command enclosed in parentheses. Copy that whole command into the existing compute shell for the job ID it names. The command is also saved as <code>compute-command.sh</code> inside <code>FRESH_DIRECTORY</code>.</p>
+<p>It uses the new pinned launcher and runs exactly one SI-v4 pass. Missing source hashes are derived from the preserved source text during preparation. Conflicting hashes are rejected. A successful Coordinator import checks the frozen inputs before model execution.</p>
+<p>The run checks the existing job, remaining time, storage and previous attempts. It refuses overlapping work or an unresolved active attempt. On return, it prints <code>GEMMA_EXIT</code> and saves a console log. The enclosing child shell preserves your allocation-owning shell.</p>
+<p class="check">Use the generated command for your new directory. The old <code>20261001/run.sh</code> still points to the historical code and inputs.</p></section>
 <section id="task-counts" aria-labelledby="task-counts-heading">
-<div class="step-heading"><span class="step-number">3</span><div><p class="terminal">LOGIN TERMINAL · read-only</p><h2 id="task-counts-heading">Read results and errors</h2></div></div>
-<p>Run this in the login terminal while the corrected run executes, or after any error. It reads current allocation information, the corrected receipt, saved summaries, the last 100 log lines within a 64 KiB limit, and judge task counts. Send back this output.</p><div class="command"><div class="toolbar"><span>LOGIN TERMINAL · read-only</span><button type="button" class="copy" aria-label="Copy step 3" aria-controls="task-counts-code">Copy step 3</button></div><div id="task-counts-code"><pre><code>(
+<div class="step-heading"><span class="step-number">3</span><div><p class="terminal">LOGIN TERMINAL · read saved progress</p><h2 id="task-counts-heading">Inspect results and errors</h2></div></div>
+<p>This checks the live Gemma queue, the three newest selection directories and the original failed run. It prints selections, preparation errors, recent console output, accounting, saved summaries and task counts. Send back this output after a failure. Run it no more often than every 30 seconds.</p>
+<div class="command"><div class="toolbar"><span>LOGIN TERMINAL · status, results and logs</span><button type="button" class="copy" aria-label="Copy audit command" aria-controls="audit-code">Copy audit</button></div><div id="audit-code"><pre><code>(
   set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  &quot;$RT/bin/python&quot; - &quot;$W/reviews/gemma-si-v4-development-20261002-hashfix-job5175111&quot; &lt;&lt;&#x27;PY&#x27;
+  W=/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen
+  python3 - &quot;$W/reviews&quot; &lt;&lt;&#x27;PY&#x27;
 from collections import Counter
 from contextlib import closing
 from datetime import datetime, timezone
@@ -275,103 +86,130 @@ import sqlite3
 import subprocess
 import sys
 
-root = Path(sys.argv[1])
-for label, command in (
-    (&#x27;ALLOCATION_NOW&#x27;, [&#x27;scontrol&#x27;, &#x27;show&#x27;, &#x27;job&#x27;, &#x27;5175111&#x27;, &#x27;-o&#x27;]),
-    (&#x27;ACCOUNTING&#x27;, [&#x27;sacct&#x27;, &#x27;-j&#x27;, &#x27;5175111&#x27;, &#x27;--format=JobID,State,Elapsed,Timelimit,ExitCode&#x27;]),
-):
+def status(label, command):
     print(label, flush=True)
     try:
-        result = subprocess.run(command, text=True, capture_output=True, timeout=30, check=False)
+        result = subprocess.run(command, text=True, capture_output=True, timeout=30)
         print(result.stdout.strip())
         if result.returncode:
-            print(&#x27;STATUS_UNAVAILABLE&#x27;, result.returncode, result.stderr.strip())
+            print(&quot;STATUS_UNAVAILABLE&quot;, result.returncode, result.stderr.strip())
         elif result.stderr.strip():
-            print(&#x27;SLURM_WARNING&#x27;, result.stderr.strip())
+            print(&quot;SLURM_WARNING&quot;, result.stderr.strip())
     except (OSError, subprocess.SubprocessError) as error:
-        print(&#x27;STATUS_UNAVAILABLE&#x27;, str(error))
-print(&#x27;CORRECTED_DIRECTORY&#x27;, root)
-for relative in (&#x27;HASH_REPAIR_VERIFIED.json&#x27;, &#x27;attempts/job5175111/trial-result.json&#x27;,
-                 &#x27;attempts/job5175111/trial/summary.json&#x27;):
-    path = root / relative
+        print(&quot;STATUS_UNAVAILABLE&quot;, str(error))
+
+def read_json(path):
+    return json.loads(path.read_text())
+
+def show_json(path):
     if path.is_file():
         try:
-            print(relative, json.dumps(json.loads(path.read_text()), indent=2))
+            print(path, json.dumps(read_json(path), indent=2))
         except (OSError, ValueError) as error:
-            print(relative, &#x27;UNAVAILABLE&#x27;, str(error))
-    else:
-        print(relative, &#x27;NOT_PRESENT&#x27;)
-log = root / &#x27;console-job5175111.log&#x27;
-print(&#x27;CORRECTED_CONSOLE_LOG&#x27;, log)
-if log.is_file():
-    with log.open(&#x27;rb&#x27;) as stream:
-        stream.seek(0, 2)
-        stream.seek(max(0, stream.tell() - 65536))
-        print(&#x27;\n&#x27;.join(stream.read().decode(&#x27;utf-8&#x27;, &#x27;replace&#x27;).splitlines()[-100:]))
+            print(path, &quot;UNAVAILABLE&quot;, str(error))
+
+base = Path(sys.argv[1])
+print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat())
+status(&quot;LIVE_GEMMA_QUEUE&quot;, [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--name=geodml-gemma-si-v4&quot;, &quot;--noheader&quot;,
+                          &quot;--format=%i|%j|%T|%M|%L|%R&quot;])
+if (base / &quot;config.json&quot;).is_file():
+    roots = [base]
 else:
-    print(&#x27;NO_CORRECTED_LOG: step 2 has not reached the launcher.&#x27;)
-print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat(), root)
-if not (root / &quot;config.json&quot;).is_file():
-    raise SystemExit(&quot;REPAIR_NOT_PREPARED: step 1 has not created a complete corrected configuration; send its output.&quot;)
-config = json.loads((root / &quot;config.json&quot;).read_text())
-queue = [(&quot;v4-pass1&quot;, &quot;v4-inputs&quot;), (&quot;v3-bridge&quot;, &quot;v3-inputs&quot;),
-         (&quot;constructed&quot;, &quot;constructed-inputs&quot;), (&quot;v4-pass2&quot;, &quot;v4-inputs&quot;),
-         (&quot;v4-pass3&quot;, &quot;v4-inputs&quot;)]
-attempts = sorted(root.glob(&quot;attempts/job*&quot;))
-if not attempts:
-    print(&quot;NO_ATTEMPT_RECORDED: check Slurm below; this is not a completion count.&quot;)
-for attempt in attempts:
-    print(&quot;\nATTEMPT&quot;, attempt.name)
-    for name, inputs in queue:
-        inventory = config[&quot;inventories&quot;][inputs][&quot;unique_tasks&quot;]
-        task_counts = inventory.values() if isinstance(inventory, dict) else [inventory]
-        if any(type(count) is not int or count &lt; 0 for count in task_counts):
-            print(name, &quot;UNAVAILABLE: unique_tasks must contain nonnegative integer counts.&quot;)
-            continue
-        expected = sum(task_counts)
-        path = attempt / &quot;trial&quot; / name / &quot;control/index.sqlite&quot;
-        if not path.is_file():
-            print(name, &quot;NO_INDEX: not started or initialization incomplete; expected=&quot; + str(expected))
-            continue
+    sessions = sorted(base.glob(&quot;gemma-selected-*&quot;), key=lambda p: p.stat().st_mtime, reverse=True)
+    print(&quot;SAVED_SELECTION_DIRECTORIES&quot;, len(sessions), &quot;SHOWING_NEWEST&quot;, min(3, len(sessions)))
+    roots = [s / &quot;run&quot; if (s / &quot;run/config.json&quot;).is_file() else s for s in sessions[:3]]
+    original = base / &quot;gemma-si-v4-development-20261001&quot;
+    if original.is_dir():
+        roots.append(original)
+for root in roots:
+    print(&quot;\nRUN_DIRECTORY&quot;, root)
+    session = root.parent if root.name == &quot;run&quot; else root
+    show_json(session / &quot;preparation-error.json&quot;)
+    picked = session / &quot;selected-inputs.json&quot;
+    if picked.is_file():
         try:
-            with closing(sqlite3.connect(path.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True, timeout=2)) as db:
-                db.execute(&quot;PRAGMA query_only=ON&quot;)
-                rows = db.execute(&quot;SELECT state,result FROM tasks&quot;).fetchall()
-            counts = Counter()
-            for state, raw in rows:
-                if state in (&quot;done&quot;, &quot;saved&quot;):
-                    result = json.loads(raw) if raw else {}
-                    outcome = (&quot;ok&quot; if result.get(&quot;ok&quot;) is True else
-                               &quot;failed&quot; if result.get(&quot;ok&quot;) is False else &quot;unknown&quot;)
-                    label = ({&quot;ok&quot;: &quot;completed&quot;, &quot;failed&quot;: &quot;failed&quot;, &quot;unknown&quot;: &quot;unknown&quot;}[outcome]
-                             if state == &quot;done&quot; else &quot;saved_&quot; + outcome)
-                else:
-                    label = state if state in (&quot;pending&quot;, &quot;waiting&quot;, &quot;running&quot;, &quot;blocked&quot;) else &quot;unknown&quot;
-                counts[label] += 1
-            fields = (&quot;completed&quot;, &quot;failed&quot;, &quot;running&quot;, &quot;pending&quot;, &quot;waiting&quot;, &quot;blocked&quot;,
-                      &quot;saved_ok&quot;, &quot;saved_failed&quot;, &quot;saved_unknown&quot;, &quot;unknown&quot;)
-            print(name, &quot;total=&quot; + str(len(rows)), &quot;expected=&quot; + str(expected),
-                  &quot; &quot;.join(key + &quot;=&quot; + str(counts[key]) for key in fields))
-            if len(rows) != expected:
-                print(&quot;  INVENTORY_MISMATCH: do not interpret missing rows as completed.&quot;)
-        except (OSError, sqlite3.Error, ValueError, AttributeError) as error:
-            print(name, &quot;UNAVAILABLE:&quot;, type(error).__name__, str(error))
+            selection = read_json(picked)[&quot;selection&quot;]
+            print(&quot;SELECTED_CELLS&quot;, selection[&quot;selected_cell_ids&quot;], &quot;SEED&quot;, selection[&quot;seed&quot;])
+        except (OSError, ValueError, KeyError) as error:
+            print(&quot;SELECTION_UNAVAILABLE&quot;, str(error))
+    for log in sorted(session.glob(&quot;console-job*.log&quot;))[-2:]:
+        print(&quot;CONSOLE_TAIL&quot;, log)
+        with log.open(&quot;rb&quot;) as stream:
+            stream.seek(0, 2)
+            stream.seek(max(0, stream.tell() - 65536))
+            print(&quot;\n&quot;.join(stream.read().decode(&quot;utf-8&quot;, &quot;replace&quot;).splitlines()[-60:]))
+    if not (root / &quot;config.json&quot;).is_file():
+        print(&quot;SELECTION_SAVED_NOT_PREPARED: inspect preparation error or live allocation above.&quot;)
+        continue
+    try:
+        config = read_json(root / &quot;config.json&quot;)
+    except (OSError, ValueError) as error:
+        print(&quot;CONFIG_UNAVAILABLE&quot;, str(error))
+        continue
+    selected = config.get(&quot;workload_mode&quot;) == &quot;selected-v4-cells&quot;
+    queue = [(&quot;v4-pass1&quot;, &quot;v4-inputs&quot;)] if selected else [
+        (&quot;v4-pass1&quot;, &quot;v4-inputs&quot;), (&quot;v3-bridge&quot;, &quot;v3-inputs&quot;),
+        (&quot;constructed&quot;, &quot;constructed-inputs&quot;), (&quot;v4-pass2&quot;, &quot;v4-inputs&quot;), (&quot;v4-pass3&quot;, &quot;v4-inputs&quot;)]
+    print(&quot;MODE&quot;, config.get(&quot;workload_mode&quot;, &quot;legacy-development&quot;), &quot;PLANNED_PASSES&quot;, len(queue))
+    attempts = sorted(root.glob(&quot;attempts/job*&quot;))
+    jobs = {a.name.removeprefix(&quot;job&quot;) for a in attempts}
+    if config.get(&quot;existing_job_id&quot;):
+        jobs.add(str(config[&quot;existing_job_id&quot;]))
+    if jobs:
+        status(&quot;ACCOUNTING&quot;, [&quot;sacct&quot;, &quot;-j&quot;, &quot;,&quot;.join(sorted(jobs)),
+                              &quot;--format=JobID,State,Elapsed,Timelimit,ExitCode&quot;])
+    if not attempts:
+        print(&quot;NO_ATTEMPT_RECORDED: preparation alone does not start inference.&quot;)
+    for attempt in attempts:
+        print(&quot;ATTEMPT&quot;, attempt)
+        show_json(attempt / &quot;trial-result.json&quot;)
+        show_json(attempt / &quot;trial/summary.json&quot;)
+        for name, inputs in queue:
+            try:
+                inventory = config[&quot;inventories&quot;][inputs][&quot;unique_tasks&quot;]
+                task_counts = list(inventory.values()) if isinstance(inventory, dict) else [inventory]
+                if any(type(count) is not int or count &lt; 0 for count in task_counts):
+                    raise ValueError(&quot;unique_tasks must contain nonnegative integer counts&quot;)
+                expected = sum(task_counts)
+                path = attempt / &quot;trial&quot; / name / &quot;control/index.sqlite&quot;
+                if not path.is_file():
+                    print(name, &quot;NO_INDEX: not started or initialization incomplete; expected=&quot; + str(expected))
+                    continue
+                with closing(sqlite3.connect(path.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True, timeout=2)) as db:
+                    db.execute(&quot;PRAGMA query_only=ON&quot;)
+                    rows = db.execute(&quot;SELECT state,result FROM tasks&quot;).fetchall()
+                counts = Counter()
+                for state, raw in rows:
+                    if state in (&quot;done&quot;, &quot;saved&quot;):
+                        result = json.loads(raw) if raw else {}
+                        outcome = (&quot;ok&quot; if result.get(&quot;ok&quot;) is True else
+                                   &quot;failed&quot; if result.get(&quot;ok&quot;) is False else &quot;unknown&quot;)
+                        label = ({&quot;ok&quot;: &quot;completed&quot;, &quot;failed&quot;: &quot;failed&quot;, &quot;unknown&quot;: &quot;unknown&quot;}[outcome]
+                                 if state == &quot;done&quot; else &quot;saved_&quot; + outcome)
+                    else:
+                        label = state if state in (&quot;pending&quot;, &quot;waiting&quot;, &quot;running&quot;, &quot;blocked&quot;) else &quot;unknown&quot;
+                    counts[label] += 1
+                fields = (&quot;completed&quot;, &quot;failed&quot;, &quot;running&quot;, &quot;pending&quot;, &quot;waiting&quot;, &quot;blocked&quot;,
+                          &quot;saved_ok&quot;, &quot;saved_failed&quot;, &quot;saved_unknown&quot;, &quot;unknown&quot;)
+                print(name, &quot;total=&quot; + str(len(rows)), &quot;expected=&quot; + str(expected),
+                      &quot; &quot;.join(key + &quot;=&quot; + str(counts[key]) for key in fields))
+                if len(rows) != expected:
+                    print(&quot;  INVENTORY_MISMATCH: missing rows are not completed work.&quot;)
+            except (OSError, sqlite3.Error, ValueError, KeyError, AttributeError) as error:
+                print(name, &quot;UNAVAILABLE:&quot;, type(error).__name__, str(error))
 PY
 )</code></pre></div></div>
-<p class="check">A missing receipt or log means that stage has not been demonstrated. Zero imported tasks are not completed work. Counts are judge tasks per pass; they are not answer cells or scientific results.</p></section>
-<section aria-labelledby="errors-heading"><h2 id="errors-heading">Why the previous commands stopped</h2><table>
-<thead><tr><th scope="col">Message</th><th scope="col">What it means here</th></tr></thead><tbody>
-<tr><td><code>source hash does not match its dependency</code></td><td>The old freeze lacks source-hash metadata, as shown by the earlier audit. Step 1 reconstructs missing metadata from the same frozen source text and rejects conflicting hashes.</td></tr>
-<tr><td><code>allocation already attempted</code></td><td>The old preparation's admission guard found a previous attempt. This guard concerns another allocation; it does not repair or run the inputs.</td></tr>
-<tr><td><code>FileExistsError … attempts/job5175111</code></td><td>The original launcher was run twice for the same job. The original attempt stays intact; step 2 targets the separately verified preparation.</td></tr>
-<tr><td><code>CORRECTED_RUN_ALREADY_ATTEMPTED</code></td><td>The corrected preparation has also been started. Read its results with step 3 before considering any retry.</td></tr>
-<tr><td><code>REPAIR_INCOMPLETE</code> or <code>REPAIR_MISMATCH</code></td><td>An existing corrected directory cannot be reused safely. Preserve it and send the outputs from steps 1 and 3.</td></tr>
+<p class="check">Counts are judge tasks, not answer cells. <code>completed</code> requires a successful committed result. <code>saved_ok</code> is reported separately. Missing indexes and empty tables are not completions. The original run may still show its historical errors.</p></section>
+<section aria-labelledby="errors-heading"><h2 id="errors-heading">What changed</h2><table><thead><tr><th scope="col">Previous message</th><th scope="col">Replacement behavior</th></tr></thead><tbody>
+<tr><td><code>allocation already attempted</code></td><td>Selection reads the source bundles directly. It prepares a distinct run, so the original admission marker no longer blocks this workflow.</td></tr>
+<tr><td><code>source hash does not match its dependency</code></td><td>The current freeze reconstructs missing hashes from validated source tasks and checks the import before Gemma loads.</td></tr>
+<tr><td><code>FileExistsError … attempts/job5175111</code></td><td>The generated launcher uses its separate selected-run directory. An attempt in that new directory is still protected against being launched twice.</td></tr>
 </tbody></table></section>
-<div class="note"><h2>Remaining time</h2><p>Both preparation and execution require job <code>5175111</code> to be running with at least 20 minutes remaining. The recorded estimate is 20–50 minutes, including roughly 9–11 minutes of historical startup; SI-v4 throughput remains unmeasured, so the remaining time may permit only partial work.</p>
-<p>The run uses the remaining time on the existing exclusive node with four A100 GPUs, 32 requested CPUs and whole-node memory. At most the remaining fraction of one node-hour and four GPU-hours is available. The original Slurm deadline and cleanup margins still apply.</p>
-<p>If the job has ended or time is insufficient, send step 3 output. This page does not extend the allocation or request a replacement. No allocation or attempt directory is cancelled or removed.</p></div>
-<p id="copy-status" role="status" aria-live="polite"></p><noscript><p>Select and copy each command manually. JavaScript is only used for the copy buttons.</p></noscript>
-<footer><p>Execution commit: <code>1bf21cb0e37374634be30a07bca9079ec18d6f87</code>. These commands are for the existing allocation only. No cluster repair or inference ran while this page was prepared.</p></footer></main><script>
+<div class="note"><h2>Time available</h2><p>The conservative estimate is 20–50 minutes, including roughly 9–11 minutes of historical startup. SI-v4 throughput remains unmeasured. Selecting fewer cells reduces inference work, but model loading still takes time.</p>
+<p>Preparation and execution require at least 20 minutes remaining in the same running allocation. The intended profile is the existing exclusive node with four A100 GPUs, 32 requested CPUs and whole-node memory. With <em>R</em> minutes left, the available budget is at most <em>R</em>/60 node-hours and 4<em>R</em>/60 GPU-hours, inside the existing approved wall-time. Deadline and cleanup margins apply; partial work is possible.</p>
+<p>If the allocation has ended or has too little time left, preserve the saved selection and return the audit output. A replacement allocation needs a separate runtime decision. These commands acquire no new allocation.</p></div>
+<p id="copy-status" role="status" aria-live="polite"></p><noscript><p>Select and copy the commands manually. JavaScript is only used for copy buttons.</p></noscript>
+<footer><p>Helper commit: <code>d47418b81b93057a02cc54e0383492835400be79</code> on <code>codex/gemma-selected-cells</code>. This page copies commands; it does not connect to HoreKa or display live status. Local verification does not establish cluster execution or scientific results.</p></footer></main><script>
 document.querySelectorAll('pre').forEach(pre => { pre.tabIndex = 0; });
 document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {

@@ -5,15 +5,21 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import Counter
+from contextlib import closing
 import copy
 import datetime
+import fcntl
 import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
+import random
+import shlex
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from types import SimpleNamespace
 
@@ -30,6 +36,202 @@ from analysis.scripts.prepare_si_v4_diagnostics import freeze as freeze_diagnost
 from analysis.scripts.replay_source_importance_judge import frozen_cells
 
 JOB_NAME = "geodml-gemma-si-v4"
+SELECTION_FORMAT = "si-v4-manual-selection-v1"
+
+
+def terminal_choice(prompt):
+    with open("/dev/tty", "r") as reader, open("/dev/tty", "w") as writer:
+        writer.write(prompt)
+        writer.flush()
+        return reader.readline().strip()
+
+
+def saved_pool(source_run):
+    """Read the small saved development pool, independent of its failed attempts."""
+    path = Path(source_run).resolve() / "config.json"
+    config = stage.read(path)
+    pool = {}
+    for filename, expected in config["source_files"].items():
+        if judge.file_hash(Path(filename)) != expected:
+            raise ValueError(f"saved source bundle changed: {filename}")
+        for cell, tasks in frozen_cells(stage.read(Path(filename))):
+            if cell["cell_id"] in pool:
+                raise ValueError("duplicate cell in the saved selection pool")
+            pool[cell["cell_id"]] = (cell, tasks)
+    if not pool:
+        raise ValueError("saved selection pool is empty")
+    return pool, {"source_config": str(path), "source_config_sha256": judge.file_hash(path),
+                  "source_files": config["source_files"], "population_cells": len(pool)}
+
+
+def selection_bundle(pool, selection):
+    ids = selection["selected_cell_ids"]
+    if not ids or len(ids) != len(set(ids)) or not set(ids) <= set(selection["sampled_cell_ids"]):
+        raise ValueError("choose distinct cells from the displayed sample")
+    cells, tasks = [], {}
+    for cell_id in ids:
+        cell, records = pool[cell_id]
+        cells.append(cell)
+        for task_id, record in records.items():
+            if task_id in tasks and tasks[task_id] != record:
+                raise ValueError("conflicting shared source task")
+            tasks[task_id] = record
+    bundle = {"protocol": v3.PROTOCOL, "scientific_result": False, "selection": selection,
+              "cells": cells, "tasks": [tasks[key] for key in sorted(tasks)]}
+    frozen_cells(bundle)
+    return bundle
+
+
+def select(args):
+    if args.output.exists():
+        raise FileExistsError("selection already exists; preserve it and use a new selection directory")
+    pool, provenance = saved_pool(args.source_run)
+    if args.count < 1:
+        raise ValueError("candidate count must be positive")
+    sampled = random.Random(args.seed).sample(sorted(pool), min(args.count, len(pool)))
+    print(f"SAVED_DEVELOPMENT_POOL={len(pool)} CANDIDATES={len(sampled)} SEED={args.seed}", flush=True)
+    for number, cell_id in enumerate(sampled, 1):
+        cell, tasks = pool[cell_id]
+        request = tasks[cell["j1_task_id"]]
+        print(json.dumps({"number": number, "cell_id": cell_id, "model": cell.get("model"),
+            "prompt_id": cell.get("prompt_id"), "sources": len(cell["sources"]),
+            "request": request["request"], "answer_preview": request["answer"][:300]},
+            ensure_ascii=False), flush=True)
+    choice = args.take
+    if choice is None:
+        choice = terminal_choice("Choose numbers separated by commas, or all. Empty cancels: ")
+    if not choice.strip():
+        raise ValueError("selection cancelled; no Gemma input or allocation was created")
+    try:
+        numbers = list(range(1, len(sampled) + 1)) if choice.strip().lower() == "all" else [
+            int(value.strip()) for value in choice.split(",")]
+    except ValueError:
+        raise ValueError("enter comma-separated numbers from the displayed sample, or all") from None
+    if len(numbers) != len(set(numbers)) or any(number < 1 or number > len(sampled) for number in numbers):
+        raise ValueError("chosen numbers must be distinct and within the displayed sample")
+    selection = {"format_version": SELECTION_FORMAT, **provenance, "seed": args.seed,
+                 "sampled_cell_ids": sampled, "selected_cell_ids": [sampled[n - 1] for n in numbers],
+                 "purpose": "user-selected development examples; not a confirmatory sample"}
+    bundle = selection_bundle(pool, selection)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("x") as stream:
+        stream.write(judge.canonical(bundle) + "\n")
+    print(json.dumps({"selected_inputs": str(args.output.resolve()), "cells": len(numbers),
+                      "sha256": judge.file_hash(args.output), "inference_started": False}, indent=2))
+    return 0
+
+
+def verified_selection(path):
+    bundle = stage.read(path)
+    selection = bundle.get("selection", {})
+    if selection.get("format_version") != SELECTION_FORMAT:
+        raise ValueError("selected inputs require a recorded manual selection")
+    pool, provenance = saved_pool(Path(selection["source_config"]).parent)
+    if any(selection.get(key) != value for key, value in provenance.items()):
+        raise ValueError("selection source provenance changed")
+    sampled = selection["sampled_cell_ids"]
+    if sampled != random.Random(selection["seed"]).sample(sorted(pool), len(sampled)):
+        raise ValueError("recorded candidate sample differs from its seed")
+    if bundle != selection_bundle(pool, selection):
+        raise ValueError("selected cell or task content changed after selection")
+    return bundle
+
+
+def fresh(args):
+    """Choose inputs now; prepare against a live allocation and print its exact run command."""
+    workspace = args.workspace.resolve()
+    reviews = workspace / "reviews"
+    reviews.mkdir(parents=True, exist_ok=True)
+    session = Path(tempfile.mkdtemp(prefix="gemma-selected-", dir=reviews))
+    print("FRESH_DIRECTORY", session, flush=True)
+    selected = session / "selected-inputs.json"
+    try:
+        select(SimpleNamespace(source_run=args.source_run, output=selected,
+                               seed=args.seed, count=args.count, take=args.take))
+        queue = subprocess.check_output(["squeue", "--me", "--array", "--noheader",
+                                         "--format=%i|%j|%T"], text=True, timeout=30)
+        jobs = []
+        for line in queue.splitlines():
+            if not line.strip():
+                continue
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) != 3:
+                raise ValueError("unexpected scheduler response; selection is saved")
+            if parts[1:] == [JOB_NAME, "RUNNING"]:
+                jobs.append(parts[0])
+        jobs = sorted(set(jobs))
+        print("RUNNING_GEMMA_ALLOCATIONS", ", ".join(jobs) or "none", flush=True)
+        if not jobs:
+            print("SELECTION_SAVED_NO_RUNNING_ALLOCATION", selected, flush=True)
+            return 2
+        job = args.existing_job_id or (jobs[0] if len(jobs) == 1 else
+                                      terminal_choice("Existing running Gemma job ID to use: "))
+        if job not in jobs:
+            raise ValueError("choose an existing running Gemma job from the displayed list")
+        fields = dict(t.split("=", 1) for t in subprocess.check_output(
+            ["scontrol", "show", "job", job, "-o"], text=True, timeout=30).split() if "=" in t)
+        prepare(SimpleNamespace(workspace=workspace, output=session / "run", bundle=None,
+            selected_inputs=selected, existing_job_id=job, account=fields["Account"],
+            walltime=fields["TimeLimit"], approval=(
+                "Valerian requested one SI-v4 pass over explicitly selected saved development cells "
+                f"inside existing job {job}; no new allocation or extension.")))
+        command = "\n".join([
+            "(", "  set -euo pipefail", "  source " + shlex.quote(str(workspace / "geodml-nemotron-env.sh")),
+            f'  if [ "${{SLURM_JOB_ID:-}}" != {shlex.quote(job)} ]; then',
+            "    printf '%s\\n' " + shlex.quote("Use the existing compute shell for job " + job),
+            "    exit 1", "  fi", "  export PYTHONDONTWRITEBYTECODE=1", "  set +e",
+            "  bash " + shlex.quote(str(session / "run/run.sh")) +
+                " 2>&1 | tee -a " + shlex.quote(str(session / f"console-job{job}.log")),
+            '  GEMMA_EXIT=${PIPESTATUS[0]}', "  printf 'GEMMA_EXIT=%s\\n' \"$GEMMA_EXIT\"",
+            '  exit "$GEMMA_EXIT"', ")", ""])
+        atomic(session / "compute-command.sh", command.encode())
+        print("PREPARED_SELECTED_RUN", session / "run", flush=True)
+        print("PASTE_IN_EXISTING_COMPUTE_SHELL\n" + command, flush=True)
+        return 0
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        atomic(session / "preparation-error.json", judge.canonical({
+            "error_type": type(error).__name__, "error": str(error), "inference_started": False}).encode())
+        print("FRESH_PREPARATION_STOPPED", str(error), flush=True)
+        print("PRESERVED_DIRECTORY", session, flush=True)
+        return 2
+
+
+def run_picked(args):
+    config_path = args.config.resolve()
+    config = stage.read(config_path)
+    if config.get("workload_mode") != "selected-v4-cells" or not config.get("existing_job_id"):
+        raise ValueError("run-picked requires a prepared selected-cell run bound to an existing job")
+    job = str(config["existing_job_id"])
+    fields = dict(t.split("=", 1) for t in subprocess.check_output(
+        ["scontrol", "show", "job", job, "-o"], text=True, timeout=30).split() if "=" in t)
+    stage.check_bound_allocation(config, os.environ.get("SLURM_JOB_ID"), fields)
+    workspace = Path(config["workspace"])
+    # One selected runner per allocation, including across separate preparations.
+    # Keep the inode: closing releases this advisory lock; unlinking would race.
+    with (workspace / "reviews" / f".gemma-job{job}.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("another selected Gemma run is active in this allocation") from None
+        task_ids = {row["judge_task_id"] for row in judge.rows(config_path.parent / "v4-inputs/tasks.jsonl.gz")}
+        for pattern in (f"gemma*/attempts/job{job}", f"gemma*/run/attempts/job{job}"):
+            for attempt in (workspace / "reviews").glob(pattern):
+                if attempt.resolve() == config_path.parent / "attempts" / f"job{job}":
+                    raise ValueError(f"this selected run was already attempted; inspect {attempt}")
+                result = attempt / "trial-result.json"
+                if not result.is_file() or stage.read(result).get("status") not in ("completed", "failed", "deadline"):
+                    raise ValueError(f"another attempt has no terminal receipt; inspect {attempt}")
+                for index in attempt.glob("trial/*/control/index.sqlite"):
+                    with closing(sqlite3.connect(index.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
+                        prior = db.execute("SELECT id FROM tasks WHERE state IN ('running','saved','done','blocked')")
+                        if any(task_id in task_ids for (task_id,) in prior):
+                            raise ValueError(f"selected tasks already have work to reconcile; inspect {index}")
+        quota = config_path.parent / "startup-quota.json"
+        atomic(quota, judge.canonical(capture_quota(workspace, config["account"])).encode())
+        storage = judge.check_storage(workspace, quota, config_path.parent)
+        if not storage["safe_to_admit"] or not storage["quota_verified"]:
+            raise ValueError("fresh storage/quota evidence does not permit startup")
+        return stage.execute(config_path)
 
 
 def freeze_saved(bundles, output, protocol):
@@ -114,6 +316,23 @@ def prepare(args):
     workspace, out = args.workspace.resolve(), args.output.resolve()
     if out.exists():
         raise FileExistsError("preparation exists; preserve it and use its saved run.sh")
+    selected_path = getattr(args, "selected_inputs", None)
+    bound = getattr(args, "existing_job_id", None)
+    selected = verified_selection(selected_path) if selected_path else None
+    allocation = None
+    if selected is not None:
+        if not bound:
+            raise ValueError("selected-cell preparation needs an existing Gemma allocation ID")
+        allocation = dict(t.split("=", 1) for t in subprocess.check_output(
+            ["scontrol", "show", "job", str(bound), "-o"], text=True, timeout=30).split() if "=" in t)
+        stage.check_bound_allocation({"existing_job_id": str(bound), "minimum_remaining_seconds": 1200},
+                                     str(bound), allocation)
+        if (allocation.get("JobName") != JOB_NAME or allocation.get("TimeLimit") != walltime
+                or allocation.get("Account") != args.account
+                or not allocation.get("UserId", "").endswith(f"({os.getuid()})")):
+            raise ValueError("existing allocation name, owner, account or wall-time differs")
+    elif bound:
+        raise ValueError("existing-job selection mode requires --selected-inputs")
     verified = stage.read(gemma.prep(workspace) / "models-verified.json")
     if verified.get("status") != "verified" or [(m["repo_id"], m["revision"]) for m in verified["models"]] != list(gemma.MODELS):
         raise ValueError("verified pinned Gemma receipt required; no automatic download")
@@ -130,14 +349,22 @@ def prepare(args):
     if hashlib.sha256(tokenizer.get_chat_template().encode()).hexdigest() != config["chat_template_sha256"]:
         raise ValueError("local pinned chat template differs; review before allocating")
     out.mkdir(parents=True)
-    bundles = [stage.read(p) for p in args.bundle]
+    bundle_paths = [selected_path] if selected is not None else args.bundle
+    bundles = [selected] if selected is not None else [stage.read(p) for p in bundle_paths]
+    protocols = (("v4-inputs", v4.PROTOCOL),) if selected is not None else (
+        ("v3-inputs", v3.PROTOCOL), ("v4-inputs", v4.PROTOCOL))
     inventories = {name: freeze_saved(bundles, out / name, protocol) for name, protocol in
-                   (("v3-inputs", v3.PROTOCOL), ("v4-inputs", v4.PROTOCOL))}
-    if inventories["v4-inputs"]["cells"] != 40:
+                   protocols}
+    if selected is None and inventories["v4-inputs"]["cells"] != 40:
         raise ValueError("this development test expects the forty previously reviewed cells")
-    inventories["constructed-inputs"] = freeze_diagnostics(out / "constructed-inputs", "development")
+    if selected is None:
+        inventories["constructed-inputs"] = freeze_diagnostics(out / "constructed-inputs", "development")
     for name in inventories:
         schema_check(out / name)
+        if selected is not None:
+            with tempfile.TemporaryDirectory(prefix="input-check-", dir=out) as temporary:
+                coordinator = judge.Coordinator(out / name, Path(temporary) / "results", {"gpu_count": 4})
+                coordinator.close()
     config["tokenizer_path"] = str(snapshot)
     judge.load_config(repo / "analysis/config/si_v4_gemma.template.json")
     atomic(out / "judge-config.json", judge.canonical(config).encode())
@@ -147,13 +374,26 @@ def prepare(args):
         "development_config": str(out / "config.json"), "job_name": JOB_NAME,
         "walltime": walltime, "approval": args.approval, "account": args.account,
         "runtime": versions, "scientific_result": False, "inventories": inventories,
-        "source_files": {str(p.resolve()): judge.file_hash(p) for p in args.bundle},
+        "source_files": {str(p.resolve()): judge.file_hash(p) for p in bundle_paths},
         "judge_config_sha256": judge.file_hash(out / "judge-config.json"),
         "estimate": {"minutes": [20, 50], "nodes": 1, "gpus": 4, "cpus_requested": 32,
                      "memory": "whole A100 node", "node_hours_max": hours, "gpu_hours_max": 4 * hours,
                      "basis": "historical Gemma wrapper 8.9-10.9 minutes; v4 throughput unmeasured"}}
+    if selected is not None:
+        run_config.update(workload_mode="selected-v4-cells", selection=selected["selection"],
+                          existing_job_id=str(bound), minimum_remaining_seconds=1200,
+                          cache_prefix="gemma4-si-selected-" + hashlib.sha256(str(out).encode()).hexdigest()[:12],
+                          allocation_at_preparation={key: allocation.get(key) for key in
+                              ("JobId", "JobState", "Partition", "NodeList", "TimeLimit", "EndTime")})
+        run_config["estimate"].update(new_allocation=False, additional_allocation_hours=0,
+                                     scope="one SI-v4 pass over explicitly selected development cells")
     atomic(out / "config.json", judge.canonical(run_config).encode())
-    atomic(out / "run.sh", gemma.run_script(repo, out))
+    launcher = gemma.run_script(repo, out)
+    if selected is not None:
+        command = [sys.executable, str(repo / "analysis/scripts/horeka_si_v4.py"),
+                   "run-picked", "--config", str(out / "config.json")]
+        launcher = ("#!/bin/bash\nset -euo pipefail\nexec " + shlex.join(command) + "\n").encode()
+    atomic(out / "run.sh", launcher)
     print(json.dumps({"prepared": str(out), "inventories": inventories, "allocation_submitted": False}, indent=2))
     return 0
 
@@ -239,6 +479,13 @@ async def review(args):
     for name, manifest in config["inventories"].items():
         if stage.read(root / name / "manifest.json") != manifest:
             raise ValueError("input manifest changed")
+    mode = config.get("workload_mode", "legacy-development")
+    if mode not in ("legacy-development", "selected-v4-cells"):
+        raise ValueError("unknown SI-v4 workload mode")
+    # Preserve the legacy comparison; explicitly selected examples get one v4 pass.
+    queue = [("v4-pass1", "v4-inputs")] if mode == "selected-v4-cells" else [
+        ("v4-pass1", "v4-inputs"), ("v3-bridge", "v3-inputs"),
+        ("constructed", "constructed-inputs"), ("v4-pass2", "v4-inputs"), ("v4-pass3", "v4-inputs")]
     args.output.mkdir(parents=True, exist_ok=False)
     quota = args.output / "quota.json"
     stop = asyncio.Event()
@@ -261,9 +508,6 @@ async def review(args):
     atomic(quota, judge.canonical(await asyncio.to_thread(capture_quota, Path(config["workspace"]), config["account"])).encode())
     refresher = asyncio.create_task(refresh())
     outcomes = []
-    # Fixed, finite development queue: no fresh acceptance cases consumed here.
-    queue = [("v4-pass1", "v4-inputs"), ("v3-bridge", "v3-inputs"),
-             ("constructed", "constructed-inputs"), ("v4-pass2", "v4-inputs"), ("v4-pass3", "v4-inputs")]
     try:
         for name, inputs in queue:
             if not AllocationBudget.from_environment(require=True).can_start():
@@ -293,10 +537,28 @@ async def review(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    s = commands.add_parser("select", help="sample saved development cells, then choose which to judge")
+    s.add_argument("--source-run", type=Path, required=True)
+    s.add_argument("--output", type=Path, required=True)
+    s.add_argument("--seed", type=int, default=20261002)
+    s.add_argument("--count", type=int, default=20, help="maximum candidate cells to display")
+    s.add_argument("--take", help="displayed numbers separated by commas, or all; otherwise ask in the terminal")
+    f = commands.add_parser("fresh", help="choose cells and prepare a new run inside an existing allocation")
+    f.add_argument("--workspace", type=Path, required=True)
+    f.add_argument("--source-run", type=Path, required=True)
+    f.add_argument("--seed", type=int, default=20261002)
+    f.add_argument("--count", type=int, default=20)
+    f.add_argument("--take", help="displayed numbers or all; otherwise ask in the terminal")
+    f.add_argument("--existing-job-id", help="choose this job from the user's running Gemma allocations")
+    e = commands.add_parser("run-picked", help="check existing ownership and storage, then run selected cells")
+    e.add_argument("--config", type=Path, required=True)
     p = commands.add_parser("prepare")
     p.add_argument("--workspace", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--bundle", type=Path, action="append", required=True)
+    inputs = p.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--bundle", type=Path, action="append")
+    inputs.add_argument("--selected-inputs", type=Path, help="verified output of the select command")
+    p.add_argument("--existing-job-id", help="bind selected-cell execution to an already running Gemma allocation")
     p.add_argument("--account", required=True)
     p.add_argument("--approval", required=True)
     p.add_argument("--walltime", choices=("01:00:00", "03:00:00"), default="01:00:00")
@@ -310,7 +572,9 @@ def main(argv=None):
     r.add_argument("--base-url", required=True)
     r.add_argument("--server-model-name", required=True)
     args = parser.parse_args(argv)
-    return asyncio.run(review(args)) if args.command == "review" else {"prepare": prepare, "check": check}[args.command](args)
+    return asyncio.run(review(args)) if args.command == "review" else {
+        "select": select, "fresh": fresh, "run-picked": run_picked,
+        "prepare": prepare, "check": check}[args.command](args)
 
 
 if __name__ == "__main__":
