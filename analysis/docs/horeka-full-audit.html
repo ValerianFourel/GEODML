@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HoreKa saved progress and failure audit</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Update Qwen dataset and inspect failed jobs</title><style>
 :root {
   color-scheme: light;
   --bg: #f2f4f3; --panel: #ffffff; --ink: #19212b; --muted: #56616d; --rule: #d4dad7;
@@ -98,9 +98,12 @@ footer p { margin: 0; max-width: 78ch; }
 .where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Qwen and Gemma · 2 October 2026</span></div><h1>Saved progress and failure audit</h1><p class="lede">Valerian, copy the command below into your existing HoreKa login shell. It gathers the queue, accounting, saved progress and failure logs into one dated report. It uses the existing run files and Python standard library.</p></header>
-<section class="note"><h2>What the report answers</h2><p>For every failed Qwen job: how many cells its saved checkpoint reports complete, how many it newly committed or reused, which cell IDs explicitly failed, and how many requested cells remained. Primary and spill counts stay separate. It includes missing checkpoints and completed allocations that still report incomplete work.</p><p>Gemma preparation receipts, per-pass task counts, current job details, earlier logs, disk space and quota are included. The report preserves the saved JSON metadata and up to 64 KiB from each selected log. It writes only a new audit directory under <code>reviews/</code>.</p><p>This is an operational snapshot. It does not scan or copy the full generator dataset, validate every saved record reference, upload files, release claims, retry tasks, or change jobs. Exact distinct unfinished cells still require ledger and artifact reconciliation. No ledger locks are taken.</p></section>
-<section class="step" id="audit"><div class="num">01</div><div class="body"><header class="step-head"><h2>Collect the audit once</h2><span class="chip safe">HoreKa login shell</span></header><p>The command reads saved metadata for the current bout division and all local SI-v4 preparations. Live jobs may advance during capture; each file records its capture metadata. Scheduler failures and missing or changing files are reported as unavailable. Command timeouts are 30 seconds each.</p><div class="code"><button class="copy" type="button" aria-label="Copy complete audit command">Copy</button><pre><code>python3 - /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen hk-project-p0026831 &lt;&lt;&#x27;PY&#x27;
+.code pre { max-height: 32rem; overflow-y: auto; }
+.note { display: grid; gap: 10px; }
+.note p { margin: 0; }
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · saved Qwen results · 2 October 2026</span></div><h1>Update the dataset and check failures</h1><p class="lede">Valerian, run these blocks in order in your existing HoreKa login shell. The update publishes verified saved Qwen outcomes to the existing private Hugging Face dataset, including completed cells retained by failed allocations.</p></header>
+<nav class="cycle" aria-label="Steps"><a href="#audit">1 · Check failures</a><a href="#setup">2 · Prepare uploader</a><a href="#publish">3 · Update dataset</a><a href="#verify">4 · Read results</a></nav>
+<section class="approval"><h2>Dataset update</h2><p>Destination: <a href="https://huggingface.co/datasets/ValerianFourel/geodml-experiment-v2-paper-private">ValerianFourel/geodml-experiment-v2-paper-private</a>. The Qwen result index is <code>coordination/qwen-results.json</code>. Completed and terminally failed cell outcomes retain separate states. Existing indexed cells are skipped.</p><p>Use a separate login terminal if another command is running. These steps allocate no GPUs and change no Slurm jobs. Preserve the existing Gemma request. The uploader is a finite file-transfer helper; it snapshots the shared ledger, verifies sealed records and publishes eligible outcomes. The publisher holds ledger locks while reading its snapshot, so active writers wait during that read. Workers can produce new results after the snapshot.</p></section><section class="step" id="audit"><div class="num">01</div><div class="body"><header class="step-head"><h2>Check failed jobs and saved progress</h2><span class="chip safe">HoreKa login shell</span></header><p>Collect a current Qwen and Gemma snapshot, per-failed-job progress, failure logs, disk space and quota. The command writes a new audit directory and archive.</p><div class="code"><button class="copy" type="button" aria-label="Copy check failed jobs and saved progress">Copy</button><pre><code>python3 - /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen hk-project-p0026831 &lt;&lt;&#x27;PY&#x27;
 #!/usr/bin/env python3
 &quot;&quot;&quot;Collect scheduler, saved progress and bounded log evidence without changing runs.
 
@@ -379,9 +382,190 @@ def main():
 if __name__ == &quot;__main__&quot;:
     main()
 PY
-</code></pre></div></div></section>
-<section class="note"><h2>Send the report</h2><p>The last lines print <code>AUDIT_DIRECTORY</code> and <code>AUDIT_ARCHIVE</code>. Send the printed summary, or transfer the named <code>audit.tar.gz</code> file to your Mac and attach it. The archive contains <code>summary.txt</code> and <code>audit.json</code>, including saved summaries, provenance, unavailable-file notices and log excerpts.</p><p><code>?</code> means unknown. Remaining work includes unattempted and busy cells as well as failures. Completed counts include reuse and overlapping spill work, so summing them would overstate distinct corpus completion. A failed allocation may retain completed results.</p></section>
-<p id="copy-status" role="status" aria-live="polite"></p><footer>Audit preparation only. The latest supplied snapshot showed Qwen 647 completed, 25 failed, 41 running and 180 pending, and Gemma job 5175056 pending. These are historical scheduler observations; the command captures fresh evidence.</footer></main><script>document.querySelectorAll('button.copy').forEach(button => {
+</code></pre></div><p class="look">Send the printed failed-job table or the named <code>audit.tar.gz</code>. Counts come from saved checkpoints. <code>?</code> means unknown; remaining cells include busy and unattempted work. Completed counts include reuse and spill overlap. This snapshot does not take ledger locks or validate the full dataset.</p></div></section><section class="step" id="setup"><div class="num">02</div><div class="body"><header class="step-head"><h2>Prepare the existing uploader</h2><span class="chip safe">HoreKa login shell</span></header><p>Create or verify a separate checkout of the published code. The dataset path comes from the existing bout division. Require <code>PUBLISH_SETUP_READY</code> before continuing.</p><div class="code"><button class="copy" type="button" aria-label="Copy prepare the existing uploader">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-horeka-env.sh
+  QWEN_PUBLISH_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
+  QWEN_PUBLISH_REPO=&quot;$W/checkouts/qwen-publish-$QWEN_PUBLISH_PIN&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
+  if [ ! -d &quot;$QWEN_PUBLISH_REPO&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$QWEN_PUBLISH_REPO&quot; &quot;$QWEN_PUBLISH_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$QWEN_PUBLISH_REPO&quot; rev-parse HEAD)&quot; = &quot;$QWEN_PUBLISH_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_PUBLISH_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_PUBLISH_REPO&quot;
+  &quot;$RT/bin/python&quot; - &quot;$W&quot; &quot;$QWEN_PUBLISH_REPO&quot; &lt;&lt;&#x27;PY&#x27;
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[2])
+from analysis.scripts import publish_qwen_results
+import huggingface_hub
+workspace = Path(sys.argv[1]).resolve(strict=True)
+division_path = Path((workspace / &#x27;qwen-bouts/CURRENT&#x27;).read_text().strip())
+if not division_path.is_absolute():
+    raise SystemExit(&#x27;CURRENT must contain an absolute division path&#x27;)
+division = json.loads((division_path / &#x27;division.json&#x27;).read_text())
+if division.get(&#x27;format_version&#x27;) != &#x27;geodml-horeka-qwen-bouts-v1&#x27; or division.get(&#x27;model&#x27;) != &#x27;qwen38&#x27;:
+    raise SystemExit(&#x27;Expected the existing Qwen bout division&#x27;)
+dataset = Path(division[&#x27;dataset_root&#x27;]).resolve(strict=True)
+contract = json.loads((dataset / &#x27;contract.json&#x27;).read_text())
+if contract.get(&#x27;format_version&#x27;) != &#x27;geodml-incremental-dataset-v1&#x27;:
+    raise SystemExit(&#x27;Unsupported dataset contract&#x27;)
+print(&#x27;PUBLISH_SETUP_READY&#x27;)
+print(&#x27;DIVISION&#x27;, division_path)
+print(&#x27;DATASET&#x27;, dataset)
+print(&#x27;PUBLISHER&#x27;, publish_qwen_results.__file__)
+print(&#x27;HUGGINGFACE_HUB_VERSION&#x27;, huggingface_hub.__version__)
+print(&#x27;No upload performed by this setup step.&#x27;)
+PY
+)
+</code></pre></div><p class="look">This step preserves the running jobs’ checkouts and scientific settings. It performs no upload. The publication helper is unchanged at the pinned commit.</p></div></section><section class="step" id="publish"><div class="num">03</div><div class="body"><header class="step-head"><h2>Update the private dataset</h2><span class="chip pub">HoreKa login shell</span></header><p>This block uploads eligible saved Qwen outcomes. Enter a Hugging Face write token at the hidden terminal prompt. Keep this command running while it checks and transfers files.</p><div class="code"><button class="copy" type="button" aria-label="Copy update the private dataset">Copy</button><pre><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-horeka-env.sh
+  QWEN_PUBLISH_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
+  QWEN_PUBLISH_REPO=&quot;$W/checkouts/qwen-publish-$QWEN_PUBLISH_PIN&quot;
+  test &quot;$(git -C &quot;$QWEN_PUBLISH_REPO&quot; rev-parse HEAD)&quot; = &quot;$QWEN_PUBLISH_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_PUBLISH_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_PUBLISH_REPO&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  &quot;$RT/bin/python&quot; -u - &quot;$W&quot; &quot;$QWEN_PUBLISH_REPO&quot; &quot;$QWEN_PUBLISH_PIN&quot; &lt;&lt;&#x27;PY&#x27;
+from collections import Counter
+from datetime import datetime, timezone
+import fcntl
+import getpass
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import warnings
+
+workspace, code, pin = Path(sys.argv[1]).resolve(strict=True), Path(sys.argv[2]), sys.argv[3]
+sys.path.insert(0, str(code))
+from analysis.scripts import publish_qwen_results as publisher
+from analysis.interpretability.pipeline.agentic_hour_sync import Exchange, HubStore
+
+def save(path, value):
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + &#x27;\n&#x27;)
+
+reviews = workspace / &#x27;reviews&#x27;
+with (reviews / &#x27;qwen-hf-update.lock&#x27;).open(&#x27;a&#x27;) as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(&#x27;An update from this page is already running. Keep it and use step 4.&#x27;)
+    output = Path(tempfile.mkdtemp(prefix=&#x27;qwen-hf-update-&#x27; + datetime.now(timezone.utc).strftime(&#x27;%Y%m%dT%H%M%S%fZ-&#x27;), dir=reviews))
+    print(&#x27;UPDATE_DIRECTORY&#x27;, output, flush=True)
+    token = &#x27;&#x27;
+    try:
+        division_path = Path((workspace / &#x27;qwen-bouts/CURRENT&#x27;).read_text().strip())
+        if not division_path.is_absolute():
+            raise ValueError(&#x27;CURRENT must contain an absolute division path&#x27;)
+        division_bytes = (division_path / &#x27;division.json&#x27;).read_bytes()
+        division = json.loads(division_bytes)
+        if division.get(&#x27;format_version&#x27;) != &#x27;geodml-horeka-qwen-bouts-v1&#x27; or division.get(&#x27;model&#x27;) != &#x27;qwen38&#x27;:
+            raise ValueError(&#x27;Expected the existing Qwen bout division&#x27;)
+        dataset = Path(division[&#x27;dataset_root&#x27;]).resolve(strict=True)
+        contract_bytes = (dataset / &#x27;contract.json&#x27;).read_bytes()
+        if json.loads(contract_bytes).get(&#x27;format_version&#x27;) != &#x27;geodml-incremental-dataset-v1&#x27;:
+            raise ValueError(&#x27;Unsupported dataset contract&#x27;)
+        destination = &#x27;ValerianFourel/geodml-experiment-v2-paper-private&#x27;
+        context = {&#x27;started_utc&#x27;: datetime.now(timezone.utc).isoformat(), &#x27;dataset_root&#x27;: str(dataset),
+                   &#x27;division&#x27;: str(division_path), &#x27;division_sha256&#x27;: hashlib.sha256(division_bytes).hexdigest(),
+                   &#x27;contract_sha256&#x27;: hashlib.sha256(contract_bytes).hexdigest(), &#x27;repo_id&#x27;: destination,
+                   &#x27;publication_code_commit&#x27;: pin, &#x27;source_commit_meaning&#x27;: &#x27;publication helper, not generator execution&#x27;,
+                   &#x27;source_settings_changed&#x27;: False, &#x27;new_inference_started&#x27;: False}
+        save(output / &#x27;context.json&#x27;, context)
+        warnings.simplefilter(&#x27;error&#x27;, getpass.GetPassWarning)
+        with open(&#x27;/dev/tty&#x27;, &#x27;r+&#x27;) as terminal:
+            token = getpass.getpass(&#x27;HF WRITE token for the private dataset (hidden): &#x27;, stream=terminal).strip()
+        if not token:
+            raise ValueError(&#x27;A write token is required in the terminal prompt&#x27;)
+        os.environ[&#x27;HF_TOKEN&#x27;] = token
+        os.environ[&#x27;HUGGING_FACE_HUB_TOKEN&#x27;] = token
+        # HubStore verifies that the destination already exists and is private.
+        store = HubStore(destination)
+        exchange = Exchange(store, output / &#x27;journal&#x27;)
+        print(&#x27;CHECK_AND_PUBLISH&#x27;, dataset, &#x27;-&gt;&#x27;, destination, flush=True)
+        print(&#x27;Checking saved task identities and sealed references. This can take time before upload progress appears.&#x27;, flush=True)
+        result = publisher.publish(exchange, dataset, stripes=256, apply=True, source_commit=pin)
+        save(output / &#x27;publish.json&#x27;, result)
+        revision = store.head()
+        index = publisher.read_index(store, revision)
+        save(output / &#x27;index-after.json&#x27;, index)
+        indexed = {entry[&#x27;bundle&#x27;]: entry for entry in index[&#x27;bundles&#x27;]}
+        new_completed = new_failed = 0
+        for entry in result[&#x27;bundles&#x27;]:
+            if indexed.get(entry[&#x27;bundle&#x27;]) != entry:
+                raise ValueError(&#x27;Published bundle receipt does not match the saved remote index&#x27;)
+            manifest = exchange.manifest(entry[&#x27;bundle&#x27;], revision=revision)
+            counts = Counter(event[&#x27;state&#x27;] for event in manifest[&#x27;outcomes&#x27;].values())
+            if counts.get(&#x27;completed&#x27;, 0) != entry[&#x27;completed&#x27;] or counts.get(&#x27;terminal_failed&#x27;, 0) != entry[&#x27;failed&#x27;]:
+                raise ValueError(&#x27;Published outcome counts differ from the remote index&#x27;)
+            if set(counts) - {&#x27;completed&#x27;, &#x27;terminal_failed&#x27;}:
+                raise ValueError(&#x27;Unexpected nonterminal outcome in the published bundle&#x27;)
+            new_completed += entry[&#x27;completed&#x27;]
+            new_failed += entry[&#x27;failed&#x27;]
+        receipt = {&#x27;status&#x27;: &#x27;partial_with_blocked_writers&#x27; if result[&#x27;blocked&#x27;] else
+                   &#x27;updated&#x27; if result[&#x27;bundles&#x27;] else &#x27;nothing_new_at_snapshot&#x27;,
+                   &#x27;repo_id&#x27;: destination, &#x27;revision&#x27;: revision,
+                   &#x27;new_completed_published&#x27;: new_completed, &#x27;new_terminal_failures_recorded&#x27;: new_failed,
+                   &#x27;blocked_writers&#x27;: result[&#x27;blocked&#x27;], &#x27;new_bundles_checked&#x27;: len(result[&#x27;bundles&#x27;]),
+                   &#x27;remote_data_verification&#x27;: &#x27;performed by existing publisher before index update&#x27;,
+                   &#x27;index_reported_completed_total&#x27;: index.get(&#x27;completed_total&#x27;),
+                   &#x27;index_reported_failed_total&#x27;: index.get(&#x27;failed_total&#x27;),
+                   &#x27;finished_utc&#x27;: datetime.now(timezone.utc).isoformat(),
+                   &#x27;full_population_complete&#x27;: None}
+        save(output / &#x27;verification.json&#x27;, receipt)
+        print(json.dumps(receipt, indent=2), flush=True)
+        print(&#x27;UPDATE_DIRECTORY&#x27;, output, flush=True)
+        if result[&#x27;blocked&#x27;]:
+            raise SystemExit(2)
+    except Exception as error:
+        message = str(error).replace(token, &#x27;[REDACTED]&#x27;) if token else str(error)
+        save(output / &#x27;error.json&#x27;, {&#x27;error_type&#x27;: type(error).__name__, &#x27;message&#x27;: message,
+                                   &#x27;time_utc&#x27;: datetime.now(timezone.utc).isoformat(),
+                                   &#x27;partial_remote_upload_possible&#x27;: True})
+        print(&#x27;UPDATE_FAILED&#x27;, type(error).__name__, message, file=sys.stderr, flush=True)
+        print(&#x27;INSPECT_UPDATE_DIRECTORY&#x27;, output, file=sys.stderr, flush=True)
+        raise SystemExit(1)
+PY
+)
+</code></pre></div><p class="look">The command prints <code>UPDATE_DIRECTORY</code> immediately. It records the upload result and verifies new bundle receipts against a fixed remote revision. <code>updated</code> or <code>nothing_new_at_snapshot</code> with no blocked writers completes this snapshot. <code>partial_with_blocked_writers</code> identifies upload problems. Successful cell results can be published even when their allocation failed. Terminal failure records remain failures.</p></div></section><section class="step" id="verify"><div class="num">04</div><div class="body"><header class="step-head"><h2>Read the update and failure reports</h2><span class="chip safe">HoreKa login shell</span></header><p>Run this in another login terminal during the update, or after step 3 returns. Send its output together with the failed-job audit.</p><div class="code"><button class="copy" type="button" aria-label="Copy read the update and failure reports">Copy</button><pre><code>python3 - /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen &lt;&lt;&#x27;PY&#x27;
+import json
+from pathlib import Path
+import sys
+workspace = Path(sys.argv[1])
+updates = sorted(path for path in (workspace / &#x27;reviews&#x27;).glob(&#x27;qwen-hf-update-*&#x27;) if path.is_dir())
+if not updates:
+    raise SystemExit(&#x27;NO_UPDATE_ATTEMPT: inspect the step 3 terminal output.&#x27;)
+root = updates[-1]
+print(&#x27;LATEST_UPDATE&#x27;, root)
+for name in (&#x27;context.json&#x27;, &#x27;verification.json&#x27;, &#x27;error.json&#x27;):
+    path = root / name
+    if path.is_file():
+        print(name)
+        print(json.dumps(json.loads(path.read_text()), indent=2))
+report = root / &#x27;publish.json&#x27;
+if report.is_file():
+    value = json.loads(report.read_text())
+    print(&#x27;PUBLISH_REPORT&#x27;, json.dumps({k: v for k, v in value.items() if k != &#x27;bundles&#x27;}, indent=2))
+    print(&#x27;WRITERS_UPDATED&#x27;, len(value.get(&#x27;bundles&#x27;, [])))
+else:
+    print(&#x27;NO_PUBLISH_REPORT: update may still be checking or uploading, or stopped before returning.&#x27;)
+if not (root / &#x27;verification.json&#x27;).is_file():
+    print(&#x27;VERIFICATION_NOT_FINISHED: this does not establish a completed update.&#x27;)
+audits = sorted((workspace / &#x27;reviews&#x27;).glob(&#x27;horeka-audit-*/summary.txt&#x27;))
+if audits:
+    print(&#x27;LATEST_FAILED_JOB_AUDIT&#x27;, audits[-1])
+    print(audits[-1].read_text())
+else:
+    print(&#x27;NO_FAILED_JOB_AUDIT: run step 1.&#x27;)
+PY
+</code></pre></div><p class="look">The upload snapshot does not prove full corpus completion. New running-job results may appear later. The update leaves active claims, unsealed files, incomplete tasks and the hour registry in place. If a transfer stops, preserve its report and rerun step 3 only after that earlier publisher has ended; the existing uploader reuses immutable uploaded objects.</p></div></section><section class="note"><h2>Interpret the counts</h2><p><code>new_completed_published</code> counts completed cell outcomes added by this update. <code>new_terminal_failures_recorded</code> counts failed cell outcomes preserved in the dataset. <code>blocked_writers</code> describes publication failures. The Slurm failed-job count describes allocations, which can retain both successful and failed cells.</p><p>The audit includes saved metadata and up to 64 KiB per selected log. Raw generator shards stay in their existing dataset and are transferred only by the verified publisher. Exact distinct unfinished cells require a separate ledger reconciliation; this page does not release claims or schedule retries.</p></section><p id="copy-status" role="status" aria-live="polite"></p><footer><p>Publication code: <code>1bf21cb0e37374634be30a07bca9079ec18d6f87</code>. Audit collection is self-contained. No cluster command or upload was executed while preparing this page.</p></footer></main><script>document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {
     const code = button.parentElement.querySelector('code');
     let copied = false;
