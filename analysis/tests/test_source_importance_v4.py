@@ -277,6 +277,90 @@ def test_v4_truncation_is_terminal_without_repeating_same_budget():
     assert "parsed_output" not in result
 
 
+def marker_conflict():
+    answer = "Factors: 1) Security protects data. 2) Reliability keeps services available."
+    raw = {"status": "ready", "claims": [
+        {"spans": [{"first": "a1w1", "last": "a1w5"}], "kind": "assertion", "roles": ["major"]},
+        {"spans": [{"first": "a2w2", "last": "a2w5"}], "kind": "assertion", "roles": ["major"]}],
+        "excluded": [
+            {"span": {"first": "a1w2", "last": "a1w2"}, "reason": "non_substantive"},
+            {"span": {"first": "a2w1", "last": "a2w1"}, "reason": "non_substantive"}], "note": ""}
+    return answer, raw
+
+
+@pytest.mark.parametrize("task_version", ["source-importance-task-v4", "source-importance-task-v4-r2"])
+def test_marker_repair_is_revision_scoped_and_preserves_rejected_model_output(task_version):
+    answer, raw = marker_conflict()
+    encoded = json.dumps(raw)
+    class MarkerResponse:
+        calls = 0
+        async def complete(self, **kwargs):
+            self.calls += 1
+            return encoded, {"finish_reason": "stop"}
+    task = v4.prepare_map_task(request="What factors matter?", answer=answer, task_version=task_version)
+    client = MarkerResponse()
+    result = asyncio.run(_execute_one(task, client=client, fake=False))
+    if task_version == "source-importance-task-v4":
+        assert result["ok"] is False and client.calls == 2
+        assert all(attempt["raw_output"] == encoded for attempt in result["validation_attempts"])
+        assert "repaired_output" not in result
+        return
+    assert result["ok"] and client.calls == 1
+    assert result["raw_output"] == result["validation_attempts"][0]["raw_output"] == encoded
+    assert result["validation_attempts"][0]["ok"] is False
+    assert result["rejected_output_sha256"] == [hashlib.sha256(encoded.encode()).hexdigest()]
+    repaired = json.loads(result["repaired_output"])
+    assert repaired == {**raw, "excluded": raw["excluded"][1:]}
+    assert result["parsed_output"]["answer_sha256"] == hashlib.sha256(answer.encode()).hexdigest()
+    assert result["deterministic_repairs"][0]["word_id"] == "a1w2"
+    assert v4.reproduce_map_result(task["record"], result) == result["parsed_output"]
+    altered = copy.deepcopy(result)
+    altered["deterministic_repairs"][0]["word_id"] = "a1w3"
+    with pytest.raises(ValueError, match="repair"):
+        v4.reproduce_map_result(task["record"], altered)
+
+
+@pytest.mark.parametrize("problem", ["substantive", "duplicate_exclusion", "pure_abstention", "ambiguous_marker"])
+def test_marker_repair_refuses_semantic_or_ambiguous_conflicts(problem):
+    answer, raw = marker_conflict()
+    if problem == "substantive":
+        raw["excluded"][0]["span"] = {"first": "a1w3", "last": "a1w3"}
+    elif problem == "duplicate_exclusion":
+        raw["excluded"].append(copy.deepcopy(raw["excluded"][0]))
+    elif problem == "pure_abstention":
+        raw["excluded"][0]["reason"] = "pure_abstention"
+    else:
+        answer = "Parameter 1) controls access."
+        raw["claims"] = [{"spans": [{"first": "a1w1", "last": "a1w4"}],
+                          "kind": "assertion", "roles": ["major"]}]
+        raw["excluded"] = raw["excluded"][:1]
+    assert v4.repair_map_output(json.dumps(raw), answer=answer) is None
+
+
+def test_historical_v4_task_bytes_and_materialization_survive_new_default():
+    request, answer = "Which exporter?", "Acme exports CSV offline."
+    legacy = v4.prepare_map_task(request=request, answer=answer, task_version="source-importance-task-v4")
+    assert legacy["record"]["judge_task_id"] == "source-importance-task-v4-d7e2d546dee970e31fd75a00"
+    assert legacy["prompt_sha256"] == "782b8b4db9787caddcf360da9875b6e104e6a4f436d61c48efd029eb5fda65e6"
+    assert legacy["schema_sha256"] == "6cacb663c51e1b349103757092f5db7f7ebf3a6f5a96953ff897e4119263c682"
+    assert legacy["seed"] == 317816191
+    parsed = legacy["validator"]({"status": "ready", "claims": [{
+        "spans": [{"first": "a1w1", "last": "a1w4"}], "kind": "assertion", "roles": ["central"]}],
+        "excluded": [], "note": ""})
+    dependency = v4.source_dependency(legacy["record"]["judge_task_id"], "", answer)
+    source = v4.materialize_source(dependency, legacy["record"], parsed)
+    assert source["record"]["judge_task_id"] == "source-importance-task-v4-4da0b77db6904c98d1f3bd5d"
+    assert source["prompt_sha256"] == "0ce40b93b6d8b051dbbdbee3be4669b12a0db4648414a202af651f36bb4be93a"
+    assert source["seed"] == 2846285151
+    assert "repair_output" not in legacy
+    assert v4.item_from_record(legacy["record"])["record"] == legacy["record"]
+    current = v4.prepare_map_task(request=request, answer=answer)
+    assert current["record"]["judge_task_id"] != legacy["record"]["judge_task_id"]
+    bad = {**current["record"], "task_version": "unknown"}
+    with pytest.raises(ValueError, match="version"):
+        v4.item_from_record(bad)
+
+
 @pytest.mark.parametrize("kind", ["map", "source", "cross_unit", "reversed", "overlap"])
 def test_corrective_retry_reports_actionable_validation_error(kind):
     good = copy.deepcopy(support() if kind == "source" else MAP)
@@ -302,6 +386,10 @@ def test_corrective_retry_reports_actionable_validation_error(kind):
     result = asyncio.run(_execute_one(task, client=client, fake=False))
     assert result["ok"] and len(client.calls) == 2
     feedback = json.loads(client.calls[1]["prompt"].split("VALIDATION_FEEDBACK_JSON=", 1)[1])["error"]
+    if kind != "source":
+        detail = json.loads(client.calls[1]["prompt"].split("VALIDATION_FEEDBACK_JSON=", 1)[1])
+        assert detail["rejected_output"] == json.dumps(bad)
+        assert detail["task"] == "answer_map"
     if kind == "map":
         assert all(word in feedback for word in ("a3w1", "a3w2", "a3w3", "a3w4"))
     elif kind == "source":
@@ -315,6 +403,22 @@ def test_corrective_retry_reports_actionable_validation_error(kind):
     else:
         assert "a1w3" in feedback and "both" in feedback
         assert "split" in feedback and "substantive" in feedback
+
+
+def test_repeated_invalid_map_stops_with_specific_failure_after_corrective_feedback():
+    bad = {**MAP, "claims": MAP["claims"][:-1]}
+    class Invalid:
+        calls = []
+        async def complete(self, **kwargs):
+            self.calls.append(kwargs)
+            return json.dumps(bad), {"finish_reason": "stop"}
+    client = Invalid()
+    task = v4.prepare_map_task(request="Q?", answer=ANSWER)
+    result = asyncio.run(_execute_one(task, client=client, fake=False))
+    assert result["ok"] is False and len(client.calls) == 2
+    assert result["validation_stop"] == "repeated_invalid_output"
+    assert result["validation_attempts"][1]["repeats_attempt"] == 1
+    assert "parsed_output" not in result
 
 
 def test_exhausted_source_validation_stays_missing_and_is_not_retried_on_resume(tmp_path):
