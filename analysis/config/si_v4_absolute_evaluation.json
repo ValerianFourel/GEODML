@@ -1,0 +1,50 @@
+{
+  "format_version": "si-v4-absolute-evaluation-design-v1",
+  "status": "absolute_quality_screening_preserves_historical_design",
+  "historical_development_cells": 40,
+  "constructed_development_pairs": 48,
+  "constructed_heldout_pairs": 48,
+  "fresh_core_cells": 96,
+  "fresh_core_paired_prompts": 48,
+  "fresh_stress_cells": 24,
+  "fresh_stress_paired_prompts": 12,
+  "conditional_confirmation_cells": 120,
+  "repeat_cells": 24,
+  "uncached_repetitions": 3,
+  "repeat_modes": [
+    "fixed_map",
+    "end_to_end"
+  ],
+  "thresholds": {
+    "unexplained_input_mismatches_max": 0,
+    "retained_structural_validity_min": 1.0,
+    "eligible_source_completion_min": 0.99,
+    "resolved_reference_pair_support_min": 0.95,
+    "unresolved_pair_fraction_max": 0.05,
+    "reference_grade_range_agreement_min": 0.9,
+    "repeat_exact_grade_agreement_min": 0.95,
+    "repeat_within_one_grade_min": 0.99,
+    "nonempty_top_group_agreement_min": 0.95,
+    "map_fidelity_min": 0.95,
+    "essential_map_omissions_or_meaning_reversals_max": 0,
+    "constructed_unsupported_grade4_or_grade5_max": 0,
+    "warm_gpu_hours_per_completed_eligible_cell_ratio_max": 3.0
+  },
+  "reference_models": [
+    "gpt-6-astra",
+    "gpt-6-sol"
+  ],
+  "reference_limitations": "Model agreement is not human gold. Preserve disagreements and independently frozen grade ranges.",
+  "production_launch_authorized": false,
+  "acceptance_basis": "absolute_v4_quality; matched SI-v3 bridge is cost-only",
+  "budget": {
+    "gpu_hours_total_max": 32,
+    "gpu_hours_development_max": 16,
+    "gpu_hours_fresh_max": 16,
+    "allocation_walltime_seconds_max": 3600
+  },
+  "reference_reasoning_effort": "high",
+  "reference_range_resolution": "intersection_of_independent_ranges; disjoint_or_null_remains_unresolved",
+  "repeat_seed_policy": "same_semantic_task_seed; distinct_uncached_execution_ids",
+  "support_unit": "claim-witness finding: >=95% sufficient among resolved witness assessments and <=5% unresolved among expected findings; whole-source relation agreement reported separately without a new numeric threshold"
+}

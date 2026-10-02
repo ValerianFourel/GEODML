@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import random
 import shlex
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -358,6 +359,8 @@ def freeze_saved(bundles, output, protocol):
                 stream.write(judge.canonical(row) + "\n")
     counts = dict(Counter(t["task"] for t in tasks.values()))
     manifest = {"format_version": "source-importance-task-freeze-v1", "protocol": protocol,
+                "task_version": v4.TASK_VERSION if protocol == v4.PROTOCOL else v3.TASK_VERSION,
+                "retry_contract": v4.RETRY_CONTRACT if protocol == v4.PROTOCOL else v3.RETRY_CONTRACT,
                 "max_tokens": 4096, "map_max_tokens": 4096, "preprocessing": v4.PREPROCESSING_VERSION,
                 "cells": len(cells), "unique_tasks": counts, "scientific_result": False,
                 "files": {name: judge.file_hash(output / name) for name in ("cells.jsonl.gz", "tasks.jsonl.gz")}}
@@ -382,13 +385,20 @@ def prepare(args):
         raise ValueError("clean committed checkout required")
     if not args.approval.strip():
         raise ValueError("explicit wall-time approval required")
+    evaluation_path = getattr(args, "evaluation_plan", None)
+    evaluation = None
+    if evaluation_path:
+        from analysis.scripts.run_si_v4_cycle import validate_plan
+        evaluation = validate_plan(evaluation_path)
     walltime = getattr(args, "walltime", "01:00:00")
     if walltime not in ("00:30:00", "00:45:00", "01:00:00", "03:00:00"):
         raise ValueError("unsupported development wall-time")
-    if walltime in ("00:30:00", "00:45:00") and not getattr(args, "selected_inputs", None):
+    if walltime in ("00:30:00", "00:45:00") and not (getattr(args, "selected_inputs", None) or evaluation):
         raise ValueError("short diagnostic allocations require selected inputs")
-    if getattr(args, "source_importance_only", False) and not getattr(args, "selected_inputs", None):
+    if getattr(args, "source_importance_only", False) and not (getattr(args, "selected_inputs", None) or evaluation):
         raise ValueError("source-importance-only requires selected inputs")
+    if evaluation and walltime == "03:00:00":
+        raise ValueError("evaluation segments cannot exceed one hour")
     hours = stage._hours(walltime)
     pin = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     workspace, out = args.workspace.resolve(), args.output.resolve()
@@ -429,26 +439,34 @@ def prepare(args):
     if hashlib.sha256(tokenizer.get_chat_template().encode()).hexdigest() != config["chat_template_sha256"]:
         raise ValueError("local pinned chat template differs; review before allocating")
     out.mkdir(parents=True)
-    bundle_paths = [selected_path] if selected is not None else args.bundle
-    bundles = [selected] if selected is not None else [stage.read(p) for p in bundle_paths]
+    bundle_paths = [evaluation_path] if evaluation else [selected_path] if selected is not None else args.bundle
+    bundles = [] if evaluation else [selected] if selected is not None else [stage.read(p) for p in bundle_paths]
     protocols = (("v4-inputs", v4.PROTOCOL),) if selected is not None else (
         ("v3-inputs", v3.PROTOCOL), ("v4-inputs", v4.PROTOCOL))
-    inventories = {name: freeze_saved(bundles, out / name, protocol) for name, protocol in
-                   protocols}
-    if selected is None and inventories["v4-inputs"]["cells"] != 40:
+    if evaluation:
+        inventories = evaluation["inventories"]
+        for name in inventories:
+            shutil.copytree(evaluation_path.parent / name, out / name)
+        for row in evaluation["queue"]:
+            if row.get("fixed_maps"):
+                shutil.copyfile(evaluation_path.parent / row["fixed_maps"], out / row["fixed_maps"])
+        shutil.copyfile(evaluation_path, out / "evaluation-plan.json")
+    else:
+        inventories = {name: freeze_saved(bundles, out / name, protocol) for name, protocol in protocols}
+    if not evaluation and selected is None and inventories["v4-inputs"]["cells"] != 40:
         raise ValueError("this development test expects the forty previously reviewed cells")
-    if selected is None:
+    if selected is None and not evaluation:
         inventories["constructed-inputs"] = freeze_diagnostics(out / "constructed-inputs", "development")
     for name in inventories:
         schema_check(out / name)
-        if selected is not None:
+        if selected is not None or evaluation:
             with tempfile.TemporaryDirectory(prefix="input-check-", dir=out) as temporary:
                 coordinator = judge.Coordinator(out / name, Path(temporary) / "results", {"gpu_count": 4})
                 coordinator.close()
     config["tokenizer_path"] = str(snapshot)
-    if selected is not None:
+    if selected is not None or evaluation:
         config["structured_outputs_config"] = {"backend": "xgrammar", "disable_any_whitespace": True}
-        if getattr(args, "source_importance_only", False):
+        if getattr(args, "source_importance_only", False) or evaluation:
             config["source_importance_only"] = True
     judge.load_config(repo / "analysis/config/si_v4_gemma.template.json")
     atomic(out / "judge-config.json", judge.canonical(config).encode())
@@ -463,6 +481,17 @@ def prepare(args):
         "estimate": {"minutes": [20, 50], "nodes": 1, "gpus": 4, "cpus_requested": 32,
                      "memory": "whole A100 node", "node_hours_max": hours, "gpu_hours_max": 4 * hours,
                      "basis": "historical Gemma wrapper 8.9-10.9 minutes; v4 throughput unmeasured"}}
+    if evaluation:
+        budget_path = getattr(args, "cycle_budget", None)
+        if budget_path is None or not budget_path.resolve().is_relative_to(workspace):
+            raise ValueError("evaluation requires a shared cycle-budget path within the workspace")
+        run_config.update(workload_mode="evaluation-v4", evaluation_phase=evaluation["phase"],
+                          evaluation_plan_sha256=judge.file_hash(out / "evaluation-plan.json"),
+                          structured_outputs_config=config["structured_outputs_config"],
+                          source_importance_only=True, budget=evaluation["budget"],
+                          cycle_budget_path=str(budget_path.resolve()))
+        run_config["estimate"].update(minutes=[30, 60],
+            basis="finite checkpointed evaluation; prior 20-cell warm phase 5.87 minutes, startup 8.9-10.9 minutes; phase capped at 4 segments/16 GPU-hours")
     if selected is not None:
         run_config.update(workload_mode="selected-v4-cells", selection=selected["selection"],
                           structured_outputs_config=config["structured_outputs_config"],
@@ -478,6 +507,12 @@ def prepare(args):
             basis="prior 20-cell compact-JSON SI phase 5.87 minutes; historical startup 8.9-10.9 minutes; includes cleanup margin; retry throughput unmeasured")
     atomic(out / "config.json", judge.canonical(run_config).encode())
     launcher = gemma.run_script(repo, out)
+    if evaluation:
+        from analysis.scripts.run_si_v4_cycle import register_phase
+        register_phase(out / "config.json")
+        command = [sys.executable, str(repo / "analysis/scripts/run_si_v4_cycle.py"),
+                   "run-segment", "--config", str(out / "config.json")]
+        launcher = ("#!/bin/bash\nset -euo pipefail\nexec " + shlex.join(command) + "\n").encode()
     if selected is not None:
         command = [sys.executable, str(repo / "analysis/scripts/horeka_si_v4.py"),
                    "run-picked", "--config", str(out / "config.json")]
@@ -569,6 +604,9 @@ async def review(args):
         if stage.read(root / name / "manifest.json") != manifest:
             raise ValueError("input manifest changed")
     mode = config.get("workload_mode", "legacy-development")
+    if mode == "evaluation-v4":
+        from analysis.scripts.run_si_v4_cycle import review as review_evaluation
+        return await review_evaluation(args, config)
     if mode not in ("legacy-development", "selected-v4-cells"):
         raise ValueError("unknown SI-v4 workload mode")
     # Preserve the legacy comparison; explicitly selected examples get one v4 pass.
@@ -652,8 +690,10 @@ def main(argv=None):
     inputs = p.add_mutually_exclusive_group(required=True)
     inputs.add_argument("--bundle", type=Path, action="append")
     inputs.add_argument("--selected-inputs", type=Path, help="verified output of the select command")
+    inputs.add_argument("--evaluation-plan", type=Path, help="frozen absolute-v4 evaluation queue")
     p.add_argument("--existing-job-id", help="bind selected-cell execution to an already running Gemma allocation")
     p.add_argument("--account", required=True)
+    p.add_argument("--cycle-budget", type=Path, help="shared development/fresh 32 GPU-hour budget ledger")
     p.add_argument("--approval", required=True)
     p.add_argument("--source-importance-only", action="store_true", help="selected SI diagnostic without repeating fulfilment")
     p.add_argument("--walltime", choices=("00:30:00", "00:45:00", "01:00:00", "03:00:00"), default="01:00:00")

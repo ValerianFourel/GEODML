@@ -69,6 +69,7 @@ from analysis.interpretability.pipeline.source_importance import (
 )
 from analysis.interpretability.pipeline.source_importance_v4 import (
     RETRY_CONTRACT as SOURCE_IMPORTANCE_V4_RETRY_CONTRACT,
+    LEGACY_RETRY_CONTRACT as SOURCE_IMPORTANCE_V4_LEGACY_RETRY_CONTRACT,
 )
 from analysis.interpretability.pipeline.agentic_judging import (
     SUPPORTED_FORMAT_VERSIONS as AGENTIC_JUDGE_FORMAT_VERSIONS,
@@ -549,10 +550,11 @@ async def _execute_one(item, *, client, fake):
     if maximum_validation_attempts > 1 and feedback_contract not in {
             "search-experience-validation-feedback-v1", CLAIMS_RETRY_CONTRACT,
             "si-identical-retry-v1", "si-corrective-retry-v2", SOURCE_IMPORTANCE_RETRY_CONTRACT,
-            SOURCE_IMPORTANCE_V4_RETRY_CONTRACT}:
+            SOURCE_IMPORTANCE_V4_RETRY_CONTRACT, SOURCE_IMPORTANCE_V4_LEGACY_RETRY_CONTRACT}:
         raise ValueError("unknown validation feedback contract")
     # Preserve historical retries; SI-v3 feedback addresses passage selections.
-    si_v4 = feedback_contract == SOURCE_IMPORTANCE_V4_RETRY_CONTRACT
+    si_v4_r2 = feedback_contract == SOURCE_IMPORTANCE_V4_RETRY_CONTRACT
+    si_v4 = si_v4_r2 or feedback_contract == SOURCE_IMPORTANCE_V4_LEGACY_RETRY_CONTRACT
     si_selection = feedback_contract == SOURCE_IMPORTANCE_RETRY_CONTRACT or si_v4
     si_corrective = si_selection or feedback_contract == "si-corrective-retry-v2"
     identical_retry = feedback_contract in {CLAIMS_RETRY_CONTRACT, "si-identical-retry-v1"}
@@ -601,7 +603,9 @@ async def _execute_one(item, *, client, fake):
                         raise JudgeOutputTruncatedError("output reached max_tokens")
                     parsed = item["validator"](raw)
                 except Exception as exc:
-                    rejected_hashes.append(hashlib.sha256(raw.encode()).hexdigest())
+                    rejected_hash = hashlib.sha256(raw.encode()).hexdigest()
+                    repeated_attempt = rejected_hashes.index(rejected_hash) + 1 if rejected_hash in rejected_hashes else None
+                    rejected_hashes.append(rejected_hash)
                     result["rejected_output_sha256"] = list(rejected_hashes)
                     if categorized:
                         result.setdefault("failure_categories", []).append(
@@ -609,12 +613,25 @@ async def _execute_one(item, *, client, fake):
                     if si_corrective:
                         attempt_record.update(error=f"{type(exc).__name__}: {exc}",
                                               failure_category=getattr(exc, "category", "semantic"))
+                    if si_v4_r2 and not isinstance(exc, JudgeOutputTruncatedError):
+                        repair = item.get("repair_output")
+                        repaired = repair(raw) if repair else None
+                        if repaired is not None:
+                            parsed = item["validator"](repaired["repaired_output"])
+                            result.update(repaired, parsed_output=parsed, ok=True)
+                            attempt_record["deterministically_repaired"] = True
+                            break
+                        if repeated_attempt is not None:
+                            result["validation_stop"] = "repeated_invalid_output"
+                            attempt_record["repeats_attempt"] = repeated_attempt
+                            raise
                     if validation_attempt == maximum_validation_attempts or (si_v4 and isinstance(exc, JudgeOutputTruncatedError)):
                         raise
                     if not identical_retry:
-                        prompt = _validation_feedback_prompt(
-                            str(item["prompt"]), exc, validation_attempt, passage_selection=si_selection
-                        )
+                        feedback = item.get("corrective_feedback") if si_v4_r2 else None
+                        prompt = (feedback(raw, exc, validation_attempt) if feedback else
+                                  _validation_feedback_prompt(str(item["prompt"]), exc, validation_attempt,
+                                                              passage_selection=si_selection))
                     continue
                 result.update(parsed_output=parsed, ok=True)
                 if si_corrective:

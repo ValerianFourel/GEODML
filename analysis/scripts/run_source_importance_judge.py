@@ -203,6 +203,8 @@ class Coordinator:
                             raise ValueError("diagnostic interventions require a constructed input freeze")
                     else:
                         v4.item_from_record(record)
+                        if record.get("inputs", {}).get("diagnostic_seed") is not None and not self.manifest.get("constructed"):
+                            raise ValueError("diagnostic interventions require a constructed input freeze")
                 else:
                     v3.item_from_record(record)
                 self.db.execute("INSERT INTO tasks(id,record,kind,parent,priority,state) VALUES (?,?,?,?,?,?)",
@@ -338,11 +340,30 @@ class Coordinator:
             existing = self.db.execute("SELECT record,state,result FROM tasks WHERE id=? AND kind='answer_map'", (tid,)).fetchone()
             if not existing:
                 raise ValueError("fixed map does not belong to this frozen input")
-            item = v4.item_from_record(json.loads(existing[0]))
-            parsed = item["validator"](row["raw_output"])
-            result = {"ok": True, "parsed_output": parsed, "raw_output": row["raw_output"],
+            record = json.loads(existing[0])
+            v4.item_from_record(record)
+            if row.get("ok") is False:
+                if row.get("status") not in ("map_failed", "map_quarantined") or not row.get("execution_sha256"):
+                    raise ValueError("fixed map failure requires its status and originating execution")
+                result = {"ok": False, "status": row["status"], "error": row.get("error"),
+                          "raw_output": row.get("raw_output"), "judge_task_id": tid,
+                          "task": "answer_map", "fixed_map": True,
+                          "fixed_maps_sha256": self.run_identity["fixed_maps_sha256"]}
+                if row["status"] == "map_quarantined":
+                    result["parsed_output"] = v4.reproduce_map_result(record, row)
+                    self.db.execute("INSERT OR IGNORE INTO quarantined_maps VALUES (?)", (tid,))
+                elif "repaired_output" in row or "deterministic_repairs" in row:
+                    # A retained receipt remains evidence even when scores are
+                    # withheld, and must never bypass repair verification.
+                    v4.reproduce_map_result(record, row)
+            else:
+                parsed = v4.reproduce_map_result(record, row)
+                result = {"ok": True, "parsed_output": parsed, "raw_output": row["raw_output"],
                       "judge_task_id": tid, "task": "answer_map", "fixed_map": True,
                       "fixed_maps_sha256": self.run_identity["fixed_maps_sha256"]}
+            for field in ("repaired_output", "deterministic_repairs"):
+                if field in row:
+                    result[field] = row[field]
             if existing[1] == "pending":
                 self.db.execute("UPDATE tasks SET state='done',result=? WHERE id=?", (canonical(result), tid))
             elif json.loads(existing[2]) != result:
@@ -524,6 +545,11 @@ class Coordinator:
                 original = json.loads(frozen[0]) if frozen else {}
                 original = original.get("legacy_record", original)
                 output.append({**source, "status": status, "importance": grade,
+                               "parsed_output": parsed,
+                               "raw_output": (result or {}).get("raw_output"),
+                               "error": (result or {}).get("error"),
+                               "validation_attempt_count": (result or {}).get("validation_attempt_count", 0),
+                               "deterministic_repairs": (result or {}).get("deterministic_repairs", []),
                                "judge_task_id": (result or {}).get("judge_task_id"),
                                "raw_output_sha256": hashlib.sha256(result["raw_output"].encode()).hexdigest()
                                if result and isinstance(result.get("raw_output"), str) else None,
@@ -538,6 +564,7 @@ class Coordinator:
             j1 = self.result(bundle.get("j1_task_id"))
             map_result = self.result(map_id)
             return {"sources": output, "grades": grades, "metrics": metrics,
+                    "map_result": map_result,
                     "map_eligibility": (map_result or {}).get("parsed_output", {}).get("eligibility"),
                     "map_sha256": (map_result or {}).get("parsed_output", {}).get("map_sha256"),
                     "j1": (j1 or {}).get("parsed_output", {}).get("request_fulfillment")}
@@ -584,9 +611,18 @@ class Coordinator:
         with (directory / "maps.jsonl").open("w") as stream:
             for tid, raw in self.db.execute("SELECT id,result FROM tasks WHERE kind='answer_map' AND result IS NOT NULL"):
                 result = json.loads(raw)
-                if result.get("ok"):
-                    stream.write(canonical({"judge_task_id": tid, "raw_output": result["raw_output"],
-                                            "execution_sha256": self.execution_sha256}) + "\n")
+                quarantined = bool(self.db.execute("SELECT 1 FROM quarantined_maps WHERE id=?", (tid,)).fetchone())
+                entry = {"judge_task_id": tid, "raw_output": result.get("raw_output"),
+                         "execution_sha256": self.execution_sha256}
+                for field in ("repaired_output", "deterministic_repairs"):
+                    if field in result:
+                        entry[field] = result[field]
+                if not result.get("ok") or quarantined:
+                    entry.update(ok=False, status="map_quarantined" if quarantined else "map_failed",
+                                 error=result.get("error"))
+                stream.write(canonical(entry) + "\n")
+        from analysis.interpretability.pipeline.agentic_hour_sync import atomic
+        atomic(self.output / "reports/latest.json", canonical({"directory": self.writer_id}).encode())
         return summary
 
     def close(self):
