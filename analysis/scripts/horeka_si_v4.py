@@ -137,6 +137,80 @@ def verified_selection(path):
     return bundle
 
 
+def select_failed_maps(args):
+    """Select only failed maps with wholly blocked sources from a terminal saved run."""
+    from analysis.scripts.capture_agentic_scheduler_snapshot import TERMINAL_STATES
+    previous = args.previous_run.resolve()
+    job = args.previous_job_id
+    if not job.isdecimal():
+        raise ValueError("numeric previous job ID required")
+    accounting = subprocess.check_output(["sacct", "-X", "-j", job, "--noheader", "--parsable2",
+                                         "--format=JobIDRaw,State"], text=True, timeout=30)
+    states = [line.split("|")[1].strip().split()[0].rstrip("+") for line in accounting.splitlines()
+              if line.split("|")[0].strip() == job]
+    live = subprocess.check_output(["squeue", "--me", "--array", "--noheader", "--format=%i"],
+                                   text=True, timeout=30).split()
+    if job in live or len(states) != 1 or states[0] not in TERMINAL_STATES:
+        raise ValueError("previous allocation is not confirmed terminal; preserve it")
+    config = stage.read(previous / "config.json")
+    if config.get("workload_mode") != "selected-v4-cells" or str(config.get("existing_job_id")) != job:
+        raise ValueError("previous job must match a saved selected-cell run")
+    if len(config["source_files"]) != 1:
+        raise ValueError("one verified selected bundle required")
+    source, expected = next(iter(config["source_files"].items()))
+    if judge.file_hash(Path(source)) != expected:
+        raise ValueError("previous selected inputs changed")
+    selected = verified_selection(Path(source))
+    inputs = previous / "v4-inputs"
+    manifest = stage.read(inputs / "manifest.json")
+    if manifest != config["inventories"]["v4-inputs"]:
+        raise ValueError("previous input manifest changed")
+    for name in ("tasks.jsonl.gz", "cells.jsonl.gz"):
+        if judge.file_hash(inputs / name) != manifest["files"][name]:
+            raise ValueError("previous frozen input changed")
+    frozen = {r["judge_task_id"]: r for r in judge.rows(inputs / "tasks.jsonl.gz")}
+    output = previous / "attempts" / f"job{job}" / "trial/v4-pass1"
+    with closing(sqlite3.connect((output / "control/index.sqlite").as_uri() + "?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA query_only=ON")
+        records = db.execute("SELECT id,kind,state,result,refs,record FROM tasks").fetchall()
+    if {r[0] for r in records} != set(frozen):
+        raise ValueError("previous task inventory differs")
+    failed, status = set(), {}
+    for tid, kind, state, raw, refs, record in records:
+        if json.loads(record) != frozen[tid] or state not in ("done", "blocked", "not_requested"):
+            raise ValueError("previous tasks are changed or unfinished; reconcile before retry")
+        status[tid] = state
+        result = json.loads(raw) if raw else {}
+        if kind == "answer_map" and state == "done" and result.get("ok") is False:
+            references = json.loads(refs or "[]")
+            judgment = [r for r in references if r["table"] == "judgments"]
+            if len(judgment) != 1 or not all(judge.verify_record_reference(output, r) for r in references):
+                raise ValueError("failed map lacks verified sealed evidence")
+            ref = judgment[0]
+            if ref["record_id"] != "record-" + judge._digest({"table": "judgments", "transaction_id": ref["transaction_id"], "row": result}):
+                raise ValueError("failed map differs from sealed result")
+            failed.add(tid)
+    cells = [c for c in judge.rows(inputs / "cells.jsonl.gz") if c.get("map_task_id") in failed]
+    if not cells or {c["map_task_id"] for c in cells} != failed:
+        raise ValueError("no complete failed-map selection available")
+    if any(status[s["dependency_id"]] != "blocked" for c in cells for s in c["sources"]):
+        raise ValueError("failed-map cells have existing source work; do not repeat it")
+    selection = {**selected["selection"], "selected_cell_ids": [c["cell_id"] for c in cells],
+                 "retry_parent": {"run": str(previous), "job_id": job, "terminal_state": states[0],
+                    "index_sha256": judge.file_hash(output / "control/index.sqlite"),
+                    "manifest_sha256": judge.file_hash(inputs / "manifest.json"),
+                    "failed_map_ids": sorted(failed), "scope": "source_importance_only"}}
+    pool, _ = saved_pool(Path(selection["source_config"]).parent)
+    bundle = selection_bundle(pool, selection)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("x") as stream:
+        stream.write(judge.canonical(bundle) + "\n")
+    print(json.dumps({"selected_inputs": str(args.output.resolve()), "cells": len(cells),
+                      "maps": len(failed), "blocked_sources": sum(len(c["sources"]) for c in cells),
+                      "previous_state": states[0], "inference_started": False}, indent=2))
+    return 0
+
+
 def fresh(args):
     """Choose inputs now; prepare against a live allocation and print its exact run command."""
     workspace = args.workspace.resolve()
@@ -172,7 +246,7 @@ def fresh(args):
             ["scontrol", "show", "job", job, "-o"], text=True, timeout=30).split() if "=" in t)
         prepare(SimpleNamespace(workspace=workspace, output=session / "run", bundle=None,
             selected_inputs=selected, existing_job_id=job, account=fields["Account"],
-            walltime=fields["TimeLimit"], approval=(
+            walltime=fields["TimeLimit"], source_importance_only=getattr(args, "source_importance_only", False), approval=(
                 "Valerian requested one SI-v4 pass over explicitly selected saved development cells "
                 f"inside existing job {job}; no new allocation or extension.")))
         command = "\n".join([
@@ -309,9 +383,13 @@ def prepare(args):
     if not args.approval.strip():
         raise ValueError("explicit wall-time approval required")
     walltime = getattr(args, "walltime", "01:00:00")
-    if walltime not in ("01:00:00", "03:00:00"):
-        raise ValueError("supported development wall-times are one or three hours")
-    hours = int(walltime.split(":")[0])
+    if walltime not in ("00:30:00", "00:45:00", "01:00:00", "03:00:00"):
+        raise ValueError("unsupported development wall-time")
+    if walltime in ("00:30:00", "00:45:00") and not getattr(args, "selected_inputs", None):
+        raise ValueError("short diagnostic allocations require selected inputs")
+    if getattr(args, "source_importance_only", False) and not getattr(args, "selected_inputs", None):
+        raise ValueError("source-importance-only requires selected inputs")
+    hours = stage._hours(walltime)
     pin = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     workspace, out = args.workspace.resolve(), args.output.resolve()
     if out.exists():
@@ -320,6 +398,8 @@ def prepare(args):
     bound = getattr(args, "existing_job_id", None)
     selected = verified_selection(selected_path) if selected_path else None
     allocation = None
+    if selected is not None and selected["selection"].get("retry_parent") and not getattr(args, "source_importance_only", False):
+        raise ValueError("failed-map retry requires --source-importance-only")
     if selected is not None:
         if not bound:
             raise ValueError("selected-cell preparation needs an existing Gemma allocation ID")
@@ -368,6 +448,8 @@ def prepare(args):
     config["tokenizer_path"] = str(snapshot)
     if selected is not None:
         config["structured_outputs_config"] = {"backend": "xgrammar", "disable_any_whitespace": True}
+        if getattr(args, "source_importance_only", False):
+            config["source_importance_only"] = True
     judge.load_config(repo / "analysis/config/si_v4_gemma.template.json")
     atomic(out / "judge-config.json", judge.canonical(config).encode())
     run_config = {"repository": str(repo), "git_commit": pin, "workspace": str(workspace),
@@ -390,6 +472,10 @@ def prepare(args):
                               ("JobId", "JobState", "Partition", "NodeList", "TimeLimit", "EndTime")})
         run_config["estimate"].update(new_allocation=False, additional_allocation_hours=0,
                                      scope="one SI-v4 pass over explicitly selected development cells")
+    if selected is not None and config.get("source_importance_only") and inventories["v4-inputs"]["cells"] <= 2:
+        run_config["estimate"].update(minutes=[15, 25],
+            scope="SI-only diagnostic of at most two cells; fulfilment not requested",
+            basis="prior 20-cell compact-JSON SI phase 5.87 minutes; historical startup 8.9-10.9 minutes; includes cleanup margin; retry throughput unmeasured")
     atomic(out / "config.json", judge.canonical(run_config).encode())
     launcher = gemma.run_script(repo, out)
     if selected is not None:
@@ -540,6 +626,10 @@ async def review(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    retry = commands.add_parser("select-failed-maps", help="select terminal failed-map cells without reusing or resetting old results")
+    retry.add_argument("--previous-run", type=Path, required=True)
+    retry.add_argument("--previous-job-id", required=True)
+    retry.add_argument("--output", type=Path, required=True)
     s = commands.add_parser("select", help="sample saved development cells, then choose which to judge")
     s.add_argument("--source-run", type=Path, required=True)
     s.add_argument("--output", type=Path, required=True)
@@ -552,6 +642,7 @@ def main(argv=None):
     f.add_argument("--seed", type=int, default=20261002)
     f.add_argument("--count", type=int, default=20)
     f.add_argument("--take", help="displayed numbers or all; otherwise ask in the terminal")
+    f.add_argument("--source-importance-only", action="store_true", help="run maps and source judgments; leave fulfilment explicitly not requested")
     f.add_argument("--existing-job-id", help="choose this job from the user's running Gemma allocations")
     e = commands.add_parser("run-picked", help="check existing ownership and storage, then run selected cells")
     e.add_argument("--config", type=Path, required=True)
@@ -564,7 +655,8 @@ def main(argv=None):
     p.add_argument("--existing-job-id", help="bind selected-cell execution to an already running Gemma allocation")
     p.add_argument("--account", required=True)
     p.add_argument("--approval", required=True)
-    p.add_argument("--walltime", choices=("01:00:00", "03:00:00"), default="01:00:00")
+    p.add_argument("--source-importance-only", action="store_true", help="selected SI diagnostic without repeating fulfilment")
+    p.add_argument("--walltime", choices=("00:30:00", "00:45:00", "01:00:00", "03:00:00"), default="01:00:00")
     c = commands.add_parser("check")
     c.add_argument("--output", type=Path, required=True)
     c.add_argument("--approved-existing-queue-exception", action="store_true",
@@ -576,7 +668,7 @@ def main(argv=None):
     r.add_argument("--server-model-name", required=True)
     args = parser.parse_args(argv)
     return asyncio.run(review(args)) if args.command == "review" else {
-        "select": select, "fresh": fresh, "run-picked": run_picked,
+        "select": select, "select-failed-maps": select_failed_maps, "fresh": fresh, "run-picked": run_picked,
         "prepare": prepare, "check": check}[args.command](args)
 
 
