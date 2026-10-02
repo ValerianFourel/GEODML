@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HoreKa interactive allocations</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f2f4f3; --panel: #fff; --ink: #19212b; --muted: #56616d;
+      --rule: #d4dad7; --accent: #1f6485; --soft: #e2edf3;
+      --code-bg: #111a22; --code-ink: #d9e3ea;
+      --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #aab6c1;
+        --rule: #37434f; --accent: #8cc4df; --soft: #1a2b36;
+        --code-bg: #0a0e12; --code-ink: #d6e0e8;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0 20px; background: var(--bg); color: var(--ink); font: 16px/1.6 "Helvetica Neue", Arial, sans-serif; }
+    main { max-width: 920px; margin: auto; padding: 36px 0 56px; display: grid; gap: 28px; }
+    header, section { min-width: 0; }
+    .eyebrow { color: var(--muted); font: 12px/1.5 var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+    h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.15; margin: 8px 0 14px; }
+    h2 { font-size: 22px; line-height: 1.3; margin: 0 0 12px; }
+    p { margin: 0 0 12px; }
+    p:last-child { margin-bottom: 0; }
+    .lede, footer { color: var(--muted); }
+    .note { padding: 18px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; }
+    code { font: .88em var(--mono); overflow-wrap: anywhere; }
+    p code, td code { background: var(--soft); border-radius: 4px; padding: .1em .3em; }
+    .command { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #37434f; color: var(--code-ink); }
+    .toolbar span { font: 12px/1.5 var(--mono); }
+    button { padding: 10px 14px; min-height: 44px; border: 1px solid #91c3dc; border-radius: 6px; background: #e2edf3; color: #15374b; font: 600 14px/1.2 "Helvetica Neue", Arial, sans-serif; cursor: pointer; }
+    button:hover { background: #fff; }
+    button:focus-visible, pre:focus-visible { outline: 3px solid #91c3dc; outline-offset: -3px; }
+    pre { margin: 0; padding: 18px; overflow: auto; max-height: 32rem; color: var(--code-ink); font: 13px/1.6 var(--mono); tab-size: 4; }
+    pre code { font: inherit; overflow-wrap: normal; }
+    #copy-status { min-height: 1.6em; margin-top: 8px; color: var(--muted); font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    caption { text-align: left; margin-bottom: 10px; color: var(--muted); }
+    th, td { text-align: left; vertical-align: top; padding: 12px 10px; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; }
+    th { color: var(--muted); font-weight: 600; }
+    td:first-child { width: 38%; }
+    footer { border-top: 1px solid var(--rule); padding-top: 18px; font-size: 14px; }
+    @media (max-width: 560px) {
+      body { padding: 0 14px; }
+      th, td { padding: 10px 6px; }
+      .toolbar { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">HoreKa · Slurm status · 2 October 2026</div>
+    <h1>Check interactive allocations</h1>
+    <p class="lede">Valerian, copy the command into another HoreKa login terminal. Leave the terminal owning your <code>salloc</code> request open. The output counts running and pending interactive allocations and shows Gemma's state and waiting reason.</p>
+  </header>
+
+  <section aria-labelledby="check-heading">
+    <h2 id="check-heading">Run the status check</h2>
+    <p>This is one read-only scheduler query. The page copies the command; run it in your cluster terminal to get a fresh snapshot. No environment setup or GPU allocation is needed.</p>
+    <div class="command">
+      <div class="toolbar">
+        <span>Paste in the HoreKa login shell</span>
+        <button id="copy-command" type="button" aria-controls="status-command">Copy command</button>
+      </div>
+      <pre tabindex="0" aria-label="Read-only Slurm status command"><code id="status-command">python3 - &lt;&lt;&#x27;PY&#x27;
+from collections import Counter
+from datetime import datetime, timezone
+import os
+import re
+import subprocess
+
+print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat())
+print(&quot;THIS_SHELL_SLURM_JOB_ID&quot;, os.environ.get(&quot;SLURM_JOB_ID&quot;, &quot;unset&quot;))
+try:
+    result = subprocess.run([&quot;scontrol&quot;, &quot;--oneliner&quot;, &quot;show&quot;, &quot;job&quot;],
+                            text=True, capture_output=True, check=True, timeout=30)
+except (OSError, subprocess.SubprocessError) as error:
+    raise SystemExit(&quot;STATUS_UNAVAILABLE: &quot; + str(error) + &quot;\n&quot; +
+                     str(getattr(error, &quot;stderr&quot;, &quot;&quot;) or &quot;&quot;))
+if result.stderr.strip():
+    print(&quot;SLURM_WARNING&quot;, result.stderr.strip())
+if not result.stdout.strip():
+    raise SystemExit(&quot;STATUS_UNAVAILABLE: empty scheduler response&quot;)
+jobs = []
+for line in result.stdout.splitlines():
+    if not line.strip() or line.strip() == &quot;No jobs in the system&quot;:
+        continue
+    job = dict(re.findall(r&quot;(?:^|\s)(\w+)=(\S+)&quot;, line))
+    if &quot;JobId&quot; not in job or &quot;UserId&quot; not in job:
+        raise SystemExit(&quot;STATUS_UNAVAILABLE: unexpected scheduler record&quot;)
+    if not job[&quot;UserId&quot;].endswith(&quot;(&quot; + str(os.getuid()) + &quot;)&quot;):
+        continue
+    if &quot;JobState&quot; not in job or not job.get(&quot;BatchFlag&quot;, &quot;&quot;).isdigit():
+        raise SystemExit(&quot;STATUS_UNAVAILABLE: missing state or BatchFlag&quot;)
+    jobs.append(job)
+terminal = {&quot;COMPLETED&quot;, &quot;CANCELLED&quot;, &quot;FAILED&quot;, &quot;TIMEOUT&quot;, &quot;NODE_FAIL&quot;,
+            &quot;OUT_OF_MEMORY&quot;, &quot;PREEMPTED&quot;, &quot;BOOT_FAIL&quot;, &quot;DEADLINE&quot;, &quot;REVOKED&quot;}
+active = [j for j in jobs if j[&quot;JobState&quot;].split(&quot;+&quot;)[0] not in terminal]
+interactive = [j for j in active if j[&quot;BatchFlag&quot;] == &quot;0&quot;]
+counts = Counter(j[&quot;JobState&quot;].split(&quot;+&quot;)[0] for j in interactive)
+print(&quot;INTERACTIVE_RUNNING&quot;, counts[&quot;RUNNING&quot;])
+print(&quot;INTERACTIVE_PENDING&quot;, counts[&quot;PENDING&quot;])
+print(&quot;INTERACTIVE_ALL_STATES&quot;, dict(counts))
+print(&quot;ALL_MY_ACTIVE_JOBS&quot;, dict(Counter(j[&quot;JobState&quot;] for j in active)))
+for title, rows in [(&quot;INTERACTIVE_ALLOCATIONS&quot;, interactive),
+                    (&quot;GEMMA&quot;, [j for j in jobs if j.get(&quot;JobName&quot;) == &quot;geodml-gemma-si-v4&quot;])]:
+    print(&quot;\n&quot; + title)
+    print(&quot;ID | NAME | BATCH_FLAG | STATE | ELAPSED | LIMIT | NODES | REASON&quot;)
+    for j in rows:
+        print(&quot; | &quot;.join(j.get(k, &quot;?&quot;) for k in
+              (&quot;JobId&quot;, &quot;JobName&quot;, &quot;BatchFlag&quot;, &quot;JobState&quot;, &quot;RunTime&quot;,
+               &quot;TimeLimit&quot;, &quot;NodeList&quot;, &quot;Reason&quot;)))
+    if not rows:
+        print(&quot;NONE in this scheduler snapshot&quot;)
+PY
+</code></pre>
+    </div>
+    <p id="copy-status" role="status" aria-live="polite"></p>
+    <noscript><p>Select the command above and copy it manually. JavaScript is only needed for the copy button.</p></noscript>
+  </section>
+
+  <section aria-labelledby="interpret-heading">
+    <h2 id="interpret-heading">Read the output</h2>
+    <table>
+      <caption>Counts refer to your Slurm allocations, not SSH windows or shell processes. Job steps are not counted separately.</caption>
+      <thead><tr><th scope="col">Output</th><th scope="col">Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>INTERACTIVE_RUNNING</code></td><td>Non-batch allocations currently in the running state.</td></tr>
+        <tr><td><code>INTERACTIVE_PENDING</code></td><td>Non-batch requests waiting for allocation.</td></tr>
+        <tr><td><code>INTERACTIVE_ALL_STATES</code></td><td>All active non-batch allocations grouped by state, including states such as completing or suspended.</td></tr>
+        <tr><td><code>ALL_MY_ACTIVE_JOBS</code></td><td>Your active jobs by state, including Qwen batch jobs.</td></tr>
+        <tr><td><code>INTERACTIVE_ALLOCATIONS</code></td><td>Details for each active job with <code>BatchFlag=0</code>, including <code>salloc</code> and direct <code>srun</code> allocations.</td></tr>
+        <tr><td><code>GEMMA</code></td><td>Jobs named <code>geodml-gemma-si-v4</code> still visible to the controller. This can include recently finished or failed jobs.</td></tr>
+        <tr><td><code>REASON</code></td><td>For a pending job, <code>Priority</code> or <code>Resources</code> indicates a queued request. Neither alone establishes an interactive-allocation limit.</td></tr>
+        <tr><td><code>STATUS_UNAVAILABLE</code></td><td>The query failed or returned incomplete information. No usable count was obtained.</td></tr>
+        <tr><td><code>THIS_SHELL_SLURM_JOB_ID</code></td><td>The job ID inherited by this shell, if set. It does not prove that the allocation is still live.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="note" aria-labelledby="context-heading">
+    <h2 id="context-heading">Check the existing Gemma request</h2>
+    <p>Your pasted snapshot from <time datetime="2026-10-02T03:52:53Z">2 October, 03:52:53 UTC</time> showed job <code>5175056</code> pending. That is historical evidence; use the command above to check its current state.</p>
+    <p>The <code>salloc</code> command you pasted requests <strong>one hour</strong>, while the prepared Gemma workflow expects <strong>three hours</strong>. Inspect existing requests before submitting another one.</p>
+    <p>Send back the output and any <code>salloc:</code> error lines so we can identify what is blocking the request. Keep existing allocation terminals open.</p>
+  </section>
+  <footer>
+    <p>This check changes no jobs or saved results. It does not submit, cancel or retry allocations. No live cluster status was obtained while preparing this page.</p>
+  </footer>
+</main>
+<script>
+  const button = document.getElementById('copy-command');
+  const code = document.getElementById('status-command');
+  const status = document.getElementById('copy-status');
+  button.addEventListener('click', async () => {
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(code.textContent);
+      copied = true;
+    } catch (_) {
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    status.textContent = copied ? 'Command copied. Paste it in your HoreKa login terminal.' : 'Select the command and copy it manually.';
+  });
+</script>
+</body>
+</html>
