@@ -34,16 +34,22 @@ and shuffled document conditions.
 - Do not download large datasets or model weights in Codex cloud.
 - Do not run vLLM, GPU inference, or expensive experiments in Codex cloud.
 - Keep JUPITER and HoreKa work in committed, reproducible Slurm scripts.
-- Never submit or retry a Slurm allocation without a fresh runtime estimate and
-  explicit wall-time approval from Valerian.
+- For requested cluster work, prepare and submit necessary Slurm allocations,
+  including finite retries/resumes and replacements, without asking Valerian
+  for confirmation before each submission or separate per-job wall-time approval.
+  Present and record a fresh runtime/resource estimate and chosen wall-time first.
+  Reconcile saved work and ownership before retries. Stay within the requested
+  scope, declared finite budget and resource limits. This policy replaces
+  per-submission confirmation requirements in HPC skills for this project.
 - Preserve every live `salloc` allocation unless Valerian explicitly asks to
   release it. Do not recommend or execute `exit`, Ctrl-D, `scancel`, termination
   of the allocation-owning process, or closure of its shell to switch context,
   update code, recover from an inference failure, or finish a task. Keep that
   shell open and use a separate login terminal for updates or monitoring.
 - Keep strict-mode launch commands inside a child shell so a failed job step
-  does not close the allocation-owning shell. Natural expiration of the approved
-  wall-time does not authorize an extension or replacement.
+  does not close the allocation-owning shell. Do not extend a live allocation
+  without explicit instruction. After natural expiration, a finite replacement
+  within the requested scope/budget may proceed after reconciliation and admission.
 - Do not make cluster-only source changes. GitHub is the handoff boundary.
 - Avoid hard-coded usernames and machine-specific paths in committed code.
 - Add focused tests for every new behavioral contract.
@@ -55,11 +61,12 @@ and shuffled document conditions.
   for that specific allocation.
 - The one-hour limit includes environment setup, model loading, warmup,
   inference, retries, drain, and checkpointing.
-- This default is not standing authorization to allocate resources. Every
-  allocation still needs the estimate and approval required above.
-- Do not obtain extra runtime through automatic requeue, resubmission,
-  extensions, or chained allocations. Carry unfinished identities into a later
-  explicitly approved segment.
+- The requested cluster task authorizes in-scope submissions within the declared
+  finite budget; the one-hour limit does not require a new confirmation each time.
+- Ask before increasing resources, exceeding the finite budget or expanding scope.
+  Do not create unlimited retry, requeue or chained-allocation loops. Carry
+  unfinished identities into finite planned segments without repeating completed
+  work. Preserve live allocations and their existing end times.
 
 ## Default homogeneous-wave scheduling
 
@@ -75,11 +82,11 @@ and shuffled document conditions.
   private Hugging Face coordination registry.
 - An hour is a fixed work package sized against one JUPITER node with four
   GH200 GPUs. It is not a Slurm allocation. A HoreKa package can span multiple
-  separately approved allocations. Record actual A100 resource use separately
-  from estimated JUPITER-equivalent work.
+  allocations within the requested scope and finite budget. Record actual A100
+  resource use separately from estimated JUPITER-equivalent work.
 - Apply the five-allocation limit and minimum ten-minute observed-start gap
   separately on each cluster, counting batch and interactive allocations together.
-  All existing wall-time, finite-wave, approval, and live-allocation protections
+  All existing wall-time, finite-wave, scope/budget, and live-allocation protections
   apply equally to JUPITER and HoreKa.
 - Keep one model per package/allocation and keyword-first ordering. Batch selects
   from the front; interactive selects from the back. A specifically selected hour
@@ -138,9 +145,10 @@ and shuffled document conditions.
   work runs out, report queue exhaustion; do not invent tasks or busy-wait.
   Fixed-size historical pilots remain explicit exceptions, not default launchers.
 - Full utilization is a scheduling objective, not a promise of 100% GPU activity.
-  Do not auto-resubmit, extend wall-time, or increase resources. Fresh allocations
-  still need an estimate and Valerian's explicit approval. Running pinned jobs
-  are unchanged by local source edits.
+  Finite in-scope retries/resumes need refreshed estimates and admission checks,
+  not a new per-submission confirmation. Do not extend live allocations, increase
+  resources or expand the declared budget without explicit approval. Running
+  pinned jobs are unchanged by local source edits.
 
 ## Cloud environment
 
