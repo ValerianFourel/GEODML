@@ -96,3 +96,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [HoreKa interactive status HTML](2026-10-02_horeka-interactive-status-html_handoff.md)
 
 - 2026-10-02 — [SI-v4 recovery within existing job 5175111](2026-10-02_si-v4-job5175111-recovery_handoff.md)
+
+- 2026-10-02 — [Rebuilt SI-v4 recovery HTML with one workflow](2026-10-02_si-v4-rebuilt-recovery-page_handoff.md)
