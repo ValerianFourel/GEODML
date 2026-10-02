@@ -110,3 +110,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [Gemma recovery: insufficient remaining allocation time](2026-10-02_gemma-recovery-time-budget_handoff.md)
 
 - 2026-10-02 — [Remove per-submission confirmation](2026-10-02_submission-authority-policy_handoff.md)
+
+- 2026-10-02 — [Gemma next diagnostic HTML](2026-10-02_gemma-next-diagnostic-html_handoff.md)

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemma SI-v4 · Inspect the two remaining failures</title>
+<style>
+:root{color-scheme:light}body{font:17px/1.6 system-ui,sans-serif;color:#172b35;background:#f2f5f4;margin:0}main{max-width:1000px;margin:auto;padding:40px 22px}h1{line-height:1.15;font-size:clamp(28px,5vw,44px)}.label{color:#365c54;font-weight:700}section{background:white;border:1px solid #ccd8d4;border-radius:12px;padding:24px;margin:24px 0}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #ddd;padding:12px 8px}pre{background:#15272f;color:#eef8f4;padding:20px;border-radius:8px;overflow:auto;font:14px/1.55 ui-monospace,monospace}button{font:inherit;background:#145c49;color:white;border:0;border-radius:6px;padding:10px 20px;cursor:pointer}button:focus-visible{outline:3px solid #cd7800;outline-offset:4px}.note{color:#485c64}code{overflow-wrap:anywhere}#copy-status{margin-left:12px}
+</style></head><body><main>
+<p class="label">HoreKa · SI-v4 · Job 5175156</p>
+<h1>Inspect the two remaining failures</h1>
+<p>Valerian, the returned run completed 18 of 20 cells. Read the two failed answer-map results before choosing the next fix.</p>
+<section><h2>Returned results</h2><table><thead><tr><th scope="col">Metric</th><th scope="col">Previous run</th><th scope="col">Compact-JSON run</th></tr></thead><tbody>
+<tr><th scope="row">Complete cells</th><td>4 / 20</td><td>18 / 20</td></tr>
+<tr><th scope="row">Sources scored</th><td>55</td><td>103</td></tr>
+<tr><th scope="row">Inference failures</th><td>17</td><td>2</td></tr>
+<tr><th scope="row">Sources blocked by failed maps</th><td>52</td><td>10</td></tr>
+</tbody></table><p>All 11 Llama cells and 7 of 9 Qwen cells completed. The two remaining map failures block 10 source judgments.</p>
+<p class="note">Snapshot from pasted output, not a live monitor. GEMMA_EXIT=2; finished_with_failures. Semantic acceptance is not established and no cells have verified provenance. These are diagnostic results.</p></section>
+<section><h2>1. Copy and run in your current cluster shell</h2><p>This reads the saved SQLite results and checks the allocation status. It launches no inference. Keep the allocation open and preserve the saved results.</p>
+<button type="button" id="copy">Copy commands</button><span id="copy-status" role="status" aria-live="polite"></span>
+<pre id="commands" tabindex="0">python3 - &lt;&lt;&#x27;PYCODE&#x27;
+from collections import Counter
+from contextlib import closing
+import json
+from pathlib import Path
+import sqlite3
+
+root = Path(&quot;/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-selected-nkc7fjz3/run/attempts/job5175156/trial/v4-pass1&quot;)
+path = root / &quot;control/index.sqlite&quot;
+
+with closing(sqlite3.connect(path.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True)) as db:
+    db.execute(&quot;PRAGMA query_only=ON&quot;)
+    rows = db.execute(
+        &quot;SELECT id,kind,state,result FROM tasks ORDER BY kind,id&quot;
+    ).fetchall()
+
+counts = Counter()
+for task_id, kind, state, raw in rows:
+    result = json.loads(raw) if raw else {}
+    outcome = (
+        &quot;ok&quot; if result.get(&quot;ok&quot;) is True
+        else &quot;failed&quot; if result.get(&quot;ok&quot;) is False
+        else &quot;unknown&quot;
+    )
+    counts[(kind, state, outcome)] += 1
+    if state == &quot;done&quot; and outcome == &quot;failed&quot;:
+        print(&quot;\nFAILED_TASK&quot;, task_id, kind)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+print(&quot;\nTASK_COUNTS&quot;)
+for key, count in sorted(counts.items()):
+    print(*key, count)
+PYCODE
+
+squeue -j 5175156 --format=&quot;%.18i %.12T %.10M %.10L %R&quot;
+</pre></section>
+<section><h2>2. Return the output</h2><p>Paste both FAILED_TASK records, TASK_COUNTS and the queue status into the conversation. The exact errors determine the next fix. Do not relaunch the completed attempt or delete its files.</p>
+<p>Saved run: <code>/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-selected-nkc7fjz3</code></p>
+<p>Gemma reads the full saved answer with protocol citation masking. The 4,096-token limit applies to Gemma’s generated judgment. Inputs that exceed the context budget are rejected rather than silently shortened.</p></section>
+</main><script>
+document.getElementById('copy').addEventListener('click',async()=>{const block=document.getElementById('commands');const status=document.getElementById('copy-status');try{await navigator.clipboard.writeText(block.textContent);status.textContent='Copied. Paste into your cluster shell.';}catch(error){const selection=window.getSelection();const range=document.createRange();range.selectNodeContents(block);selection.removeAllRanges();selection.addRange(range);status.textContent='Commands selected. Press Cmd+C or Ctrl+C to copy.';}});
+</script></body></html>
