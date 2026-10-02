@@ -126,12 +126,16 @@ def test_new_stage_uses_existing_gemma_boundary_and_v4_driver(tmp_path):
     assert run[run.index("--config") + 1] == str(tmp_path / "config.json")
 
 
+@pytest.mark.parametrize("selected", [False, True])
 @pytest.mark.parametrize("status,expected_runs", [("finished", 5), ("finished_with_failures", 5), ("incomplete", 1)])
-def test_review_runs_finite_queue_and_stops_on_incomplete_work(tmp_path, monkeypatch, status, expected_runs):
+def test_review_runs_finite_queue_and_stops_on_incomplete_work(tmp_path, monkeypatch, status, expected_runs, selected):
     settings = tmp_path / "judge-config.json"
     settings.write_text('{}')
     config = {"model_id": pilot.gemma.MODEL, "workspace": str(tmp_path), "account": "fixture",
               "inventories": {}, "judge_config_sha256": pilot.judge.file_hash(settings)}
+    if selected:
+        config["workload_mode"] = "selected-v4-cells"
+        expected_runs = 1
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps(config))
     monkeypatch.setattr(pilot, "capture_quota", lambda *a: {"fresh": True})
@@ -152,6 +156,7 @@ def test_review_runs_finite_queue_and_stops_on_incomplete_work(tmp_path, monkeyp
     assert result == (0 if status == "finished" else 2)
     summary = json.loads((out / "summary.json").read_text())
     assert summary["status"] == ("finished" if status == "finished" else "partial_or_failed")
+    assert summary["planned_runs"] == (1 if selected else 5)
 
 
 def test_saved_bundle_bridge_rejects_conflicting_source_hash(baseline, tmp_path):
@@ -161,8 +166,9 @@ def test_saved_bundle_bridge_rejects_conflicting_source_hash(baseline, tmp_path)
         pilot.freeze_saved([bundle], tmp_path / "conflict", pilot.v4.PROTOCOL)
 
 
+@pytest.mark.parametrize("selected", [False, True])
 @pytest.mark.parametrize("walltime,hours", [("01:00:00", 1), ("03:00:00", 3)])
-def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_path, monkeypatch, walltime, hours):
+def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_path, monkeypatch, walltime, hours, selected):
     import hashlib
     import sys
     from pathlib import Path
@@ -173,6 +179,16 @@ def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_pat
     bundle["cells"] += extra
     bundle_path = tmp_path / "bundle.json"
     bundle_path.write_text(json.dumps(bundle))
+    inputs = ["--bundle", str(bundle_path)]
+    if selected:
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "config.json").write_text(json.dumps({"source_files": {
+            str(bundle_path): pilot.judge.file_hash(bundle_path)}}))
+        picked = tmp_path / "picked.json"
+        assert pilot.main(["select", "--source-run", str(source), "--output", str(picked),
+                           "--take", "2,5", "--seed", "17"]) == 0
+        inputs = ["--selected-inputs", str(picked)]
     snapshot = tmp_path / "model"
     snapshot.mkdir()
     receipt = pilot.gemma.prep(tmp_path) / "models-verified.json"
@@ -190,16 +206,33 @@ def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_pat
     monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=SimpleNamespace(
         from_pretrained=lambda *a, **kw: SimpleNamespace(get_chat_template=lambda: "fixture template"))))
     monkeypatch.setattr(pilot, "schema_check", lambda inputs: None)
-    monkeypatch.setattr(pilot.subprocess, "check_output", lambda cmd, **kw: "" if "status" in cmd else "a" * 40)
+    def check_output(cmd, **kw):
+        if cmd[0] == "scontrol":
+            end = pilot.datetime.datetime.now() + pilot.datetime.timedelta(minutes=40)
+            return (f"JobName={pilot.JOB_NAME} JobState=RUNNING TimeLimit={walltime} "
+                    f"Account=fixture UserId=user({pilot.os.getuid()}) EndTime={end.isoformat()}")
+        return "" if "status" in cmd else "a" * 40
+    monkeypatch.setattr(pilot.subprocess, "check_output", check_output)
     out = tmp_path / "prepared"
-    assert pilot.main(["prepare", "--workspace", str(tmp_path), "--output", str(out),
-                       "--bundle", str(bundle_path), "--account", "fixture",
-                       "--approval", "User approved " + walltime, "--walltime", walltime]) == 0
+    argv = ["prepare", "--workspace", str(tmp_path), "--output", str(out), *inputs,
+            "--account", "fixture", "--approval", "User approved " + walltime, "--walltime", walltime]
+    if selected:
+        with pytest.raises(ValueError, match="existing Gemma allocation"):
+            pilot.main(argv)
+        assert not out.exists()
+        argv += ["--existing-job-id", "123"]
+    assert pilot.main(argv) == 0
     config = json.loads((out / "config.json").read_text())
     assert config["walltime"] == walltime
     assert config["estimate"]["node_hours_max"] == hours
     assert config["estimate"]["gpu_hours_max"] == 4 * hours
-    assert config["inventories"]["v4-inputs"]["cells"] == 40
+    assert config["inventories"]["v4-inputs"]["cells"] == (2 if selected else 40)
+    if selected:
+        assert config["existing_job_id"] == "123"
+        assert config["workload_mode"] == "selected-v4-cells"
+        assert set(config["inventories"]) == {"v4-inputs"}
+        assert config["estimate"]["additional_allocation_hours"] == 0
+        return
     from analysis.scripts import capture_agentic_scheduler_snapshot as scheduler
     monkeypatch.setattr(scheduler, "capture", lambda **kw: {
         "complete": True, "captured_at_epoch": int(pilot.time.time()), "jobs": [], "owners": []})
@@ -208,3 +241,82 @@ def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_pat
     monkeypatch.setattr(pilot.judge, "check_storage", lambda *a: {"safe_to_admit": True, "quota_verified": True})
     assert pilot.main(["check", "--output", str(out)]) == 0
     assert json.loads((out / "admission.json").read_text())["approved_exception"] is None
+
+
+def test_manual_selection_preserves_chosen_inputs_and_detects_changes(baseline, tmp_path, capsys):
+    bundle = replay.freeze_baseline(baseline)
+    for cell in bundle["cells"]:
+        for source in cell["sources"]:
+            source.pop("source_sha256")
+    source_bundle = tmp_path / "saved.json"
+    source_bundle.write_text(json.dumps(bundle))
+    source = tmp_path / "failed-run"
+    source.mkdir()
+    config = source / "config.json"
+    config.write_text(json.dumps({"source_files": {str(source_bundle): pilot.judge.file_hash(source_bundle)}}))
+    marker = source / "ALLOCATION_ATTEMPTED"
+    marker.write_text("preserve original attempt")
+    before = {p: p.read_bytes() for p in (source_bundle, config, marker)}
+    picked = tmp_path / "picked.json"
+    argv = ["select", "--source-run", str(source), "--output", str(picked),
+            "--count", "8", "--seed", "17", "--take", "2,5"]
+    assert pilot.main(argv) == 0
+    shown = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith('{"number"')]
+    saved = pilot.verified_selection(picked)
+    assert [cell["cell_id"] for cell in saved["cells"]] == [shown[1]["cell_id"], shown[4]["cell_id"]]
+    assert len(saved["selection"]["sampled_cell_ids"]) == 8
+    original = {cell["cell_id"]: (cell, tasks) for cell, tasks in replay.frozen_cells(bundle)}
+    for cell, tasks in replay.frozen_cells(saved):
+        assert (cell, tasks) == original[cell["cell_id"]]
+    second = tmp_path / "second.json"
+    assert pilot.main([*argv[:4], str(second), *argv[5:]]) == 0
+    assert second.read_bytes() == picked.read_bytes()
+    frozen = tmp_path / "v4"
+    pilot.freeze_saved([saved], frozen, pilot.v4.PROTOCOL)
+    coordinator = pilot.judge.Coordinator(frozen, tmp_path / "result", {"gpu_count": 4})
+    coordinator.close()
+    with pytest.raises(FileExistsError):
+        pilot.main(argv)
+    for bad in ("0", "9", "1,1", "", "not-a-number"):
+        with pytest.raises(ValueError):
+            pilot.main([*argv[:4], str(tmp_path / "invalid.json"), *argv[5:-1], bad])
+        assert not (tmp_path / "invalid.json").exists()
+    assert {p: p.read_bytes() for p in before} == before
+    changed = copy.deepcopy(saved)
+    changed["cells"][0]["prompt_id"] = "changed-after-selection"
+    picked.write_text(json.dumps(changed))
+    with pytest.raises(ValueError, match="content changed"):
+        pilot.verified_selection(picked)
+    source_bundle.write_text(source_bundle.read_text() + " ")
+    with pytest.raises(ValueError, match="source bundle changed"):
+        pilot.verified_selection(second)
+
+
+def test_manual_selection_reads_choices_from_a_nonseekable_terminal(baseline, tmp_path, monkeypatch):
+    import builtins
+    import os
+    import pty
+    bundle = tmp_path / "saved.json"
+    bundle.write_text(json.dumps(replay.freeze_baseline(baseline)))
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "config.json").write_text(json.dumps({"source_files": {str(bundle): pilot.judge.file_hash(bundle)}}))
+    master, slave = pty.openpty()
+    terminal_path = os.ttyname(slave)
+    open_file = builtins.open
+    def tty_open(path, mode="r", *a, **kw):
+        if path != "/dev/tty":
+            return open_file(path, mode, *a, **kw)
+        flags = os.O_RDWR if "+" in mode else os.O_WRONLY if "w" in mode else os.O_RDONLY
+        return open_file(os.open(terminal_path, flags | os.O_NOCTTY), mode, *a, **kw)
+    monkeypatch.setattr(builtins, "open", tty_open)
+    try:
+        os.write(master, b"2,3\n")
+        output = tmp_path / "picked.json"
+        assert pilot.main(["select", "--source-run", str(source), "--output", str(output),
+                           "--count", "3", "--seed", "17"]) == 0
+        selected = pilot.verified_selection(output)
+        assert selected["selection"]["selected_cell_ids"] == selected["selection"]["sampled_cell_ids"][1:]
+    finally:
+        os.close(master)
+        os.close(slave)
