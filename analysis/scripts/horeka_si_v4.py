@@ -366,6 +366,8 @@ def prepare(args):
                 coordinator = judge.Coordinator(out / name, Path(temporary) / "results", {"gpu_count": 4})
                 coordinator.close()
     config["tokenizer_path"] = str(snapshot)
+    if selected is not None:
+        config["structured_outputs_config"] = {"backend": "xgrammar", "disable_any_whitespace": True}
     judge.load_config(repo / "analysis/config/si_v4_gemma.template.json")
     atomic(out / "judge-config.json", judge.canonical(config).encode())
     run_config = {"repository": str(repo), "git_commit": pin, "workspace": str(workspace),
@@ -381,6 +383,7 @@ def prepare(args):
                      "basis": "historical Gemma wrapper 8.9-10.9 minutes; v4 throughput unmeasured"}}
     if selected is not None:
         run_config.update(workload_mode="selected-v4-cells", selection=selected["selection"],
+                          structured_outputs_config=config["structured_outputs_config"],
                           existing_job_id=str(bound), minimum_remaining_seconds=1200,
                           cache_prefix="gemma4-si-selected-" + hashlib.sha256(str(out).encode()).hexdigest()[:12],
                           allocation_at_preparation={key: allocation.get(key) for key in

@@ -90,11 +90,19 @@ for task_id, kind, result in failures:
     }, ensure_ascii=False))
 PY</code></pre></div></div>
 <p class="check">Send back everything starting at <code>TASK_COUNTS</code>. The diagnostic does not launch inference, submit an allocation, delete locks or modify saved results.</p></section>
-<section aria-labelledby="next-heading"><h2 id="next-heading">What the errors will tell us</h2>
-<p>The summary alone cannot distinguish truncated output, validation errors and transport failures. The saved error details identify which repair is needed. Preserve the successful judgments while we inspect the failures.</p>
-<p>If Python reports that it cannot open the database, send that error with the path shown. The command targets <code>gemma-selected-xsk1n4bx/run/attempts/job5175121/trial/v4-pass1</code>.</p></section>
+<section aria-labelledby="next-heading"><h2 id="next-heading">Confirmed failure pattern</h2>
+<p>The returned diagnostic identifies 14 token-limit failures with repetitive whitespace tails: 10 answer maps and 4 source judgments. The other 3 failures are semantic: one answer map leaves words uncovered and two source grades lack matching positive support findings. No transport failure appears among these 17 errors.</p>
+<p>The published patch <code>b3cab6e52cce89dbefaa347faaaf246f67fe9d6f</code> enables <code>{"backend":"xgrammar","disable_any_whitespace":true}</code> in new selected-cell serving profiles and records it in the execution configuration. This constrains whitespace between JSON fields. It does not constrain whitespace inside strings or guarantee every model response will pass.</p>
+<p>Validation feedback now names missing answer-word IDs and explains the grade/support conflict. The rubric, validators' acceptance rules, 4096-token limit and retry count remain unchanged. Truncated outputs remain failures.</p>
+<p>124 focused tests and 3 subtests pass locally. The patch has not been evaluated on HoreKa. The saved preparation still points to its original code and settings; fetching a new commit alone does not update it.</p>
+<p>Preserve the 55 successful source judgments, 9 maps and 20 fulfilment judgments. There are 69 unresolved logical tasks: 11 failed maps, 6 failed source judgments and 52 blocked source dependencies. A failed-only recovery must reconcile and retain these successful results. Do not rerun <code>fresh</code> as a recovery step.</p>
+<h2>Check the allocation before planning recovery</h2>
+<p>Paste this read-only status command into the login shell and return its output. Current allocation state and remaining time determine whether an existing approved job is usable. This command starts no work.</p>
+<div class="command"><div class="toolbar"><span>LOGIN SHELL · allocation status</span><button type="button" class="copy" aria-label="Copy allocation status command" aria-controls="status-code">Copy status</button></div><div id="status-code"><pre><code>squeue --me --name=geodml-gemma-si-v4 --format="%.18i %.12T %.10M %.10L %.20N %R"
+sacct -j 5175121 --format=JobID,State,Elapsed,Timelimit,ExitCode</code></pre></div></div>
+<p>Native option verified against <a href="https://github.com/vllm-project/vllm/blob/v0.28.0/vllm/config/structured_outputs.py">vLLM 0.28.0 configuration</a> and its <a href="https://github.com/vllm-project/vllm/blob/v0.28.0/vllm/v1/structured_output/backend_xgrammar.py">xgrammar backend</a>.</p></section>
 <p id="copy-status" role="status" aria-live="polite"></p><noscript><p>Select and copy the command manually. JavaScript is only used for the copy button.</p></noscript>
-<footer><p>Prepared 2 October 2026. Failure causes and current allocation state remain unverified until the diagnostic output is returned.</p></footer>
+<footer><p>Prepared 2 October 2026. Failure categories are confirmed from returned logs. Current allocation state and the patch's model-level effectiveness remain unverified.</p></footer>
 </main><script>
 document.querySelectorAll('pre').forEach(pre => { pre.tabIndex = 0; });
 document.querySelectorAll('button.copy').forEach(button => {

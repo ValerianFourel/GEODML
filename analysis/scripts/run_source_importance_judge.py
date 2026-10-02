@@ -66,9 +66,15 @@ def load_config(path):
                 "concurrency", "context_length", "tokenizer_path", "request_timeout", "repetition_id"}
     if not required <= config.keys():
         raise ValueError(f"execution configuration missing {sorted(required - config.keys())}")
-    allowed = required | {"runtime_versions", "eager", "gpu_memory_utilization", "temperature", "seed_policy"}
+    allowed = required | {"runtime_versions", "eager", "gpu_memory_utilization", "temperature", "seed_policy",
+                          "structured_outputs_config"}
     if config.keys() - allowed:
         raise ValueError(f"unsupported execution configuration fields: {sorted(config.keys() - allowed)}")
+    if "structured_outputs_config" in config:
+        structured = config["structured_outputs_config"]
+        if (structured != {"backend": "xgrammar", "disable_any_whitespace": True}
+                or structured["disable_any_whitespace"] is not True):
+            raise ValueError("structured outputs require xgrammar with disable_any_whitespace=true")
     if not all(isinstance(config[k], str) and config[k] for k in (
             "model_id", "model_revision", "chat_template_sha256", "precision", "serving_version",
             "tokenizer_path", "repetition_id")):

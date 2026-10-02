@@ -271,6 +271,32 @@ def test_v4_truncation_is_terminal_without_repeating_same_budget():
     assert "parsed_output" not in result
 
 
+@pytest.mark.parametrize("kind", ["map", "source"])
+def test_corrective_retry_reports_missing_words_or_grade_support_conflict(kind):
+    good = copy.deepcopy(MAP if kind == "map" else support())
+    bad = copy.deepcopy(good)
+    if kind == "map":
+        bad["claims"].pop()
+    else:
+        bad["findings"] = []
+    class Responses:
+        def __init__(self):
+            self.calls = []
+        async def complete(self, **kwargs):
+            self.calls.append(kwargs)
+            return json.dumps(bad if len(self.calls) == 1 else good), {"finish_reason": "stop"}
+    client = Responses()
+    task = v4.prepare_map_task(request="Q?", answer=ANSWER) if kind == "map" else item()
+    result = asyncio.run(_execute_one(task, client=client, fake=False))
+    assert result["ok"] and len(client.calls) == 2
+    feedback = json.loads(client.calls[1]["prompt"].split("VALIDATION_FEEDBACK_JSON=", 1)[1])["error"]
+    if kind == "map":
+        assert all(word in feedback for word in ("a3w1", "a3w2", "a3w3", "a3w4"))
+    else:
+        assert "importance=5" in feedback and "full or partial" in feedback
+        assert "do not invent" in feedback
+
+
 def test_exhausted_source_validation_stays_missing_and_is_not_retried_on_resume(tmp_path):
     class InvalidSource(Responses):
         async def complete(self, **kw):

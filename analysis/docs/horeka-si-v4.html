@@ -41,6 +41,7 @@ footer { margin-top:16px; padding-top:20px; border-top:1px solid var(--line); co
 <h1>Choose cells. Run one Gemma pass.</h1>
 <p class="lede">Valerian, paste step 1 in a HoreKa login terminal. It offers saved cells at random, lets you choose, then prepares a separate run for an existing Gemma allocation.</p>
 <p>Your old attempts and results stay in place. Keep the allocation-owning shell open. Use the new command below in place of the old <code>f256b688… check</code> block.</p></header>
+<div class="note"><p>For the partially completed run <code>gemma-selected-xsk1n4bx</code>, use the <a href="horeka-gemma-failures.html">failure diagnosis and allocation-status page</a>. This selection workflow creates new work; it does not recover only the failed tasks. New preparations use compact JSON decoding, recorded in their execution configuration.</p></div>
 <nav aria-label="Workflow"><a href="#prepare">1. Choose cells</a><a href="#run">2. Run your selection</a><a href="#task-counts">3. Results and errors</a></nav>
 <section id="prepare" aria-labelledby="prepare-heading">
 <div class="step-heading"><span class="step-number">1</span><div><p class="terminal">LOGIN TERMINAL · hkn1991 or hkn1993</p><h2 id="prepare-heading">Offer cells and save your choices</h2></div></div>
@@ -48,7 +49,7 @@ footer { margin-top:16px; padding-top:20px; border-top:1px solid var(--line); co
 <div class="command"><div class="toolbar"><span>LOGIN TERMINAL · select and prepare</span><button type="button" class="copy" aria-label="Copy selection command" aria-controls="selection-code">Copy selection</button></div><div id="selection-code"><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  GEMMA_PICK_PIN=d47418b81b93057a02cc54e0383492835400be79
+  GEMMA_PICK_PIN=b3cab6e52cce89dbefaa347faaaf246f67fe9d6f
   GEMMA_PICK_REPO=&quot;$W/checkouts/gemma-selected-$GEMMA_PICK_PIN&quot;
   git -C &quot;$REPO&quot; fetch origin codex/gemma-selected-cells
   if [ ! -d &quot;$GEMMA_PICK_REPO&quot; ]; then
@@ -209,7 +210,7 @@ PY
 <p>Preparation and execution require at least 20 minutes remaining in the same running allocation. The intended profile is the existing exclusive node with four A100 GPUs, 32 requested CPUs and whole-node memory. With <em>R</em> minutes left, the available budget is at most <em>R</em>/60 node-hours and 4<em>R</em>/60 GPU-hours, inside the existing approved wall-time. Deadline and cleanup margins apply; partial work is possible.</p>
 <p>If the allocation has ended or has too little time left, preserve the saved selection and return the audit output. A replacement allocation needs a separate runtime decision. These commands acquire no new allocation.</p></div>
 <p id="copy-status" role="status" aria-live="polite"></p><noscript><p>Select and copy the commands manually. JavaScript is only used for copy buttons.</p></noscript>
-<footer><p>Helper commit: <code>d47418b81b93057a02cc54e0383492835400be79</code> on <code>codex/gemma-selected-cells</code>. This page copies commands; it does not connect to HoreKa or display live status. Local verification does not establish cluster execution or scientific results.</p></footer></main><script>
+<footer><p>Helper commit: <code>b3cab6e52cce89dbefaa347faaaf246f67fe9d6f</code> on <code>codex/gemma-selected-cells</code>. This page copies commands; it does not connect to HoreKa or display live status. Local verification does not establish cluster execution or scientific results.</p></footer></main><script>
 document.querySelectorAll('pre').forEach(pre => { pre.tabIndex = 0; });
 document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {
