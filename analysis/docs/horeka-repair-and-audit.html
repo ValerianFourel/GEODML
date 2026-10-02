@@ -1,0 +1,96 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HoreKa · Update, audit and retry two Gemma cells</title><style>body{margin:0;background:#f3f5f4;color:#1b3039;font:17px/1.6 system-ui,sans-serif}main{max-width:1050px;margin:auto;padding:36px 22px}h1{font-size:clamp(30px,5vw,46px);line-height:1.14}h2{line-height:1.25}section{background:#fff;border:1px solid #ced9d5;border-radius:12px;margin:24px 0;padding:24px}.tag{font-weight:700;color:#17624f}.notice{padding:18px;border-left:5px solid #c58122;background:#fff3df}pre{white-space:pre;overflow:auto;background:#142930;color:#ecf6f2;padding:20px;border-radius:7px;font:14px/1.55 ui-monospace,monospace}button{background:#17624f;color:white;border:0;padding:10px 18px;font:inherit;border-radius:6px;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #ca7829;outline-offset:4px}.copy-status{margin-left:12px}table{border-collapse:collapse;width:100%}th,td{padding:10px 8px;text-align:left;border-bottom:1px solid #dde4e1}code{overflow-wrap:anywhere}a{color:#125c8a}nav{display:flex;gap:18px;flex-wrap:wrap}.muted{color:#52656d}</style></head><body><main><p class="tag">HoreKa · 2 October 2026 · Current instructions</p><h1>Update the code, count the cells, retry two maps</h1>
+<p>Valerian, start with the audit in your HoreKa login shell. The code is already pushed. Your existing Gemma job <strong>5175229</strong> is pending in the returned snapshot; this page requests no additional allocation.</p>
+<p class="notice"><strong>Current queue block: AssocGrpJobsLimit.</strong> Slurm reports an association/group job limit and no usable start estimate. Leave the pending request and its owning terminal intact. Run inference only after it is granted.</p>
+<nav><a href="#audit-section">1. Update &amp; audit</a><a href="#selection-section">2. Select failures</a><a href="#attach-section">3. Attach</a><a href="#launch-section">4. Run repair</a></nav>
+<section><h2>What the returned evidence establishes</h2><table><thead><tr><th>Scope</th><th>Finished</th><th>Other states</th></tr></thead><tbody><tr><td>Qwen allocations, 09:15 UTC snapshot</td><td>698 completed jobs</td><td>27 failed, 50 running, 118 pending</td></tr><tr><td>Gemma selected run, job 5175156</td><td>18/20 cells; 103 sources scored</td><td>2 failed maps; 10 blocked sources</td></tr></tbody></table>
+<p>Job totals are not cell totals. The audit reads CURRENT-division task identities once, even when bouts share spill-over cells. It reports recorded completion, known unfinished work and unknown evidence separately. Ledger counts are operational evidence, not a fresh validation of dataset contents.</p>
+<p>The old <code>gemma-si-v4-development-20261001</code> attempts failed on input import. The 18/20 result is saved under <code>gemma-selected-nkc7fjz3</code>. Job 5175156 later timed out; that does not erase its saved results.</p></section>
+<section id="audit-section"><p class="tag">1 · HOREKA LOGIN SHELL · run now</p><h2>Fetch the published code and audit saved progress</h2><p>This creates a separate pinned checkout and writes a new audit directory. It reads runs and logs, queries Slurm, and briefly takes shared locks on existing ledger stripes. A busy or unreadable stripe is counted as unknown. It does not release claims or change jobs.</p><button type="button" data-copy="audit">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="audit" tabindex="0">(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=bb76802ff5875af6bb777fb1d6361e1af6f97df8
+  GEMMA_CODE=&quot;$W/checkouts/gemma-repair-audit-$GEMMA_PIN&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/gemma-selected-cells
+  if [ ! -d &quot;$GEMMA_CODE&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$GEMMA_CODE&quot; &quot;$GEMMA_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$GEMMA_CODE&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_PIN&quot;
+  test -z &quot;$(git -C &quot;$GEMMA_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_CODE&quot;
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_CODE/analysis/scripts/audit_horeka_saved_progress.py&quot; \
+    &quot;$W&quot; hk-project-p0026831
+)
+</pre><p><a href="horeka-update-and-audit.sh" download>Download the update-and-audit script</a></p>
+<p>Return <code>QWEN_UNIQUE_CELLS</code>, <code>FAILED QWEN saved progress</code>, <code>GEMMA_PASS</code>, <code>GEMMA_UNFINISHED_CELL</code>, and the printed <code>AUDIT_DIRECTORY</code>. Full captured metadata and bounded log tails are saved in <code>audit.json</code> and <code>audit.tar.gz</code>. Nothing is uploaded automatically.</p></section>
+<section id="selection-section"><p class="tag">2 · HOREKA LOGIN SHELL · run once</p><h2>Prepare the two-cell selection</h2><p>The selector confirms that job 5175156 ended, verifies the frozen input and failed-result evidence, and selects failed-map cells only when their source tasks remain blocked. Successful cells stay outside the retry.</p><button type="button" data-copy="select">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="select" tabindex="0">(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=bb76802ff5875af6bb777fb1d6361e1af6f97df8
+  GEMMA_CODE=&quot;$W/checkouts/gemma-repair-audit-$GEMMA_PIN&quot;
+  GEMMA_RETRY=&quot;$W/reviews/gemma-map-retry-job5175156-spans-v1&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_CODE&quot;
+  test &quot;$(git -C &quot;$GEMMA_CODE&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_PIN&quot;
+  test -z &quot;$(git -C &quot;$GEMMA_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_CODE/analysis/scripts/horeka_si_v4.py&quot; select-failed-maps \
+    --previous-run &quot;$W/reviews/gemma-selected-nkc7fjz3/run&quot; \
+    --previous-job-id 5175156 \
+    --output &quot;$GEMMA_RETRY/selected-inputs.json&quot;
+)
+</pre><p>Expected selection: <strong>2 cells, 2 maps, 10 blocked sources</strong>. The new selection is saved at <code>reviews/gemma-map-retry-job5175156-spans-v1/selected-inputs.json</code>. If the file already exists, preserve it; do not rerun selection or delete the previous run.</p></section>
+<section id="attach-section"><p class="tag">3 · HOREKA LOGIN SHELL · after job 5175229 is granted</p><h2>Enter the existing allocation</h2><p>If you are already in its compute shell, continue to step 4. Otherwise this command checks RUNNING status and attaches a shell to the existing job. It stops if the request is still pending.</p><button type="button" data-copy="attach">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="attach" tabindex="0">(
+  set -euo pipefail
+  GEMMA_STATE=&quot;$(squeue --noheader --jobs=5175229 --format=%T)&quot;
+  if [ &quot;$GEMMA_STATE&quot; != RUNNING ]; then
+    printf &#x27;Job 5175229 is not RUNNING: %s\nWait for the existing request; no new allocation was made.\n&#x27; &quot;$GEMMA_STATE&quot;
+    exit 1
+  fi
+  srun --jobid=5175229 --ntasks=1 --cpus-per-task=32 --pty bash -l
+)
+</pre><p>Keep the allocation-owning terminal open. To inspect status from another login terminal:</p><button type="button" data-copy="status">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="status" tabindex="0">squeue --me --name=geodml-gemma-si-v4 --format=&quot;%.18i %.12T %.10M %.10L %R&quot;
+sacct -j 5175156,5175229 --format=JobID,State,Elapsed,Timelimit,ExitCode
+</pre></section>
+<section id="launch-section"><p class="tag">4 · COMPUTE SHELL FOR JOB 5175229 · run once</p><h2>Run only the failed maps and their blocked sources</h2><p>The patch gives Gemma the offending span IDs, answer-unit boundaries and overlap correction rules. It preserves complete input answers, citation masking, token limits, rubric and rejection rules. Model success still needs this cluster test.</p>
+<p>Estimated work: <strong>15–25 minutes</strong>, including historical 9–11 minute startup and cleanup. Use the existing one-hour allocation: one node, four A100 GPUs, 32 requested CPUs and whole-node memory; its allocation ceiling is four GPU-hours. No new allocation or extension is requested. The helper requires at least 20 minutes remaining before startup.</p><button type="button" data-copy="launch">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="launch" tabindex="0">(
+  set -euo pipefail
+  if [ &quot;${SLURM_JOB_ID:-}&quot; != 5175229 ]; then
+    printf &#x27;%s\n&#x27; &#x27;Use the compute shell attached to existing job 5175229.&#x27;
+    exit 1
+  fi
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  GEMMA_PIN=bb76802ff5875af6bb777fb1d6361e1af6f97df8
+  GEMMA_CODE=&quot;$W/checkouts/gemma-repair-audit-$GEMMA_PIN&quot;
+  GEMMA_RETRY=&quot;$W/reviews/gemma-map-retry-job5175156-spans-v1&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$GEMMA_CODE&quot;
+  test &quot;$(git -C &quot;$GEMMA_CODE&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_PIN&quot;
+  test -z &quot;$(git -C &quot;$GEMMA_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  &quot;$RT/bin/python&quot; - &quot;$GEMMA_RETRY/selected-inputs.json&quot; &lt;&lt;&#x27;CHECK&#x27;
+import sys
+from pathlib import Path
+from analysis.scripts.horeka_si_v4 import verified_selection
+bundle = verified_selection(Path(sys.argv[1]))
+parent = bundle[&#x27;selection&#x27;][&#x27;retry_parent&#x27;]
+expected = {&#x27;source-importance-task-v4-9155df10e18d83849b9e1b72&#x27;,
+            &#x27;source-importance-task-v4-92ab9e511b8db179281e5fcd&#x27;}
+if (len(bundle[&#x27;cells&#x27;]) != 2 or set(parent[&#x27;failed_map_ids&#x27;]) != expected
+        or sum(len(c[&#x27;sources&#x27;]) for c in bundle[&#x27;cells&#x27;]) != 10):
+    raise SystemExit(&#x27;Retry scope changed; expected two failed maps and ten blocked sources.&#x27;)
+print(&#x27;RETRY_SCOPE: two maps, ten source judgments; fulfilment not requested.&#x27;)
+CHECK
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_CODE/analysis/scripts/horeka_si_v4.py&quot; prepare \
+    --workspace &quot;$W&quot; --output &quot;$GEMMA_RETRY/run&quot; \
+    --selected-inputs &quot;$GEMMA_RETRY/selected-inputs.json&quot; \
+    --existing-job-id 5175229 --source-importance-only \
+    --account hk-project-p0026831 --walltime 01:00:00 \
+    --approval &#x27;User-requested SI-only repair within existing job 5175229; two failed maps and ten blocked sources; estimated 15-25 minutes including startup and cleanup; existing one-hour allocation, four A100 GPUs, 32 requested CPUs, whole-node memory, maximum four GPU-hours; no extension or new allocation.&#x27;
+  set +e
+  bash &quot;$GEMMA_RETRY/run/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$GEMMA_RETRY/console-job5175229.log&quot;
+  GEMMA_EXIT=${PIPESTATUS[0]}
+  printf &#x27;GEMMA_EXIT=%s\nRESULT_DIRECTORY=%s\n&#x27; &quot;$GEMMA_EXIT&quot; &quot;$GEMMA_RETRY&quot;
+  exit &quot;$GEMMA_EXIT&quot;
+)
+</pre><p>The new report covers only these two cells. Fulfilment tasks are explicitly <code>not_requested</code>; the 20 saved fulfilment judgments and 103 saved source judgments are not repeated. Old and new execution identities remain separate; this does not silently merge results or establish scientific acceptance.</p><p>Return the summary and <code>GEMMA_EXIT</code>. New output: <code>reviews/gemma-map-retry-job5175156-spans-v1</code>. Do not relaunch the original development <code>run.sh</code>.</p></section>
+<section><h2>Mac-only publishing helper</h2><p>The repair and audit code are already published. For later committed changes in the dedicated release checkout, this helper checks the branch and clean tree, pushes without force, and verifies the remote SHA.</p><p><a href="push_gemma_selected_code.sh" download>Download push_gemma_selected_code.sh</a></p><button type="button" data-copy="push">Copy commands</button><span class="copy-status" role="status" aria-live="polite"></span><pre id="push" tabindex="0">bash ~/Downloads/push_gemma_selected_code.sh /Users/valerianfourel/Hamburg/GEODML_Unified/.worktrees/gemma-selected-cells-release
+</pre><p class="muted">Pinned executable revision: <code>bb76802ff5875af6bb777fb1d6361e1af6f97df8</code>. Verification: 138 tests and three subtests passed. No live cluster command or inference was executed by Codex.</p></section>
+</main><script>
+for(const button of document.querySelectorAll('[data-copy]'))button.addEventListener('click',async()=>{const block=document.getElementById(button.dataset.copy);const status=button.nextElementSibling;try{await navigator.clipboard.writeText(block.textContent);status.textContent='Copied.';}catch(error){const selection=window.getSelection();const range=document.createRange();range.selectNodeContents(block);selection.removeAllRanges();selection.addRange(range);status.textContent='Selected. Press Cmd+C or Ctrl+C to copy.';}});
+</script></body></html>
