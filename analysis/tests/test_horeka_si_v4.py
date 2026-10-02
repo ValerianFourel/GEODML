@@ -208,3 +208,54 @@ def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_pat
     monkeypatch.setattr(pilot.judge, "check_storage", lambda *a: {"safe_to_admit": True, "quota_verified": True})
     assert pilot.main(["check", "--output", str(out)]) == 0
     assert json.loads((out / "admission.json").read_text())["approved_exception"] is None
+
+
+def test_html_task_monitor_handles_both_inventory_shapes_without_crediting_missing_work(tmp_path):
+    import html
+    from pathlib import Path
+    import re
+    import sqlite3
+    import subprocess
+    import sys
+
+    page = (Path(__file__).resolve().parents[1] / "docs/horeka-si-v4.html").read_text()
+    section = re.search(r'<section\b[^>]*id="task-counts"[^>]*>(.*?)</section>', page, re.S)
+    command = html.unescape(re.search(r'<pre><code>(.*?)</code></pre>', section[1], re.S)[1])
+    script = re.search(r"<<'PY'\n(.*?)\nPY\n", command, re.S)[1]
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"inventories": {
+        "v4-inputs": {"unique_tasks": {"map": 2, "source_dependency": 3, "j1": 2}},
+        "v3-inputs": {"unique_tasks": {"source": 4, "j1": 2}},
+        "constructed-inputs": {"unique_tasks": 4},
+    }}))
+    files = [config]
+    for name, rows in (
+        ("v4-pass1", []),
+        ("constructed", [("done", '{"ok": true}'), ("done", '{"ok": false}'),
+                         ("saved", '{"ok": true}'), ("running", None)]),
+    ):
+        path = tmp_path / "attempts/job123/trial" / name / "control/index.sqlite"
+        path.parent.mkdir(parents=True)
+        db = sqlite3.connect(path)
+        try:
+            db.execute("CREATE TABLE tasks (state TEXT, result TEXT)")
+            db.executemany("INSERT INTO tasks VALUES (?, ?)", rows)
+            db.commit()
+        finally:
+            db.close()
+        files.append(path)
+    before = {path: path.read_bytes() for path in files}
+
+    result = subprocess.run([sys.executable, "-", str(tmp_path)], input=script,
+                            text=True, capture_output=True, timeout=10, check=False)
+
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert any(line.startswith("v4-pass1 total=0 expected=7 completed=0") for line in lines)
+    assert "INVENTORY_MISMATCH" in result.stdout
+    assert any(line.startswith("v3-bridge NO_INDEX:") and "expected=6" in line for line in lines)
+    constructed = next(line for line in lines if line.startswith("constructed "))
+    for field in ("total=4", "expected=4", "completed=1", "failed=1", "saved_ok=1", "running=1"):
+        assert field in constructed.split()
+    assert any(line.startswith("v4-pass3 NO_INDEX:") and "expected=7" in line for line in lines)
+    assert {path: path.read_bytes() for path in files} == before

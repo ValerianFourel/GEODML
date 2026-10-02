@@ -299,7 +299,12 @@ if not attempts:
 for attempt in attempts:
     print(&quot;\nATTEMPT&quot;, attempt.name)
     for name, inputs in queue:
-        expected = sum(config[&quot;inventories&quot;][inputs][&quot;unique_tasks&quot;].values())
+        inventory = config[&quot;inventories&quot;][inputs][&quot;unique_tasks&quot;]
+        task_counts = inventory.values() if isinstance(inventory, dict) else [inventory]
+        if any(type(count) is not int or count &lt; 0 for count in task_counts):
+            print(name, &quot;UNAVAILABLE: unique_tasks must contain nonnegative integer counts.&quot;)
+            continue
+        expected = sum(task_counts)
         path = attempt / &quot;trial&quot; / name / &quot;control/index.sqlite&quot;
         if not path.is_file():
             print(name, &quot;NO_INDEX: not started or initialization incomplete; expected=&quot; + str(expected))
