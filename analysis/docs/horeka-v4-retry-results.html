@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gemma SI-v4 retry results and diagnostic export</title><style>body{margin:0;background:#f3f5f4;color:#1b3039;font:17px/1.6 system-ui,sans-serif}main{max-width:1060px;margin:auto;padding:36px 22px}h1{font-size:clamp(30px,5vw,46px);line-height:1.14}h2{line-height:1.25}section{background:#fff;border:1px solid #ced9d5;border-radius:12px;margin:24px 0;padding:24px}.tag{font-weight:700;color:#17624f}.notice{padding:18px;border-left:5px solid #c58122;background:#fff3df}pre{white-space:pre;overflow:auto;background:#142930;color:#ecf6f2;padding:20px;border-radius:7px;font:14px/1.55 ui-monospace,monospace}button{background:#17624f;color:white;border:0;padding:10px 18px;font:inherit;border-radius:6px;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #ca7829;outline-offset:4px}.copy-status{margin-left:12px}table{border-collapse:collapse;width:100%}th,td{padding:10px 8px;text-align:left;border-bottom:1px solid #dde4e1}code{overflow-wrap:anywhere}a{color:#125c8a}nav{display:flex;gap:18px;flex-wrap:wrap}.muted{color:#52656d}details{margin-top:12px}summary{cursor:pointer;font-weight:600}.table-wrap{overflow:auto}</style></head>
+<body><main>
+<p class="tag">Gemma SI-v4 · Job 5175229 · 2 October 2026</p>
+<h1>Inspect the retry.<br>Find the remaining map failure.</h1>
+<p>Valerian, run the command below in your HoreKa login shell or existing compute shell. It reads the saved results and creates a separate diagnostic file. No GPU work or new allocation is needed.</p>
+<nav><a href="#results">Returned results</a><a href="#extract">Copy diagnostic command</a><a href="#share">What to send back</a></nav>
+<section id="results"><h2>One of the two failed cells now completes</h2>
+<p>These counts compare the same two selected cells before and after the retry. They come from the output you supplied, not a live cluster query.</p>
+<div class="table-wrap"><table><thead><tr><th>Result</th><th>Before retry</th><th>After retry</th></tr></thead><tbody>
+<tr><td>Complete cells</td><td>0 / 2</td><td><strong>1 / 2</strong></td></tr>
+<tr><td>Sources scored</td><td>0 / 10</td><td><strong>7 / 10</strong></td></tr>
+<tr><td>Failed maps</td><td>2</td><td>1</td></tr>
+<tr><td>Blocked sources</td><td>10</td><td>3</td></tr>
+</tbody></table></div>
+<p>The retry ended with <code>finished_with_failures</code> and exit code <code>2</code>. Fulfilment was not requested for these two cells. No cells have verified provenance in the returned summary, and semantic acceptance remains <code>not_established</code>.</p>
+<p class="notice">The repair improved completion on this subset. It does not establish that v4 judgments are better than v3. That comparison needs matched cases, source evidence and quality review. Keep the original 18/20 run and this 1/2 retry as separate executions.</p>
+</section>
+<section id="extract"><p class="tag">HOREKA SHELL · copy and run</p><h2>Print the maps and source judgments</h2>
+<p>The command reads SQLite in read-only mode. It prints both full map inputs/results, including saved validation attempts, and each source judgment. The JSON file also preserves complete source records and available summary reports. Answers are not shortened.</p>
+<button type="button" data-copy="diagnostic-command">Copy diagnostic command</button><span class="copy-status" role="status" aria-live="polite"></span>
+<pre id="diagnostic-command" tabindex="0">python3 - &lt;&lt;&#x27;PY&#x27;
+from collections import Counter
+from contextlib import closing
+import json
+from pathlib import Path
+import sqlite3
+import tempfile
+
+root = Path(&quot;/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-map-retry-job5175156-spans-v1&quot;)
+run = root / &quot;run/attempts/job5175229/trial/v4-pass1&quot;
+database = run / &quot;control/index.sqlite&quot;
+
+with closing(sqlite3.connect(database.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True)) as db:
+    db.execute(&quot;PRAGMA query_only=ON&quot;)
+    rows = db.execute(
+        &quot;SELECT id,kind,state,record,result FROM tasks ORDER BY kind,id&quot;
+    ).fetchall()
+
+tasks = [
+    dict(id=i, kind=k, state=s,
+         input=json.loads(rec) if rec else {},
+         result=json.loads(res) if res else {})
+    for i, k, s, rec, res in rows
+]
+summaries = {
+    str(p.relative_to(run)): json.loads(p.read_text())
+    for p in sorted((run / &quot;reports&quot;).glob(&quot;*/summary.json&quot;))
+}
+output = Path(tempfile.mkdtemp(prefix=&quot;diagnostic-job5175229-&quot;, dir=root))
+report = output / &quot;diagnostic.json&quot;
+report.write_text(json.dumps(
+    {&quot;run&quot;: str(run), &quot;summaries&quot;: summaries, &quot;tasks&quot;: tasks},
+    indent=2, ensure_ascii=False
+) + &quot;\n&quot;)
+
+counts = Counter(
+    (t[&quot;kind&quot;], t[&quot;state&quot;], str(t[&quot;result&quot;].get(&quot;ok&quot;)))
+    for t in tasks
+)
+print(&quot;TASK_COUNTS&quot;)
+for key, count in sorted(counts.items()):
+    print(*key, count)
+
+for task in tasks:
+    if task[&quot;kind&quot;] == &quot;answer_map&quot;:
+        print(&quot;\nANSWER_MAP_INPUT_AND_RESULT&quot;)
+        print(json.dumps(task, indent=2, ensure_ascii=False))
+    elif task[&quot;kind&quot;] == &quot;source_dependency&quot;:
+        result = task[&quot;result&quot;]
+        print(&quot;\nSOURCE_RESULT&quot;, task[&quot;id&quot;], task[&quot;state&quot;])
+        print(&quot;TITLE&quot;, task[&quot;input&quot;].get(&quot;source_title&quot;))
+        print(json.dumps(
+            result.get(&quot;parsed_output&quot;, result),
+            indent=2, ensure_ascii=False
+        ))
+
+print(&quot;\nFULL_REPORT&quot;, report)
+PY
+</pre>
+<p><a href="horeka-v4-retry-diagnostic.sh" download>Download the diagnostic command</a></p>
+<p>Input directory: <code>reviews/gemma-map-retry-job5175156-spans-v1/run/attempts/job5175229/trial/v4-pass1</code>.</p>
+</section>
+<section id="share"><h2>Paste the diagnostic output into this conversation</h2>
+<ol><li>Send <code>TASK_COUNTS</code> and both <code>ANSWER_MAP_INPUT_AND_RESULT</code> sections. The failed result should contain the error and rejected responses needed to identify the next fix.</li>
+<li>Include the <code>SOURCE_RESULT</code> sections to inspect the seven scores and three blocked dependencies.</li>
+<li>Keep the path printed after <code>FULL_REPORT</code>. Its <code>diagnostic.json</code> contains the full inputs and results for closer source-quality review. It is saved on HoreKa; a path alone does not transfer its contents into this conversation.</li></ol>
+<p>Each export gets a new directory named <code>diagnostic-job5175229-…</code> beneath the retry directory. Existing run files remain unchanged. This export does not upload to Hugging Face or rerun inference.</p>
+</section>
+<footer class="muted"><p>Recorded code revision: <code>bb76802ff5875af6bb777fb1d6361e1af6f97df8</code>. Model: <code>google/gemma-4-31B-it</code>. This page contains a diagnostic command; it does not display live results.</p></footer>
+</main><script>
+for(const button of document.querySelectorAll('[data-copy]'))button.addEventListener('click',async()=>{const block=document.getElementById(button.dataset.copy);const status=button.nextElementSibling;try{await navigator.clipboard.writeText(block.textContent);status.textContent='Copied.';}catch(error){const selection=window.getSelection();const range=document.createRange();range.selectNodeContents(block);selection.removeAllRanges();selection.addRange(range);status.textContent='Selected. Press Cmd+C or Ctrl+C to copy.';}});
+</script></body></html>
