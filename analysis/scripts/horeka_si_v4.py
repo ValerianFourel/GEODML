@@ -5,14 +5,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import Counter
+from contextlib import closing
 import copy
 import datetime
+import fcntl
 import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
 import random
+import shlex
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -33,6 +37,13 @@ from analysis.scripts.replay_source_importance_judge import frozen_cells
 
 JOB_NAME = "geodml-gemma-si-v4"
 SELECTION_FORMAT = "si-v4-manual-selection-v1"
+
+
+def terminal_choice(prompt):
+    with open("/dev/tty", "r") as reader, open("/dev/tty", "w") as writer:
+        writer.write(prompt)
+        writer.flush()
+        return reader.readline().strip()
 
 
 def saved_pool(source_run):
@@ -88,10 +99,7 @@ def select(args):
             ensure_ascii=False), flush=True)
     choice = args.take
     if choice is None:
-        with open("/dev/tty", "r") as terminal_input, open("/dev/tty", "w") as terminal_output:
-            terminal_output.write("Choose numbers separated by commas, or all. Empty cancels: ")
-            terminal_output.flush()
-            choice = terminal_input.readline().strip()
+        choice = terminal_choice("Choose numbers separated by commas, or all. Empty cancels: ")
     if not choice.strip():
         raise ValueError("selection cancelled; no Gemma input or allocation was created")
     try:
@@ -127,6 +135,103 @@ def verified_selection(path):
     if bundle != selection_bundle(pool, selection):
         raise ValueError("selected cell or task content changed after selection")
     return bundle
+
+
+def fresh(args):
+    """Choose inputs now; prepare against a live allocation and print its exact run command."""
+    workspace = args.workspace.resolve()
+    reviews = workspace / "reviews"
+    reviews.mkdir(parents=True, exist_ok=True)
+    session = Path(tempfile.mkdtemp(prefix="gemma-selected-", dir=reviews))
+    print("FRESH_DIRECTORY", session, flush=True)
+    selected = session / "selected-inputs.json"
+    try:
+        select(SimpleNamespace(source_run=args.source_run, output=selected,
+                               seed=args.seed, count=args.count, take=args.take))
+        queue = subprocess.check_output(["squeue", "--me", "--array", "--noheader",
+                                         "--format=%i|%j|%T"], text=True, timeout=30)
+        jobs = []
+        for line in queue.splitlines():
+            if not line.strip():
+                continue
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) != 3:
+                raise ValueError("unexpected scheduler response; selection is saved")
+            if parts[1:] == [JOB_NAME, "RUNNING"]:
+                jobs.append(parts[0])
+        jobs = sorted(set(jobs))
+        print("RUNNING_GEMMA_ALLOCATIONS", ", ".join(jobs) or "none", flush=True)
+        if not jobs:
+            print("SELECTION_SAVED_NO_RUNNING_ALLOCATION", selected, flush=True)
+            return 2
+        job = args.existing_job_id or (jobs[0] if len(jobs) == 1 else
+                                      terminal_choice("Existing running Gemma job ID to use: "))
+        if job not in jobs:
+            raise ValueError("choose an existing running Gemma job from the displayed list")
+        fields = dict(t.split("=", 1) for t in subprocess.check_output(
+            ["scontrol", "show", "job", job, "-o"], text=True, timeout=30).split() if "=" in t)
+        prepare(SimpleNamespace(workspace=workspace, output=session / "run", bundle=None,
+            selected_inputs=selected, existing_job_id=job, account=fields["Account"],
+            walltime=fields["TimeLimit"], approval=(
+                "Valerian requested one SI-v4 pass over explicitly selected saved development cells "
+                f"inside existing job {job}; no new allocation or extension.")))
+        command = "\n".join([
+            "(", "  set -euo pipefail", "  source " + shlex.quote(str(workspace / "geodml-nemotron-env.sh")),
+            f'  if [ "${{SLURM_JOB_ID:-}}" != {shlex.quote(job)} ]; then',
+            "    printf '%s\\n' " + shlex.quote("Use the existing compute shell for job " + job),
+            "    exit 1", "  fi", "  export PYTHONDONTWRITEBYTECODE=1", "  set +e",
+            "  bash " + shlex.quote(str(session / "run/run.sh")) +
+                " 2>&1 | tee -a " + shlex.quote(str(session / f"console-job{job}.log")),
+            '  GEMMA_EXIT=${PIPESTATUS[0]}', "  printf 'GEMMA_EXIT=%s\\n' \"$GEMMA_EXIT\"",
+            '  exit "$GEMMA_EXIT"', ")", ""])
+        atomic(session / "compute-command.sh", command.encode())
+        print("PREPARED_SELECTED_RUN", session / "run", flush=True)
+        print("PASTE_IN_EXISTING_COMPUTE_SHELL\n" + command, flush=True)
+        return 0
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        atomic(session / "preparation-error.json", judge.canonical({
+            "error_type": type(error).__name__, "error": str(error), "inference_started": False}).encode())
+        print("FRESH_PREPARATION_STOPPED", str(error), flush=True)
+        print("PRESERVED_DIRECTORY", session, flush=True)
+        return 2
+
+
+def run_picked(args):
+    config_path = args.config.resolve()
+    config = stage.read(config_path)
+    if config.get("workload_mode") != "selected-v4-cells" or not config.get("existing_job_id"):
+        raise ValueError("run-picked requires a prepared selected-cell run bound to an existing job")
+    job = str(config["existing_job_id"])
+    fields = dict(t.split("=", 1) for t in subprocess.check_output(
+        ["scontrol", "show", "job", job, "-o"], text=True, timeout=30).split() if "=" in t)
+    stage.check_bound_allocation(config, os.environ.get("SLURM_JOB_ID"), fields)
+    workspace = Path(config["workspace"])
+    # One selected runner per allocation, including across separate preparations.
+    # Keep the inode: closing releases this advisory lock; unlinking would race.
+    with (workspace / "reviews" / f".gemma-job{job}.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("another selected Gemma run is active in this allocation") from None
+        task_ids = {row["judge_task_id"] for row in judge.rows(config_path.parent / "v4-inputs/tasks.jsonl.gz")}
+        for pattern in (f"gemma*/attempts/job{job}", f"gemma*/run/attempts/job{job}"):
+            for attempt in (workspace / "reviews").glob(pattern):
+                if attempt.resolve() == config_path.parent / "attempts" / f"job{job}":
+                    raise ValueError(f"this selected run was already attempted; inspect {attempt}")
+                result = attempt / "trial-result.json"
+                if not result.is_file() or stage.read(result).get("status") not in ("completed", "failed", "deadline"):
+                    raise ValueError(f"another attempt has no terminal receipt; inspect {attempt}")
+                for index in attempt.glob("trial/*/control/index.sqlite"):
+                    with closing(sqlite3.connect(index.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
+                        prior = db.execute("SELECT id FROM tasks WHERE state IN ('running','saved','done','blocked')")
+                        if any(task_id in task_ids for (task_id,) in prior):
+                            raise ValueError(f"selected tasks already have work to reconcile; inspect {index}")
+        quota = config_path.parent / "startup-quota.json"
+        atomic(quota, judge.canonical(capture_quota(workspace, config["account"])).encode())
+        storage = judge.check_storage(workspace, quota, config_path.parent)
+        if not storage["safe_to_admit"] or not storage["quota_verified"]:
+            raise ValueError("fresh storage/quota evidence does not permit startup")
+        return stage.execute(config_path)
 
 
 def freeze_saved(bundles, output, protocol):
@@ -283,7 +388,12 @@ def prepare(args):
         run_config["estimate"].update(new_allocation=False, additional_allocation_hours=0,
                                      scope="one SI-v4 pass over explicitly selected development cells")
     atomic(out / "config.json", judge.canonical(run_config).encode())
-    atomic(out / "run.sh", gemma.run_script(repo, out))
+    launcher = gemma.run_script(repo, out)
+    if selected is not None:
+        command = [sys.executable, str(repo / "analysis/scripts/horeka_si_v4.py"),
+                   "run-picked", "--config", str(out / "config.json")]
+        launcher = ("#!/bin/bash\nset -euo pipefail\nexec " + shlex.join(command) + "\n").encode()
+    atomic(out / "run.sh", launcher)
     print(json.dumps({"prepared": str(out), "inventories": inventories, "allocation_submitted": False}, indent=2))
     return 0
 
@@ -433,6 +543,15 @@ def main(argv=None):
     s.add_argument("--seed", type=int, default=20261002)
     s.add_argument("--count", type=int, default=20, help="maximum candidate cells to display")
     s.add_argument("--take", help="displayed numbers separated by commas, or all; otherwise ask in the terminal")
+    f = commands.add_parser("fresh", help="choose cells and prepare a new run inside an existing allocation")
+    f.add_argument("--workspace", type=Path, required=True)
+    f.add_argument("--source-run", type=Path, required=True)
+    f.add_argument("--seed", type=int, default=20261002)
+    f.add_argument("--count", type=int, default=20)
+    f.add_argument("--take", help="displayed numbers or all; otherwise ask in the terminal")
+    f.add_argument("--existing-job-id", help="choose this job from the user's running Gemma allocations")
+    e = commands.add_parser("run-picked", help="check existing ownership and storage, then run selected cells")
+    e.add_argument("--config", type=Path, required=True)
     p = commands.add_parser("prepare")
     p.add_argument("--workspace", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
@@ -454,7 +573,8 @@ def main(argv=None):
     r.add_argument("--server-model-name", required=True)
     args = parser.parse_args(argv)
     return asyncio.run(review(args)) if args.command == "review" else {
-        "select": select, "prepare": prepare, "check": check}[args.command](args)
+        "select": select, "fresh": fresh, "run-picked": run_picked,
+        "prepare": prepare, "check": check}[args.command](args)
 
 
 if __name__ == "__main__":
