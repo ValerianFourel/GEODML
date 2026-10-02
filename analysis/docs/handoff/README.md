@@ -118,3 +118,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [Inference counts and Hugging Face update page](2026-10-02_inference-update-dashboard_handoff.md)
 
 - 2026-10-02 — [SI-v4 retry results and diagnostic HTML](2026-10-02_v4-retry-results-html_handoff.md)
+
+- 2026-10-02 — [SI-v4 original goal and design trace](2026-10-02_si-v4-design-trace_handoff.md)
