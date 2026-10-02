@@ -90,3 +90,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [HoreKa saved progress and failure audit command](2026-10-02_horeka-saved-progress-audit_handoff.md)
 
 - 2026-10-02 — [Update the Qwen dataset and inspect failures](2026-10-02_horeka-dataset-update-page_handoff.md)
+
+- 2026-10-02 — [HoreKa interactive allocation counts](2026-10-02_horeka-interactive-allocation-count_handoff.md)
