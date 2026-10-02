@@ -82,3 +82,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [New three-hour SI-v4 launch page](2026-10-02_si-v4-three-hour-page_handoff.md)
 
 - 2026-10-02 — [Approved three-hour queue exception](2026-10-02_si-v4-three-hour-queue-exception_handoff.md)
+
+- 2026-10-02 — [Gemma chosen cells and fresh existing-allocation workflow](2026-10-02_gemma-selected-cells_handoff.md)

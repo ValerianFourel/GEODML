@@ -1,477 +1,219 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SI-v4 · new three-hour Gemma shell · HoreKa</title><style>
-:root {
-  color-scheme: light;
-  --bg: #f2f4f3; --panel: #ffffff; --ink: #19212b; --muted: #56616d; --rule: #d4dad7;
-  --accent: #1f6485; --accent-soft: #e2edf3;
-  --code-bg: #111a22; --code-ink: #d9e3ea; --code-rule: #26323d;
-  --safe-ink: #256437; --safe-bg: #e3f1e6;
-  --pub-ink: #1f5670; --pub-bg: #e0ecf3;
-  --warn-ink: #874700; --warn-bg: #fcefd8;
-  --cond-ink: #5b4a86; --cond-bg: #ece8f6;
-  --display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
-  --text: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
-    --accent: #7db5d2; --accent-soft: #1a2b36;
-    --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
-    --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
-    --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
-  }
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
-  --accent: #7db5d2; --accent-soft: #1a2b36;
-  --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
-  --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
-  --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
-}
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--text); padding: 0 20px; }
-.page { max-width: 920px; margin: 0 auto; padding-block: 36px 64px; display: grid; gap: 28px; }
-code { font-family: var(--mono); font-size: 0.9em; }
-p code, li code, td code { background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 4px; }
-.eyebrow { font: 500 12px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 14px; }
-h1 { font: 600 40px/1.1 var(--display); margin: 6px 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
-.lede { max-width: 68ch; margin: 0; color: var(--muted); }
-.lede strong { color: var(--ink); font-weight: 600; }
-nav.cycle { display: flex; flex-wrap: wrap; gap: 8px; }
-nav.cycle a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); color: var(--ink); text-decoration: none; font: 500 13px/1.2 var(--text); }
-nav.cycle a span { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 500 12px/1 var(--mono); }
-nav.cycle a:hover, nav.cycle a:focus-visible { border-color: var(--accent); outline: none; }
-.loopnote { font: 400 13px/1.5 var(--text); color: var(--muted); margin: 0; }
-.step { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 16px; padding-top: 24px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
-.num { font: 500 26px/1.1 var(--mono); color: var(--accent); }
-.body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
-.body > p { margin: 0; max-width: 72ch; }
-.step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
-h3 { font: 600 16px/1.3 var(--display); margin: 0; letter-spacing: 0.01em; }
-.chip { font: 500 11.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; }
-.chip.safe { color: var(--safe-ink); background: var(--safe-bg); }
-.chip.pub { color: var(--pub-ink); background: var(--pub-bg); }
-.chip.warn { color: var(--warn-ink); background: var(--warn-bg); }
-.chip.cond { color: var(--cond-ink); background: var(--cond-bg); }
-.look { font-size: 14px; color: var(--muted); border-left: 2px solid var(--rule); padding-left: 12px; }
-.code { position: relative; background: var(--code-bg); border: 1px solid var(--code-rule); border-radius: 8px; }
-.code pre { margin: 0; padding: 16px 18px; padding-top: 44px; overflow-x: auto; color: var(--code-ink); font: 400 13px/1.55 var(--mono); tab-size: 2; }
-.code pre code { font-size: inherit; background: none; padding: 0; }
-.copy { position: absolute; top: 8px; right: 8px; font: 500 12px/1 var(--text); color: var(--code-ink); background: transparent; border: 1px solid #3a4957; border-radius: 6px; padding: 7px 12px; cursor: pointer; }
-.copy:hover { border-color: #7db5d2; }
-.copy:focus-visible { outline: 2px solid #7db5d2; outline-offset: 2px; }
-.copy.done { color: #0b1a10; background: #8fd0a0; border-color: #8fd0a0; }
-.approval { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 14px; }
-.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 20px; margin: 0; }
-.facts div { display: grid; gap: 2px; }
-.facts dt { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
-.facts dd { margin: 0; font-size: 14px; }
-.tablewrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
-th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
-th { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
-.builder { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.builder label { display: grid; gap: 4px; font: 500 12px/1.3 var(--text); color: var(--muted); }
-.builder input, .builder select, .builder textarea { font: 400 14px/1.4 var(--text); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 9px; width: 100%; }
-.builder input:focus-visible, .builder select:focus-visible, .builder textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.builder .wide { grid-column: 1 / -1; }
-.builder textarea { min-height: 78px; resize: vertical; font-family: var(--text); }
-.check { display: flex !important; align-items: center; gap: 8px !important; }
-.check input { width: auto; }
-.estimate { font: 500 14px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); margin: 0; }
-ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 72ch; }
-footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 6px; }
-footer p { margin: 0; max-width: 78ch; }
-@media (max-width: 560px) {
-  h1 { font-size: 32px; }
-  .step { grid-template-columns: 1fr; gap: 6px; }
-  .num { font-size: 20px; }
-}
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
-
-.status { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; }
-.status ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
-.where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
-
-.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Gemma 4 31B · 2 October 2026</span></div><h1>New three-hour Gemma shell</h1><p class="lede">Valerian, use this sequence from a separate HoreKa login terminal. It creates corrected inputs in a new directory, checks admission, and requests one explicitly approved <strong>03:00:00</strong> interactive allocation. Keep previous allocation shells and results intact.</p></header>
-<nav class="cycle" aria-label="Page shortcuts"><a href="#prepare">1 · Prepare</a><a href="#admission">2 · Admission</a><a href="#allocate">3 · Allocate</a><a href="#compute">4 · Compute shell</a><a href="#run">5 · Run</a><a href="#logs">6 · Logs</a><a href="#job-counts">Job counts</a><a href="#qwen-bout-counts">Qwen counts</a><a href="#start-forecast">Start forecasts</a></nav>
-<aside class="approval"><h2>Approved allocation and expected work</h2><p>One exclusive accelerated node, 4 × A100 40 GB, 32 requested CPUs, whole-node memory. The last allocation reserved 152 CPUs and 497500 MiB. Three hours cap resource use at <strong>3 node-hours, 12 GPU-hours and up to 456 allocated CPU-hours</strong>.</p><p>The fixed development queue is still estimated at 20–50 minutes including startup. Earlier Gemma wrappers took 8.9–10.9 minutes; v4 throughput remains unmeasured because the first pass failed during input import. Three hours provide 130–160 minutes beyond that estimate. A one-hour shell is the cheaper alternative; this page implements your explicit three-hour request. The queue runs once and stops when finished. No extra passes, automatic retries or new scientific work are added to fill time.</p><p>The new preparation fixes the 214 missing source hashes, verifies task text is unchanged and checks all inputs before allocation. Prior judge work, if found, blocks a fresh run until reconciled.</p><p><strong>Approved queue exception:</strong> Valerian approved one new three-hour Gemma run alongside Qwen. The two admission commands waive the five-active/no-pending guards only for this dated three-hour preparation. Fresh quota checks, the account queue limit, ten-minute observed-start spacing and duplicate-Gemma protection remain enforced. If an older Gemma allocation is still live, wait for it to end naturally. Leave Qwen jobs unchanged.</p></aside>
-<section class="step" id="prepare"><div class="num">01</div><div class="body"><header class="step-head"><h2>Prepare corrected inputs</h2><span class="chip safe">Separate login shell · no allocation</span></header><p>Run once. Require HASH_REPAIR_VERIFIED before continuing. A pre-existing destination is preserved and causes a stop. No model weights are downloaded. This step uses the original verified bundles, adds missing metadata, and performs CPU-only coordinator validation.</p><div class="code"><button class="copy" type="button" aria-label="Copy Prepare corrected inputs">Copy</button><pre><code>(
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gemma: choose cells and run</title><style>
+:root { color-scheme: light; --paper:#f3f5f4; --card:#fff; --ink:#172b32; --muted:#50646b; --line:#cbd6d6; --accent:#006c70; --tint:#e0f0ed; --code:#10242c; --code-ink:#e2edef; }
+@media (prefers-color-scheme:dark) { :root { color-scheme:dark; --paper:#0e1a20; --card:#15272e; --ink:#e2edef; --muted:#b2c4c9; --line:#415860; --accent:#8bd3cb; --tint:#1d3c3d; --code:#09171d; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 system-ui,-apple-system,sans-serif; }
+main { max-width:950px; margin:auto; padding:34px 24px 60px; }
+h1 { font-size:clamp(29px,5vw,44px); line-height:1.15; letter-spacing:-.025em; margin:12px 0 18px; }
+h2 { font-size:24px; line-height:1.25; margin:0 0 14px; }
+p { margin:0 0 14px; }
+a { color:var(--accent); text-underline-offset:3px; }
+.eyebrow,.terminal { font-size:12px; font-weight:700; letter-spacing:.055em; text-transform:uppercase; color:var(--accent); }
+.terminal { margin:0 0 5px; }
+.lede { max-width:70ch; font-size:18px; }
+.note { margin:24px 0; padding:20px; border:1px solid var(--line); background:var(--card); border-radius:10px; }
+.note p:last-child { margin:0; }
+nav { display:flex; gap:10px; flex-wrap:wrap; margin:22px 0; }
+nav a { border:1px solid var(--line); border-radius:6px; padding:9px 12px; background:var(--card); font-weight:600; }
+section { padding:26px 0; border-top:1px solid var(--line); scroll-margin-top:18px; }
+.step-heading { display:flex; gap:14px; align-items:flex-start; }
+.step-number { color:var(--accent); background:var(--tint); font-size:23px; line-height:1; padding:12px; border-radius:7px; font-weight:700; }
+code { font: .88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; overflow-wrap:anywhere; }
+p code,td code { background:var(--tint); padding:2px 4px; border-radius:3px; }
+.command { border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--code); color:var(--code-ink); }
+.toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; padding:12px 16px; border-bottom:1px solid #496069; font-size:13px; }
+button { min-height:44px; padding:9px 16px; border:1px solid #9bd8cf; background:#d5efe9; color:#113a3a; border-radius:6px; font:600 14px/1.3 system-ui,sans-serif; cursor:pointer; }
+button:hover { background:white; }
+button:focus-visible,a:focus-visible,pre:focus-visible { outline:3px solid #3bafbb; outline-offset:3px; }
+pre { margin:0; padding:18px; overflow:auto; max-height:25rem; font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+pre code { font:inherit; overflow-wrap:normal; }
+.check { margin:12px 0 0; padding-left:12px; border-left:3px solid var(--accent); }
+table { width:100%; border-collapse:collapse; margin:10px 0; font-size:14px; }
+th,td { text-align:left; padding:12px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:600; }
+td:first-child { width:35%; }
+#copy-status { min-height:26px; color:var(--muted); }
+footer { margin-top:16px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:14px; }
+@media(max-width:540px) { main { padding:24px 14px 40px; } .note { padding:15px; } th,td { padding:10px 5px; } }
+</style></head>
+<body><main><header><p class="eyebrow">HoreKa · 2 October 2026 · Selected development cells</p>
+<h1>Choose cells. Run one Gemma pass.</h1>
+<p class="lede">Valerian, paste step 1 in a HoreKa login terminal. It offers saved cells at random, lets you choose, then prepares a separate run for an existing Gemma allocation.</p>
+<p>Your old attempts and results stay in place. Keep the allocation-owning shell open. Use the new command below in place of the old <code>f256b688… check</code> block.</p></header>
+<nav aria-label="Workflow"><a href="#prepare">1. Choose cells</a><a href="#run">2. Run your selection</a><a href="#task-counts">3. Results and errors</a></nav>
+<section id="prepare" aria-labelledby="prepare-heading">
+<div class="step-heading"><span class="step-number">1</span><div><p class="terminal">LOGIN TERMINAL · hkn1991 or hkn1993</p><h2 id="prepare-heading">Offer cells and save your choices</h2></div></div>
+<p>The helper verifies the original saved source bundles and offers up to 20 cells. Each entry shows its number, model, request, source count and answer preview. Type numbers such as <code>2,5,9</code>, or <code>all</code>, then press Enter. An empty answer cancels.</p>
+<div class="command"><div class="toolbar"><span>LOGIN TERMINAL · select and prepare</span><button type="button" class="copy" aria-label="Copy selection command" aria-controls="selection-code">Copy selection</button></div><div id="selection-code"><pre><code>(
   set -euo pipefail
   source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_FIX_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
-  V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
-  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
-  if [ ! -d &quot;$V4_FIX_REPO&quot; ]; then
-    git -C &quot;$REPO&quot; worktree add --detach &quot;$V4_FIX_REPO&quot; &quot;$V4_FIX_PIN&quot;
+  GEMMA_PICK_PIN=d47418b81b93057a02cc54e0383492835400be79
+  GEMMA_PICK_REPO=&quot;$W/checkouts/gemma-selected-$GEMMA_PICK_PIN&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/gemma-selected-cells
+  if [ ! -d &quot;$GEMMA_PICK_REPO&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$GEMMA_PICK_REPO&quot; &quot;$GEMMA_PICK_PIN&quot;
   fi
-  test &quot;$(git -C &quot;$V4_FIX_REPO&quot; rev-parse HEAD)&quot; = &quot;$V4_FIX_PIN&quot;
-  test -z &quot;$(git -C &quot;$V4_FIX_REPO&quot; status --porcelain --untracked-files=all)&quot;
-  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
-  &quot;$RT/bin/python&quot; - &quot;$W&quot; &quot;$V4_FIX_REPO&quot; &lt;&lt;&#x27;PY&#x27;
-import copy
-import json
-from pathlib import Path
-import sys
-import tempfile
-from types import SimpleNamespace
-sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
-from analysis.scripts import horeka_si_v4 as pilot
-
-workspace = Path(sys.argv[1])
-old = workspace / &#x27;reviews/gemma-si-v4-development-20261001&#x27;
-new = workspace / &#x27;reviews/gemma-si-v4-development-20261002-3h&#x27;
-config = json.loads((old / &#x27;config.json&#x27;).read_text())
-if new.exists():
-    raise SystemExit(&#x27;STOP: corrected preparation already exists; preserve and inspect it.&#x27;)
-if config[&#x27;git_commit&#x27;] != &#x27;9aa5d90e0b310f3eea587a60787727787ab92757&#x27;:
-    raise SystemExit(&#x27;Unexpected original execution pin&#x27;)
-if pilot.judge.file_hash(old / &#x27;judge-config.json&#x27;) != config[&#x27;judge_config_sha256&#x27;]:
-    raise SystemExit(&#x27;Original judge configuration changed&#x27;)
-for name, manifest in config[&#x27;inventories&#x27;].items():
-    if json.loads((old / name / &#x27;manifest.json&#x27;).read_text()) != manifest:
-        raise SystemExit(&#x27;Original manifest changed: &#x27; + name)
-    for filename, expected in manifest[&#x27;files&#x27;].items():
-        if pilot.judge.file_hash(old / name / filename) != expected:
-            raise SystemExit(&#x27;Original frozen file changed: &#x27; + name + &#x27;/&#x27; + filename)
-for filename, expected in config[&#x27;source_files&#x27;].items():
-    if pilot.judge.file_hash(Path(filename)) != expected:
-        raise SystemExit(&#x27;Original source bundle changed: &#x27; + filename)
-
-# Do not repeat previously executed judge tasks without reconciling them.
-import sqlite3
-for previous in (old, workspace / &#x27;reviews/gemma-si-v4-development-20261001-hashfix-c82ff81&#x27;):
-    for database in previous.glob(&#x27;attempts/job*/trial/*/control/index.sqlite&#x27;):
-        with sqlite3.connect(database.as_uri() + &#x27;?mode=ro&#x27;, uri=True) as db:
-            active = db.execute(&quot;SELECT state, COUNT(*) FROM tasks WHERE state NOT IN (&#x27;pending&#x27;,&#x27;waiting&#x27;) GROUP BY state&quot;).fetchall()
-        if active:
-            raise SystemExit(&#x27;STOP: prior judge work needs reconciliation: &#x27; + str(database) + &#x27; &#x27; + repr(active))
-
-pilot.prepare(SimpleNamespace(workspace=workspace, output=new,
-    bundle=[Path(p) for p in config[&#x27;source_files&#x27;]],
-    account=config[&#x27;account&#x27;], walltime=&#x27;03:00:00&#x27;,
-    approval=&#x27;Valerian explicitly requested one new three-hour shell on 2026-10-02.&#x27;))
-# Compare semantic records, not gzip headers. Only missing cell hashes may change.
-filled = 0
-for name in (&#x27;v3-inputs&#x27;, &#x27;v4-inputs&#x27;, &#x27;constructed-inputs&#x27;):
-    before = list(pilot.judge.rows(old / name / &#x27;tasks.jsonl.gz&#x27;))
-    after = list(pilot.judge.rows(new / name / &#x27;tasks.jsonl.gz&#x27;))
-    if before != after:
-        raise SystemExit(&#x27;STOP: frozen task records changed: &#x27; + name)
-    original_cells = list(pilot.judge.rows(old / name / &#x27;cells.jsonl.gz&#x27;))
-    fixed_cells = list(pilot.judge.rows(new / name / &#x27;cells.jsonl.gz&#x27;))
-    expected_cells = copy.deepcopy(original_cells)
-    by_id = {r[&#x27;judge_task_id&#x27;]: r for r in before}
-    for cell in expected_cells:
-        for source in cell.get(&#x27;sources&#x27;, []):
-            task = by_id[source.get(&#x27;dependency_id&#x27;, source.get(&#x27;judge_task_id&#x27;))]
-            expected_hash = pilot.judge._digest({&#x27;title&#x27;: task[&#x27;source_title&#x27;], &#x27;text&#x27;: task[&#x27;source_text&#x27;]})
-            if &#x27;source_sha256&#x27; not in source:
-                source[&#x27;source_sha256&#x27;] = expected_hash
-                filled += 1
-            elif source[&#x27;source_sha256&#x27;] != expected_hash:
-                raise SystemExit(&#x27;STOP: conflicting original source hash&#x27;)
-    if expected_cells != fixed_cells:
-        raise SystemExit(&#x27;STOP: additional cell changes: &#x27; + name)
-    with tempfile.TemporaryDirectory(prefix=&#x27;input-check-&#x27;, dir=new) as temporary:
-        coordinator = pilot.judge.Coordinator(new / name, Path(temporary) / &#x27;results&#x27;, {&#x27;gpu_count&#x27;: 4})
-        coordinator.close()
-# New preparation: no binding to the previous allocation.
-fixed = json.loads((new / &#x27;config.json&#x27;).read_text())
-fixed.update(recovery_from=str(old), original_config_sha256=pilot.judge.file_hash(old / &#x27;config.json&#x27;))
-pilot.atomic(new / &#x27;config.json&#x27;, pilot.judge.canonical(fixed).encode())
-pilot.atomic(new / &#x27;HASH_REPAIR_VERIFIED.json&#x27;, pilot.judge.canonical({
-    &#x27;config_sha256&#x27;: pilot.judge.file_hash(new / &#x27;config.json&#x27;),
-    &#x27;missing_cell_hashes_filled&#x27;: filled, &#x27;task_records_unchanged&#x27;: True,
-    &#x27;coordinator_imports_passed&#x27;: 3, &#x27;walltime&#x27;: &#x27;03:00:00&#x27;,
-    &#x27;allocation_submitted&#x27;: False, &#x27;inference_started&#x27;: False}).encode())
-print(&#x27;HASH_REPAIR_VERIFIED&#x27;, new)
-print(&#x27;MISSING_CELL_HASHES_FILLED&#x27;, filled)
-print(&#x27;Original preparation and attempts preserved. No inference started.&#x27;)
-PY
-)</code></pre></div></div></section><section class="step" id="admission"><div class="num">02</div><div class="body"><header class="step-head"><h2>Check admission</h2><span class="chip safe">Same login shell</span></header><p>This checks fresh scheduler evidence, quota, queue capacity and duplicate jobs. If blocked, leave existing jobs unchanged and repeat manually later. No allocation is requested here.</p><div class="code"><button class="copy" type="button" aria-label="Copy Check admission">Copy</button><pre><code>(
+  test &quot;$(git -C &quot;$GEMMA_PICK_REPO&quot; rev-parse HEAD)&quot; = &quot;$GEMMA_PICK_PIN&quot;
+  test -z &quot;$(git -C &quot;$GEMMA_PICK_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1
+  &quot;$RT/bin/python&quot; &quot;$GEMMA_PICK_REPO/analysis/scripts/horeka_si_v4.py&quot; fresh \
+    --workspace &quot;$W&quot; \
+    --source-run &quot;$W/reviews/gemma-si-v4-development-20261001&quot;
+)</code></pre></div></div>
+<p class="check">Expect <code>FRESH_DIRECTORY</code>, your candidate list, and a selection prompt. This step saves inputs and prepares the run; model execution starts in step 2.</p>
+<p>The sample comes from the saved development pool, normally 40 cells. The recorded seed is <code>20261002</code>, so the same pool gives the same candidate list. This is a diagnostic selection with your choice of cells. It is not a random sample of the full dataset. Only selected cells enter the new run.</p>
+<p>If several Gemma allocations are running, the helper asks which job ID to use. If none is running, it prints <code>SELECTION_SAVED_NO_RUNNING_ALLOCATION</code> and keeps your selection. If preparation stops, its error is saved beside <code>selected-inputs.json</code>.</p></section>
+<section id="run" aria-labelledby="run-heading">
+<div class="step-heading"><span class="step-number">2</span><div><p class="terminal">EXISTING COMPUTE SHELL · match the printed job ID</p><h2 id="run-heading">Paste the generated compute command</h2></div></div>
+<p>After <code>PREPARED_SELECTED_RUN</code>, step 1 prints <code>PASTE_IN_EXISTING_COMPUTE_SHELL</code> and a complete command enclosed in parentheses. Copy that whole command into the existing compute shell for the job ID it names. The command is also saved as <code>compute-command.sh</code> inside <code>FRESH_DIRECTORY</code>.</p>
+<p>It uses the new pinned launcher and runs exactly one SI-v4 pass. Missing source hashes are derived from the preserved source text during preparation. Conflicting hashes are rejected. A successful Coordinator import checks the frozen inputs before model execution.</p>
+<p>The run checks the existing job, remaining time, storage and previous attempts. It refuses overlapping work or an unresolved active attempt. On return, it prints <code>GEMMA_EXIT</code> and saves a console log. The enclosing child shell preserves your allocation-owning shell.</p>
+<p class="check">Use the generated command for your new directory. The old <code>20261001/run.sh</code> still points to the historical code and inputs.</p></section>
+<section id="task-counts" aria-labelledby="task-counts-heading">
+<div class="step-heading"><span class="step-number">3</span><div><p class="terminal">LOGIN TERMINAL · read saved progress</p><h2 id="task-counts-heading">Inspect results and errors</h2></div></div>
+<p>This checks the live Gemma queue, the three newest selection directories and the original failed run. It prints selections, preparation errors, recent console output, accounting, saved summaries and task counts. Send back this output after a failure. Run it no more often than every 30 seconds.</p>
+<div class="command"><div class="toolbar"><span>LOGIN TERMINAL · status, results and logs</span><button type="button" class="copy" aria-label="Copy audit command" aria-controls="audit-code">Copy audit</button></div><div id="audit-code"><pre><code>(
   set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
-  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
-  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
-  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
-  test -f &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot;
-  test -f &quot;$V4_RUN/HASH_REPAIR_VERIFIED.json&quot;
-  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; check --output &quot;$V4_RUN&quot; --approved-existing-queue-exception
-)</code></pre></div></div></section><section class="step" id="allocate"><div class="num">03</div><div class="body"><header class="step-head"><h2>Request the approved three hours once</h2><span class="chip safe">Same login shell</span></header><p>Admission is repeated immediately before salloc. The one-attempt marker prevents duplicate requests. Wait for the allocation grant; do not repeat this command while waiting. If submission fails, preserve the marker and send the error for inspection.</p><div class="code"><button class="copy" type="button" aria-label="Copy Request the approved three hours once">Copy</button><pre><code>(
-  set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
-  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
-  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
-  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
-  if [ -n &quot;${SLURM_JOB_ID:-}&quot; ]; then
-    printf &#x27;%s\n&#x27; &#x27;STOP: use a separate HoreKa login terminal, not an existing allocation shell.&#x27;
-    exit 1
-  fi
-  &quot;$RT/bin/python&quot; - &quot;$V4_RUN&quot; &lt;&lt;&#x27;PYVERIFY&#x27;
-import hashlib, json, sys
-from pathlib import Path
-root = Path(sys.argv[1])
-receipt = json.loads((root / &#x27;HASH_REPAIR_VERIFIED.json&#x27;).read_text())
-raw = (root / &#x27;config.json&#x27;).read_bytes()
-config = json.loads(raw)
-if receipt[&#x27;config_sha256&#x27;] != hashlib.sha256(raw).hexdigest() or config[&#x27;walltime&#x27;] != &#x27;03:00:00&#x27;:
-    raise SystemExit(&#x27;Verified three-hour preparation required&#x27;)
-PYVERIFY
-  &quot;$RT/bin/python&quot; &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot; check --output &quot;$V4_RUN&quot; --approved-existing-queue-exception
-  ( set -o noclobber; printf &#x27;%s\n&#x27; &#x27;One new 03:00:00 allocation requested by Valerian&#x27; &gt; &quot;$V4_RUN/ALLOCATION_ATTEMPTED&quot; )
-  salloc --account=hk-project-p0026831 --partition=accelerated --nodes=1 --ntasks=1 --cpus-per-task=32 --gres=gpu:4 --mem=0 --exclusive --time=03:00:00 --job-name=geodml-gemma-si-v4
-)</code></pre></div></div></section><section class="step" id="compute"><div class="num">04</div><div class="body"><header class="step-head"><h2>Enter the newly allocated compute node</h2><span class="chip safe">New allocation shell</span></header><p>Run only after the new grant. This srun is a step within that allocation. Skip it if already on the allocated compute node. Keep the allocation-owning shell open.</p><div class="code"><button class="copy" type="button" aria-label="Copy Enter the newly allocated compute node">Copy</button><pre><code>srun --jobid &quot;${SLURM_JOB_ID:?Wait for the new salloc grant}&quot; --ntasks=1 --cpus-per-task=32 --pty bash -l</code></pre></div></div></section><section class="step" id="run"><div class="num">05</div><div class="body"><header class="step-head"><h2>Run the finite SI-v4 comparison</h2><span class="chip safe">New allocated compute shell</span></header><p>The runner validates the three-hour allocation, clean pinned code and GPU boundary, and uses Slurm’s actual end time with a three-minute outer drain margin. The five-pass queue is v4-pass1, v3-bridge, constructed diagnostics, v4-pass2 and v4-pass3. A completed queue does not establish semantic validity. Do not repeat the launch after partial work; inspect the artifacts.</p><div class="code"><button class="copy" type="button" aria-label="Copy Run the finite SI-v4 comparison">Copy</button><pre><code>(
-  set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
-  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
-  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
-  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
-  test -n &quot;${SLURM_JOB_ID:?Use the newly allocated compute shell}&quot;
-  test -f &quot;$V4_REPO/analysis/scripts/horeka_si_v4.py&quot;
-  test &quot;$(git -C &quot;$V4_REPO&quot; rev-parse HEAD)&quot; = &quot;$V4_PIN&quot;
-  test -z &quot;$(git -C &quot;$V4_REPO&quot; status --porcelain --untracked-files=all)&quot;
-  &quot;$RT/bin/python&quot; - &quot;$V4_RUN&quot; &lt;&lt;&#x27;PYVERIFY&#x27;
-import hashlib, json, sys
-from pathlib import Path
-root = Path(sys.argv[1])
-receipt = json.loads((root / &#x27;HASH_REPAIR_VERIFIED.json&#x27;).read_text())
-raw = (root / &#x27;config.json&#x27;).read_bytes()
-config = json.loads(raw)
-if receipt[&#x27;config_sha256&#x27;] != hashlib.sha256(raw).hexdigest() or config[&#x27;walltime&#x27;] != &#x27;03:00:00&#x27;:
-    raise SystemExit(&#x27;Verified three-hour preparation required&#x27;)
-PYVERIFY
-  set +e
-  bash &quot;$V4_RUN/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$V4_RUN/console-job${SLURM_JOB_ID}.log&quot;
-  V4_EXIT=${PIPESTATUS[0]}
-  printf &#x27;V4_EXIT=%s\n&#x27; &quot;$V4_EXIT&quot;
-)</code></pre></div></div></section><section class="step" id="logs"><div class="num">06</div><div class="body"><header class="step-head"><h2>Inspect summaries and logs</h2><span class="chip safe">Compute or separate login shell</span></header><p>Send V4_EXIT and these summaries. This reads the new three-hour directory only. It changes no job and closes no shell.</p><div class="code"><button class="copy" type="button" aria-label="Copy Inspect summaries and logs">Copy</button><pre><code>(
-  set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  V4_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
-  V4_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_PIN&quot;
-  V4_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot;
-  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_REPO&quot;
-  python3 - &quot;$V4_RUN&quot; &lt;&lt;&#x27;PYREPORT&#x27;
-import json, sys
-from pathlib import Path
-root = Path(sys.argv[1])
-for pattern in (&#x27;attempts/job*/trial-result.json&#x27;, &#x27;attempts/job*/trial/summary.json&#x27;, &#x27;attempts/job*/trial/*/reports/*/summary.json&#x27;):
-    for path in sorted(root.glob(pattern)):
-        print(str(path))
-        print(json.dumps(json.loads(path.read_text()), indent=2))
-for path in sorted(root.glob(&#x27;console-job*.log&#x27;)):
-    print(&#x27;CONSOLE_TAIL&#x27;, path)
-    print(&#x27;\n&#x27;.join(path.read_text(errors=&#x27;replace&#x27;).splitlines()[-35:]))
-PYREPORT
-  squeue --me --name=geodml-gemma-si-v4 --format=&#x27;%.18i %.30j %.10T %.12M %.12l&#x27;
-)</code></pre></div></div></section><section class="step" id="task-counts"><div class="num">5a</div><div class="body"><header class="step-head"><h2>Count judge tasks by pass</h2><span class="chip safe">Separate HoreKa login shell · read-only</span></header><p>Run this while inference continues in its original shell. It reads the existing task indexes without loading the model. Repeat manually for another snapshot. Each row covers unique map, source and J1 tasks within one pass, not answer cells or retry requests.</p><div class="code"><button class="copy" type="button" aria-label="Copy count judge tasks by pass">Copy</button><pre><code>(
-  set -euo pipefail
-  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
-  &quot;$RT/bin/python&quot; - &quot;$W/reviews/gemma-si-v4-development-20261002-3h&quot; &lt;&lt;&#x27;PY&#x27;
+  W=/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen
+  python3 - &quot;$W/reviews&quot; &lt;&lt;&#x27;PY&#x27;
 from collections import Counter
 from contextlib import closing
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 
-root = Path(sys.argv[1])
-print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat(), root)
-if not (root / &quot;config.json&quot;).is_file():
-    raise SystemExit(&quot;RUN_UNAVAILABLE: config.json missing; check the run path.&quot;)
-config = json.loads((root / &quot;config.json&quot;).read_text())
-queue = [(&quot;v4-pass1&quot;, &quot;v4-inputs&quot;), (&quot;v3-bridge&quot;, &quot;v3-inputs&quot;),
-         (&quot;constructed&quot;, &quot;constructed-inputs&quot;), (&quot;v4-pass2&quot;, &quot;v4-inputs&quot;),
-         (&quot;v4-pass3&quot;, &quot;v4-inputs&quot;)]
-attempts = sorted(root.glob(&quot;attempts/job*&quot;))
-if not attempts:
-    print(&quot;NO_ATTEMPT_RECORDED: check Slurm below; this is not a completion count.&quot;)
-for attempt in attempts:
-    print(&quot;\nATTEMPT&quot;, attempt.name)
-    for name, inputs in queue:
-        expected = sum(config[&quot;inventories&quot;][inputs][&quot;unique_tasks&quot;].values())
-        path = attempt / &quot;trial&quot; / name / &quot;control/index.sqlite&quot;
-        if not path.is_file():
-            print(name, &quot;NO_INDEX: not started or initialization incomplete; expected=&quot; + str(expected))
-            continue
-        try:
-            with closing(sqlite3.connect(path.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True, timeout=2)) as db:
-                db.execute(&quot;PRAGMA query_only=ON&quot;)
-                rows = db.execute(&quot;SELECT state,result FROM tasks&quot;).fetchall()
-            counts = Counter()
-            for state, raw in rows:
-                if state in (&quot;done&quot;, &quot;saved&quot;):
-                    result = json.loads(raw) if raw else {}
-                    outcome = (&quot;ok&quot; if result.get(&quot;ok&quot;) is True else
-                               &quot;failed&quot; if result.get(&quot;ok&quot;) is False else &quot;unknown&quot;)
-                    label = ({&quot;ok&quot;: &quot;completed&quot;, &quot;failed&quot;: &quot;failed&quot;, &quot;unknown&quot;: &quot;unknown&quot;}[outcome]
-                             if state == &quot;done&quot; else &quot;saved_&quot; + outcome)
-                else:
-                    label = state if state in (&quot;pending&quot;, &quot;waiting&quot;, &quot;running&quot;, &quot;blocked&quot;) else &quot;unknown&quot;
-                counts[label] += 1
-            fields = (&quot;completed&quot;, &quot;failed&quot;, &quot;running&quot;, &quot;pending&quot;, &quot;waiting&quot;, &quot;blocked&quot;,
-                      &quot;saved_ok&quot;, &quot;saved_failed&quot;, &quot;saved_unknown&quot;, &quot;unknown&quot;)
-            print(name, &quot;total=&quot; + str(len(rows)), &quot;expected=&quot; + str(expected),
-                  &quot; &quot;.join(key + &quot;=&quot; + str(counts[key]) for key in fields))
-            if len(rows) != expected:
-                print(&quot;  INVENTORY_MISMATCH: do not interpret missing rows as completed.&quot;)
-        except (OSError, sqlite3.Error, ValueError, AttributeError) as error:
-            print(name, &quot;UNAVAILABLE:&quot;, type(error).__name__, str(error))
-PY
-)</code></pre></div><p class="look"><code>completed</code> and <code>failed</code> split sealed results by inference outcome. <code>saved_ok</code> and <code>saved_failed</code> are written results awaiting sealing, shown separately. <code>pending</code> is queued work; <code>waiting</code> awaits an answer map; <code>blocked</code> means a source cannot be scored because its map failed, was quarantined or declared the input ineligible. <code>running</code> is the recorded task state and can remain after interruption. Check Slurm and logs below for current activity. Unknown or unavailable data is not counted as success. These counts do not establish semantic acceptance.</p></div></section><section class="step" id="job-counts"><div class="num">5b</div><div class="body"><header class="step-head"><h2>Count Slurm jobs by state</h2><span class="chip safe">Separate HoreKa login shell · read-only</span></header><p>Shows counts for all your HoreKa jobs and separately for <code>geodml-gemma-si-v4</code>, followed by that job’s details. The live queue and accounting since 1 October 2026 are separate views. Accounting counts allocations, excluding job steps.</p><div class="code"><button class="copy" type="button" aria-label="Copy count slurm jobs by state">Copy</button><pre><code>python3 - &lt;&lt;&#x27;PY&#x27;
-from collections import Counter
-from datetime import datetime, timezone
-import getpass
-import subprocess
-
-job_name = &quot;geodml-gemma-si-v4&quot;
-since = &quot;2026-10-01&quot;
-print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat())
-checks = [
-    (&quot;LIVE_QUEUE&quot;, [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--noheader&quot;,
-                    &quot;--format=%i|%j|%T|%M|%l|%R&quot;], &quot;id | name | state | elapsed | limit | node/reason&quot;),
-    (&quot;ACCOUNTING_SINCE_&quot; + since,
-     [&quot;sacct&quot;, &quot;-X&quot;, &quot;--user=&quot; + getpass.getuser(), &quot;--starttime=&quot; + since,
-      &quot;--noheader&quot;, &quot;--parsable2&quot;, &quot;--format=JobIDRaw,JobName%80,State%40,Elapsed,ExitCode&quot;],
-     &quot;id | name | state | elapsed | exit_code&quot;),
-]
-for title, command, columns in checks:
-    print(&quot;\n&quot; + title)
+def status(label, command):
+    print(label, flush=True)
     try:
-        result = subprocess.run(command, text=True, capture_output=True, check=True, timeout=30)
-        if result.stderr.strip():
+        result = subprocess.run(command, text=True, capture_output=True, timeout=30)
+        print(result.stdout.strip())
+        if result.returncode:
+            print(&quot;STATUS_UNAVAILABLE&quot;, result.returncode, result.stderr.strip())
+        elif result.stderr.strip():
             print(&quot;SLURM_WARNING&quot;, result.stderr.strip())
-        rows = [[field.strip() for field in line.split(&quot;|&quot;)]
-                for line in result.stdout.splitlines() if line.strip()]
-        if any(len(row) &lt; 5 or not row[2] for row in rows):
-            raise ValueError(&quot;unexpected Slurm output; no counts reported&quot;)
-        rows = list({row[0]: row for row in rows}.values())
-        selected = [row for row in rows if row[1] == job_name]
-        for scope, group in ((&quot;ALL_MY_JOBS&quot;, rows), (&quot;GEMMA_V4&quot;, selected)):
-            counts = Counter(row[2].split()[0].rstrip(&quot;+&quot;) for row in group)
-            common = [&quot;COMPLETED&quot;, &quot;FAILED&quot;, &quot;RUNNING&quot;, &quot;PENDING&quot;, &quot;COMPLETING&quot;,
-                      &quot;CANCELLED&quot;, &quot;TIMEOUT&quot;, &quot;OUT_OF_MEMORY&quot;, &quot;NODE_FAIL&quot;, &quot;PREEMPTED&quot;]
-            states = common + sorted(set(counts) - set(common))
-            print(scope, &quot;total=&quot; + str(len(group)),
-                  &quot; &quot;.join(state + &quot;=&quot; + str(counts[state]) for state in states))
-        print(&quot;GEMMA_V4_DETAILS:&quot;, columns)
-        for row in selected:
-            print(&quot; | &quot;.join(row))
-        if not selected:
-            print(&quot;NO_MATCHING_JOB in this view.&quot;)
-    except (OSError, subprocess.SubprocessError, ValueError) as error:
-        print(&quot;UNAVAILABLE:&quot;, str(error))
-        if isinstance(error, subprocess.CalledProcessError):
-            print(error.stderr.strip())
-PY</code></pre></div><p class="look">Use LIVE_QUEUE for running and pending allocations. Completed jobs normally disappear from that view; use ACCOUNTING for completed, failed, cancelled and timed-out allocations. Accounting can lag. Do not add the two views together. A RUNNING allocation can be loading the model or sitting in an interactive shell; it does not prove that inference is active. A COMPLETED allocation does not establish that the judge queue finished successfully. Keep the allocation-owning shell open.</p></div></section><section class="step" id="start-forecast"><div class="num">5c</div><div class="body"><header class="step-head"><h2>Forecast new job starts hour by hour</h2><span class="chip safe">Separate HoreKa login shell · read-only</span></header><p>Shows Slurm’s estimated starts for all your pending HoreKa jobs, grouped by hour, with a separate Gemma v4 count. Each hour lists the job IDs, names and estimated start times. Times use the HoreKa login host’s timezone, not your Mac’s timezone.</p><div class="code"><button class="copy" type="button" aria-label="Copy hourly start forecast">Copy</button><pre><code>python3 - &lt;&lt;&#x27;PY&#x27;
-from collections import Counter, defaultdict
-from datetime import datetime
-import os
-import subprocess
+    except (OSError, subprocess.SubprocessError) as error:
+        print(&quot;STATUS_UNAVAILABLE&quot;, str(error))
 
-now = datetime.now().astimezone()
-print(&quot;FORECAST_SNAPSHOT&quot;, now.isoformat())
-print(&quot;Times use this login host&#x27;s timezone, with UTC offset shown for each hour.&quot;)
-command = [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--states=PENDING&quot;, &quot;--start&quot;, &quot;--noheader&quot;,
-           &quot;--format=%i|%j|%T|%S|%R&quot;]
-try:
-    result = subprocess.run(command, text=True, capture_output=True, check=True, timeout=30,
-                            env={**os.environ, &quot;SLURM_TIME_FORMAT&quot;: &quot;%Y-%m-%dT%H:%M:%S&quot;})
-    if result.stderr.strip():
-        print(&quot;SLURM_WARNING&quot;, result.stderr.strip())
-    rows = [[part.strip() for part in line.split(&quot;|&quot;)]
-            for line in result.stdout.splitlines() if line.strip()]
-    if any(len(row) != 5 or row[2] != &quot;PENDING&quot; for row in rows):
-        raise ValueError(&quot;unexpected Slurm output; no forecast reported&quot;)
-    rows = list({row[0]: row for row in rows}.values())
-    hours = defaultdict(list)
-    unknown, stale = [], []
-    for row in rows:
+def read_json(path):
+    return json.loads(path.read_text())
+
+def show_json(path):
+    if path.is_file():
         try:
-            start = datetime.fromisoformat(row[3]).astimezone()
-        except ValueError:
-            unknown.append(row)
-            continue
-        if start &lt; now:
-            stale.append(row)
-        else:
-            hours[start.replace(minute=0, second=0, microsecond=0)].append((start, row))
-    print(&quot;PENDING_TOTAL&quot;, len(rows), &quot;WITH_FUTURE_ESTIMATE&quot;, sum(map(len, hours.values())),
-          &quot;NO_ESTIMATE&quot;, len(unknown), &quot;STALE_ESTIMATE&quot;, len(stale))
-    print(&quot;HOUR_START | ALL_MY_JOBS | GEMMA_V4&quot;)
-    for hour, entries in sorted(hours.items()):
-        gemma = sum(row[1] == &quot;geodml-gemma-si-v4&quot; for _, row in entries)
-        print(hour.isoformat(timespec=&quot;minutes&quot;), &quot;|&quot;, len(entries), &quot;|&quot;, gemma)
-        for start, row in sorted(entries):
-            print(&quot;  &quot;, start.isoformat(timespec=&quot;minutes&quot;), row[0], row[1], row[4])
-    for label, entries in ((&quot;NO_ESTIMATE&quot;, unknown), (&quot;STALE_ESTIMATE&quot;, stale)):
-        if entries:
-            print(label, &quot;reasons:&quot;, dict(Counter(row[4] for row in entries)))
-            for row in entries:
-                print(&quot;  &quot;, &quot; | &quot;.join(row))
-    if not rows:
-        print(&quot;NO_PENDING_JOBS for your user in this snapshot.&quot;)
-    elif not hours:
-        print(&quot;NO_FUTURE_START_ESTIMATES: Slurm has not supplied a usable schedule.&quot;)
-    print(&quot;Only hours with estimates are listed. An omitted hour is not a guarantee of no starts.&quot;)
-    print(&quot;Estimates can change with priority, dependencies and resource availability; rerun for an update.&quot;)
-except (OSError, subprocess.SubprocessError, ValueError) as error:
-    print(&quot;FORECAST_UNAVAILABLE:&quot;, str(error))
-    if isinstance(error, subprocess.CalledProcessError):
-        print(error.stderr.strip())
-PY</code></pre></div><p class="look">These are scheduler estimates, not reservations or promised start times. <code>NO_ESTIMATE</code> means Slurm has not assigned a start estimate. <code>STALE_ESTIMATE</code> means the reported start is already in the past while the job remains pending. Both are shown separately with their reasons. Only hours with future estimates appear in the table; jobs without estimates can still start in other hours. Repeat manually to refresh. This check submits or changes no jobs.</p></div></section><section class="step" id="qwen-bout-counts"><div class="num">07</div><div class="body"><header class="step-head"><h2>Count Qwen bout jobs</h2><span class="chip safe">HoreKa login shell · read-only</span></header><p>Counts only your jobs whose names start with <code>geodml-qwen-bout-</code>. Combines accounting since 25 September 2026 with the current queue, counting each job ID once. The live queue supplies the latest running and pending states.</p><div class="code"><button class="copy" type="button" aria-label="Copy Qwen bout counts">Copy</button><pre><code>python3 - &lt;&lt;&#x27;PY&#x27;
-from collections import Counter
-from datetime import datetime, timezone
-import getpass
-import subprocess
+            print(path, json.dumps(read_json(path), indent=2))
+        except (OSError, ValueError) as error:
+            print(path, &quot;UNAVAILABLE&quot;, str(error))
 
-since = &quot;2026-09-25&quot;
-prefix = &quot;geodml-qwen-bout-&quot;
-print(&quot;QWEN_BOUT_SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat())
-print(&quot;Accounting since&quot;, since, &quot;; current queue overrides accounting for the same job ID.&quot;)
-commands = [
-    [&quot;sacct&quot;, &quot;-X&quot;, &quot;--user=&quot; + getpass.getuser(), &quot;--starttime=&quot; + since,
-     &quot;--noheader&quot;, &quot;--parsable2&quot;, &quot;--format=JobID%40,JobName%120,State%40&quot;],
-    [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--noheader&quot;, &quot;--format=%i|%j|%T&quot;],
-]
-jobs = {}
-try:
-    for command in commands:
-        result = subprocess.run(command, text=True, capture_output=True, check=True, timeout=30)
-        if result.stderr.strip():
-            print(&quot;SLURM_WARNING&quot;, result.stderr.strip())
-        for line in result.stdout.splitlines():
-            if not line.strip():
-                continue
-            fields = [part.strip() for part in line.split(&quot;|&quot;)]
-            if len(fields) != 3 or not all(fields):
-                raise ValueError(&quot;unexpected Slurm output; no counts reported&quot;)
-            job_id, name, state = fields
-            jobs[job_id] = (name, state.split()[0].rstrip(&quot;+&quot;))
-    counts = Counter(state for name, state in jobs.values() if name.startswith(prefix))
-    print(&quot;JOB_NAME_PREFIX&quot;, prefix + &quot;*&quot;)
-    print(&quot;TOTAL&quot;, sum(counts.values()))
-    common = [&quot;COMPLETED&quot;, &quot;FAILED&quot;, &quot;RUNNING&quot;, &quot;PENDING&quot;, &quot;COMPLETING&quot;,
-              &quot;CANCELLED&quot;, &quot;TIMEOUT&quot;, &quot;OUT_OF_MEMORY&quot;, &quot;NODE_FAIL&quot;, &quot;PREEMPTED&quot;]
-    for state in common + sorted(set(counts) - set(common)):
-        print(state, counts[state])
-except (OSError, subprocess.SubprocessError, ValueError) as error:
-    print(&quot;COUNTS_UNAVAILABLE:&quot;, str(error))
-    if isinstance(error, subprocess.CalledProcessError):
-        print(error.stderr.strip())
-PY</code></pre></div><p class="look">Shows COMPLETED, FAILED, RUNNING and PENDING, plus cancelled, timed-out and other states separately. FAILED means the Slurm FAILED state; it does not include TIMEOUT or CANCELLED. Accounting can lag after a job leaves the queue. Counts cover job allocations, excluding steps; retries with different job IDs count separately. Change <code>since</code> if you need older jobs. A completed allocation does not establish that all scientific tasks succeeded.</p></div></section><footer><p>Execution pin: <code>1bf21cb0e37374634be30a07bca9079ec18d6f87</code>. New directory: <code>$W/reviews/gemma-si-v4-development-20261002-3h</code>. Old preparations are preserved. This page submits nothing until you paste an allocation command.</p><p>Resources: <a href="https://www.nhr.kit.edu/userdocs/horeka/batch/">HoreKa batch</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/hardware/">hardware</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/filesystems/">filesystems</a>. Refreshed for this update.</p></footer><div class="sr-only" id="copy-status" role="status" aria-live="polite"></div></main><script>document.querySelectorAll('button.copy').forEach(button => {
+base = Path(sys.argv[1])
+print(&quot;SNAPSHOT&quot;, datetime.now(timezone.utc).isoformat())
+status(&quot;LIVE_GEMMA_QUEUE&quot;, [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--name=geodml-gemma-si-v4&quot;, &quot;--noheader&quot;,
+                          &quot;--format=%i|%j|%T|%M|%L|%R&quot;])
+if (base / &quot;config.json&quot;).is_file():
+    roots = [base]
+else:
+    sessions = sorted(base.glob(&quot;gemma-selected-*&quot;), key=lambda p: p.stat().st_mtime, reverse=True)
+    print(&quot;SAVED_SELECTION_DIRECTORIES&quot;, len(sessions), &quot;SHOWING_NEWEST&quot;, min(3, len(sessions)))
+    roots = [s / &quot;run&quot; if (s / &quot;run/config.json&quot;).is_file() else s for s in sessions[:3]]
+    original = base / &quot;gemma-si-v4-development-20261001&quot;
+    if original.is_dir():
+        roots.append(original)
+for root in roots:
+    print(&quot;\nRUN_DIRECTORY&quot;, root)
+    session = root.parent if root.name == &quot;run&quot; else root
+    show_json(session / &quot;preparation-error.json&quot;)
+    picked = session / &quot;selected-inputs.json&quot;
+    if picked.is_file():
+        try:
+            selection = read_json(picked)[&quot;selection&quot;]
+            print(&quot;SELECTED_CELLS&quot;, selection[&quot;selected_cell_ids&quot;], &quot;SEED&quot;, selection[&quot;seed&quot;])
+        except (OSError, ValueError, KeyError) as error:
+            print(&quot;SELECTION_UNAVAILABLE&quot;, str(error))
+    for log in sorted(session.glob(&quot;console-job*.log&quot;))[-2:]:
+        print(&quot;CONSOLE_TAIL&quot;, log)
+        with log.open(&quot;rb&quot;) as stream:
+            stream.seek(0, 2)
+            stream.seek(max(0, stream.tell() - 65536))
+            print(&quot;\n&quot;.join(stream.read().decode(&quot;utf-8&quot;, &quot;replace&quot;).splitlines()[-60:]))
+    if not (root / &quot;config.json&quot;).is_file():
+        print(&quot;SELECTION_SAVED_NOT_PREPARED: inspect preparation error or live allocation above.&quot;)
+        continue
+    try:
+        config = read_json(root / &quot;config.json&quot;)
+    except (OSError, ValueError) as error:
+        print(&quot;CONFIG_UNAVAILABLE&quot;, str(error))
+        continue
+    selected = config.get(&quot;workload_mode&quot;) == &quot;selected-v4-cells&quot;
+    queue = [(&quot;v4-pass1&quot;, &quot;v4-inputs&quot;)] if selected else [
+        (&quot;v4-pass1&quot;, &quot;v4-inputs&quot;), (&quot;v3-bridge&quot;, &quot;v3-inputs&quot;),
+        (&quot;constructed&quot;, &quot;constructed-inputs&quot;), (&quot;v4-pass2&quot;, &quot;v4-inputs&quot;), (&quot;v4-pass3&quot;, &quot;v4-inputs&quot;)]
+    print(&quot;MODE&quot;, config.get(&quot;workload_mode&quot;, &quot;legacy-development&quot;), &quot;PLANNED_PASSES&quot;, len(queue))
+    attempts = sorted(root.glob(&quot;attempts/job*&quot;))
+    jobs = {a.name.removeprefix(&quot;job&quot;) for a in attempts}
+    if config.get(&quot;existing_job_id&quot;):
+        jobs.add(str(config[&quot;existing_job_id&quot;]))
+    if jobs:
+        status(&quot;ACCOUNTING&quot;, [&quot;sacct&quot;, &quot;-j&quot;, &quot;,&quot;.join(sorted(jobs)),
+                              &quot;--format=JobID,State,Elapsed,Timelimit,ExitCode&quot;])
+    if not attempts:
+        print(&quot;NO_ATTEMPT_RECORDED: preparation alone does not start inference.&quot;)
+    for attempt in attempts:
+        print(&quot;ATTEMPT&quot;, attempt)
+        show_json(attempt / &quot;trial-result.json&quot;)
+        show_json(attempt / &quot;trial/summary.json&quot;)
+        for name, inputs in queue:
+            try:
+                inventory = config[&quot;inventories&quot;][inputs][&quot;unique_tasks&quot;]
+                task_counts = list(inventory.values()) if isinstance(inventory, dict) else [inventory]
+                if any(type(count) is not int or count &lt; 0 for count in task_counts):
+                    raise ValueError(&quot;unique_tasks must contain nonnegative integer counts&quot;)
+                expected = sum(task_counts)
+                path = attempt / &quot;trial&quot; / name / &quot;control/index.sqlite&quot;
+                if not path.is_file():
+                    print(name, &quot;NO_INDEX: not started or initialization incomplete; expected=&quot; + str(expected))
+                    continue
+                with closing(sqlite3.connect(path.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True, timeout=2)) as db:
+                    db.execute(&quot;PRAGMA query_only=ON&quot;)
+                    rows = db.execute(&quot;SELECT state,result FROM tasks&quot;).fetchall()
+                counts = Counter()
+                for state, raw in rows:
+                    if state in (&quot;done&quot;, &quot;saved&quot;):
+                        result = json.loads(raw) if raw else {}
+                        outcome = (&quot;ok&quot; if result.get(&quot;ok&quot;) is True else
+                                   &quot;failed&quot; if result.get(&quot;ok&quot;) is False else &quot;unknown&quot;)
+                        label = ({&quot;ok&quot;: &quot;completed&quot;, &quot;failed&quot;: &quot;failed&quot;, &quot;unknown&quot;: &quot;unknown&quot;}[outcome]
+                                 if state == &quot;done&quot; else &quot;saved_&quot; + outcome)
+                    else:
+                        label = state if state in (&quot;pending&quot;, &quot;waiting&quot;, &quot;running&quot;, &quot;blocked&quot;) else &quot;unknown&quot;
+                    counts[label] += 1
+                fields = (&quot;completed&quot;, &quot;failed&quot;, &quot;running&quot;, &quot;pending&quot;, &quot;waiting&quot;, &quot;blocked&quot;,
+                          &quot;saved_ok&quot;, &quot;saved_failed&quot;, &quot;saved_unknown&quot;, &quot;unknown&quot;)
+                print(name, &quot;total=&quot; + str(len(rows)), &quot;expected=&quot; + str(expected),
+                      &quot; &quot;.join(key + &quot;=&quot; + str(counts[key]) for key in fields))
+                if len(rows) != expected:
+                    print(&quot;  INVENTORY_MISMATCH: missing rows are not completed work.&quot;)
+            except (OSError, sqlite3.Error, ValueError, KeyError, AttributeError) as error:
+                print(name, &quot;UNAVAILABLE:&quot;, type(error).__name__, str(error))
+PY
+)</code></pre></div></div>
+<p class="check">Counts are judge tasks, not answer cells. <code>completed</code> requires a successful committed result. <code>saved_ok</code> is reported separately. Missing indexes and empty tables are not completions. The original run may still show its historical errors.</p></section>
+<section aria-labelledby="errors-heading"><h2 id="errors-heading">What changed</h2><table><thead><tr><th scope="col">Previous message</th><th scope="col">Replacement behavior</th></tr></thead><tbody>
+<tr><td><code>allocation already attempted</code></td><td>Selection reads the source bundles directly. It prepares a distinct run, so the original admission marker no longer blocks this workflow.</td></tr>
+<tr><td><code>source hash does not match its dependency</code></td><td>The current freeze reconstructs missing hashes from validated source tasks and checks the import before Gemma loads.</td></tr>
+<tr><td><code>FileExistsError … attempts/job5175111</code></td><td>The generated launcher uses its separate selected-run directory. An attempt in that new directory is still protected against being launched twice.</td></tr>
+</tbody></table></section>
+<div class="note"><h2>Time available</h2><p>The conservative estimate is 20–50 minutes, including roughly 9–11 minutes of historical startup. SI-v4 throughput remains unmeasured. Selecting fewer cells reduces inference work, but model loading still takes time.</p>
+<p>Preparation and execution require at least 20 minutes remaining in the same running allocation. The intended profile is the existing exclusive node with four A100 GPUs, 32 requested CPUs and whole-node memory. With <em>R</em> minutes left, the available budget is at most <em>R</em>/60 node-hours and 4<em>R</em>/60 GPU-hours, inside the existing approved wall-time. Deadline and cleanup margins apply; partial work is possible.</p>
+<p>If the allocation has ended or has too little time left, preserve the saved selection and return the audit output. A replacement allocation needs a separate runtime decision. These commands acquire no new allocation.</p></div>
+<p id="copy-status" role="status" aria-live="polite"></p><noscript><p>Select and copy the commands manually. JavaScript is only used for copy buttons.</p></noscript>
+<footer><p>Helper commit: <code>d47418b81b93057a02cc54e0383492835400be79</code> on <code>codex/gemma-selected-cells</code>. This page copies commands; it does not connect to HoreKa or display live status. Local verification does not establish cluster execution or scientific results.</p></footer></main><script>
+document.querySelectorAll('pre').forEach(pre => { pre.tabIndex = 0; });
+document.querySelectorAll('button.copy').forEach(button => {
   button.addEventListener('click', async () => {
-    const code = button.parentElement.querySelector('code');
+    const code = button.closest('.command').querySelector('code');
     let copied = false;
     try { await navigator.clipboard.writeText(code.textContent); copied = true; }
     catch (_) {
@@ -479,8 +221,7 @@ PY</code></pre></div><p class="look">Shows COMPLETED, FAILED, RUNNING and PENDIN
       const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
       try { copied = document.execCommand('copy'); } catch (_) {}
     }
-    button.textContent = copied ? 'Copied' : 'Select text and copy';
-    document.getElementById('copy-status').textContent = copied ? 'Commands copied.' : 'Select the commands and copy manually.';
-    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+    document.getElementById('copy-status').textContent = copied ? button.textContent + ': copied. Paste in the terminal named above that block.' : 'Clipboard unavailable. The command is selected; copy it manually.';
   });
-});</script></body></html>
+});
+</script></body></html>
