@@ -4,6 +4,7 @@
 This operational snapshot does not validate dataset record references or infer
 unique corpus completion from overlapping bout manifests. Standard library only.
 """
+import argparse
 import fcntl
 import gzip
 import getpass
@@ -12,7 +13,6 @@ import json
 import re
 import sqlite3
 import subprocess
-import sys
 import tarfile
 import tempfile
 from collections import Counter
@@ -80,11 +80,72 @@ def unique_qwen_cells(division_dir, division, attempts):
                 counts["unknown"] += len(members)
                 issues.append(str(path) + ": " + str(error))
         completed = counts["completed"]
-        report.update(total=len(wanted), recorded_finished=completed,
+        report.update(total=len(wanted), ledger_stripes=stripes, recorded_finished=completed,
                       known_unfinished=len(wanted) - completed - counts["unknown"],
                       unknown=counts["unknown"], states=dict(counts), issues=issues)
     except (OSError, ValueError, KeyError, TypeError) as error:
         report["unavailable"] = str(error)
+    return report
+
+
+def qwen_counts(workspace):
+    """Read only division identities and ledger-layout evidence for a quick count."""
+    report = {"started_utc": datetime.now(timezone.utc).isoformat(),
+              "scope": "CURRENT Qwen division; cells, not Slurm jobs or API requests"}
+
+    def read(path):
+        before = path.stat()
+        value = json.loads(path.read_text())
+        after = path.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError("file changed during capture: " + str(path))
+        if not isinstance(value, dict):
+            raise ValueError("expected JSON object: " + str(path))
+        return value
+
+    try:
+        workspace = workspace.resolve(strict=True)
+        directory = Path((workspace / "qwen-bouts/CURRENT").read_text().strip())
+        if not directory.is_absolute():
+            raise ValueError("CURRENT must contain an absolute division path")
+        report["division"] = str(directory)
+        division = read(directory / "division.json")
+        if (division.get("format_version") != "geodml-horeka-qwen-bouts-v1"
+                or division.get("model") != "qwen38"):
+            raise ValueError("CURRENT is not a supported Qwen bout division")
+        if (not isinstance(division.get("bouts"), list)
+                or any(not isinstance(bout, dict) or type(bout.get("number")) is not int
+                       or bout["number"] < 1 for bout in division["bouts"])):
+            raise ValueError("invalid Qwen bout list")
+        attempts = []
+        for bout in division["bouts"]:
+            root = directory / "bouts" / ("bout-%04d" % bout["number"])
+            saved_attempts = sorted((root / "attempts").glob("job*"))
+            if not saved_attempts:
+                continue
+            config = read(root / "config.json")
+            if not isinstance(config.get("dataset_root"), str) or not config["dataset_root"]:
+                raise ValueError("attempt config lacks dataset_root: " + str(root / "config.json"))
+            attempts.append({"dataset_root": config["dataset_root"], "ledger_stripes": None})
+            for attempt in saved_attempts:
+                if not attempt.is_dir():
+                    continue
+                for name in ("results/run_manifest.json", "bout-result.json"):
+                    path = attempt / name
+                    if not path.exists():
+                        continue
+                    direct = read(path).get("direct_dataset") or {}
+                    if not isinstance(direct, dict):
+                        raise ValueError("invalid direct_dataset: " + str(path))
+                    stripes = direct.get("ledger_stripes")
+                    if stripes is not None and (type(stripes) is not int or stripes < 1):
+                        raise ValueError("invalid ledger stripe count: " + str(path))
+                    attempts.append({"dataset_root": config.get("dataset_root"),
+                                     "ledger_stripes": stripes})
+        report["qwen_unique_cells"] = unique_qwen_cells(directory, division, attempts)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        report["qwen_unique_cells"] = {"unavailable": str(error)}
+    report["ended_utc"] = datetime.now(timezone.utc).isoformat()
     return report
 
 
@@ -402,8 +463,18 @@ def render(report):
 
 
 def main():
-    workspace = Path(sys.argv[1])
-    report = collect(workspace, sys.argv[2] if len(sys.argv) > 2 else None)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("workspace", type=Path)
+    parser.add_argument("account", nargs="?")
+    parser.add_argument("--qwen-counts-only", action="store_true",
+                        help="print current division cell counts without scheduler, logs, Gemma or output files")
+    args = parser.parse_args()
+    workspace = args.workspace
+    if args.qwen_counts_only:
+        report = qwen_counts(workspace)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 1 if report["qwen_unique_cells"].get("unavailable") else 0
+    report = collect(workspace, args.account)
     output = Path(tempfile.mkdtemp(prefix="horeka-audit-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") ,
                                    dir=workspace / "reviews"))
     (output / "audit.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
@@ -416,7 +487,8 @@ def main():
     print(summary, end="")
     print("AUDIT_DIRECTORY", output)
     print("AUDIT_ARCHIVE", archive)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
