@@ -1,0 +1,398 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HoreKa saved progress and failure audit</title><style>
+:root {
+  color-scheme: light;
+  --bg: #f2f4f3; --panel: #ffffff; --ink: #19212b; --muted: #56616d; --rule: #d4dad7;
+  --accent: #1f6485; --accent-soft: #e2edf3;
+  --code-bg: #111a22; --code-ink: #d9e3ea; --code-rule: #26323d;
+  --safe-ink: #256437; --safe-bg: #e3f1e6;
+  --pub-ink: #1f5670; --pub-bg: #e0ecf3;
+  --warn-ink: #874700; --warn-bg: #fcefd8;
+  --cond-ink: #5b4a86; --cond-bg: #ece8f6;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --text: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+    --accent: #7db5d2; --accent-soft: #1a2b36;
+    --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+    --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+    --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #98a5b1; --rule: #28323c;
+  --accent: #7db5d2; --accent-soft: #1a2b36;
+  --code-bg: #0a0e12; --code-ink: #d6e0e8; --code-rule: #1f2932;
+  --safe-ink: #8fd0a0; --safe-bg: #15291c; --pub-ink: #8cc4df; --pub-bg: #16293a;
+  --warn-ink: #f1b766; --warn-bg: #33250f; --cond-ink: #bcaef0; --cond-bg: #251f3a;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--text); padding: 0 20px; }
+.page { max-width: 920px; margin: 0 auto; padding-block: 36px 64px; display: grid; gap: 28px; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 4px; }
+.eyebrow { font: 500 12px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+h1 { font: 600 40px/1.1 var(--display); margin: 6px 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { max-width: 68ch; margin: 0; color: var(--muted); }
+.lede strong { color: var(--ink); font-weight: 600; }
+nav.cycle { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.cycle a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); color: var(--ink); text-decoration: none; font: 500 13px/1.2 var(--text); }
+nav.cycle a span { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 500 12px/1 var(--mono); }
+nav.cycle a:hover, nav.cycle a:focus-visible { border-color: var(--accent); outline: none; }
+.loopnote { font: 400 13px/1.5 var(--text); color: var(--muted); margin: 0; }
+.step { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 16px; padding-top: 24px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
+.num { font: 500 26px/1.1 var(--mono); color: var(--accent); }
+.body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.body > p { margin: 0; max-width: 72ch; }
+.step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
+h3 { font: 600 16px/1.3 var(--display); margin: 0; letter-spacing: 0.01em; }
+.chip { font: 500 11.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; }
+.chip.safe { color: var(--safe-ink); background: var(--safe-bg); }
+.chip.pub { color: var(--pub-ink); background: var(--pub-bg); }
+.chip.warn { color: var(--warn-ink); background: var(--warn-bg); }
+.chip.cond { color: var(--cond-ink); background: var(--cond-bg); }
+.look { font-size: 14px; color: var(--muted); border-left: 2px solid var(--rule); padding-left: 12px; }
+.code { position: relative; background: var(--code-bg); border: 1px solid var(--code-rule); border-radius: 8px; }
+.code pre { margin: 0; padding: 16px 18px; padding-top: 44px; overflow-x: auto; color: var(--code-ink); font: 400 13px/1.55 var(--mono); tab-size: 2; }
+.code pre code { font-size: inherit; background: none; padding: 0; }
+.copy { position: absolute; top: 8px; right: 8px; font: 500 12px/1 var(--text); color: var(--code-ink); background: transparent; border: 1px solid #3a4957; border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.copy:hover { border-color: #7db5d2; }
+.copy:focus-visible { outline: 2px solid #7db5d2; outline-offset: 2px; }
+.copy.done { color: #0b1a10; background: #8fd0a0; border-color: #8fd0a0; }
+.approval { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 14px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 20px; margin: 0; }
+.facts div { display: grid; gap: 2px; }
+.facts dt { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.facts dd { margin: 0; font-size: 14px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font: 500 11.5px/1.3 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.builder { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.builder label { display: grid; gap: 4px; font: 500 12px/1.3 var(--text); color: var(--muted); }
+.builder input, .builder select, .builder textarea { font: 400 14px/1.4 var(--text); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 7px 9px; width: 100%; }
+.builder input:focus-visible, .builder select:focus-visible, .builder textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.builder .wide { grid-column: 1 / -1; }
+.builder textarea { min-height: 78px; resize: vertical; font-family: var(--text); }
+.check { display: flex !important; align-items: center; gap: 8px !important; }
+.check input { width: auto; }
+.estimate { font: 500 14px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); margin: 0; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 72ch; }
+footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 6px; }
+footer p { margin: 0; max-width: 78ch; }
+@media (max-width: 560px) {
+  h1 { font-size: 32px; }
+  .step { grid-template-columns: 1fr; gap: 6px; }
+  .num { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+.status { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; }
+.status ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.where { font: 500 12px/1.3 var(--mono); color: var(--muted); }
+
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+</style></head><body><main class="page"><header><div class="eyebrow"><span>HoreKa · Qwen and Gemma · 2 October 2026</span></div><h1>Saved progress and failure audit</h1><p class="lede">Valerian, copy the command below into your existing HoreKa login shell. It gathers the queue, accounting, saved progress and failure logs into one dated report. It uses the existing run files and Python standard library.</p></header>
+<section class="note"><h2>What the report answers</h2><p>For every failed Qwen job: how many cells its saved checkpoint reports complete, how many it newly committed or reused, which cell IDs explicitly failed, and how many requested cells remained. Primary and spill counts stay separate. It includes missing checkpoints and completed allocations that still report incomplete work.</p><p>Gemma preparation receipts, per-pass task counts, current job details, earlier logs, disk space and quota are included. The report preserves the saved JSON metadata and up to 64 KiB from each selected log. It writes only a new audit directory under <code>reviews/</code>.</p><p>This is an operational snapshot. It does not scan or copy the full generator dataset, validate every saved record reference, upload files, release claims, retry tasks, or change jobs. Exact distinct unfinished cells still require ledger and artifact reconciliation. No ledger locks are taken.</p></section>
+<section class="step" id="audit"><div class="num">01</div><div class="body"><header class="step-head"><h2>Collect the audit once</h2><span class="chip safe">HoreKa login shell</span></header><p>The command reads saved metadata for the current bout division and all local SI-v4 preparations. Live jobs may advance during capture; each file records its capture metadata. Scheduler failures and missing or changing files are reported as unavailable. Command timeouts are 30 seconds each.</p><div class="code"><button class="copy" type="button" aria-label="Copy complete audit command">Copy</button><pre><code>python3 - /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen hk-project-p0026831 &lt;&lt;&#x27;PY&#x27;
+#!/usr/bin/env python3
+&quot;&quot;&quot;Collect scheduler, saved progress and bounded log evidence without changing runs.
+
+This operational snapshot does not validate dataset record references or infer
+unique corpus completion from overlapping bout manifests. Standard library only.
+&quot;&quot;&quot;
+import getpass
+import hashlib
+import json
+import re
+import sqlite3
+import subprocess
+import sys
+import tarfile
+import tempfile
+from collections import Counter
+from contextlib import closing
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def collect(workspace, account=None):
+    workspace = workspace.resolve(strict=True)
+    report = {&quot;started_utc&quot;: datetime.now(timezone.utc).isoformat(),
+              &quot;scope&quot;: &quot;scheduler and saved progress; no dataset checksum revalidation&quot;,
+              &quot;commands&quot;: {}, &quot;files&quot;: {}, &quot;qwen&quot;: [], &quot;gemma&quot;: [], &quot;issues&quot;: []}
+
+    def command(label, argv):
+        try:
+            p = subprocess.run(argv, text=True, capture_output=True, timeout=30, check=False)
+            report[&quot;commands&quot;][label] = {&quot;argv&quot;: argv, &quot;returncode&quot;: p.returncode,
+                                         &quot;stdout&quot;: p.stdout, &quot;stderr&quot;: p.stderr}
+            if p.returncode:
+                raise ValueError(&quot;command returned &quot; + str(p.returncode))
+            return p.stdout
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            report[&quot;issues&quot;].append(label + &quot;: &quot; + str(error))
+            return None
+
+    def saved(path, tail=False):
+        key = str(path)
+        if key in report[&quot;files&quot;]:
+            return report[&quot;files&quot;][key].get(&quot;value&quot;)
+        try:
+            with path.open(&quot;rb&quot;) as stream:
+                before = path.stat()
+                if tail:
+                    stream.seek(max(0, before.st_size - 65536))
+                raw = stream.read(65536 if tail else 2097153)
+                after = path.stat()
+            record = {&quot;bytes&quot;: before.st_size, &quot;mtime_ns&quot;: before.st_mtime_ns,
+                      &quot;captured_sha256&quot;: hashlib.sha256(raw).hexdigest(),
+                      &quot;tail_only&quot;: tail and before.st_size &gt; len(raw)}
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise ValueError(&quot;file changed during capture; repeat snapshot&quot;)
+            if not tail and len(raw) &gt; 2097152:
+                raise ValueError(&quot;metadata exceeds 2 MiB; not read in full&quot;)
+            value = raw.decode(&quot;utf-8&quot;, errors=&quot;replace&quot;) if tail else json.loads(raw)
+            if not tail and not isinstance(value, dict):
+                raise ValueError(&quot;expected a JSON object&quot;)
+            record[&quot;value&quot;] = value
+            report[&quot;files&quot;][key] = record
+            return value
+        except (OSError, ValueError) as error:
+            report[&quot;files&quot;][key] = {&quot;unavailable&quot;: str(error)}
+            return None
+
+    def count(value):
+        return value if type(value) is int and value &gt;= 0 else None
+
+    fields = [&quot;job&quot;, &quot;name&quot;, &quot;state&quot;, &quot;elapsed_seconds&quot;, &quot;limit&quot;, &quot;exit_code&quot;, &quot;start&quot;, &quot;end&quot;]
+    accounting = command(&quot;accounting&quot;, [&quot;sacct&quot;, &quot;-X&quot;, &quot;--user=&quot; + getpass.getuser(),
+        &quot;--starttime=2026-09-25&quot;, &quot;--noheader&quot;, &quot;--parsable2&quot;,
+        &quot;--format=JobIDRaw,JobName%100,State%40,ElapsedRaw,Timelimit,ExitCode,Start,End&quot;])
+    live = command(&quot;live_queue&quot;, [&quot;squeue&quot;, &quot;--me&quot;, &quot;--array&quot;, &quot;--noheader&quot;,
+        &quot;--format=%i|%j|%T|%M|%l|%S|%R&quot;])
+    jobs = {}
+    parsed_scheduler = True
+    for raw, keys in ((accounting, fields),
+                      (live, [&quot;job&quot;, &quot;name&quot;, &quot;state&quot;, &quot;elapsed&quot;, &quot;limit&quot;, &quot;start&quot;, &quot;reason&quot;])):
+        if raw is None:
+            continue
+        for line in raw.splitlines():
+            if not line.strip():
+                continue
+            parts = line.strip().split(&quot;|&quot;)
+            if parts and parts[-1] == &quot;&quot; and len(parts) == len(keys) + 1:
+                parts.pop()
+            if len(parts) != len(keys) or not parts[0].strip() or not parts[2].strip():
+                report[&quot;issues&quot;].append(&quot;Unparsed scheduler row: &quot; + line)
+                parsed_scheduler = False
+                continue
+            row = dict(zip(keys, (p.strip() for p in parts)))
+            row[&quot;state&quot;] = row[&quot;state&quot;].split()[0]
+            jobs.setdefault(row[&quot;job&quot;], {}).update(row)
+    report[&quot;jobs&quot;] = jobs
+    report[&quot;scheduler_complete&quot;] = accounting is not None and live is not None and parsed_scheduler
+    current = workspace / &quot;qwen-bouts/CURRENT&quot;
+    try:
+        division_dir = Path(current.read_text().strip())
+        if not division_dir.is_absolute():
+            raise ValueError(&quot;CURRENT must contain an absolute division path&quot;)
+        division = saved(division_dir / &quot;division.json&quot;) or {}
+    except (OSError, ValueError) as error:
+        report[&quot;issues&quot;].append(&quot;CURRENT: &quot; + str(error))
+        division_dir, division = None, {}
+    report[&quot;division&quot;] = str(division_dir) if division_dir else None
+    fail_states = {&quot;FAILED&quot;, &quot;TIMEOUT&quot;, &quot;OUT_OF_MEMORY&quot;, &quot;NODE_FAIL&quot;, &quot;BOOT_FAIL&quot;,
+                   &quot;CANCELLED&quot;, &quot;PREEMPTED&quot;, &quot;DEADLINE&quot;, &quot;REVOKED&quot;}
+    for bout in division.get(&quot;bouts&quot;, []):
+        number = bout[&quot;number&quot;]
+        directory = division_dir / &quot;bouts&quot; / (&quot;bout-%04d&quot; % number)
+        receipt = saved(directory / &quot;submission.json&quot;) or {}
+        config = saved(directory / &quot;config.json&quot;) or {}
+        ids = {p.name[3:] for p in (directory / &quot;attempts&quot;).glob(&quot;job*&quot;) if p.is_dir()}
+        submitted = str(receipt.get(&quot;stdout&quot;, &quot;&quot;)).strip().split(&quot;;&quot;)[0]
+        if submitted.isdigit():
+            ids.add(submitted)
+        ids.update(job for job, row in jobs.items() if row[&quot;name&quot;] == &quot;geodml-qwen-bout-%04d&quot; % number)
+        for job in sorted(ids or {&quot;unknown&quot;}):
+            attempt = directory / &quot;attempts&quot; / (&quot;job&quot; + job)
+            manifest = saved(attempt / &quot;results/run_manifest.json&quot;) or {}
+            result = saved(attempt / &quot;bout-result.json&quot;) or {}
+            progress = manifest or result
+            direct = progress.get(&quot;direct_dataset&quot;) or {}
+            if not isinstance(direct, dict):
+                direct = {}
+            failed = manifest.get(&quot;failed_cell_ids&quot;)
+            failed = sorted(set(failed)) if isinstance(failed, list) and all(isinstance(x, str) for x in failed) else None
+            row = {&quot;bout&quot;: number, &quot;job&quot;: job, &quot;state&quot;: jobs.get(job, {}).get(&quot;state&quot;, &quot;UNKNOWN&quot;),
+                   &quot;requested&quot;: count(bout.get(&quot;cell_count&quot;)), &quot;primary&quot;: count(bout.get(&quot;primary_cells&quot;)),
+                   &quot;spill&quot;: count(bout.get(&quot;spill_cells&quot;)), &quot;completed&quot;: count(progress.get(&quot;completed_count&quot;)),
+                   &quot;remaining&quot;: count(progress.get(&quot;remaining_count&quot;)),
+                   &quot;progress_source&quot;: &quot;run_manifest&quot; if manifest else &quot;bout_result&quot; if result else None,
+                   &quot;newly_committed&quot;: count(direct.get(&quot;committed_count&quot;)),
+                   &quot;reused&quot;: count(direct.get(&quot;reused_count&quot;)), &quot;failed_cell_ids&quot;: failed,
+                   &quot;explicit_failed&quot;: len(failed) if failed is not None else None,
+                   &quot;stop_reason&quot;: progress.get(&quot;stop_reason&quot;), &quot;result&quot;: result,
+                   &quot;git_commit&quot;: config.get(&quot;git_commit&quot;), &quot;dataset_root&quot;: config.get(&quot;dataset_root&quot;),
+                   &quot;writer_id&quot;: direct.get(&quot;writer_id&quot;), &quot;attempt&quot;: str(attempt)}
+            if all(row[k] is not None for k in (&quot;requested&quot;, &quot;completed&quot;, &quot;remaining&quot;)):
+                if row[&quot;completed&quot;] + row[&quot;remaining&quot;] != row[&quot;requested&quot;]:
+                    row[&quot;inconsistent_counts&quot;] = True
+            row[&quot;attention&quot;] = (row[&quot;state&quot;] in fail_states or result.get(&quot;status&quot;) in {&quot;failed&quot;, &quot;deadline&quot;}
+                                or bool(result.get(&quot;validation_error&quot;)) or row.get(&quot;inconsistent_counts&quot;, False)
+                                or (row[&quot;state&quot;] == &quot;COMPLETED&quot; and row[&quot;remaining&quot;] != 0))
+            report[&quot;qwen&quot;].append(row)
+            if row[&quot;attention&quot;]:
+                saved(attempt / &quot;execution.json&quot;)
+                for path in (directory / (&quot;slurm-&quot; + job + &quot;.err&quot;),
+                             directory / (&quot;slurm-&quot; + job + &quot;.out&quot;), attempt / &quot;server.log&quot;):
+                    saved(path, tail=True)
+    report[&quot;unmatched_qwen_jobs&quot;] = sorted(job for job, r in jobs.items()
+        if r[&quot;name&quot;].startswith(&quot;geodml-qwen-bout-&quot;) and job not in {r[&quot;job&quot;] for r in report[&quot;qwen&quot;]})
+    for root in sorted((workspace / &quot;reviews&quot;).glob(&quot;gemma-si-v4*&quot;)):
+        if not root.is_dir():
+            continue
+        config = saved(root / &quot;config.json&quot;) or {}
+        repair = saved(root / &quot;HASH_REPAIR_VERIFIED.json&quot;)
+        item = {&quot;root&quot;: str(root), &quot;walltime&quot;: config.get(&quot;walltime&quot;), &quot;repair_receipt&quot;: repair,
+                &quot;allocation_attempted&quot;: (root / &quot;ALLOCATION_ATTEMPTED&quot;).exists(), &quot;passes&quot;: []}
+        for pattern in (&quot;attempts/job*/trial-result.json&quot;, &quot;attempts/job*/trial/summary.json&quot;):
+            for path in sorted(root.glob(pattern)):
+                saved(path)
+        for attempt in sorted(root.glob(&quot;attempts/job*&quot;)):
+            saved(attempt / &quot;execution.json&quot;)
+            for name, inputs in ((&quot;v4-pass1&quot;, &quot;v4-inputs&quot;), (&quot;v3-bridge&quot;, &quot;v3-inputs&quot;),
+                                 (&quot;constructed&quot;, &quot;constructed-inputs&quot;), (&quot;v4-pass2&quot;, &quot;v4-inputs&quot;), (&quot;v4-pass3&quot;, &quot;v4-inputs&quot;)):
+                values = config.get(&quot;inventories&quot;, {}).get(inputs, {}).get(&quot;unique_tasks&quot;)
+                values = list(values.values()) if isinstance(values, dict) else [values]
+                expected = sum(values) if all(count(v) is not None for v in values) else None
+                entry = {&quot;attempt&quot;: attempt.name, &quot;pass&quot;: name, &quot;expected&quot;: expected}
+                path = attempt / &quot;trial&quot; / name / &quot;control/index.sqlite&quot;
+                try:
+                    with closing(sqlite3.connect(path.resolve().as_uri() + &quot;?mode=ro&quot;, uri=True, timeout=2)) as db:
+                        db.execute(&quot;PRAGMA query_only=ON&quot;)
+                        counts = Counter()
+                        for state, raw in db.execute(&quot;SELECT state,result FROM tasks&quot;):
+                            label = state
+                            if state in {&quot;done&quot;, &quot;saved&quot;}:
+                                value = json.loads(raw) if raw else {}
+                                label += &quot;_&quot; + (&quot;ok&quot; if value.get(&quot;ok&quot;) is True else &quot;failed&quot; if value.get(&quot;ok&quot;) is False else &quot;unknown&quot;)
+                            counts[label] += 1
+                    entry.update(total=sum(counts.values()), counts=dict(counts))
+                except (OSError, sqlite3.Error, ValueError, AttributeError) as error:
+                    entry[&quot;unavailable&quot;] = str(error)
+                item[&quot;passes&quot;].append(entry)
+            saved(attempt / &quot;server.log&quot;, tail=True)
+        for pattern in (&quot;console-job*.log&quot;, &quot;slurm-*.err&quot;, &quot;slurm-*.out&quot;):
+            for path in sorted(root.glob(pattern)):
+                saved(path, tail=True)
+        report[&quot;gemma&quot;].append(item)
+    troubled = [job for job, row in jobs.items() if job.isdigit() and row[&quot;state&quot;] in fail_states
+                and (row[&quot;name&quot;].startswith(&quot;geodml-qwen-bout-&quot;) or row[&quot;name&quot;] == &quot;geodml-gemma-si-v4&quot;)]
+    if troubled:
+        command(&quot;failed_job_steps&quot;, [&quot;sacct&quot;, &quot;--noheader&quot;, &quot;--parsable2&quot;, &quot;--jobs=&quot; + &quot;,&quot;.join(troubled),
+            &quot;--format=JobID%50,State%40,ExitCode,DerivedExitCode,Elapsed,MaxRSS,MaxVMSize,NodeList%100&quot;])
+    for job, row in jobs.items():
+        if row[&quot;name&quot;] == &quot;geodml-gemma-si-v4&quot; and row[&quot;state&quot;] in {&quot;PENDING&quot;, &quot;RUNNING&quot;, &quot;CONFIGURING&quot;, &quot;COMPLETING&quot;}:
+            command(&quot;gemma_&quot; + job, [&quot;scontrol&quot;, &quot;show&quot;, &quot;job&quot;, job, &quot;-o&quot;])
+    command(&quot;disk_bytes&quot;, [&quot;df&quot;, &quot;-h&quot;, str(workspace)])
+    command(&quot;disk_inodes&quot;, [&quot;df&quot;, &quot;-i&quot;, str(workspace)])
+    command(&quot;work_quota&quot;, [&quot;/usr/lpp/mmfs/bin/mmlsquota&quot;, &quot;-u&quot;, getpass.getuser(),
+                            &quot;--block-size&quot;, &quot;G&quot;, &quot;-C&quot;, &quot;hkn.scc.kit.edu&quot;, &quot;hkfs-work&quot;])
+    if account:
+        command(&quot;account_queue&quot;, [&quot;squeue&quot;, &quot;--account=&quot; + account, &quot;--array&quot;, &quot;--noheader&quot;, &quot;--format=%i|%j|%T&quot;])
+        command(&quot;home_quota&quot;, [&quot;/usr/lpp/mmfs/bin/mmlsquota&quot;, &quot;-j&quot;, account,
+                                &quot;--block-size&quot;, &quot;G&quot;, &quot;-C&quot;, &quot;hkn.scc.kit.edu&quot;, &quot;hkfs-home&quot;])
+    report[&quot;ended_utc&quot;] = datetime.now(timezone.utc).isoformat()
+    return report
+
+
+def render(report):
+    lines = [&quot;SNAPSHOT &quot; + report[&quot;started_utc&quot;], &quot;DIVISION &quot; + str(report[&quot;division&quot;]),
+             &quot;Scheduler complete: &quot; + str(report[&quot;scheduler_complete&quot;])]
+    for label, accept in ((&quot;QWEN&quot;, lambda n: n.startswith(&quot;geodml-qwen-bout-&quot;)),
+                          (&quot;GEMMA&quot;, lambda n: n == &quot;geodml-gemma-si-v4&quot;)):
+        counts = Counter(r[&quot;state&quot;] for r in report[&quot;jobs&quot;].values() if accept(r[&quot;name&quot;]))
+        lines.append(label + &quot; allocation states &quot; + json.dumps(dict(counts), sort_keys=True))
+    if not report[&quot;scheduler_complete&quot;]:
+        lines.append(&quot;INCOMPLETE SCHEDULER EVIDENCE: state counts above cover only available rows.&quot;)
+    for job, row in report[&quot;jobs&quot;].items():
+        if row[&quot;name&quot;] == &quot;geodml-gemma-si-v4&quot;:
+            lines.append(&quot;GEMMA_JOB &quot; + json.dumps(row, sort_keys=True))
+    failed = [r for r in report[&quot;qwen&quot;] if r[&quot;state&quot;] == &quot;FAILED&quot;]
+    groups = Counter(&quot;unknown_checkpoint&quot; if r[&quot;completed&quot;] is None or r[&quot;remaining&quot;] is None or r.get(&quot;inconsistent_counts&quot;)
+                     else &quot;zero_reported&quot; if r[&quot;completed&quot;] == 0
+                     else &quot;all_requested_reported&quot; if r[&quot;remaining&quot;] == 0 else &quot;partial_reported&quot; for r in failed)
+    lines.append(&quot;FAILED QWEN saved progress &quot; + json.dumps(dict(groups), sort_keys=True))
+    lines.append(&quot;bout job state completed/requested new reused explicit_failed remaining exit stop_reason&quot;)
+    for r in report[&quot;qwen&quot;]:
+        if r[&quot;attention&quot;]:
+            val = lambda k: &quot;?&quot; if r[k] is None else str(r[k])
+            lines.append(f&quot;{r[&#x27;bout&#x27;]:04d} {r[&#x27;job&#x27;]} {r[&#x27;state&#x27;]} {val(&#x27;completed&#x27;)}/{val(&#x27;requested&#x27;)} &quot;
+                         f&quot;{val(&#x27;newly_committed&#x27;)} {val(&#x27;reused&#x27;)} {val(&#x27;explicit_failed&#x27;)} {val(&#x27;remaining&#x27;)} &quot;
+                         f&quot;{report[&#x27;jobs&#x27;].get(r[&#x27;job&#x27;], {}).get(&#x27;exit_code&#x27;, &#x27;?&#x27;)} {r[&#x27;stop_reason&#x27;]}&quot;)
+    lines.append(&quot;UNMATCHED_QWEN_JOBS &quot; + json.dumps(report[&quot;unmatched_qwen_jobs&quot;]))
+    lines.extend(&quot;GEMMA_PREPARATION &quot; + json.dumps(item, sort_keys=True) for item in report[&quot;gemma&quot;])
+    for path, record in report[&quot;files&quot;].items():
+        if path.endswith((&quot;.err&quot;, &quot;server.log&quot;)) and isinstance(record.get(&quot;value&quot;), str):
+            lines.append(&quot;LOG_TAIL &quot; + path)
+            lines.extend(record[&quot;value&quot;].splitlines()[-8:])
+    lines.extend(&quot;UNAVAILABLE &quot; + issue for issue in report[&quot;issues&quot;])
+    for key in (&quot;account_queue&quot;, &quot;disk_bytes&quot;, &quot;disk_inodes&quot;, &quot;work_quota&quot;, &quot;home_quota&quot;):
+        captured = report[&quot;commands&quot;].get(key, {})
+        if captured.get(&quot;returncode&quot;) == 0:
+            if key == &quot;account_queue&quot;:
+                lines.append(&quot;ACCOUNT_QUEUE_JOBS &quot; + str(len({line.split(&#x27;|&#x27;)[0] for line in captured[&quot;stdout&quot;].splitlines() if line.strip()})))
+            else:
+                lines.append(key.upper() + &quot;\n&quot; + captured[&quot;stdout&quot;].strip())
+    lines += [&quot;? means unavailable, not zero. Counts are saved checkpoint reports.&quot;,
+              &quot;Remaining includes failures, busy and unattempted work; it is not a failure count.&quot;,
+              &quot;Completed includes reuse/spill overlap. Do not sum it as unique corpus completion.&quot;,
+              &quot;Sources unchanged. No claims released, tasks retried, jobs changed or data uploaded.&quot;,
+              &quot;Full saved metadata and up to 64 KiB per selected log are in audit.json.&quot;]
+    return &quot;\n&quot;.join(lines) + &quot;\n&quot;
+
+
+def main():
+    workspace = Path(sys.argv[1])
+    report = collect(workspace, sys.argv[2] if len(sys.argv) &gt; 2 else None)
+    output = Path(tempfile.mkdtemp(prefix=&quot;horeka-audit-&quot; + datetime.now(timezone.utc).strftime(&quot;%Y%m%dT%H%M%SZ-&quot;) ,
+                                   dir=workspace / &quot;reviews&quot;))
+    (output / &quot;audit.json&quot;).write_text(json.dumps(report, indent=2, ensure_ascii=False) + &quot;\n&quot;)
+    summary = render(report)
+    (output / &quot;summary.txt&quot;).write_text(summary)
+    archive = output / &quot;audit.tar.gz&quot;
+    with tarfile.open(archive, &quot;x:gz&quot;) as stream:
+        for name in (&quot;audit.json&quot;, &quot;summary.txt&quot;):
+            stream.add(output / name, arcname=name)
+    print(summary, end=&quot;&quot;)
+    print(&quot;AUDIT_DIRECTORY&quot;, output)
+    print(&quot;AUDIT_ARCHIVE&quot;, archive)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+PY
+</code></pre></div></div></section>
+<section class="note"><h2>Send the report</h2><p>The last lines print <code>AUDIT_DIRECTORY</code> and <code>AUDIT_ARCHIVE</code>. Send the printed summary, or transfer the named <code>audit.tar.gz</code> file to your Mac and attach it. The archive contains <code>summary.txt</code> and <code>audit.json</code>, including saved summaries, provenance, unavailable-file notices and log excerpts.</p><p><code>?</code> means unknown. Remaining work includes unattempted and busy cells as well as failures. Completed counts include reuse and overlapping spill work, so summing them would overstate distinct corpus completion. A failed allocation may retain completed results.</p></section>
+<p id="copy-status" role="status" aria-live="polite"></p><footer>Audit preparation only. The latest supplied snapshot showed Qwen 647 completed, 25 failed, 41 running and 180 pending, and Gemma job 5175056 pending. These are historical scheduler observations; the command captures fresh evidence.</footer></main><script>document.querySelectorAll('button.copy').forEach(button => {
+  button.addEventListener('click', async () => {
+    const code = button.parentElement.querySelector('code');
+    let copied = false;
+    try { await navigator.clipboard.writeText(code.textContent); copied = true; }
+    catch (_) {
+      const range = document.createRange(); range.selectNodeContents(code);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    button.textContent = copied ? 'Copied' : 'Select text and copy';
+    document.getElementById('copy-status').textContent = copied ? 'Commands copied.' : 'Select the commands and copy manually.';
+    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+  });
+});</script></body></html>

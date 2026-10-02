@@ -86,3 +86,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [First ACL/ARR manuscript draft: prompt semantics and source rankings](2026-10-02_acl-arr-first-manuscript_handoff.md)
 
 - 2026-10-02 — [Gemma blockage and mixed inventory counts](2026-10-02_si-v4-monitor-inventory-count_handoff.md)
+
+- 2026-10-02 — [HoreKa saved progress and failure audit command](2026-10-02_horeka-saved-progress-audit_handoff.md)
