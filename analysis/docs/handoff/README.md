@@ -112,3 +112,5 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [Remove per-submission confirmation](2026-10-02_submission-authority-policy_handoff.md)
 
 - 2026-10-02 — [Gemma next diagnostic HTML](2026-10-02_gemma-next-diagnostic-html_handoff.md)
+
+- 2026-10-02 — [Gemma span retry and saved-cell audit](2026-10-02_gemma-span-retry-and-cell-audit_handoff.md)

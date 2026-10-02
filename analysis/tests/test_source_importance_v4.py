@@ -199,24 +199,30 @@ class Responses:
         return json.dumps(raw), {"finish_reason": "stop", "completion_tokens": 30, "prompt_tokens": 100}
 
 
-def test_end_to_end_uses_one_map_then_source_and_resumes_without_calls(tmp_path):
+@pytest.mark.parametrize("si_only", [False, True])
+def test_end_to_end_uses_one_map_then_source_and_resumes_without_calls(tmp_path, si_only):
     inputs, _ = freeze(tmp_path)
     output = tmp_path / "output"
     client = Responses()
-    coordinator = runner.Coordinator(inputs, output, CONFIG)
+    config = {**CONFIG, **({"source_importance_only": True} if si_only else {})}
+    coordinator = runner.Coordinator(inputs, output, config)
     asyncio.run(coordinator.execute(client))
     report = coordinator.report()
     assert report["counts"]["cells_complete"] == 1
+    assert report["status"] == "finished"
+    fulfilment = [c for c in client.calls if c["schema_name"] not in ("answer_map_v4", "source_importance_v4")]
+    assert len(fulfilment) == (0 if si_only else 1)
+    assert report["states"].get("not_requested", 0) == (1 if si_only else 0)
     assert [c["schema_name"] for c in client.calls].count("answer_map_v4") == 1
     assert [c["schema_name"] for c in client.calls].index("answer_map_v4") < [c["schema_name"] for c in client.calls].index("source_importance_v4")
     coordinator.close()
-    resumed = runner.Coordinator(inputs, output, CONFIG)
+    resumed = runner.Coordinator(inputs, output, config)
     again = Responses()
     asyncio.run(resumed.execute(again))
     assert again.calls == []
     resumed.close()
     with pytest.raises(ValueError, match="immutable contract"):
-        runner.Coordinator(inputs, output, {**CONFIG, "repetition_id": "second"})
+        runner.Coordinator(inputs, output, {**config, "repetition_id": "second"})
 
 
 @pytest.mark.parametrize("bad_map,map_issue,status", [(True, False, "map_unusable"), (False, True, "map_quarantined")])
@@ -271,14 +277,20 @@ def test_v4_truncation_is_terminal_without_repeating_same_budget():
     assert "parsed_output" not in result
 
 
-@pytest.mark.parametrize("kind", ["map", "source"])
-def test_corrective_retry_reports_missing_words_or_grade_support_conflict(kind):
-    good = copy.deepcopy(MAP if kind == "map" else support())
+@pytest.mark.parametrize("kind", ["map", "source", "cross_unit", "reversed", "overlap"])
+def test_corrective_retry_reports_actionable_validation_error(kind):
+    good = copy.deepcopy(support() if kind == "source" else MAP)
     bad = copy.deepcopy(good)
     if kind == "map":
         bad["claims"].pop()
-    else:
+    elif kind == "source":
         bad["findings"] = []
+    elif kind == "cross_unit":
+        bad["claims"][0]["spans"][0]["last"] = "a2w7"
+    elif kind == "reversed":
+        bad["claims"][0]["spans"][0] = {"first": "a1w6", "last": "a1w1"}
+    else:
+        bad["excluded"].append({"span": {"first": "a1w3", "last": "a1w3"}, "reason": "non_substantive"})
     class Responses:
         def __init__(self):
             self.calls = []
@@ -286,15 +298,23 @@ def test_corrective_retry_reports_missing_words_or_grade_support_conflict(kind):
             self.calls.append(kwargs)
             return json.dumps(bad if len(self.calls) == 1 else good), {"finish_reason": "stop"}
     client = Responses()
-    task = v4.prepare_map_task(request="Q?", answer=ANSWER) if kind == "map" else item()
+    task = item() if kind == "source" else v4.prepare_map_task(request="Q?", answer=ANSWER)
     result = asyncio.run(_execute_one(task, client=client, fake=False))
     assert result["ok"] and len(client.calls) == 2
     feedback = json.loads(client.calls[1]["prompt"].split("VALIDATION_FEEDBACK_JSON=", 1)[1])["error"]
     if kind == "map":
         assert all(word in feedback for word in ("a3w1", "a3w2", "a3w3", "a3w4"))
-    else:
+    elif kind == "source":
         assert "importance=5" in feedback and "full or partial" in feedback
         assert "do not invent" in feedback
+    elif kind == "cross_unit":
+        assert all(value in feedback for value in ("a1w1", "a2w7", "a1w6", "a2w1"))
+        assert "separate spans" in feedback and "same claim" in feedback
+    elif kind == "reversed":
+        assert "a1w6" in feedback and "a1w1" in feedback and "precedes" in feedback
+    else:
+        assert "a1w3" in feedback and "both" in feedback
+        assert "split" in feedback and "substantive" in feedback
 
 
 def test_exhausted_source_validation_stays_missing_and_is_not_retried_on_resume(tmp_path):

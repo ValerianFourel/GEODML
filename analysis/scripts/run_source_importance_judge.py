@@ -67,9 +67,11 @@ def load_config(path):
     if not required <= config.keys():
         raise ValueError(f"execution configuration missing {sorted(required - config.keys())}")
     allowed = required | {"runtime_versions", "eager", "gpu_memory_utilization", "temperature", "seed_policy",
-                          "structured_outputs_config"}
+                          "structured_outputs_config", "source_importance_only"}
     if config.keys() - allowed:
         raise ValueError(f"unsupported execution configuration fields: {sorted(config.keys() - allowed)}")
+    if "source_importance_only" in config and type(config["source_importance_only"]) is not bool:
+        raise ValueError("source_importance_only must be a boolean")
     if "structured_outputs_config" in config:
         structured = config["structured_outputs_config"]
         if (structured != {"backend": "xgrammar", "disable_any_whitespace": True}
@@ -127,6 +129,8 @@ class Coordinator:
     def __init__(self, inputs, output, config, *, recovery_evidence=None, fixed_maps=None, admission_check=None):
         self.inputs, self.output, self.config = Path(inputs), Path(output), config
         self.admission_check, self.admission_stop = admission_check, None
+        if type(config.get("source_importance_only", False)) is not bool:
+            raise ValueError("source_importance_only must be a boolean")
         self.manifest = json.loads((self.inputs / "manifest.json").read_text())
         if self.manifest["protocol"] not in (v3.PROTOCOL, v4.PROTOCOL, v4.V3_COMPARISON_PROTOCOL):
             raise ValueError("unsupported frozen protocol")
@@ -204,6 +208,7 @@ class Coordinator:
                 self.db.execute("INSERT INTO tasks(id,record,kind,parent,priority,state) VALUES (?,?,?,?,?,?)",
                                 (record["judge_task_id"], canonical(record), record["task"], record.get("map_task_id"),
                                  1 if record["task"] == "answer_map" else 2 if record["task"] == "fulfilment" else 0,
+                                 "not_requested" if record["task"] == "fulfilment" and self.config.get("source_importance_only") else
                                  "waiting" if record["task"] == "source_dependency" else "pending"))
             dangling = self.db.execute("""SELECT d.id FROM tasks d LEFT JOIN tasks m ON d.parent=m.id
                 WHERE d.parent IS NOT NULL AND (m.id IS NULL OR m.kind!='answer_map') LIMIT 1""").fetchone()

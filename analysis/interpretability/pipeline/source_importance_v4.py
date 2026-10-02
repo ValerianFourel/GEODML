@@ -221,7 +221,17 @@ def _resolve(spans, answer, tokens):
         _require(isinstance(first, str) and isinstance(last, str), "word IDs must be strings")
         _require(first in index and last in index, "unknown word ID")
         a, b = index[first], index[last]
-        _require(a <= b and tokens[a]["unit_id"] == tokens[b]["unit_id"], "invalid span range")
+        _require(a <= b, f"invalid span range: last={last} precedes first={first}. "
+                 "Use first and last in the supplied answer order.")
+        if tokens[a]["unit_id"] != tokens[b]["unit_id"]:
+            first_end = next(t["word_id"] for t in reversed(tokens) if t["unit_id"] == tokens[a]["unit_id"])
+            last_start = next(t["word_id"] for t in tokens if t["unit_id"] == tokens[b]["unit_id"])
+            raise JudgeOutputError(
+                f"invalid span range: {first} to {last} crosses answer units. "
+                f"The first unit ends at {first_end}; the last unit starts at {last_start}. "
+                "Each span must stay within one answer unit. Use separate spans in the same claim "
+                "for a claim spanning multiple units, including any intervening units as needed. "
+                "Preserve the answer's meaning and complete word coverage.")
         _require((first, last) not in seen, "duplicate span")
         seen.add((first, last))
         covered.update(range(a, b + 1))
@@ -257,7 +267,14 @@ def validate_map(raw, *, answer):
         _exact_keys(entry, {"span", "reason"}, "exclusion")
         _require(entry["reason"] in ("non_substantive", "pure_abstention"), "invalid exclusion reason")
         selected, resolved = _resolve([entry["span"]], answer, tokens)
-        _require(not selected & (covered | excluded), "exclusion overlaps claim or exclusion")
+        overlap = sorted(selected & (covered | excluded))
+        _require(not overlap, "exclusion overlaps claim or exclusion at word IDs: " +
+                 ", ".join(tokens[i]["word_id"] for i in overlap[:24]) +
+                 (f"; {len(overlap)} overlapping words in total" if len(overlap) > 24 else "") +
+                 ". A word cannot be both claimed and excluded, or excluded twice. "
+                 "Keep substantive words in claims. For a permitted exclusion inside a claim, "
+                 "split that claim's spans around the excluded words. Otherwise remove the "
+                 "conflicting exclusion. Preserve full coverage and the answer's meaning.")
         excluded |= selected
         exclusions.append({"span": resolved[0], "reason": entry["reason"]})
     if value["status"] == "ready":

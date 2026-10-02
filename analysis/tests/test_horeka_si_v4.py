@@ -215,7 +215,7 @@ def gemma_runtime(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("selected", [False, True])
-@pytest.mark.parametrize("walltime,hours", [("01:00:00", 1), ("03:00:00", 3)])
+@pytest.mark.parametrize("walltime,hours", [("00:30:00", 0.5), ("01:00:00", 1), ("03:00:00", 3)])
 def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_path, monkeypatch, gemma_runtime, walltime, hours, selected):
     bundle = replay.freeze_baseline(baseline)
     extra = copy.deepcopy(bundle["cells"])
@@ -238,7 +238,12 @@ def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_pat
     out = tmp_path / "prepared"
     argv = ["prepare", "--workspace", str(tmp_path), "--output", str(out), *inputs,
             "--account", "fixture", "--approval", "User approved " + walltime, "--walltime", walltime]
+    if not selected and hours < 1:
+        with pytest.raises(ValueError, match="selected"):
+            pilot.main(argv)
+        return
     if selected:
+        argv += ["--source-importance-only"]
         with pytest.raises(ValueError, match="existing Gemma allocation"):
             pilot.main(argv)
         assert not out.exists()
@@ -252,6 +257,7 @@ def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_pat
     if selected:
         assert config["existing_job_id"] == "123"
         settings = pilot.judge.load_config(out / "judge-config.json")
+        assert settings["source_importance_only"] is True
         assert settings["structured_outputs_config"] == config["structured_outputs_config"] == {
             "backend": "xgrammar", "disable_any_whitespace": True}
         assert config["workload_mode"] == "selected-v4-cells"
@@ -514,3 +520,91 @@ def test_html_task_monitor_handles_both_inventory_shapes_without_crediting_missi
         assert any(line.startswith("v3-bridge NO_INDEX:") and "expected=6" in line for line in lines)
         assert any(line.startswith("v4-pass3 NO_INDEX:") and "expected=7" in line for line in lines)
     assert {path: path.read_bytes() for path in files} == before
+
+
+@pytest.mark.parametrize("block", [None, "active", "unknown", "tampered"])
+def test_failed_map_selection_preserves_prior_run_and_excludes_successes(baseline, tmp_path, monkeypatch, block):
+    from itertools import groupby
+    bundle = replay.freeze_baseline(baseline)
+    original = {r["judge_task_id"]: r for r in bundle["tasks"]}
+    tasks = {}
+    for i, cell in enumerate(bundle["cells"]):
+        prior = original[cell["j1_task_id"]]
+        request = prior["request"] + f" Example {i}."
+        j1 = pilot.v3.task_record(pilot.v3.prepare_fulfilment_task(request=request, answer=prior["answer"]))
+        tasks[j1["judge_task_id"]] = j1
+        cell["j1_task_id"] = j1["judge_task_id"]
+        for src in cell["sources"]:
+            previous_task = original[src["judge_task_id"]]
+            task = pilot.v3.task_record(pilot.v3._source_item(request=request,
+                masked_answer=previous_task["masked_answer"], title=previous_task["source_title"],
+                text=previous_task["source_text"], max_tokens=4096))
+            tasks[task["judge_task_id"]] = task
+            src["judge_task_id"] = task["judge_task_id"]
+    bundle["tasks"] = list(tasks.values())
+    source = tmp_path / "source"
+    source.mkdir()
+    bundle_path = source / "bundle.json"
+    bundle_path.write_text(json.dumps(bundle))
+    (source / "config.json").write_text(json.dumps({"source_files": {
+        str(bundle_path): pilot.judge.file_hash(bundle_path)}}))
+    chosen = tmp_path / "chosen.json"
+    pilot.main(["select", "--source-run", str(source), "--output", str(chosen), "--count", "3", "--take", "all"])
+    selected = pilot.verified_selection(chosen)
+    previous = tmp_path / "previous"
+    manifest = pilot.freeze_saved([selected], previous / "v4-inputs", pilot.v4.PROTOCOL)
+    (previous / "config.json").write_text(json.dumps({"workload_mode": "selected-v4-cells", "existing_job_id": "123",
+        "source_files": {str(chosen): pilot.judge.file_hash(chosen)}, "inventories": {"v4-inputs": manifest}}))
+    output = previous / "attempts/job123/trial/v4-pass1"
+    class Client:
+        map_calls = 0
+        async def complete(self, **kwargs):
+            if kwargs["schema_name"] == "answer_map_v4":
+                self.map_calls += 1
+                claims = []
+                if self.map_calls > 2:
+                    ids = kwargs["schema"]["properties"]["claims"]["items"]["properties"]["spans"]["items"]["properties"]["first"]["enum"]
+                    spans = []
+                    for _, group in groupby(ids, lambda word: word.split("w")[0]):
+                        unit = list(group)
+                        spans.append({"first": unit[0], "last": unit[-1]})
+                    claims = [{"spans": spans, "kind": "assertion", "roles": ["central"]}]
+                raw = {"status": "ready", "claims": claims, "excluded": [], "note": ""}
+            elif kwargs["schema_name"] == "source_importance_v4":
+                raw = {"status": "scored", "findings": [], "importance": 0, "note": "No support in this synthetic fixture."}
+            else:
+                raw = {"request_fulfillment": 5}
+            return json.dumps(raw), {"finish_reason": "stop"}
+    coordinator = pilot.judge.Coordinator(previous / "v4-inputs", output, {
+        "model_id": "fixture", "model_revision": "a" * 40, "gpu_count": 4, "concurrency": 1})
+    asyncio.run(coordinator.execute(Client()))
+    failed = {row[0] for row in coordinator.db.execute("SELECT id FROM tasks WHERE kind='answer_map' AND result LIKE '%\"ok\":false%'")}
+    assert len(failed) == 1
+    coordinator.close()
+    if block == "tampered":
+        import sqlite3
+        with sqlite3.connect(output / "control/index.sqlite") as db:
+            raw = db.execute("SELECT result FROM tasks WHERE id=?", (next(iter(failed)),)).fetchone()[0]
+            result = json.loads(raw)
+            result["error"] = "tampered failure"
+            db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps(result), next(iter(failed))))
+    before = {str(p): p.read_bytes() for p in previous.rglob("*") if p.is_file()}
+    monkeypatch.setattr(pilot.subprocess, "check_output", lambda cmd, **kw:
+        ("" if block == "unknown" else "123|COMPLETED|\n") if cmd[0] == "sacct" else
+        ("123\n" if block == "active" else ""))
+    destination = tmp_path / "retry.json"
+    argv = ["select-failed-maps", "--previous-run", str(previous), "--previous-job-id", "123", "--output", str(destination)]
+    if block:
+        with pytest.raises(ValueError, match="terminal|sealed"):
+            pilot.main(argv)
+        assert not destination.exists()
+    else:
+        assert pilot.main(argv) == 0
+        retry = pilot.verified_selection(destination)
+        expected = [c["cell_id"] for c in pilot.judge.rows(previous / "v4-inputs/cells.jsonl.gz") if c["map_task_id"] in failed]
+        assert retry["selection"]["selected_cell_ids"] == expected
+        assert len(retry["cells"]) == 1
+        assert retry["selection"]["retry_parent"]["scope"] == "source_importance_only"
+        with pytest.raises(FileExistsError):
+            pilot.main(argv)
+    assert {str(p): p.read_bytes() for p in previous.rglob("*") if p.is_file()} == before

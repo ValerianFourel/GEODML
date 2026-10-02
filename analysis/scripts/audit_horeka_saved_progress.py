@@ -4,6 +4,8 @@
 This operational snapshot does not validate dataset record references or infer
 unique corpus completion from overlapping bout manifests. Standard library only.
 """
+import fcntl
+import gzip
 import getpass
 import hashlib
 import json
@@ -17,6 +19,126 @@ from collections import Counter
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+def unique_qwen_cells(division_dir, division, attempts):
+    """Count division identities once from existing ledger files; never create locks."""
+    report = {"scope": "unique cells in CURRENT division, including spill once",
+              "evidence": "ledger states; result checksums not revalidated; per-stripe capture, not an atomic cluster snapshot"}
+    try:
+        wanted = set()
+        for bout in division["bouts"]:
+            path = division_dir / "bouts" / ("bout-%04d" % bout["number"]) / "bout.json"
+            value = json.loads(path.read_text())
+            for key in ("primary_fingerprints", "spill_fingerprints"):
+                ids = value[key]
+                if not isinstance(ids, list) or any(not isinstance(x, str) or not re.fullmatch(r"[0-9a-f]{64}", x) for x in ids):
+                    raise ValueError("invalid planned fingerprint list")
+                wanted.update(ids)
+        if not wanted:
+            raise ValueError("no division identities available")
+        sizes = {r["ledger_stripes"] for r in attempts if r.get("ledger_stripes") is not None}
+        if len(sizes) != 1:
+            raise ValueError("one observed ledger stripe count required")
+        stripes = sizes.pop()
+        if not 1 <= stripes <= 4096:
+            raise ValueError("invalid ledger stripe count")
+        dataset = Path(division["dataset_root"]).resolve()
+        if any(r.get("dataset_root") and Path(r["dataset_root"]).resolve() != dataset for r in attempts):
+            raise ValueError("attempt dataset roots differ from CURRENT division")
+        ledger = dataset / "control/task-ledger"
+        if not (ledger / "events").is_dir() or not (ledger / "locks").is_dir():
+            raise ValueError("ledger directories unavailable")
+        by_stripe = {}
+        for fingerprint in wanted:
+            by_stripe.setdefault(int(fingerprint[:16], 16) % stripes, set()).add(fingerprint)
+        counts, issues = Counter(), []
+        for stripe, members in sorted(by_stripe.items()):
+            path = ledger / "events" / ("stripe-%04d.jsonl" % stripe)
+            lock = ledger / "locks" / ("stripe-%04d.lock" % stripe)
+            latest = {}
+            try:
+                # Existing writers use exclusive flock on the same inode. Busy or absent
+                # locks produce unknown counts, never invented unattempted cells.
+                with lock.open("rb") as handle:
+                    fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    if path.exists():
+                        with path.open("rb") as stream:
+                            for line in stream:
+                                row = json.loads(line)
+                                if row.get("format_version") != "geodml-agentic-task-event-v1":
+                                    raise ValueError("unknown ledger event format")
+                                fingerprint = row.get("fingerprint")
+                                if fingerprint in members:
+                                    latest[fingerprint] = row["state"]
+                for fingerprint in members:
+                    state = latest.get(fingerprint, "unattempted")
+                    if state not in {"completed", "terminal_failed", "claimed", "running", "result_saved", "checkpointed", "retryable", "unattempted"}:
+                        state = "unknown"
+                    counts[state] += 1
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                counts["unknown"] += len(members)
+                issues.append(str(path) + ": " + str(error))
+        completed = counts["completed"]
+        report.update(total=len(wanted), recorded_finished=completed,
+                      known_unfinished=len(wanted) - completed - counts["unknown"],
+                      unknown=counts["unknown"], states=dict(counts), issues=issues)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        report["unavailable"] = str(error)
+    return report
+
+
+def gemma_cells(inputs, rows):
+    """Join frozen cells to one attempt's saved task results without merging runs."""
+    manifest = json.loads((inputs / "manifest.json").read_text())
+    path = inputs / "cells.jsonl.gz"
+    if hashlib.sha256(path.read_bytes()).hexdigest() != manifest["files"]["cells.jsonl.gz"]:
+        raise ValueError("frozen cells checksum mismatch")
+    tasks = {tid: (kind, state, json.loads(raw) if raw else {}) for tid, kind, state, raw in rows}
+    counts, unfinished, kinds = Counter(), [], Counter()
+    for kind, state, result in tasks.values():
+        outcome = "ok" if result.get("ok") is True else "failed" if result.get("ok") is False else "unknown"
+        kinds[(kind, state, outcome)] += 1
+    with gzip.open(path, "rt") as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            cell = json.loads(line)
+            mapper = tasks.get(cell.get("map_task_id"))
+            ids = [s.get("dependency_id", s.get("judge_task_id")) for s in cell.get("sources", [])]
+            sources = [tasks.get(tid) for tid in ids]
+            relevant = ([mapper] if cell.get("map_task_id") else []) + sources
+            def scored(task):
+                if not task or task[1] != "done" or task[2].get("ok") is not True:
+                    return False
+                parsed = task[2].get("parsed_output", {})
+                return parsed.get("status") == "scored" and type(parsed.get("importance")) is int and 0 <= parsed["importance"] <= 5
+            if any(t and t[1] == "done" and t[2].get("ok") is False for t in relevant):
+                status = "failed"
+            elif mapper and mapper[1] == "done" and mapper[2].get("ok") is True and mapper[2].get("parsed_output", {}).get("eligibility") in {"map_unusable", "global_absence_only", "no_substantive_content"}:
+                status = "not_assessable"
+            elif sources and all(scored(t) for t in sources) and (not cell.get("map_task_id") or (mapper and mapper[1] == "done" and mapper[2].get("ok") is True and mapper[2].get("parsed_output", {}).get("eligibility") == "eligible")):
+                status = "finished"
+            elif any(t and t[1] == "blocked" for t in relevant):
+                status = "blocked"
+            elif any(t and t[1] in {"running", "saved"} for t in relevant):
+                status = "in_progress"
+            elif any(t is None for t in relevant) or not relevant:
+                status = "missing_task_evidence"
+            elif any(t and t[1] in {"pending", "waiting"} for t in relevant):
+                status = "pending"
+            else:
+                status = "unresolved"
+            counts[status] += 1
+            if status != "finished":
+                unfinished.append({"cell_id": cell["cell_id"], "model": cell.get("model"), "state": status,
+                    "map_task_id": cell.get("map_task_id"),
+                    "errors": [t[2].get("error") for t in relevant if t and t[2].get("error")],
+                    "unresolved_source_ids": [tid for tid, task in zip(ids, sources) if not scored(task)]})
+    return {"cell_counts": dict(counts), "total_cells": sum(counts.values()),
+            "unfinished_cells": unfinished,
+            "task_counts": [{"kind": k, "state": s, "outcome": o, "count": n} for (k, s, o), n in sorted(kinds.items())],
+            "cell_count_evidence": "frozen-cell join to saved index; sealed result references not revalidated"}
 
 
 def collect(workspace, account=None):
@@ -91,7 +213,7 @@ def collect(workspace, account=None):
                 parsed_scheduler = False
                 continue
             row = dict(zip(keys, (p.strip() for p in parts)))
-            row["state"] = row["state"].split()[0]
+            row["state"] = row["state"].split()[0].rstrip("+")
             jobs.setdefault(row["job"], {}).update(row)
     report["jobs"] = jobs
     report["scheduler_complete"] = accounting is not None and live is not None and parsed_scheduler
@@ -137,7 +259,7 @@ def collect(workspace, account=None):
                    "explicit_failed": len(failed) if failed is not None else None,
                    "stop_reason": progress.get("stop_reason"), "result": result,
                    "git_commit": config.get("git_commit"), "dataset_root": config.get("dataset_root"),
-                   "writer_id": direct.get("writer_id"), "attempt": str(attempt)}
+                   "writer_id": direct.get("writer_id"), "ledger_stripes": count(direct.get("ledger_stripes")), "attempt": str(attempt)}
             if all(row[k] is not None for k in ("requested", "completed", "remaining")):
                 if row["completed"] + row["remaining"] != row["requested"]:
                     row["inconsistent_counts"] = True
@@ -152,7 +274,10 @@ def collect(workspace, account=None):
                     saved(path, tail=True)
     report["unmatched_qwen_jobs"] = sorted(job for job, r in jobs.items()
         if r["name"].startswith("geodml-qwen-bout-") and job not in {r["job"] for r in report["qwen"]})
-    for root in sorted((workspace / "reviews").glob("gemma-si-v4*")):
+    report["qwen_unique_cells"] = unique_qwen_cells(division_dir, division, report["qwen"])
+    roots = {p.parent for pattern in ("gemma*/config.json", "gemma*/run/config.json")
+             for p in (workspace / "reviews").glob(pattern)}
+    for root in sorted(roots):
         if not root.is_dir():
             continue
         config = saved(root / "config.json") or {}
@@ -164,8 +289,10 @@ def collect(workspace, account=None):
                 saved(path)
         for attempt in sorted(root.glob("attempts/job*")):
             saved(attempt / "execution.json")
-            for name, inputs in (("v4-pass1", "v4-inputs"), ("v3-bridge", "v3-inputs"),
-                                 ("constructed", "constructed-inputs"), ("v4-pass2", "v4-inputs"), ("v4-pass3", "v4-inputs")):
+            passes = [("v4-pass1", "v4-inputs")] if config.get("workload_mode") == "selected-v4-cells" else [
+                ("v4-pass1", "v4-inputs"), ("v3-bridge", "v3-inputs"), ("constructed", "constructed-inputs"),
+                ("v4-pass2", "v4-inputs"), ("v4-pass3", "v4-inputs")]
+            for name, inputs in passes:
                 values = config.get("inventories", {}).get(inputs, {}).get("unique_tasks")
                 values = list(values.values()) if isinstance(values, dict) else [values]
                 expected = sum(values) if all(count(v) is not None for v in values) else None
@@ -174,6 +301,7 @@ def collect(workspace, account=None):
                 try:
                     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
                         db.execute("PRAGMA query_only=ON")
+                        db.execute("BEGIN")
                         counts = Counter()
                         for state, raw in db.execute("SELECT state,result FROM tasks"):
                             label = state
@@ -181,9 +309,16 @@ def collect(workspace, account=None):
                                 value = json.loads(raw) if raw else {}
                                 label += "_" + ("ok" if value.get("ok") is True else "failed" if value.get("ok") is False else "unknown")
                             counts[label] += 1
+                        columns = {r[1] for r in db.execute("PRAGMA table_info(tasks)")}
+                        if {"id", "kind"} <= columns:
+                            task_rows = db.execute("SELECT id,kind,state,result FROM tasks").fetchall()
+                            entry.update(gemma_cells(root / inputs, task_rows))
                     entry.update(total=sum(counts.values()), counts=dict(counts))
                 except (OSError, sqlite3.Error, ValueError, AttributeError) as error:
                     entry["unavailable"] = str(error)
+                summaries = sorted((attempt / "trial" / name / "reports").glob("*/summary.json"))
+                if summaries:
+                    entry["latest_saved_summary"] = saved(summaries[-1])
                 item["passes"].append(entry)
             saved(attempt / "server.log", tail=True)
         for pattern in ("console-job*.log", "slurm-*.err", "slurm-*.out"):
@@ -206,6 +341,7 @@ def collect(workspace, account=None):
         command("account_queue", ["squeue", "--account=" + account, "--array", "--noheader", "--format=%i|%j|%T"])
         command("home_quota", ["/usr/lpp/mmfs/bin/mmlsquota", "-j", account,
                                 "--block-size", "G", "-C", "hkn.scc.kit.edu", "hkfs-home"])
+    report["pending_reasons"] = dict(Counter(r.get("reason", "unknown") for r in jobs.values() if r["state"] == "PENDING"))
     report["ended_utc"] = datetime.now(timezone.utc).isoformat()
     return report
 
@@ -219,9 +355,11 @@ def render(report):
         lines.append(label + " allocation states " + json.dumps(dict(counts), sort_keys=True))
     if not report["scheduler_complete"]:
         lines.append("INCOMPLETE SCHEDULER EVIDENCE: state counts above cover only available rows.")
+    lines.append("PENDING_REASONS " + json.dumps(report.get("pending_reasons", {}), sort_keys=True))
     for job, row in report["jobs"].items():
         if row["name"] == "geodml-gemma-si-v4":
             lines.append("GEMMA_JOB " + json.dumps(row, sort_keys=True))
+    lines.append("QWEN_UNIQUE_CELLS " + json.dumps(report["qwen_unique_cells"], sort_keys=True))
     failed = [r for r in report["qwen"] if r["state"] == "FAILED"]
     groups = Counter("unknown_checkpoint" if r["completed"] is None or r["remaining"] is None or r.get("inconsistent_counts")
                      else "zero_reported" if r["completed"] == 0
@@ -235,7 +373,14 @@ def render(report):
                          f"{val('newly_committed')} {val('reused')} {val('explicit_failed')} {val('remaining')} "
                          f"{report['jobs'].get(r['job'], {}).get('exit_code', '?')} {r['stop_reason']}")
     lines.append("UNMATCHED_QWEN_JOBS " + json.dumps(report["unmatched_qwen_jobs"]))
-    lines.extend("GEMMA_PREPARATION " + json.dumps(item, sort_keys=True) for item in report["gemma"])
+    for item in report["gemma"]:
+        lines.append("GEMMA_PREPARATION " + item["root"])
+        for run in item["passes"]:
+            lines.append("GEMMA_PASS " + json.dumps({k: run[k] for k in ("attempt", "pass", "expected", "total", "counts", "cell_counts", "total_cells", "unavailable") if k in run}, sort_keys=True))
+            for cell in run.get("unfinished_cells", [])[:20]:
+                lines.append("GEMMA_UNFINISHED_CELL " + json.dumps(cell, sort_keys=True))
+            if len(run.get("unfinished_cells", [])) > 20:
+                lines.append("Additional unfinished cells are listed in audit.json.")
     for path, record in report["files"].items():
         if path.endswith((".err", "server.log")) and isinstance(record.get("value"), str):
             lines.append("LOG_TAIL " + path)
