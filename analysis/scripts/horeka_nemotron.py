@@ -90,6 +90,8 @@ def stage_commands(config: dict, *, python: str, attempt: Path, cache: Path) -> 
            "--cache-base", str(cache), "--startup-timeout-seconds", "1200", "--"]
     if config.get("trial") == "si-v4-development":
         prepare += ["--language-model-only"]
+        if "structured_outputs_config" in config:
+            prepare += ["--structured-outputs-config", json.dumps(config["structured_outputs_config"])]
         run += [python, str(repo / "analysis/scripts/horeka_si_v4.py"), "review",
                 "--config", config["development_config"]]
     elif config.get("replay_inputs"):

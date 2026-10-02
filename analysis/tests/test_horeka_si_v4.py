@@ -115,15 +115,23 @@ def test_scoped_queue_exception_keeps_other_admission_guards(tmp_path, monkeypat
     assert (out / "config.json").read_text() == raw
 
 
-def test_new_stage_uses_existing_gemma_boundary_and_v4_driver(tmp_path):
+@pytest.mark.parametrize("compact", [False, True])
+def test_new_stage_uses_existing_gemma_boundary_and_v4_driver(tmp_path, compact):
     config = {"repository": str(tmp_path), "trial": "si-v4-development",
               "model_id": pilot.gemma.MODEL, "model_revision": pilot.gemma.REVISION,
               "development_config": str(tmp_path / "config.json")}
+    if compact:
+        config["structured_outputs_config"] = {"backend": "xgrammar", "disable_any_whitespace": True}
     prepare, run = pilot.stage.stage_commands(config, python="/runtime/bin/python", attempt=tmp_path, cache=tmp_path / "cache")
     assert prepare[prepare.index("--model-revision") + 1] == pilot.gemma.REVISION
     assert "--language-model-only" in prepare and "--expected-gpu-name-pattern" in prepare
     assert run[run.index("--") + 1:run.index("--") + 4] == ["/runtime/bin/python", str(tmp_path / "analysis/scripts/horeka_si_v4.py"), "review"]
     assert run[run.index("--config") + 1] == str(tmp_path / "config.json")
+    if compact:
+        assert json.loads(prepare[prepare.index("--structured-outputs-config") + 1]) == {
+            "backend": "xgrammar", "disable_any_whitespace": True}
+    else:
+        assert "--structured-outputs-config" not in prepare
 
 
 @pytest.mark.parametrize("selected", [False, True])
@@ -243,6 +251,9 @@ def test_prepare_records_approved_walltime_and_resource_budget(baseline, tmp_pat
     assert config["inventories"]["v4-inputs"]["cells"] == (2 if selected else 40)
     if selected:
         assert config["existing_job_id"] == "123"
+        settings = pilot.judge.load_config(out / "judge-config.json")
+        assert settings["structured_outputs_config"] == config["structured_outputs_config"] == {
+            "backend": "xgrammar", "disable_any_whitespace": True}
         assert config["workload_mode"] == "selected-v4-cells"
         assert set(config["inventories"]) == {"v4-inputs"}
         assert config["estimate"]["additional_allocation_hours"] == 0

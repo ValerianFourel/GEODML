@@ -261,7 +261,11 @@ def validate_map(raw, *, answer):
         excluded |= selected
         exclusions.append({"span": resolved[0], "reason": entry["reason"]})
     if value["status"] == "ready":
-        _require(covered | excluded == set(range(len(tokens))), "map leaves answer words uncovered")
+        missing = [token["word_id"] for i, token in enumerate(tokens) if i not in covered | excluded]
+        _require(not missing, "map leaves answer words uncovered: " + ", ".join(missing[:24]) +
+                 (f"; {len(missing)} words missing in total" if len(missing) > 24 else "") +
+                 ". Cover every word with a faithful claim span or permitted exclusion; "
+                 "return unusable if a faithful complete map cannot be produced.")
     claims.sort(key=lambda c: tuple((s["start"], s["end"]) for s in c["spans"]))
     claims = [{"claim_id": f"c{i}", **c} for i, c in enumerate(claims, 1)]
     assessable = [c for c in claims if c["kind"] != "global_absence"]
@@ -319,7 +323,11 @@ def validate_source(raw, *, answer, answer_map, evidence_units):
         positive |= relation in ("full", "partial")
         found.append({**finding, "spans": resolved, "evidence": [passages[i] for i in ids]})
     if status == "scored":
-        _require((grade > 0) == positive, "grade and positive support disagree")
+        _require((grade > 0) == positive,
+                 f"grade and positive support disagree: importance={grade}, "
+                 f"has_full_or_partial_finding={positive}. A positive grade requires a full or partial "
+                 "support finding; no substantive support requires importance=0. "
+                 "Reassess against the supplied evidence; do not invent support to retain a grade.")
     relations = {c: [f["relation"] for f in found if f["claim_id"] == c] for c in claims}
     for cid, claim in claims.items():
         if claim["kind"] == "global_absence":
