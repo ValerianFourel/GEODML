@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repair Gemma SI-v4 in existing job 5175111</title><style>
+    :root {
+      color-scheme: light;
+      --bg: #f2f4f3; --panel: #fff; --ink: #19212b; --muted: #56616d;
+      --rule: #d4dad7; --accent: #1f6485; --soft: #e2edf3;
+      --code-bg: #111a22; --code-ink: #d9e3ea;
+      --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #10151a; --panel: #161d24; --ink: #e0e6eb; --muted: #aab6c1;
+        --rule: #37434f; --accent: #8cc4df; --soft: #1a2b36;
+        --code-bg: #0a0e12; --code-ink: #d6e0e8;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0 20px; background: var(--bg); color: var(--ink); font: 16px/1.6 "Helvetica Neue", Arial, sans-serif; }
+    main { max-width: 920px; margin: auto; padding: 36px 0 56px; display: grid; gap: 28px; }
+    header, section { min-width: 0; }
+    .eyebrow { color: var(--muted); font: 12px/1.5 var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+    h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.15; margin: 8px 0 14px; }
+    h2 { font-size: 22px; line-height: 1.3; margin: 0 0 12px; }
+    p { margin: 0 0 12px; }
+    p:last-child { margin-bottom: 0; }
+    .lede, footer { color: var(--muted); }
+    .note { padding: 18px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; }
+    code { font: .88em var(--mono); overflow-wrap: anywhere; }
+    p code, td code { background: var(--soft); border-radius: 4px; padding: .1em .3em; }
+    .command { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #37434f; color: var(--code-ink); }
+    .toolbar span { font: 12px/1.5 var(--mono); }
+    button { padding: 10px 14px; min-height: 44px; border: 1px solid #91c3dc; border-radius: 6px; background: #e2edf3; color: #15374b; font: 600 14px/1.2 "Helvetica Neue", Arial, sans-serif; cursor: pointer; }
+    button:hover { background: #fff; }
+    button:focus-visible, pre:focus-visible { outline: 3px solid #91c3dc; outline-offset: -3px; }
+    pre { margin: 0; padding: 18px; overflow: auto; max-height: 32rem; color: var(--code-ink); font: 13px/1.6 var(--mono); tab-size: 4; }
+    pre code { font: inherit; overflow-wrap: normal; }
+    #copy-status { min-height: 1.6em; margin-top: 8px; color: var(--muted); font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    caption { text-align: left; margin-bottom: 10px; color: var(--muted); }
+    th, td { text-align: left; vertical-align: top; padding: 12px 10px; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; }
+    th { color: var(--muted); font-weight: 600; }
+    td:first-child { width: 38%; }
+    footer { border-top: 1px solid var(--rule); padding-top: 18px; font-size: 14px; }
+    @media (max-width: 560px) {
+      body { padding: 0 14px; }
+      th, td { padding: 10px 6px; }
+      .toolbar { padding: 10px; }
+    }
+  </style></head><body><main>
+<header><div class="eyebrow">HoreKa · existing allocation 5175111 · 2 October 2026</div>
+<h1>Repair the inputs and use the current allocation</h1>
+<p class="lede">Valerian, the old saved launcher runs commit <code>9aa5d90…</code> and reads the old input freeze. This page prepares a corrected copy using the published repair, then runs it only inside your existing job <code>5175111</code>. Keep its compute shell open.</p></header>
+<section class="note"><h2>What caused the errors</h2>
+<p><code>allocation already attempted</code> is the guard for requesting a new allocation from an already attempted preparation. It stays intact. The current failure occurs when the old coordinator checks source hashes; the earlier audit found missing hash metadata, with intact frozen-file hashes and no conflicting source hashes.</p>
+<p>The repair verifies that only missing metadata changes. It preserves the original inputs, task text, judge settings and failed attempts. Existing task rows stop this recovery so saved work is not repeated. The login PAM error is separate. <code>alloc</code> was a command typo; the later <code>salloc</code> granted job <code>5175111</code>.</p></section>
+<section class="note"><h2>Time remaining controls execution</h2>
+<p>The existing development workload was estimated at 20–50 minutes, including roughly 9–11 minutes of historical Gemma startup; SI-v4 throughput is not yet measured. Both preparation and execution require job <code>5175111</code> to be running with at least 20 minutes remaining. A shorter remaining budget may permit only partial work.</p>
+<p>This uses the remaining time on your existing exclusive node with four A100 GPUs, 32 requested CPUs and whole-node memory. At most the remaining fraction of one node-hour and four GPU-hours is available. No additional allocation time is requested, and the run retains Slurm's actual end time and cleanup margins. This finite diagnostic uses the current <code>dev_accelerated</code> allocation.</p></section>
+<section id="prepare" aria-labelledby="prepare-heading">
+<h2 id="prepare-heading">1. Prepare and verify corrected inputs</h2><p>Use a separate login terminal for the Git update. This creates a new directory and checks all three input sets without loading the model. Wait for <code>HASH_REPAIR_VERIFIED</code>. If the directory already exists or a check fails, preserve it and send the output; do not remove it or rerun the old launcher.</p>
+<div class="command"><div class="toolbar"><span>Separate HoreKa login terminal</span><button class="copy" type="button" aria-label="Copy 1. prepare and verify corrected inputs">Copy</button></div>
+<pre tabindex="0" aria-label="1. Prepare and verify corrected inputs"><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  V4_FIX_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
+  V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/pilot-continuation
+  if [ ! -d &quot;$V4_FIX_REPO&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$V4_FIX_REPO&quot; &quot;$V4_FIX_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$V4_FIX_REPO&quot; rev-parse HEAD)&quot; = &quot;$V4_FIX_PIN&quot;
+  test -z &quot;$(git -C &quot;$V4_FIX_REPO&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
+  &quot;$RT/bin/python&quot; - &quot;$W&quot; &quot;$V4_FIX_REPO&quot; &lt;&lt;&#x27;PY&#x27;
+import copy
+import json
+import os
+import sqlite3
+import subprocess
+import time
+from contextlib import closing
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
+from analysis.scripts import horeka_si_v4 as pilot
+
+workspace = Path(sys.argv[1])
+old = workspace / &#x27;reviews/gemma-si-v4-development-20261001&#x27;
+new = workspace / &#x27;reviews/gemma-si-v4-development-20261002-hashfix-job5175111&#x27;
+config = json.loads((old / &#x27;config.json&#x27;).read_text())
+if new.exists():
+    raise SystemExit(&#x27;STOP: corrected preparation already exists; preserve and inspect it.&#x27;)
+if config[&#x27;git_commit&#x27;] != &#x27;9aa5d90e0b310f3eea587a60787727787ab92757&#x27;:
+    raise SystemExit(&#x27;Unexpected original execution pin&#x27;)
+fields = dict(t.split(&#x27;=&#x27;, 1) for t in subprocess.check_output(
+    [&#x27;scontrol&#x27;, &#x27;show&#x27;, &#x27;job&#x27;, &#x27;5175111&#x27;, &#x27;-o&#x27;], text=True, timeout=30).split() if &#x27;=&#x27; in t)
+pilot.stage.check_bound_allocation({&#x27;existing_job_id&#x27;: &#x27;5175111&#x27;, &#x27;minimum_remaining_seconds&#x27;: 1200},
+                                  &#x27;5175111&#x27;, fields)
+if (fields.get(&#x27;JobId&#x27;) != &#x27;5175111&#x27; or fields.get(&#x27;JobName&#x27;) != pilot.JOB_NAME
+        or fields.get(&#x27;TimeLimit&#x27;) != &#x27;01:00:00&#x27; or fields.get(&#x27;Account&#x27;) != config[&#x27;account&#x27;]
+        or fields.get(&#x27;Partition&#x27;) != &#x27;dev_accelerated&#x27;
+        or not fields.get(&#x27;UserId&#x27;, &#x27;&#x27;).endswith(&#x27;(&#x27; + str(os.getuid()) + &#x27;)&#x27;)):
+    raise SystemExit(&#x27;STOP: existing allocation identity or resources differ from the supplied job.&#x27;)
+print(&#x27;EXISTING_ALLOCATION&#x27;, fields[&#x27;JobId&#x27;], fields[&#x27;JobState&#x27;], &#x27;END&#x27;, fields[&#x27;EndTime&#x27;], flush=True)
+# The failed import rolls back its task transaction. Refuse to replay saved work.
+prior_indexes = []
+for attempt in sorted((old / &#x27;attempts&#x27;).glob(&#x27;job*&#x27;)):
+    result = attempt / &#x27;trial-result.json&#x27;
+    if not result.is_file() or json.loads(result.read_text()).get(&#x27;status&#x27;) not in (&#x27;completed&#x27;, &#x27;failed&#x27;, &#x27;deadline&#x27;):
+        raise SystemExit(&#x27;STOP: prior attempt is not reconciled; inspect &#x27; + str(attempt))
+    for index in sorted((attempt / &#x27;trial&#x27;).glob(&#x27;*/control/index.sqlite&#x27;)):
+        with closing(sqlite3.connect(index.resolve().as_uri() + &#x27;?mode=ro&#x27;, uri=True)) as db:
+            count = db.execute(&#x27;SELECT COUNT(*) FROM tasks&#x27;).fetchone()[0]
+        prior_indexes.append({&#x27;path&#x27;: str(index), &#x27;tasks&#x27;: count})
+        print(&#x27;PRIOR_INDEX&#x27;, index, &#x27;TASKS&#x27;, count, flush=True)
+        if count != 0:
+            raise SystemExit(&#x27;STOP: prior task state exists; reconcile it instead of repeating judgments.&#x27;)
+if not prior_indexes:
+    raise SystemExit(&#x27;STOP: expected failed-import indexes are missing; inspect the old attempts.&#x27;)
+if pilot.judge.file_hash(old / &#x27;judge-config.json&#x27;) != config[&#x27;judge_config_sha256&#x27;]:
+    raise SystemExit(&#x27;Original judge configuration changed&#x27;)
+for name, manifest in config[&#x27;inventories&#x27;].items():
+    if json.loads((old / name / &#x27;manifest.json&#x27;).read_text()) != manifest:
+        raise SystemExit(&#x27;Original manifest changed: &#x27; + name)
+    for filename, expected in manifest[&#x27;files&#x27;].items():
+        if pilot.judge.file_hash(old / name / filename) != expected:
+            raise SystemExit(&#x27;Original frozen file changed: &#x27; + name + &#x27;/&#x27; + filename)
+for filename, expected in config[&#x27;source_files&#x27;].items():
+    if pilot.judge.file_hash(Path(filename)) != expected:
+        raise SystemExit(&#x27;Original source bundle changed: &#x27; + filename)
+
+pilot.prepare(SimpleNamespace(workspace=workspace, output=new,
+    bundle=[Path(p) for p in config[&#x27;source_files&#x27;]],
+    account=config[&#x27;account&#x27;], walltime=&#x27;01:00:00&#x27;,
+    approval=&#x27;Valerian requested source-hash repair and continuation only inside existing one-hour job 5175111. No new allocation.&#x27;))
+if (new / &#x27;judge-config.json&#x27;).read_bytes() != (old / &#x27;judge-config.json&#x27;).read_bytes():
+    raise SystemExit(&#x27;STOP: judge configuration changed&#x27;)
+# Compare semantic records, not gzip headers. Only missing cell hashes may change.
+filled = 0
+for name in (&#x27;v3-inputs&#x27;, &#x27;v4-inputs&#x27;, &#x27;constructed-inputs&#x27;):
+    before = list(pilot.judge.rows(old / name / &#x27;tasks.jsonl.gz&#x27;))
+    after = list(pilot.judge.rows(new / name / &#x27;tasks.jsonl.gz&#x27;))
+    if before != after:
+        raise SystemExit(&#x27;STOP: frozen task records changed: &#x27; + name)
+    original_cells = list(pilot.judge.rows(old / name / &#x27;cells.jsonl.gz&#x27;))
+    fixed_cells = list(pilot.judge.rows(new / name / &#x27;cells.jsonl.gz&#x27;))
+    expected_cells = copy.deepcopy(original_cells)
+    by_id = {r[&#x27;judge_task_id&#x27;]: r for r in before}
+    for cell in expected_cells:
+        for source in cell.get(&#x27;sources&#x27;, []):
+            task = by_id[source.get(&#x27;dependency_id&#x27;, source.get(&#x27;judge_task_id&#x27;))]
+            expected_hash = pilot.judge._digest({&#x27;title&#x27;: task[&#x27;source_title&#x27;], &#x27;text&#x27;: task[&#x27;source_text&#x27;]})
+            if &#x27;source_sha256&#x27; not in source:
+                source[&#x27;source_sha256&#x27;] = expected_hash
+                filled += 1
+            elif source[&#x27;source_sha256&#x27;] != expected_hash:
+                raise SystemExit(&#x27;STOP: conflicting original source hash&#x27;)
+    if expected_cells != fixed_cells:
+        raise SystemExit(&#x27;STOP: additional cell changes: &#x27; + name)
+    with tempfile.TemporaryDirectory(prefix=&#x27;input-check-&#x27;, dir=new) as temporary:
+        coordinator = pilot.judge.Coordinator(new / name, Path(temporary) / &#x27;results&#x27;, {&#x27;gpu_count&#x27;: 4})
+        coordinator.close()
+# Bind continuation to this allocation; do not authorize another allocation.
+fixed = json.loads((new / &#x27;config.json&#x27;).read_text())
+fixed.update(existing_job_id=&#x27;5175111&#x27;, minimum_remaining_seconds=1200,
+    recovery_from=str(old), original_config_sha256=pilot.judge.file_hash(old / &#x27;config.json&#x27;),
+    cache_prefix=&#x27;gemma4-si-v4-hashfix&#x27;, recovery_prior_indexes=prior_indexes,
+    recovery_allocation={key: fields.get(key) for key in
+        (&#x27;JobId&#x27;, &#x27;JobName&#x27;, &#x27;JobState&#x27;, &#x27;Account&#x27;, &#x27;Partition&#x27;, &#x27;TimeLimit&#x27;, &#x27;EndTime&#x27;, &#x27;NodeList&#x27;)})
+fixed[&#x27;estimate&#x27;].update(new_allocation=False, additional_allocation_hours=0,
+    remaining_seconds_at_recovery=int(pilot.stage.datetime.fromisoformat(fields[&#x27;EndTime&#x27;]).timestamp() - time.time()))
+pilot.atomic(new / &#x27;config.json&#x27;, pilot.judge.canonical(fixed).encode())
+pilot.atomic(new / &#x27;HASH_REPAIR_VERIFIED.json&#x27;, pilot.judge.canonical({
+    &#x27;config_sha256&#x27;: pilot.judge.file_hash(new / &#x27;config.json&#x27;),
+    &#x27;missing_cell_hashes_filled&#x27;: filled, &#x27;task_records_unchanged&#x27;: True,
+    &#x27;coordinator_imports_passed&#x27;: 3, &#x27;existing_job_id&#x27;: &#x27;5175111&#x27;,
+    &#x27;allocation_submitted&#x27;: False, &#x27;inference_started&#x27;: False}).encode())
+print(&#x27;HASH_REPAIR_VERIFIED&#x27;, new)
+print(&#x27;MISSING_CELL_HASHES_FILLED&#x27;, filled)
+print(&#x27;Original preparation and attempts preserved. No inference started.&#x27;)
+PY
+)</code></pre></div></section>
+<section id="run" aria-labelledby="run-heading">
+<h2 id="run-heading">2. Run inside job 5175111</h2><p>After step 1 succeeds, paste this into the compute shell already belonging to <code>5175111</code>. It checks the repair receipt, saved launcher, remaining time and fresh storage evidence before using the existing execution boundary. It does not call <code>salloc</code> or start another <code>srun</code> shell.</p>
+<div class="command"><div class="toolbar"><span>Existing hkn0402 compute shell</span><button class="copy" type="button" aria-label="Copy 2. run inside job 5175111">Copy</button></div>
+<pre tabindex="0" aria-label="2. Run inside job 5175111"><code>(
+  set -euo pipefail
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  test &quot;${SLURM_JOB_ID:-}&quot; = 5175111
+  V4_FIX_PIN=1bf21cb0e37374634be30a07bca9079ec18d6f87
+  V4_FIX_REPO=&quot;$W/checkouts/gemma-si-v4-$V4_FIX_PIN&quot;
+  V4_FIXED_RUN=&quot;$W/reviews/gemma-si-v4-development-20261002-hashfix-job5175111&quot;
+  if [ ! -f &quot;$V4_FIX_REPO/analysis/scripts/horeka_si_v4.py&quot; ]; then
+    printf &#x27;%s\n&#x27; &#x27;STOP: corrected checkout missing. Run step 1: Rebuild and validate corrected inputs.&#x27;
+    exit 1
+  fi
+  if [ ! -f &quot;$V4_FIXED_RUN/HASH_REPAIR_VERIFIED.json&quot; ]; then
+    printf &#x27;%s\n&#x27; &#x27;STOP: repair receipt missing. Step 1 has not completed successfully. Send its output.&#x27;
+    exit 1
+  fi
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$V4_FIX_REPO&quot;
+  &quot;$RT/bin/python&quot; - &quot;$V4_FIXED_RUN&quot; &quot;$V4_FIX_REPO&quot; &lt;&lt;&#x27;PY&#x27;
+import json
+from pathlib import Path
+import subprocess
+import sys
+sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
+from analysis.scripts import horeka_si_v4 as pilot
+import os
+root = Path(sys.argv[1]).resolve()
+if (root / &#x27;attempts/job5175111&#x27;).exists():
+    raise SystemExit(&#x27;STOP: corrected run already attempted; inspect its logs before any retry.&#x27;)
+receipt = json.loads((root / &#x27;HASH_REPAIR_VERIFIED.json&#x27;).read_text())
+if receipt[&#x27;config_sha256&#x27;] != pilot.judge.file_hash(root / &#x27;config.json&#x27;):
+    raise SystemExit(&#x27;Corrected configuration differs from verification receipt&#x27;)
+config = json.loads((root / &#x27;config.json&#x27;).read_text())
+if config.get(&#x27;existing_job_id&#x27;) != &#x27;5175111&#x27; or receipt.get(&#x27;existing_job_id&#x27;) != &#x27;5175111&#x27;:
+    raise SystemExit(&#x27;STOP: recovery is not bound to job 5175111&#x27;)
+if config.get(&#x27;git_commit&#x27;) != &#x27;1bf21cb0e37374634be30a07bca9079ec18d6f87&#x27;:
+    raise SystemExit(&#x27;STOP: unexpected recovery execution pin&#x27;)
+if config.get(&#x27;repository&#x27;) != str(Path(sys.argv[2]).resolve()):
+    raise SystemExit(&#x27;STOP: recovery repository differs from the verified checkout&#x27;)
+if (root / &#x27;run.sh&#x27;).read_bytes() != pilot.gemma.run_script(Path(config[&#x27;repository&#x27;]), root):
+    raise SystemExit(&#x27;STOP: saved launcher differs from the corrected preparation&#x27;)
+fields = dict(t.split(&#x27;=&#x27;, 1) for t in subprocess.check_output(
+    [&#x27;scontrol&#x27;, &#x27;show&#x27;, &#x27;job&#x27;, &#x27;5175111&#x27;, &#x27;-o&#x27;], text=True, timeout=30).split() if &#x27;=&#x27; in t)
+pilot.stage.check_bound_allocation(config, os.environ.get(&#x27;SLURM_JOB_ID&#x27;), fields)
+if fields.get(&#x27;JobName&#x27;) != config[&#x27;job_name&#x27;] or fields.get(&#x27;TimeLimit&#x27;) != config[&#x27;walltime&#x27;]:
+    raise SystemExit(&#x27;STOP: allocation does not match this one-hour preparation&#x27;)
+quota = pilot.capture_quota(Path(config[&#x27;workspace&#x27;]), config[&#x27;account&#x27;])
+quota_path = root / &#x27;recovery-quota.json&#x27;
+pilot.atomic(quota_path, pilot.judge.canonical(quota).encode())
+health = pilot.judge.check_storage(config[&#x27;workspace&#x27;], quota_path, root)
+if health.get(&#x27;safe_to_admit&#x27;) is not True or health.get(&#x27;quota_verified&#x27;) is not True:
+    raise SystemExit(&#x27;STOP: storage or quota check failed; preserve existing work.&#x27;)
+print(&#x27;EXISTING_JOB_CHECK_PASSED&#x27;, fields.get(&#x27;EndTime&#x27;))
+PY
+  set +e
+  bash &quot;$V4_FIXED_RUN/run.sh&quot; 2&gt;&amp;1 | tee -a &quot;$V4_FIXED_RUN/console-job${SLURM_JOB_ID}.log&quot;
+  V4_EXIT=${PIPESTATUS[0]}
+  printf &#x27;V4_EXIT=%s\n&#x27; &quot;$V4_EXIT&quot;
+  exit &quot;$V4_EXIT&quot;
+)</code></pre></div></section>
+<section id="logs" aria-labelledby="logs-heading">
+<h2 id="logs-heading">3. Inspect the result</h2><p>Use these commands while the run continues or after it returns. <code>V4_EXIT=0</code> is process success, not evidence of a scientific finding. A nonzero exit or deadline requires inspection. A missing new log means execution has not reached that step.</p>
+<div class="command"><div class="toolbar"><span>Separate HoreKa login terminal</span><button class="copy" type="button" aria-label="Copy 3. inspect the result">Copy</button></div>
+<pre tabindex="0" aria-label="3. Inspect the result"><code>squeue -j 5175111 --format=&#x27;%.18i %.28j %.12T %.12M %.12l %R&#x27;
+sacct -j 5175111 --format=JobID,State,Elapsed,Timelimit,ExitCode
+tail -n 100 /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-si-v4-development-20261002-hashfix-job5175111/console-job5175111.log
+</code></pre></div></section>
+<section class="note"><h2>Preserved files</h2>
+<p>Original: <code>reviews/gemma-si-v4-development-20261001</code>.<br>Corrected: <code>reviews/gemma-si-v4-development-20261002-hashfix-job5175111</code>.</p>
+<p>The old preparation remains available for comparison. A failed repair leaves no verification receipt. Do not run the broken original as a rollback or delete either preparation. If the allocation has ended, keep the corrected files for later inspection; this page submits no replacement.</p></section>
+<p id="copy-status" role="status" aria-live="polite"></p>
+<noscript><p>Select and copy the commands manually; JavaScript is only used by the copy buttons.</p></noscript>
+<footer><p>Execution pin: <code>1bf21cb0e37374634be30a07bca9079ec18d6f87</code>. This page prepares commands only. No cluster repair or inference was executed while writing it.</p></footer>
+</main><script>document.querySelectorAll('button.copy').forEach(button => {
+  button.addEventListener('click', async () => {
+    const code = button.closest('.command').querySelector('code');
+    let copied = false;
+    try { await navigator.clipboard.writeText(code.textContent); copied = true; }
+    catch (_) {
+      const range = document.createRange(); range.selectNodeContents(code);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      try { copied = document.execCommand('copy'); } catch (_) {}
+    }
+    button.textContent = copied ? 'Copied' : 'Select text and copy';
+    document.getElementById('copy-status').textContent = copied ? 'Commands copied.' : 'Select the commands and copy manually.';
+    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+  });
+});</script></body></html>
