@@ -122,3 +122,7 @@ supersede them with a new dated document that links back.
 - 2026-10-02 — [SI-v4 original goal and design trace](2026-10-02_si-v4-design-trace_handoff.md)
 
 - 2026-10-02 — [SI-v4 r2 repair and bounded absolute evaluation](2026-10-02_si-v4-r2-repair-cycle_handoff.md)
+
+- 2026-10-03 — [Project HTML opened in Safari](2026-10-03_project-html-safari_handoff.md)
+
+- 2026-10-03 — [Research papers folder opened in Finder](2026-10-03_papers-finder_handoff.md)
