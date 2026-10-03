@@ -136,3 +136,5 @@ supersede them with a new dated document that links back.
 - 2026-10-03 — [Qwen recovery sender started on hkn1991](2026-10-03_qwen-sender-started_handoff.md)
 
 - 2026-10-03 — [V4 revision rationale and latest-inference check](2026-10-03_v4-rationale-latest-inference_handoff.md)
+
+- 2026-10-04 — [V4 pasted failure and interactive continuation](2026-10-04_v4-interactive-rerun_handoff.md)
