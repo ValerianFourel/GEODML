@@ -37,6 +37,7 @@ from analysis.scripts.prepare_si_v4_diagnostics import freeze as freeze_diagnost
 from analysis.scripts.replay_source_importance_judge import frozen_cells
 
 JOB_NAME = "geodml-gemma-si-v4"
+NEMOTRON_JOB_NAME = "geodml-nemotron-si-v4"
 SELECTION_FORMAT = "si-v4-manual-selection-v1"
 
 
@@ -522,6 +523,79 @@ def prepare(args):
     return 0
 
 
+def prepare_nemotron(args):
+    """Freeze one small model comparison from the actual Gemma evaluation inputs."""
+    from transformers import AutoTokenizer
+    from analysis.scripts.prepare_si_v4_evaluation import load_freeze, subset_freeze
+
+    repo = Path(__file__).resolve().parents[2]
+    if subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"], text=True).strip():
+        raise ValueError("clean committed checkout required")
+    pin = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    workspace, out, source = args.workspace.resolve(), args.output.resolve(), args.source_run.resolve()
+    if out.exists() or not out.is_relative_to(workspace):
+        raise ValueError("use a new output directory within the workspace")
+    if not 1 <= args.count <= 20 or not args.approval.strip():
+        raise ValueError("comparison requires 1-20 cells and a recorded launch request")
+    parent = stage.read(source / "config.json")
+    if (parent.get("model_id") != gemma.MODEL or parent.get("model_revision") != gemma.REVISION
+            or parent.get("workload_mode") != "evaluation-v4"
+            or judge.file_hash(source / "judge-config.json") != parent["judge_config_sha256"]):
+        raise ValueError("verified Gemma evaluation configuration required")
+    settings = judge.load_config(source / "judge-config.json")
+    manifest, cells, _ = load_freeze(source / "candidate-inputs")
+    if manifest != parent["inventories"]["candidate-inputs"] or manifest["protocol"] != v4.PROTOCOL:
+        raise ValueError("candidate input manifest differs from saved evaluation")
+    if args.count > len(cells):
+        raise ValueError("not enough saved cells")
+    receipt = stage.preparation_dir(workspace) / "models-verified.json"
+    verified = stage.read(receipt)
+    if (verified.get("status") != "verified" or
+            [(m["repo_id"], m["revision"]) for m in verified["models"]] != list(stage.NEMOTRON)):
+        raise ValueError("verified pinned Nemotron receipt required")
+    snapshot = Path(verified["models"][0]["snapshot"])
+    if not snapshot.is_dir():
+        raise ValueError("verified Nemotron snapshot missing; restore the pinned cache before allocating")
+    versions = gemma.runtime_check()
+    expected = {**settings["runtime_versions"], "vllm": settings["serving_version"].removeprefix("vllm-")}
+    if any(versions[k] != value for k, value in expected.items()):
+        raise ValueError("runtime differs from the saved Gemma comparison")
+    tokenizer = AutoTokenizer.from_pretrained(str(snapshot), local_files_only=True, trust_remote_code=False)
+    settings.update(model_id=stage.MODEL_ID, model_revision=stage.MODEL_REVISION,
+                    tokenizer_path=str(snapshot), source_importance_only=True,
+                    chat_template_sha256=hashlib.sha256(tokenizer.get_chat_template().encode()).hexdigest())
+    selected = random.Random(args.seed).sample(sorted(c["cell_id"] for c in cells), args.count)
+    out.mkdir(parents=True)
+    inventory = subset_freeze(source / "candidate-inputs", out / "v4-inputs", selected)
+    schema_check(out / "v4-inputs")
+    atomic(out / "judge-config.json", judge.canonical(settings).encode())
+    judge.load_config(out / "judge-config.json")
+    hours = stage._hours(args.walltime)
+    config = {"repository": str(repo), "git_commit": pin, "workspace": str(workspace),
+              "model_id": stage.MODEL_ID, "model_revision": stage.MODEL_REVISION,
+              "serving": stage.SERVING, "runtime": versions, "trial": "si-v4-development",
+              "judge_protocol": v4.PROTOCOL, "workload_mode": "selected-v4-cells",
+              "cache_prefix": "nemotron-si-v4", "development_config": str(out / "config.json"),
+              "job_name": NEMOTRON_JOB_NAME, "walltime": args.walltime, "account": args.account,
+              "approval": args.approval, "scientific_result": False,
+              "inventories": {"v4-inputs": inventory}, "source_importance_only": True,
+              "structured_outputs_config": settings["structured_outputs_config"],
+              "judge_config_sha256": judge.file_hash(out / "judge-config.json"),
+              "source_files": {str(p): judge.file_hash(p) for p in
+                               (source / "config.json", source / "judge-config.json", receipt)},
+              "selection": {"seed": args.seed, "selected_cell_ids": selected,
+                            "purpose": "paired model diagnostic; not confirmatory"},
+              "estimate": {"minutes": [12, 25] if args.count <= 8 else [15, 40],
+                           "nodes": 1, "gpus": 4, "cpus_requested": 32,
+                           "memory": "whole A100 node", "node_hours_max": hours, "gpu_hours_max": 4 * hours,
+                           "basis": "Gemma startup 8.9-10.9 min plus 6-7 warm min per 20 cells; Nemotron v4 unmeasured"}}
+    atomic(out / "config.json", judge.canonical(config).encode())
+    atomic(out / "run.sh", gemma.run_script(repo, out))
+    print(json.dumps({"prepared": str(out), "cells": args.count, "model": stage.MODEL_ID,
+                      "estimate": config["estimate"], "allocation_submitted": False}, indent=2))
+    return 0
+
+
 def admission(snapshot, now, *, existing_queue_exception=False):
     from analysis.scripts.capture_agentic_scheduler_snapshot import ACTIVE_STATES
     if snapshot.get("complete") is not True or not 0 <= now - snapshot["captured_at_epoch"] <= 120:
@@ -531,7 +605,7 @@ def admission(snapshot, now, *, existing_queue_exception=False):
         raise ValueError("five allocations already active; wait on the login host")
     if not existing_queue_exception and any(r["state"] == "PENDING" for r in live):
         raise ValueError("pending allocations prevent a reliable start-gap check; leave them unchanged")
-    if any(r["job_name"] == JOB_NAME for r in live):
+    if any(r["job_name"] in (JOB_NAME, NEMOTRON_JOB_NAME) for r in live):
         raise ValueError("SI-v4 allocation already exists; do not request another")
     starts = [r["start_epoch"] for r in live + snapshot.get("owners", []) if isinstance(r.get("start_epoch"), int)]
     wait = 600 - (now - max(starts, default=0))
@@ -543,8 +617,12 @@ def check(args):
     from analysis.scripts.capture_agentic_scheduler_snapshot import capture
     out = args.output.resolve()
     config = stage.read(out / "config.json")
-    if config["job_name"] != JOB_NAME or config["walltime"] not in ("01:00:00", "03:00:00") or not config["approval"]:
+    nemotron = config["job_name"] == NEMOTRON_JOB_NAME
+    durations = ("00:30:00", "00:45:00", "01:00:00") if nemotron else ("01:00:00", "03:00:00")
+    if config["job_name"] not in (JOB_NAME, NEMOTRON_JOB_NAME) or config["walltime"] not in durations or not config["approval"]:
         raise ValueError("not an approved SI-v4 preparation")
+    if nemotron and (config.get("model_id") != stage.MODEL_ID or config.get("model_revision") != stage.MODEL_REVISION):
+        raise ValueError("Nemotron comparison model identity changed")
     exception = getattr(args, "approved_existing_queue_exception", False)
     legacy_scope = (
         out == Path(config["workspace"]).resolve() / "reviews/gemma-si-v4-development-20261001"
@@ -568,7 +646,8 @@ def check(args):
     history = subprocess.check_output(["sacct", "-X", "--noheader", "--parsable2", "--starttime=" + since,
                                        "--format=JobIDRaw"], text=True)
     ids = [s.strip().split("|")[0] for s in (live + "\n" + history).splitlines() if s.strip()]
-    snapshot = capture(plan={"plan_id": "si-v4-development"}, since=since, include_job_ids=ids)
+    snapshot = capture(plan={"plan_id": "si-v4-development"}, since=since, include_job_ids=ids,
+                       include_all_jobs=nemotron)
     admission(snapshot, int(time.time()), existing_queue_exception=exception)
     queue = subprocess.check_output(["squeue", "--account=" + config["account"], "--array", "--noheader", "--format=%i"], text=True)
     if len(set(queue.split())) >= 295:
@@ -664,6 +743,15 @@ async def review(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    n = commands.add_parser("prepare-nemotron", help="one Nemotron v4 pass on up to 20 saved Gemma evaluation cells")
+    n.add_argument("--workspace", type=Path, required=True)
+    n.add_argument("--source-run", type=Path, required=True)
+    n.add_argument("--output", type=Path, required=True)
+    n.add_argument("--account", required=True)
+    n.add_argument("--approval", required=True)
+    n.add_argument("--count", type=int, default=20)
+    n.add_argument("--seed", type=int, default=20261004)
+    n.add_argument("--walltime", choices=("00:30:00", "00:45:00", "01:00:00"), default="01:00:00")
     retry = commands.add_parser("select-failed-maps", help="select terminal failed-map cells without reusing or resetting old results")
     retry.add_argument("--previous-run", type=Path, required=True)
     retry.add_argument("--previous-job-id", required=True)
@@ -709,7 +797,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     return asyncio.run(review(args)) if args.command == "review" else {
         "select": select, "select-failed-maps": select_failed_maps, "fresh": fresh, "run-picked": run_picked,
-        "prepare": prepare, "check": check}[args.command](args)
+        "prepare": prepare, "prepare-nemotron": prepare_nemotron, "check": check}[args.command](args)
 
 
 if __name__ == "__main__":

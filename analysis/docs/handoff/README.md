@@ -148,3 +148,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Actual v4 r2 evidence reviewed against its goals](2026-10-04_v4-actual-semantic-review_handoff.md)
 
 - 2026-10-04 — [Gemma v4 full-corpus runtime estimate](2026-10-04_gemma-v4-full-corpus-cost_handoff.md)
+
+- 2026-10-04 — [Nemotron v4 eight-cell command targeting twenty minutes](2026-10-04_nemotron-v4-eight-cell-command_handoff.md)

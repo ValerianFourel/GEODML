@@ -57,6 +57,7 @@ def test_saved_bundle_bridge_rejects_duplicate_cells(baseline, tmp_path):
     ({"jobs": [{"state": "RUNNING", "job_name": "qwen"}] * 5}, "five"),
     ({"jobs": [{"state": "PENDING", "job_name": "qwen"}]}, "pending"),
     ({"jobs": [{"state": "RUNNING", "job_name": pilot.JOB_NAME}]}, "already exists"),
+    ({"jobs": [{"state": "RUNNING", "job_name": pilot.NEMOTRON_JOB_NAME}]}, "already exists"),
     ({"owners": [{"start_epoch": 9500}]}, "wait at least"),
 ])
 def test_admission_preserves_limits_without_historical_exception(change, reason):
@@ -116,14 +117,18 @@ def test_scoped_queue_exception_keeps_other_admission_guards(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("compact", [False, True])
-def test_new_stage_uses_existing_gemma_boundary_and_v4_driver(tmp_path, compact):
+@pytest.mark.parametrize("model,revision", [(pilot.gemma.MODEL, pilot.gemma.REVISION),
+                                           (pilot.stage.MODEL_ID, pilot.stage.MODEL_REVISION)])
+def test_new_stage_uses_existing_gemma_boundary_and_v4_driver(tmp_path, compact, model, revision):
     config = {"repository": str(tmp_path), "trial": "si-v4-development",
-              "model_id": pilot.gemma.MODEL, "model_revision": pilot.gemma.REVISION,
+              "model_id": model, "model_revision": revision,
               "development_config": str(tmp_path / "config.json")}
     if compact:
         config["structured_outputs_config"] = {"backend": "xgrammar", "disable_any_whitespace": True}
     prepare, run = pilot.stage.stage_commands(config, python="/runtime/bin/python", attempt=tmp_path, cache=tmp_path / "cache")
-    assert prepare[prepare.index("--model-revision") + 1] == pilot.gemma.REVISION
+    assert prepare[prepare.index("--model-revision") + 1] == revision
+    assert prepare[prepare.index("--model-id") + 1] == model
+    assert run[run.index("--server-model-name") + 1] == model
     assert "--language-model-only" in prepare and "--expected-gpu-name-pattern" in prepare
     assert run[run.index("--") + 1:run.index("--") + 4] == ["/runtime/bin/python", str(tmp_path / "analysis/scripts/horeka_si_v4.py"), "review"]
     assert run[run.index("--config") + 1] == str(tmp_path / "config.json")
@@ -212,6 +217,69 @@ def gemma_runtime(tmp_path, monkeypatch):
         raise AssertionError(cmd)
     monkeypatch.setattr(pilot.subprocess, "check_output", check_output)
     return scheduler
+
+
+@pytest.mark.parametrize("fault", [None, "missing-cache", "changed-input", "wrong-model", "too-many"])
+def test_nemotron_comparison_keeps_frozen_tasks_and_judging_settings(
+        baseline, tmp_path, monkeypatch, gemma_runtime, fault):
+    from pathlib import Path
+    from analysis.scripts.prepare_si_v4_evaluation import load_freeze
+    from analysis.scripts import capture_agentic_scheduler_snapshot as scheduler
+
+    source = tmp_path / "gemma-evaluation"
+    source.mkdir()
+    manifest = pilot.freeze_saved([replay.freeze_baseline(baseline)], source / "candidate-inputs", pilot.v4.PROTOCOL)
+    settings = pilot.stage.read(Path(pilot.__file__).resolve().parents[2] / "analysis/config/si_v4_gemma.template.json")
+    settings.update(source_importance_only=True,
+                    structured_outputs_config={"backend": "xgrammar", "disable_any_whitespace": True})
+    (source / "judge-config.json").write_text(json.dumps(settings))
+    (source / "config.json").write_text(json.dumps({
+        "model_id": pilot.gemma.MODEL, "model_revision": pilot.gemma.REVISION,
+        "workload_mode": "evaluation-v4", "inventories": {"candidate-inputs": manifest},
+        "judge_config_sha256": pilot.judge.file_hash(source / "judge-config.json")}))
+    receipt = pilot.stage.preparation_dir(tmp_path) / "models-verified.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(json.dumps({"status": "verified", "models": [{
+        "repo_id": pilot.stage.MODEL_ID, "revision": "0" * 40 if fault == "wrong-model" else pilot.stage.MODEL_REVISION,
+        "snapshot": str(tmp_path / ("missing" if fault == "missing-cache" else "model"))}]}))
+    if fault == "changed-input":
+        (source / "candidate-inputs/cells.jsonl.gz").write_bytes(b"changed")
+    out = tmp_path / "nemotron-comparison"
+    argv = ["prepare-nemotron", "--workspace", str(tmp_path), "--source-run", str(source),
+            "--output", str(out), "--count", "21" if fault == "too-many" else "8",
+            "--walltime", "00:30:00", "--account", "fixture", "--approval", "eight cells"]
+    if fault:
+        reason = {"missing-cache": "snapshot missing", "changed-input": "checksum mismatch",
+                  "wrong-model": "receipt required", "too-many": "1-20 cells"}[fault]
+        with pytest.raises(ValueError, match=reason):
+            pilot.main(argv)
+        assert not out.exists()
+        return
+    assert pilot.main(argv) == 0
+    config = pilot.stage.read(out / "config.json")
+    actual = pilot.judge.load_config(out / "judge-config.json")
+    for key, value in settings.items():
+        if key not in ("model_id", "model_revision", "tokenizer_path", "chat_template_sha256"):
+            assert actual[key] == value
+    assert actual["model_id"] == config["model_id"] == pilot.stage.MODEL_ID
+    assert actual["model_revision"] == config["model_revision"] == pilot.stage.MODEL_REVISION
+    assert config["job_name"] == pilot.NEMOTRON_JOB_NAME
+    assert config["estimate"]["gpu_hours_max"] == 2
+    _, old_cells, old_tasks = load_freeze(source / "candidate-inputs")
+    _, new_cells, new_tasks = load_freeze(out / "v4-inputs")
+    assert len(new_cells) == 8
+    assert all(c in old_cells for c in new_cells)
+    assert all(old_tasks[key] == value for key, value in new_tasks.items())
+    monkeypatch.setattr(scheduler, "capture", lambda **kw: {
+        "complete": True, "captured_at_epoch": int(pilot.time.time()), "jobs": [], "owners": []})
+    monkeypatch.setattr(pilot.subprocess, "run", lambda *a, **kw: None)
+    monkeypatch.setattr(pilot, "capture_quota", lambda *a: {"fixture": True})
+    monkeypatch.setattr(pilot.judge, "check_storage", lambda *a:
+                        {"safe_to_admit": True, "quota_verified": True})
+    assert pilot.main(["check", "--output", str(out)]) == 0
+    assert (out / "admission.json").exists()
+    with pytest.raises(ValueError, match="new output"):
+        pilot.main(argv)
 
 
 @pytest.mark.parametrize("selected", [False, True])
