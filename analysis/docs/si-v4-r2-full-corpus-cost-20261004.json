@@ -1,0 +1,177 @@
+{
+  "scope": "one SI-v4 map-plus-source pass; excludes J1, full-corpus repeats, v3 bridge and generation",
+  "registered_population_evidence": {
+    "repo": "ValerianFourel/geodml-experiment-v2-paper-private",
+    "revision": "bf9872076b185ead4c3a266319adde7ab449c328",
+    "path": "coordination/progress.json",
+    "registered_task_count": 624192,
+    "note": "Historical frozen task inventory, not current successful/eligible answer census. Current paper theoretical design is 624216."
+  },
+  "measurements": [
+    {
+      "run": "candidate-e2e-1",
+      "warm_node_hours": 0.20070544884999333,
+      "attempted_cells": 40,
+      "complete_cells": 36,
+      "completed_cells_per_warm_node_hour": 179.36732762500282,
+      "warm_seconds_per_completed_cell": 20.070544884999336
+    },
+    {
+      "run": "candidate-e2e-2",
+      "warm_node_hours": 0.1163317259705703,
+      "attempted_cells": 24,
+      "complete_cells": 24,
+      "completed_cells_per_warm_node_hour": 206.30657543988937,
+      "warm_seconds_per_completed_cell": 17.449758895585546
+    },
+    {
+      "run": "candidate-e2e-3",
+      "warm_node_hours": 0.13032495740328967,
+      "attempted_cells": 24,
+      "complete_cells": 23,
+      "completed_cells_per_warm_node_hour": 176.48192992556798,
+      "warm_seconds_per_completed_cell": 20.39868898486273
+    }
+  ],
+  "assumptions": {
+    "gpus_per_node": 4,
+    "gpu_type": "A100",
+    "walltime_minutes": 60,
+    "startup_minutes": [
+      8.9,
+      10.9
+    ],
+    "drain_cleanup_minutes": 5,
+    "comparable_answer_lengths_and_source_counts": true,
+    "current_completion_rate_not_a_guarantee_of_success": true,
+    "queue_wait_excluded": true,
+    "five_nodes_requires_all_five_concurrency_slots_available": true
+  },
+  "pilot_warm_allocation_fraction": 0.5003170378825617,
+  "estimates": {
+    "per_1000_cells": {
+      "cells": 1000,
+      "warm_node_hours_range": [
+        4.847155248773762,
+        5.666302495795203
+      ],
+      "one_hour_profile_allocated_node_hours_range": [
+        7,
+        8
+      ],
+      "one_hour_profile_gpu_hours_range": [
+        28,
+        32
+      ],
+      "days_one_node": [
+        0.2916666666666667,
+        0.3333333333333333
+      ],
+      "days_five_nodes": [
+        0.058333333333333334,
+        0.06666666666666667
+      ],
+      "pilot_utilization_node_hours_range": [
+        10,
+        12
+      ],
+      "pilot_utilization_days_five_nodes": [
+        0.08333333333333333,
+        0.1
+      ]
+    },
+    "one_generator_registered_target": {
+      "cells": 312096,
+      "warm_node_hours_range": [
+        1512.7777645212961,
+        1768.4303437276997
+      ],
+      "one_hour_profile_allocated_node_hours_range": [
+        1969,
+        2407
+      ],
+      "one_hour_profile_gpu_hours_range": [
+        7876,
+        9628
+      ],
+      "days_one_node": [
+        82.04166666666667,
+        100.29166666666667
+      ],
+      "days_five_nodes": [
+        16.408333333333335,
+        20.058333333333334
+      ],
+      "pilot_utilization_node_hours_range": [
+        3024,
+        3535
+      ],
+      "pilot_utilization_days_five_nodes": [
+        25.2,
+        29.458333333333332
+      ]
+    },
+    "both_generators_registered_target": {
+      "cells": 624192,
+      "warm_node_hours_range": [
+        3025.5555290425923,
+        3536.8606874553993
+      ],
+      "one_hour_profile_allocated_node_hours_range": [
+        3938,
+        4813
+      ],
+      "one_hour_profile_gpu_hours_range": [
+        15752,
+        19252
+      ],
+      "days_one_node": [
+        164.08333333333334,
+        200.54166666666666
+      ],
+      "days_five_nodes": [
+        32.81666666666667,
+        40.108333333333334
+      ],
+      "pilot_utilization_node_hours_range": [
+        6048,
+        7070
+      ],
+      "pilot_utilization_days_five_nodes": [
+        50.4,
+        58.916666666666664
+      ]
+    },
+    "both_generators_full_paper_design": {
+      "cells": 624216,
+      "warm_node_hours_range": [
+        3025.671860768563,
+        3536.9966787152985
+      ],
+      "one_hour_profile_allocated_node_hours_range": [
+        3938,
+        4813
+      ],
+      "one_hour_profile_gpu_hours_range": [
+        15752,
+        19252
+      ],
+      "days_one_node": [
+        164.08333333333334,
+        200.54166666666666
+      ],
+      "days_five_nodes": [
+        32.81666666666667,
+        40.108333333333334
+      ],
+      "pilot_utilization_node_hours_range": [
+        6048,
+        7070
+      ],
+      "pilot_utilization_days_five_nodes": [
+        50.4,
+        58.916666666666664
+      ]
+    }
+  }
+}
