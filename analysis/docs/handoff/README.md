@@ -164,3 +164,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Gemma preparation waiting on scheduler priority](2026-10-04_gemma-preparation-pending_handoff.md)
 
 - 2026-10-04 — [Gemma immediate held first wave and sender adoption](2026-10-04_gemma-prequeue-first-wave_handoff.md)
+
+- 2026-10-04 — [Gemma 200 held jobs confirmed in returned queue](2026-10-04_gemma-held-wave-observed_handoff.md)
