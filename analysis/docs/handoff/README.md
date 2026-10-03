@@ -132,3 +132,5 @@ supersede them with a new dated document that links back.
 - 2026-10-03 — [Qwen missing-cell recovery HTML](2026-10-03_qwen-recovery-html_handoff.md)
 
 - 2026-10-03 — [Qwen five-hour recovery sender](2026-10-03_qwen-five-hour-sender_handoff.md)
+
+- 2026-10-03 — [Qwen recovery sender started on hkn1991](2026-10-03_qwen-sender-started_handoff.md)
