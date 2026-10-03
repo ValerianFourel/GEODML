@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finish the Qwen recovery sweep · HoreKa</title>
+<style>
+:root{color-scheme:light;--ink:#193a3b;--muted:#556769;--paper:#f4f3ef;--line:#d7ded9;--green:#155b4c;--amber:#805816}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1050px;margin:auto;padding:42px 24px 70px}.eyebrow{font:600 12px/1.5 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--green)}h1{font-size:clamp(32px,5.2vw,55px);line-height:1.09;letter-spacing:-.035em;max-width:820px;margin:16px 0 20px}h2{font-size:27px;line-height:1.25;letter-spacing:-.02em;margin:0 0 12px}h3{font-size:18px;margin:22px 0 8px}.intro{max-width:800px;font-size:18px;color:var(--muted)}.chips{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}.chips span{border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;background:#fff}nav{display:flex;flex-wrap:wrap;gap:10px 24px;border-block:1px solid var(--line);padding:15px 0;margin:26px 0}a{color:var(--green);text-underline-offset:3px}section{scroll-margin-top:20px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:28px;margin-top:22px}.step{font:600 12px ui-monospace,monospace;letter-spacing:.12em;color:var(--green);margin-bottom:12px}.note{background:#f6f0df;border-left:3px solid #b38a45;padding:13px 17px;margin:18px 0;color:#604819}.success{background:#eaf3ed;border-color:#43896b;color:#285d49}.command{border:1px solid #294d4b;border-radius:8px;overflow:hidden;margin:20px 0 8px;max-width:100%;background:#102b2d}.command-head{background:#193d3d;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:11px 15px;color:#b5cdc3;font-size:12px}.command-head div{display:flex;gap:15px;align-items:center}.command a{color:#d5e9dc}button{appearance:none;border:1px solid #b4d1c2;border-radius:5px;padding:8px 13px;background:#e5efe8;color:#173f35;font:600 13px inherit;cursor:pointer}button:hover{background:#fff}a:focus-visible,button:focus-visible,summary:focus-visible,pre:focus-visible{outline:3px solid #b88228;outline-offset:3px}pre{margin:0;padding:19px;max-height:330px;overflow:auto;color:#e6eeea;font:13px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;tab-size:2}.copy-status{color:#d4e8d8;font-size:12px;min-height:1.7em;margin:0;padding:0 18px 5px}p{margin:10px 0 14px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;overflow-wrap:anywhere}pre code{font:inherit;overflow-wrap:normal}.small{font-size:13px;color:var(--muted)}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}th{background:#f1f5f1}ul,ol{padding-left:22px}li{margin:6px 0}details{margin:18px 0}summary{cursor:pointer;font-weight:600}footer{font-size:13px;color:var(--muted);padding-top:26px}footer code{word-break:break-all}.table-scroll{overflow:auto} .result{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}.result div{border:1px solid var(--line);border-radius:7px;padding:16px}.result strong{display:block;margin-bottom:5px}@media(max-width:620px){main{padding:24px 14px 45px}section{padding:19px 16px}h2{font-size:24px}.result{grid-template-columns:1fr}th,td{padding:8px}.command-head{padding:10px}pre{padding:14px;font-size:12px}.intro{font-size:16px}}
+</style></head><body><main>
+<div class="eyebrow">GEODML / HoreKa / Qwen</div>
+<h1>Finish the missing Qwen cells.</h1>
+<p class="intro">Valerian, use these commands in an already-open HoreKa login shell. Recover saved answers, freeze the eligible missing cells, run one finite sweep, then verify and publish the results.</p>
+<div class="chips"><span>One job per submission</span><span>Four A100 GPUs</span><span>At most one hour per job</span><span>Original results preserved</span></div>
+<div class="note">This page is a runbook, not a live status display. The current missing-cell count and job budget come from the preparation report. Existing queued and running Qwen jobs must finish before recovery preparation proceeds.</div>
+<nav aria-label="Recovery steps"><a href="#step-1">1. Prepare</a><a href="#step-2">2. Relaunch</a><a href="#step-3">3. Finalize &amp; publish</a><a href="#status-section">Status &amp; logs</a></nav>
+<section id="step-1"><div class="step">01 / PREPARE</div><h2>Recover saved work and freeze the missing cells</h2>
+<p>Run this once. It fetches the pinned helper and submits one CPU reconciliation job. That job seals recoverable results from ended writers, completes valid saved responses, releases only confirmed stale claims, and creates a separate recovery division.</p>
+<p>Completed cells and terminal failures are excluded from inference. Unknown ownership, invalid evidence and other unresolved cases remain in the report. The original <code>qwen-bouts/CURRENT</code> and old submissions stay in place.</p>
+<div class="command"><div class="command-head"><span>HoreKa login shell</span><div><a href="horeka-qwen-recovery-prepare.sh" download>Download .sh</a><button type="button" data-copy="prepare" aria-label="Copy preparation command">Copy command</button></div></div><pre id="prepare" tabindex="0"><code>(
+  set -euo pipefail
+  set +x
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  QWEN_RECOVERY_PIN=4a668d72bb2727518e9aa30ee08442d848fbc254
+  QWEN_RECOVERY_CODE=&quot;$W/checkouts/qwen-recovery-$QWEN_RECOVERY_PIN&quot;
+  QWEN_RECOVERY_RUN=&quot;$W/reviews/qwen-recovery-20261003&quot;
+  git -C &quot;$REPO&quot; fetch origin codex/qwen-recovery-20261003
+  if [ ! -d &quot;$QWEN_RECOVERY_CODE&quot; ]; then
+    git -C &quot;$REPO&quot; worktree add --detach &quot;$QWEN_RECOVERY_CODE&quot; &quot;$QWEN_RECOVERY_PIN&quot;
+  fi
+  test &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; rev-parse HEAD)&quot; = &quot;$QWEN_RECOVERY_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_RECOVERY_CODE&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  &quot;$RT/bin/python&quot; -u &quot;$QWEN_RECOVERY_CODE/analysis/scripts/horeka_qwen_recovery.py&quot; prepare \
+    --workspace &quot;$W&quot; --account hk-project-p0026831 --output &quot;$QWEN_RECOVERY_RUN&quot;
+)</code></pre><p class="copy-status" id="prepare-status" role="status" aria-live="polite"></p></div>
+<p class="small">Wait for the CPU job to end. Use Status below. Continue only when <code>preparation/ready.json</code> is reported. If there are no eligible missing cells, no GPU division is created.</p>
+<details><summary>Resources, estimate and limits</summary>
+<div class="table-scroll"><table><thead><tr><th>Work</th><th>Resources and finite ceiling</th><th>Basis</th></tr></thead><tbody>
+<tr><td>Preparation and final audit</td><td>Two CPU allocations total. Each: 1 node, 4 CPUs, 16 GiB, 1 hour. At most 8 requested CPU-hours; no GPUs.</td><td>Provisional 5–45 minutes each; depends on saved-shard count and verification cache. One-hour margin. No automatic allocation retry.</td></tr>
+<tr><td>Recovery inference</td><td>One node, 4 A100 GPUs, 32 requested CPUs, whole-node memory, 20–60 minutes per job. The preparation report freezes the number of jobs and total node/GPU-hours.</td><td>Uses the 90th-percentile rate from successful terminal bouts with new, unreused cells. Reserves 10 minutes for startup, 5 for admission drain and 2 for cleanup. A small complete backlog receives a shorter allocation.</td></tr>
+</tbody></table></div>
+<p>The historical Qwen rate was approximately 30–53 seconds per cell, with model startup near 5–6 minutes. Fresh saved measurements determine this sweep. Budget totals appear before GPU submission. Saved accounting records actual usage separately.</p>
+<p>The cheaper alternative is to reconcile and publish the saved outcomes, leaving eligible missing cells for a later approved sweep. No GPU is allocated by this preparation command.</p>
+</details></section>
+<section id="step-2"><div class="step">02 / RELAUNCH</div><h2>Submit the next recovery job</h2>
+<p>Each invocation submits at most one new job from the frozen list. Repeat after checking Status, until the helper prints <code>FINITE_SWEEP_SUBMITTED</code>. This is a finite sweep; it does not add replacement jobs or extend the budget when an allocation ends.</p>
+<p>The worker uses the same Qwen model, revision, prompts, seeds, settings and task identities. Its shared ledger skips cells already completed by another recovery worker. It takes eligible work from its assigned list and spillover, with checkpoints before the actual Slurm end time.</p>
+<div class="command"><div class="command-head"><span>HoreKa login shell</span><div><a href="horeka-qwen-recovery-next.sh" download>Download .sh</a><button type="button" data-copy="next" aria-label="Copy next recovery job command">Copy command</button></div></div><pre id="next" tabindex="0"><code>(
+  set -euo pipefail
+  set +x
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  QWEN_RECOVERY_PIN=4a668d72bb2727518e9aa30ee08442d848fbc254
+  QWEN_RECOVERY_CODE=&quot;$W/checkouts/qwen-recovery-$QWEN_RECOVERY_PIN&quot;
+  QWEN_RECOVERY_RUN=&quot;$W/reviews/qwen-recovery-20261003&quot;
+  test &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; rev-parse HEAD)&quot; = &quot;$QWEN_RECOVERY_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_RECOVERY_CODE&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  &quot;$RT/bin/python&quot; -u &quot;$QWEN_RECOVERY_CODE/analysis/scripts/horeka_qwen_recovery.py&quot; next \
+    --output &quot;$QWEN_RECOVERY_RUN&quot;
+)</code></pre><p class="copy-status" id="next-status" role="status" aria-live="polite"></p></div>
+<div class="note">Admission checks all your active allocations, including interactive sessions. It requires fewer than five active allocations, no unheld pending allocation, at least ten minutes since the latest observed start, and fresh byte/inode quota evidence. If blocked, wait on the login host and repeat this command. Keep existing allocations and their shells open.</div>
+<p class="small">A confirmed <code>sbatch</code> refusal can be retried with the same command because no allocation exists. A missing or ambiguous submission receipt stops further jobs until it is reconciled. HF-registered work or newly published selected cells also stop legacy admission.</p>
+</section>
+<section id="status-section"><div class="step">STATUS / LOGS</div><h2>Check progress or inspect a stop</h2>
+<p>Status shows the frozen counts and budget, submitted recovery jobs and the live user queue. Completed Slurm jobs do not by themselves establish that every cell succeeded.</p>
+<div class="command"><div class="command-head"><span>HoreKa login shell</span><div><a href="horeka-qwen-recovery-status.sh" download>Download .sh</a><button type="button" data-copy="status" aria-label="Copy status command">Copy command</button></div></div><pre id="status" tabindex="0"><code>(
+  set -euo pipefail
+  set +x
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  QWEN_RECOVERY_PIN=4a668d72bb2727518e9aa30ee08442d848fbc254
+  QWEN_RECOVERY_CODE=&quot;$W/checkouts/qwen-recovery-$QWEN_RECOVERY_PIN&quot;
+  QWEN_RECOVERY_RUN=&quot;$W/reviews/qwen-recovery-20261003&quot;
+  test &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; rev-parse HEAD)&quot; = &quot;$QWEN_RECOVERY_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_RECOVERY_CODE&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  &quot;$RT/bin/python&quot; -u &quot;$QWEN_RECOVERY_CODE/analysis/scripts/horeka_qwen_recovery.py&quot; status \
+    --output &quot;$QWEN_RECOVERY_RUN&quot;
+)</code></pre><p class="copy-status" id="status-status" role="status" aria-live="polite"></p></div>
+<details><summary>Show recent CPU and GPU logs</summary><div class="command"><div class="command-head"><span>HoreKa login shell</span><div><a href="horeka-qwen-recovery-logs.sh" download>Download .sh</a><button type="button" data-copy="logs" aria-label="Copy recent logs command">Copy command</button></div></div><pre id="logs" tabindex="0"><code>(
+  set -euo pipefail
+  set +x
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  QWEN_RECOVERY_PIN=4a668d72bb2727518e9aa30ee08442d848fbc254
+  QWEN_RECOVERY_CODE=&quot;$W/checkouts/qwen-recovery-$QWEN_RECOVERY_PIN&quot;
+  QWEN_RECOVERY_RUN=&quot;$W/reviews/qwen-recovery-20261003&quot;
+  test &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; rev-parse HEAD)&quot; = &quot;$QWEN_RECOVERY_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_RECOVERY_CODE&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  &quot;$RT/bin/python&quot; - &quot;$QWEN_RECOVERY_RUN&quot; &lt;&lt;&#x27;PY&#x27;
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+paths = list(root.glob(&#x27;*/slurm-*.out&#x27;)) + list(root.glob(&#x27;*/slurm-*.err&#x27;))
+paths += list(root.glob(&#x27;division/bouts/bout-*/slurm-*.out&#x27;))
+paths += list(root.glob(&#x27;division/bouts/bout-*/slurm-*.err&#x27;))
+for path in sorted(paths, key=lambda p: p.stat().st_mtime)[-6:]:
+    print(&#x27;\nLOG&#x27;, path)
+    with path.open(&#x27;rb&#x27;) as stream:
+        stream.seek(max(0, path.stat().st_size - 24000))
+        print(stream.read().decode(&#x27;utf-8&#x27;, errors=&#x27;replace&#x27;))
+print(&#x27;Original complete logs remain on disk.&#x27;)
+PY
+)</code></pre><p class="copy-status" id="logs-status" role="status" aria-live="polite"></p></div></details>
+<p>All evidence lives under <code>$W/reviews/qwen-recovery-20261003</code>. GPU logs and attempts are inside <code>division/bouts/bout-*/</code>. The log command prints bounded tails and preserves the complete files.</p>
+<p class="small">If preparation reports unsubmitted original bouts, missing accounting, unavailable measurements, quota/storage failure or an ownership conflict, return that message and these logs. Do not delete claims, submission markers or result files.</p></section>
+<section id="step-3"><div class="step">03 / FINALIZE &amp; PUBLISH</div><h2>Verify the sweep, then update Hugging Face</h2>
+<h3>A. Submit the final CPU check</h3>
+<p>Run after every recovery bout has been submitted and all its allocations have ended. This reconciles newly saved outputs and writes <code>final/coverage.json</code>. It submits no more inference.</p>
+<div class="command"><div class="command-head"><span>HoreKa login shell</span><div><a href="horeka-qwen-recovery-finalize.sh" download>Download .sh</a><button type="button" data-copy="finalize" aria-label="Copy final verification command">Copy command</button></div></div><pre id="finalize" tabindex="0"><code>(
+  set -euo pipefail
+  set +x
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  QWEN_RECOVERY_PIN=4a668d72bb2727518e9aa30ee08442d848fbc254
+  QWEN_RECOVERY_CODE=&quot;$W/checkouts/qwen-recovery-$QWEN_RECOVERY_PIN&quot;
+  QWEN_RECOVERY_RUN=&quot;$W/reviews/qwen-recovery-20261003&quot;
+  test &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; rev-parse HEAD)&quot; = &quot;$QWEN_RECOVERY_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_RECOVERY_CODE&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  &quot;$RT/bin/python&quot; -u &quot;$QWEN_RECOVERY_CODE/analysis/scripts/horeka_qwen_recovery.py&quot; finalize \
+    --output &quot;$QWEN_RECOVERY_RUN&quot;
+)</code></pre><p class="copy-status" id="finalize-status" role="status" aria-live="polite"></p></div>
+<div class="result"><div><strong>Complete</strong><code>complete: true</code> requires every registered Qwen cell to have a verified completion and no blocked reconciliation evidence.</div><div><strong>Work still remains</strong>Nonzero <code>eligible_missing</code>, <code>terminal_failed</code> or <code>blocked_or_unverified</code> stays visible. Return the report to plan the next finite action.</div></div>
+<h3>B. Publish the saved results</h3>
+<p>Wait for the final CPU job to finish first. Enter an HF token with write access in the terminal’s hidden prompt. This uploads verified saved Qwen outcomes to the existing private dataset and prints deduplicated published counts. Publication can preserve partial progress; it does not turn failed or missing cells into completions.</p>
+<div class="command"><div class="command-head"><span>HoreKa login shell</span><div><a href="horeka-qwen-recovery-publish.sh" download>Download .sh</a><button type="button" data-copy="publish" aria-label="Copy publication command">Copy command</button></div></div><pre id="publish" tabindex="0"><code>(
+  set -euo pipefail
+  set +x
+  source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
+  QWEN_RECOVERY_PIN=4a668d72bb2727518e9aa30ee08442d848fbc254
+  QWEN_RECOVERY_CODE=&quot;$W/checkouts/qwen-recovery-$QWEN_RECOVERY_PIN&quot;
+  QWEN_RECOVERY_RUN=&quot;$W/reviews/qwen-recovery-20261003&quot;
+  test &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; rev-parse HEAD)&quot; = &quot;$QWEN_RECOVERY_PIN&quot;
+  test -z &quot;$(git -C &quot;$QWEN_RECOVERY_CODE&quot; status --porcelain --untracked-files=all)&quot;
+  export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=&quot;$QWEN_RECOVERY_CODE&quot;
+  export GEODML_AUDIT_PROGRESS=1
+  unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
+  test -f &quot;$QWEN_RECOVERY_RUN/final/coverage.json&quot;
+  exec 9&gt;&gt;&quot;$W/reviews/qwen-hf-update.lock&quot;
+  flock -n 9 || { echo &quot;Another publisher is running; preserve it.&quot;; exit 1; }
+  QWEN_PUBLISH_OUT=&quot;$(mktemp -d &quot;$W/reviews/qwen-recovery-publish.XXXXXX&quot;)&quot;
+  read -r -s -p &quot;HF WRITE token (hidden): &quot; HF_TOKEN &lt;/dev/tty
+  printf &#x27;\n&#x27;
+  test -n &quot;$HF_TOKEN&quot;
+  export HF_TOKEN HUGGING_FACE_HUB_TOKEN=&quot;$HF_TOKEN&quot;
+  &quot;$RT/bin/python&quot; -u - &quot;$QWEN_RECOVERY_RUN&quot; &quot;$QWEN_PUBLISH_OUT&quot; &quot;$QWEN_RECOVERY_PIN&quot; &lt;&lt;&#x27;PY&#x27;
+from pathlib import Path
+import json, os, sys
+from analysis.interpretability.pipeline.agentic_hour_sync import Exchange, HubStore
+from analysis.scripts.publish_qwen_results import publish
+from analysis.scripts.report_inference_hub_progress import collect
+root, output, pin = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+context = json.loads((root / &#x27;recovery.json&#x27;).read_text())
+coverage = json.loads((root / &#x27;final/coverage.json&#x27;).read_text())
+print(&#x27;RECOVERY_COVERAGE&#x27;, json.dumps({k: v for k, v in coverage.items() if k != &#x27;blocked_fingerprints&#x27;}, indent=2), flush=True)
+try:
+    exchange = Exchange(HubStore(context[&#x27;repo_id&#x27;]), output / &#x27;journal&#x27;)
+    result = publish(exchange, Path(context[&#x27;dataset_root&#x27;]), stripes=256, apply=True, source_commit=pin)
+    (output / &#x27;publish.json&#x27;).write_text(json.dumps(result, indent=2) + &#x27;\n&#x27;)
+    progress = collect(exchange, revision=exchange.store.head())
+    (output / &#x27;hub-progress.json&#x27;).write_text(json.dumps(progress, indent=2) + &#x27;\n&#x27;)
+    print(&#x27;PUBLISHED_COUNTS&#x27;, json.dumps(progress, indent=2), flush=True)
+    print(&#x27;PUBLISH_DIRECTORY&#x27;, output, flush=True)
+    print(&#x27;Recovery complete:&#x27;, coverage[&#x27;complete&#x27;], &#x27;| Publication issues:&#x27;, len(result[&#x27;blocked&#x27;]))
+    if result[&#x27;blocked&#x27;] or progress[&#x27;status&#x27;] != &#x27;counted&#x27;:
+        raise SystemExit(2)
+except Exception as error:
+    message = str(error).replace(os.environ[&#x27;HF_TOKEN&#x27;], &#x27;[REDACTED]&#x27;)
+    (output / &#x27;error.json&#x27;).write_text(json.dumps({&#x27;error&#x27;: message}, indent=2) + &#x27;\n&#x27;)
+    print(&#x27;PUBLISH_FAILED&#x27;, message, &#x27;| Evidence:&#x27;, output, file=sys.stderr)
+    raise SystemExit(1)
+PY
+)</code></pre><p class="copy-status" id="publish-status" role="status" aria-live="polite"></p></div>
+<p class="small">Keep <code>final/coverage.json</code>, the printed publication directory and <code>hub-progress.json</code>. Local and published totals overlap, so do not add them. These are operational completion checks, not scientific acceptance.</p>
+</section>
+<footer><p>Execution pin: <code>4a668d72bb2727518e9aa30ee08442d848fbc254</code><br>Release branch: <code>codex/qwen-recovery-20261003</code>. Local recovery and sibling checks: 46 passing tests. No cluster allocation was launched while creating this page.</p>
+<p>HoreKa references checked on 3 October 2026: <a href="https://www.nhr.kit.edu/userdocs/horeka/batch/">batch queues</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/hardware/">hardware</a>, <a href="https://www.nhr.kit.edu/userdocs/horeka/filesystems/">filesystems and quotas</a>.</p></footer>
+</main><script>
+document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{
+ const id=button.dataset.copy, block=document.getElementById(id), status=document.getElementById(id+'-status');
+ try{await navigator.clipboard.writeText(block.textContent);status.textContent='Copied. Paste into your HoreKa login shell.';}
+ catch(error){const range=document.createRange();range.selectNodeContents(block);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);status.textContent='Command selected. Press Cmd+C or Ctrl+C to copy.';}
+}));
+</script></body></html>

@@ -128,3 +128,5 @@ supersede them with a new dated document that links back.
 - 2026-10-03 — [Research papers folder opened in Finder](2026-10-03_papers-finder_handoff.md)
 
 - 2026-10-03 — [SI-v4 r2 readiness from prior conversation](2026-10-03_si-v4-r2-readiness_handoff.md)
+
+- 2026-10-03 — [Qwen missing-cell recovery HTML](2026-10-03_qwen-recovery-html_handoff.md)
