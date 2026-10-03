@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import fcntl
+import getpass
 import json
 import os
 from pathlib import Path
@@ -360,15 +361,81 @@ def checked_config(config_path, budget):
     return config
 
 
+def account_existing_job(job, config_path, config, budget):
+    """Charge a user-created terminal allocation before admitting its replacement."""
+    registered = [row for row in budget["submissions"] if row.get("job_id") == job]
+    if registered:
+        if (len(registered) != 1 or registered[0].get("phase") != config["evaluation_phase"]
+                or registered[0].get("config_sha256") != judge.file_hash(config_path)):
+            raise ValueError("existing allocation is registered to a different cycle configuration")
+        return
+    from analysis.scripts.capture_agentic_scheduler_snapshot import TERMINAL_STATES
+    if not job.isdecimal():
+        raise ValueError("existing allocation ID must be numeric")
+    raw = subprocess.check_output(["sacct", "-X", "-j", job, "--noheader", "--parsable2",
+        "--format=JobIDRaw,JobName%100,Account%100,User%100,State%40,TimelimitRaw,ElapsedRaw,AllocTRES%1000"],
+        text=True, timeout=30)
+    rows = [line.split("|") for line in raw.splitlines() if line.split("|")[0].strip() == job]
+    if len(rows) != 1:
+        raise ValueError("existing allocation accounting is unavailable; preserve its budget")
+    _, name, account, user, state, limit, elapsed, tres, *_ = (part.strip() for part in rows[0])
+    allocation = dict(part.split("=", 1) for part in tres.split(",") if "=" in part)
+    minutes = sum(int(part) * factor for part, factor in zip(config["walltime"].split(":"), (60, 1, 1 / 60)))
+    if (name != config["job_name"] or account != config["account"] or user != getpass.getuser()
+            or state.split()[0].rstrip("+") not in TERMINAL_STATES or limit != str(int(minutes))
+            or not elapsed.isdecimal() or allocation.get("gres/gpu") != "4" or allocation.get("node") != "1"):
+        raise ValueError("existing allocation does not match the terminal four-GPU cycle job")
+    budget["submissions"].append({"phase": config["evaluation_phase"],
+        "submission_id": "existing-allocation-" + job, "job_id": job,
+        "config_sha256": judge.file_hash(config_path), "walltime": config["walltime"], "gpus": 4,
+        "mode": "accounted-user-created-allocation", "registered_at_epoch": time.time(),
+        "accounting_evidence": raw})
+
+
+def resume_estimate(config_path, config):
+    """Report saved progress and measured warm time without summing overlapping requests."""
+    spec = read(config_path.parent / "evaluation-plan.json")
+    progress, rates, remaining = [], [], 0
+    for row in spec["queue"]:
+        saved = latest_report(config_path.parent / "evaluation-results" / row["name"])
+        summary = read(saved / "summary.json") if saved else {}
+        cells = sum(1 for _ in judge.rows(config_path.parent / row["inputs"] / "cells.jsonl.gz"))
+        complete = summary.get("counts", {}).get("cells_complete", 0)
+        terminal = summary.get("status") in ("finished", "finished_with_failures")
+        remaining += 0 if terminal else max(0, cells - complete)
+        warm = summary.get("timing", {}).get("si", {}).get("node_hours", 0) * 60
+        if warm > 0 and complete > 0:
+            rates.append(warm / complete)
+        progress.append({"run": row["name"], "status": summary.get("status", "unstarted"),
+                         "cells": cells, "counts": summary.get("counts", {}), "warm_minutes": warm})
+    rates = rates or [5.87 / 20, 1.30]
+    return {**config["estimate"], "saved_progress": progress,
+        "remaining_cell_executions_upper_bound": remaining,
+        "remaining_warm_minutes_range": [remaining * min(rates), remaining * max(rates)],
+        "startup_minutes_range": [8.9, 10.9], "drain_cleanup_minutes": 5,
+        "rate_basis": "saved warm timing per completed cell; historical 20-cell/retry timings if unavailable",
+        "caveat": "controls, fixed-map passes and failures differ in cost; this range is provisional",
+        "cheaper_alternative": "a shorter segment avoids reserved time but pays the same 9-11 minute startup; use the registered resumable walltime"}
+
+
 def submit(args):
     """Submit one finite segment after fresh admission, never chain or requeue."""
     from datetime import date, timedelta
     from analysis.scripts import horeka_si_v4 as pilot
     from analysis.scripts.capture_agentic_scheduler_snapshot import capture, TERMINAL_STATES
+    interactive = getattr(args, "interactive", False)
+    if getattr(args, "account_existing_job", []) and not interactive:
+        raise ValueError("account-existing-job requires the interactive replacement path")
+    if interactive and os.environ.get("SLURM_JOB_ID"):
+        raise ValueError("request the new allocation from a separate login shell; preserve the existing allocation")
     config_path = args.config.resolve()
     ledger = Path(read(config_path)["cycle_budget_path"])
     with budget_lock(ledger) as budget:
         config = checked_config(config_path, budget)
+        if interactive:
+            for job in getattr(args, "account_existing_job", []):
+                account_existing_job(job, config_path, config, budget)
+            atomic(ledger, judge.canonical(budget).encode())
         phase = config["evaluation_phase"]
         attempted = [r for r in budget["submissions"] if r["phase"] == phase]
         if len(attempted) >= BUDGET["maximum_segments_per_phase"]:
@@ -379,7 +446,8 @@ def submit(args):
         if queue_summary.exists() and read(queue_summary).get("complete") is True:
             raise ValueError("evaluation queue already exhausted; no allocation needed")
         snapshot = capture(plan={"plan_id": "si-v4-r2"}, since=str(date.today() - timedelta(days=7)),
-                           include_job_ids=[r["job_id"] for r in budget["submissions"]])
+                           include_job_ids=[r["job_id"] for r in budget["submissions"]],
+                           include_all_jobs=interactive)
         pilot.admission(snapshot, int(time.time()))
         # A queued or starting segment may have no task writer yet. Its durable
         # submission still owns the cycle until accounting confirms termination.
@@ -388,6 +456,17 @@ def submit(args):
         if any(row["job_id"] in live or row["job_id"] not in terminal for row in budget["submissions"]):
             raise ValueError("previous cycle allocation is live or not confirmed terminal; preserve it")
         reconcile(config_path.parent)
+        estimate = config["estimate"]
+        if interactive:
+            usage_path = config_path.parent / ("resources-before-" + uuid.uuid4().hex + ".json")
+            usage = allocation_usage(budget["submissions"])
+            atomic(usage_path, judge.canonical(usage).encode())
+            hours = sum(int(part) * factor for part, factor in zip(config["walltime"].split(":"), (1, 1 / 60, 1 / 3600))) * 4
+            if (not usage["complete"] or usage["gpu_hours_total"] + hours > BUDGET["gpu_hours_total"]
+                    or usage["gpu_hours_by_phase"][phase] + hours > BUDGET["gpu_hours_by_phase"][phase]):
+                raise ValueError("actual resource accounting is incomplete or the remaining cycle budget is insufficient")
+            estimate = {**resume_estimate(config_path, config), "accounting": str(usage_path),
+                        "gpu_hours_used_by_phase": usage["gpu_hours_by_phase"]}
         quota = config_path.parent / "submission-quota.json"
         atomic(quota, judge.canonical(pilot.capture_quota(Path(config["workspace"]), config["account"])).encode())
         health = judge.check_storage(config["workspace"], quota)
@@ -404,22 +483,48 @@ def submit(args):
             raise ValueError("execution checkout is dirty")
         intent = {"phase": phase, "submission_id": uuid.uuid4().hex, "config_sha256": judge.file_hash(config_path),
                   "submitted_at_epoch": time.time(), "walltime": config["walltime"], "gpus": 4,
-                  "estimate": config["estimate"], "scheduler_before": snapshot, "storage_before": health}
+                  "estimate": estimate, "scheduler_before": snapshot, "storage_before": health}
+        if interactive:
+            intent.update(mode="salloc-no-shell", controller=str(Path(__file__).resolve()),
+                          controller_sha256=judge.file_hash(__file__))
         budget["submissions"].append(intent)
         atomic(ledger, judge.canonical(budget).encode())
-        command = ["sbatch", "--parsable", "--partition=accelerated", "--account=" + config["account"],
+        command = (["salloc", "--no-shell", "--immediate=30"] if interactive else ["sbatch", "--parsable"]) + [
+                   "--partition=accelerated", "--account=" + config["account"],
                    "--job-name=" + pilot.JOB_NAME, "--nodes=1", "--gres=gpu:4", "--cpus-per-task=32", "--exclusive",
-                   "--time=" + config["walltime"], "--comment=si-v4-r2:" + intent["submission_id"],
-                   "--output=" + str(config_path.parent / "slurm-%j.out"), str(config_path.parent / "run.sh")]
-        print(json.dumps({"estimate": config["estimate"], "command": command, "remaining_phase_segments": 4 - len(attempted)}, indent=2), flush=True)
+                   "--time=" + config["walltime"], "--comment=si-v4-r2:" + intent["submission_id"]]
+        command += ["--ntasks=1"] if interactive else [
+            "--output=" + str(config_path.parent / "slurm-%j.out"), str(config_path.parent / "run.sh")]
+        print(json.dumps({"estimate": estimate, "command": command, "remaining_phase_segments": 4 - len(attempted)}, indent=2), flush=True)
         # A crash/timeout leaves the durable intent unresolved; never guess that submission failed.
-        result = subprocess.run(command, text=True, capture_output=True, timeout=60, check=True)
-        job = result.stdout.strip().split(";")[0]
+        if interactive:
+            # Slurm bounds queue waiting. Never kill salloc during allocation/prolog.
+            result = subprocess.run(command, text=True, capture_output=True, env={**os.environ, "LC_ALL": "C"})
+            intent["scheduler_receipt"] = {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+            matches = re.findall(r"^salloc: Granted job allocation (\d+)\s*$", result.stderr, re.MULTILINE)
+            job = matches[0] if len(matches) == 1 else ""
+            if job:
+                intent["job_id"] = job
+            atomic(ledger, judge.canonical(budget).encode())
+            print(result.stdout + result.stderr, end="", flush=True)
+            if result.returncode:
+                raise RuntimeError("salloc did not finish successfully; saved receipt retained, inspect scheduler before retrying")
+        else:
+            result = subprocess.run(command, text=True, capture_output=True, timeout=60, check=True)
+            job = result.stdout.strip().split(";")[0]
         if not job.isdecimal():
             raise ValueError("ambiguous submission receipt; preserve intent and inspect scheduler")
         intent["job_id"] = job
         atomic(ledger, judge.canonical(budget).encode())
-        print("SUBMITTED_JOB", job)
+        print("SUBMITTED_JOB", job, flush=True)
+    if interactive:
+        # run-segment takes the same budget lock. Release it before starting the step.
+        command = ["srun", "--jobid=" + job, "--nodes=1", "--ntasks=1", "--cpus-per-task=32",
+                   "--gres=gpu:4", "--unbuffered", "bash", str(config_path.parent / "run.sh")]
+        print("RUNNING_PINNED_SEGMENT " + json.dumps(command), flush=True)
+        result = subprocess.run(command, env={**os.environ, "PYTHONPATH": config["repository"]})
+        print(f"SEGMENT_EXIT_CODE={result.returncode} ALLOCATION_PRESERVED={job}", flush=True)
+        return result.returncode
     return 0
 
 
@@ -436,10 +541,8 @@ def run_segment(args):
     return stage.execute(config_path)
 
 
-def resource_usage(args):
+def allocation_usage(submissions):
     from analysis.scripts.capture_agentic_scheduler_snapshot import TERMINAL_STATES
-    with budget_lock(args.budget) as budget:
-        submissions = list(budget["submissions"])
     totals = {"development": 0.0, "fresh": 0.0}
     records, complete = [], True
     for row in submissions:
@@ -468,12 +571,17 @@ def resource_usage(args):
         hours = int(elapsed) * int(gpu or 0) / 3600
         totals[row["phase"]] += hours
         records.append({"job_id": job, "phase": row["phase"], "state": state, "gpu_hours": hours, "raw": raw})
-    value = {"gpu_hours_total": sum(totals.values()), "gpu_hours_by_phase": totals, "complete": complete,
-             "allocations": records, "budget_sha256": judge.file_hash(args.budget), "captured_at_epoch": time.time()}
+    return {"gpu_hours_total": sum(totals.values()), "gpu_hours_by_phase": totals, "complete": complete,
+            "allocations": records, "captured_at_epoch": time.time()}
+
+
+def resource_usage(args):
+    with budget_lock(args.budget) as budget:
+        value = {**allocation_usage(budget["submissions"]), "budget_sha256": judge.file_hash(args.budget)}
     with args.output.open("x") as stream:
         stream.write(json.dumps(value, indent=2) + "\n")
     print(json.dumps(value, indent=2))
-    return 0 if complete else 2
+    return 0 if value["complete"] else 2
 
 
 def export(args):
@@ -559,7 +667,12 @@ def main(argv=None):
     r = commands.add_parser("reconcile")
     r.add_argument("--root", type=Path, required=True)
     for name in ("submit", "run-segment"):
-        commands.add_parser(name).add_argument("--config", type=Path, required=True)
+        command = commands.add_parser(name)
+        command.add_argument("--config", type=Path, required=True)
+        if name == "submit":
+            command.add_argument("--interactive", action="store_true", help="allocate with salloc and run one pinned segment through srun; preserve allocation")
+            command.add_argument("--account-existing-job", action="append", default=[],
+                                 help="charge a prior terminal user-created allocation before its interactive replacement")
     usage = commands.add_parser("resource-usage")
     usage.add_argument("--budget", type=Path, required=True)
     usage.add_argument("--output", type=Path, required=True)
