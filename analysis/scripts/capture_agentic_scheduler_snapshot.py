@@ -50,7 +50,7 @@ def _comment(value: str) -> dict[str, str]:
 
 
 def _run(command: list[str]) -> str:
-    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    result = subprocess.run(command, text=True, capture_output=True, check=False, timeout=30)
     if result.returncode != 0:
         raise RuntimeError(
             f"scheduler query failed ({command[0]}): {result.stderr.strip()}"
@@ -64,6 +64,7 @@ def capture(
     since: str,
     runner: Callable[[list[str]], str] = _run,
     include_job_ids: Sequence[str] = (),
+    include_all_jobs: bool = False,
 ) -> dict[str, Any]:
     """Capture all live geodml-* jobs plus this plan's terminal history."""
 
@@ -73,7 +74,7 @@ def capture(
     if not isinstance(plan_id, str):
         raise TypeError("plan lacks a plan_id")
     live_raw = runner([
-        "squeue", "--noheader", "--me",
+        "squeue", "--noheader", "--me", "--array",
         "--format=%i|%j|%T|%S|%r|%k",
     ])
     jobs: list[dict[str, Any]] = []
@@ -84,7 +85,7 @@ def capture(
         if len(fields) != 6:
             raise ValueError(f"unexpected squeue row {number}")
         job_id, name, state, start, reason, comment = (item.strip() for item in fields)
-        if not name.startswith("geodml-") and job_id not in include_job_ids:
+        if not include_all_jobs and not name.startswith("geodml-") and job_id not in include_job_ids:
             continue
         state = state.upper()
         metadata = _comment(comment)
@@ -104,6 +105,7 @@ def capture(
     ])
     completed_segment_ids: set[str] = set()
     owners: dict[str, dict[str, Any]] = {}
+    live_ids = {row['job_id'] for row in jobs}
     for number, line in enumerate(history_raw.splitlines(), 1):
         if not line.strip():
             continue
@@ -111,14 +113,18 @@ def capture(
         if len(fields) < 5:
             raise ValueError(f"unexpected sacct row {number}")
         job_id, name, state, start, comment = (item.strip() for item in fields[:5])
-        if not re.fullmatch(r"[0-9]+", job_id) or (not name.startswith("geodml-") and job_id not in include_job_ids):
+        if not re.fullmatch(r"[0-9]+(?:_[0-9]+)?", job_id) or (not include_all_jobs and not name.startswith("geodml-") and job_id not in include_job_ids):
             continue
         state = state.split()[0].rstrip("+").upper()
         metadata = _comment(comment)
-        if state in TERMINAL_STATES:
+        # A live allocation overrides delayed terminal accounting for the same job.
+        if state in TERMINAL_STATES and job_id not in live_ids:
             if metadata.get("plan_id") == plan_id:
                 completed_segment_ids.add(metadata["segment_id"])
             owner_ids = [f"job{job_id}-worker0", f"judge-{job_id}-0"]
+            bout = re.fullmatch(r"geodml-qwen-bout-([0-9]+)", name)
+            if bout:
+                owner_ids.append(f"horeka-bout{int(bout[1]):04d}-job{job_id}")
             if metadata.get("attempt_id"):
                 owner_ids.append(f"{metadata['cluster']}-{metadata['attempt_id']}")
             for owner_id in owner_ids:
