@@ -1,0 +1,459 @@
+{
+  "evidence_type": "user-pasted-terminal-output",
+  "session_line": 1440,
+  "timestamp": "2026-10-03T15:35:51.601Z",
+  "queue": {
+    "complete": true,
+    "planned_runs": 10,
+    "runs": [
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-e2e-1/reports/si-1f3cdba17eb74c2e",
+        "reused": true,
+        "run": "candidate-e2e-1"
+      },
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/constructed/reports/si-79cbfffba7b1465b",
+        "reused": true,
+        "run": "constructed"
+      },
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/list-order/reports/si-4eec1e010bb349a3",
+        "reused": true,
+        "run": "list-order"
+      },
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/role-controls/reports/si-170ac444497747de",
+        "reused": true,
+        "run": "role-controls"
+      },
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/cost-reference/reports/si-4bcef53708544795",
+        "reused": true,
+        "run": "cost-reference"
+      },
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-e2e-2/reports/si-f4ffe6375eb74bc3",
+        "reused": true,
+        "run": "candidate-e2e-2"
+      },
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-e2e-3/reports/si-e7ccbd7d98354932",
+        "reused": true,
+        "run": "candidate-e2e-3"
+      },
+      {
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-fixed-1/reports/si-9c085388db064b4a",
+        "reused": true,
+        "run": "candidate-fixed-1"
+      },
+      {
+        "exit_code": 2,
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-fixed-2/reports/si-9dcef38c39c943ac",
+        "reused": false,
+        "run": "candidate-fixed-2"
+      },
+      {
+        "exit_code": 2,
+        "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-fixed-3/reports/si-5a150fd195ea483b",
+        "reused": false,
+        "run": "candidate-fixed-3"
+      }
+    ],
+    "scientific_result": false,
+    "semantic_acceptance": "not_established",
+    "status": "finished"
+  },
+  "runs": [
+    {
+      "run": "candidate-e2e-1",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-e2e-1/reports/si-1f3cdba17eb74c2e",
+      "summary": {
+        "status": "finished_with_failures",
+        "counts": {
+          "sources_scored": 198,
+          "model_declared_eligible_sources": 207,
+          "sources_uncertain": 1,
+          "cells_complete": 36,
+          "cells_provenance_verified": 0,
+          "cells": 40,
+          "sources_inference_failed": 1,
+          "sources_global_absence_only": 7,
+          "sources_map_failed": 7
+        },
+        "states": {
+          "blocked": 14,
+          "done": 240,
+          "not_requested": 40
+        },
+        "inference_failures": 2,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.565475637714068e-08,
+            "gpu_hours": 6.261902550856272e-08
+          },
+          "si": {
+            "node_hours": 0.20070544884999333,
+            "gpu_hours": 0.8028217953999733
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": [
+        {
+          "count": 1,
+          "kind": "source",
+          "error": "JudgeOutputError: full finding must cover the mapped claim"
+        },
+        {
+          "count": 1,
+          "kind": "map",
+          "error": "JudgeOutputError: exclusion overlaps claim or exclusion at word IDs: a3w6. A word cannot be both claimed and excluded, or excluded twice. Keep substantive words in claims. For a permitted exclusion inside a claim, split that claim's spans around the excluded words. Otherwise remove the conflicting exclusion. Preserve full coverage and the answer's meaning."
+        }
+      ]
+    },
+    {
+      "run": "constructed",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/constructed/reports/si-79cbfffba7b1465b",
+      "summary": {
+        "status": "finished",
+        "counts": {
+          "sources_scored": 44,
+          "model_declared_eligible_sources": 44,
+          "cells_complete": 44,
+          "cells_provenance_verified": 0,
+          "cells": 48,
+          "sources_global_absence_only": 4
+        },
+        "states": {
+          "blocked": 4,
+          "done": 37,
+          "not_requested": 13
+        },
+        "inference_failures": 0,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.4229962188336585e-08,
+            "gpu_hours": 5.691984875334634e-08
+          },
+          "si": {
+            "node_hours": 0.013066045048374993,
+            "gpu_hours": 0.05226418019349997
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": []
+    },
+    {
+      "run": "list-order",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/list-order/reports/si-4eec1e010bb349a3",
+      "summary": {
+        "status": "finished",
+        "counts": {
+          "cells_complete": 5,
+          "cells_provenance_verified": 0,
+          "cells": 5
+        },
+        "states": {
+          "done": 5,
+          "not_requested": 5
+        },
+        "inference_failures": 0,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.441667942951123e-08,
+            "gpu_hours": 5.766671771804492e-08
+          },
+          "si": {
+            "node_hours": 0.008608868560016466,
+            "gpu_hours": 0.034435474240065864
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": []
+    },
+    {
+      "run": "role-controls",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/role-controls/reports/si-170ac444497747de",
+      "summary": {
+        "status": "finished",
+        "counts": {
+          "sources_scored": 4,
+          "model_declared_eligible_sources": 4,
+          "cells_complete": 4,
+          "cells_provenance_verified": 0,
+          "cells": 4
+        },
+        "states": {
+          "done": 5,
+          "not_requested": 1
+        },
+        "inference_failures": 0,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.4614973527689775e-08,
+            "gpu_hours": 5.84598941107591e-08
+          },
+          "si": {
+            "node_hours": 0.0016890340264136385,
+            "gpu_hours": 0.006756136105654554
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": []
+    },
+    {
+      "run": "cost-reference",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/cost-reference/reports/si-4bcef53708544795",
+      "summary": {
+        "status": "finished",
+        "counts": {
+          "sources_scored": 214,
+          "model_declared_eligible_sources": 214,
+          "cells_complete": 40,
+          "cells_provenance_verified": 0,
+          "cells": 40
+        },
+        "states": {
+          "done": 214,
+          "not_requested": 40
+        },
+        "inference_failures": 0,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.4668071849478616e-08,
+            "gpu_hours": 5.8672287397914466e-08
+          },
+          "si": {
+            "node_hours": 0.028094963636378655,
+            "gpu_hours": 0.11237985454551462
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": []
+    },
+    {
+      "run": "candidate-e2e-2",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-e2e-2/reports/si-f4ffe6375eb74bc3",
+      "summary": {
+        "status": "finished",
+        "counts": {
+          "sources_scored": 124,
+          "model_declared_eligible_sources": 124,
+          "cells_complete": 24,
+          "cells_provenance_verified": 0,
+          "cells": 24
+        },
+        "states": {
+          "done": 148,
+          "not_requested": 24
+        },
+        "inference_failures": 0,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.5065824199053978e-08,
+            "gpu_hours": 6.026329679621591e-08
+          },
+          "si": {
+            "node_hours": 0.1163317259705703,
+            "gpu_hours": 0.4653269038822812
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": []
+    },
+    {
+      "run": "candidate-e2e-3",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-e2e-3/reports/si-e7ccbd7d98354932",
+      "summary": {
+        "status": "finished_with_failures",
+        "counts": {
+          "sources_scored": 123,
+          "model_declared_eligible_sources": 124,
+          "cells_complete": 23,
+          "cells_provenance_verified": 0,
+          "cells": 24,
+          "sources_inference_failed": 1
+        },
+        "states": {
+          "done": 148,
+          "not_requested": 24
+        },
+        "inference_failures": 1,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.668774833281835e-08,
+            "gpu_hours": 6.67509933312734e-08
+          },
+          "si": {
+            "node_hours": 0.13032495740328967,
+            "gpu_hours": 0.5212998296131587
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": [
+        {
+          "count": 1,
+          "kind": "source",
+          "error": "JudgeOutputError: full finding must cover the mapped claim"
+        }
+      ]
+    },
+    {
+      "run": "candidate-fixed-1",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-fixed-1/reports/si-9c085388db064b4a",
+      "summary": {
+        "status": "finished_with_failures",
+        "counts": {
+          "sources_scored": 116,
+          "model_declared_eligible_sources": 124,
+          "cells_complete": 22,
+          "cells_provenance_verified": 0,
+          "cells": 24,
+          "sources_map_failed": 7,
+          "sources_inference_failed": 1
+        },
+        "states": {
+          "blocked": 7,
+          "done": 141,
+          "not_requested": 24
+        },
+        "inference_failures": 2,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.516975721137391e-08,
+            "gpu_hours": 6.067902884549564e-08
+          },
+          "si": {
+            "node_hours": 0.06911652612997891,
+            "gpu_hours": 0.27646610451991566
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": [
+        {
+          "count": 1,
+          "kind": "map",
+          "error": "JudgeOutputError: exclusion overlaps claim or exclusion at word IDs: a3w6. A word cannot be both claimed and excluded, or excluded twice. Keep substantive words in claims. For a permitted exclusion inside a claim, split that claim's spans around the excluded words. Otherwise remove the conflicting exclusion. Preserve full coverage and the answer's meaning."
+        },
+        {
+          "count": 1,
+          "kind": "source",
+          "error": "JudgeOutputError: full finding must cover the mapped claim"
+        }
+      ]
+    },
+    {
+      "run": "candidate-fixed-2",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-fixed-2/reports/si-9dcef38c39c943ac",
+      "summary": {
+        "status": "finished_with_failures",
+        "counts": {
+          "sources_scored": 116,
+          "model_declared_eligible_sources": 124,
+          "cells_complete": 22,
+          "cells_provenance_verified": 0,
+          "cells": 24,
+          "sources_map_failed": 7,
+          "sources_inference_failed": 1
+        },
+        "states": {
+          "blocked": 7,
+          "done": 141,
+          "not_requested": 24
+        },
+        "inference_failures": 2,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.6031618643965985e-08,
+            "gpu_hours": 6.412647457586394e-08
+          },
+          "si": {
+            "node_hours": 0.0739497300053093,
+            "gpu_hours": 0.2957989200212372
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": [
+        {
+          "count": 1,
+          "kind": "map",
+          "error": "JudgeOutputError: exclusion overlaps claim or exclusion at word IDs: a3w6. A word cannot be both claimed and excluded, or excluded twice. Keep substantive words in claims. For a permitted exclusion inside a claim, split that claim's spans around the excluded words. Otherwise remove the conflicting exclusion. Preserve full coverage and the answer's meaning."
+        },
+        {
+          "count": 1,
+          "kind": "source",
+          "error": "JudgeOutputError: full finding must cover the mapped claim"
+        }
+      ]
+    },
+    {
+      "run": "candidate-fixed-3",
+      "report": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/si-v4-r2-cycle-20261002/development/evaluation-results/candidate-fixed-3/reports/si-5a150fd195ea483b",
+      "summary": {
+        "status": "finished_with_failures",
+        "counts": {
+          "sources_scored": 116,
+          "model_declared_eligible_sources": 124,
+          "cells_complete": 22,
+          "cells_provenance_verified": 0,
+          "cells": 24,
+          "sources_map_failed": 7,
+          "sources_inference_failed": 1
+        },
+        "states": {
+          "blocked": 7,
+          "done": 141,
+          "not_requested": 24
+        },
+        "inference_failures": 2,
+        "quarantined_maps": 0,
+        "timing": {
+          "j1": {
+            "node_hours": 1.4641684376531177e-08,
+            "gpu_hours": 5.856673750612471e-08
+          },
+          "si": {
+            "node_hours": 0.06578335506356477,
+            "gpu_hours": 0.26313342025425907
+          }
+        },
+        "semantic_acceptance": "not_established"
+      },
+      "reported_errors": [
+        {
+          "count": 1,
+          "kind": "map",
+          "error": "JudgeOutputError: exclusion overlaps claim or exclusion at word IDs: a3w6. A word cannot be both claimed and excluded, or excluded twice. Keep substantive words in claims. For a permitted exclusion inside a claim, split that claim's spans around the excluded words. Otherwise remove the conflicting exclusion. Preserve full coverage and the answer's meaning."
+        },
+        {
+          "count": 1,
+          "kind": "source",
+          "error": "JudgeOutputError: full finding must cover the mapped claim"
+        }
+      ]
+    }
+  ],
+  "pasted_message_sha256": "b971b19a11d33d6f9fef6f04aa09e5c2445fd37b3777d24c8f6102dfd3990475",
+  "limitations": [
+    "User-pasted report summaries, not the full inference artifacts.",
+    "No live scheduler or allocation accounting was collected.",
+    "Reported scores, maps and input hashes have not been revalidated against complete remote artifacts in this assessment."
+  ]
+}
