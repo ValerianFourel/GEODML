@@ -160,3 +160,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Gemma v4 finite five-hour dataset queue](2026-10-04_gemma-v4-five-hour-queue_handoff.md)
 
 - 2026-10-04 — [Gemma launcher verification and 24-hour progress check](2026-10-04_gemma-launcher-24h-verification_handoff.md)
+
+- 2026-10-04 — [Gemma preparation waiting on scheduler priority](2026-10-04_gemma-preparation-pending_handoff.md)
