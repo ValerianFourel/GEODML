@@ -1,0 +1,33 @@
+{
+  "captured_at_utc": "2026-10-03T16:26:38.476687+00:00",
+  "hf_revision": "bf9872076b185ead4c3a266319adde7ab449c328",
+  "reviewers": "three gpt-6-astra agents; requested reasoning effort max",
+  "review_scope": "development diagnostic, not formal dual-model certification or human gold",
+  "verified_counts": {
+    "cells": 40,
+    "sources": 214,
+    "numeric_grades": 198,
+    "retained_findings": 185
+  },
+  "blind_files_unchanged": true,
+  "complete_cell_source_identity_join": true,
+  "saved_grades_and_finding_counts_match_original": true,
+  "files": {
+    "all-inference.jsonl": "af1d4cf0016b92cce9a1b887636d944f19916fd25456271d30eddc211d83e5d0",
+    "assessment.json": "d857ec8758e176d1fde137a32c8c758894822a58cdf3ad05133c76afd0990278",
+    "resource-usage.json": "e0f60c2fa2c45a6ca117fd9776875be042066617cff84c1b8013d9b0ca2eac9f",
+    "evaluation-evidence.tar.gz": "8ea5392c292df95fd850a7b449dfd871e0631c27451b56a5face36abf53e1221",
+    "goals-controls-review.md": "b5bad868a911d8a8026de7d9872244529e95ed959071f01e170081cbb93d3fa2",
+    "goals-controls-review.json": "d1be462b99f07e58e17aaa870e5b0a0cdba4fc6488c1aba8b7b71629c55773df",
+    "real-a-blind.jsonl": "5afa16fbd58b5c41eeae816af5eb183739a73dda65f2e078144de40bc13ccd71",
+    "real-b-blind.jsonl": "d330cfeb810cbf3d9a6684a631769a6906b588fddc98bfc04a723e7609360908",
+    "real-a-review.md": "16a0e1c293a0596b1ce20104a8636cbab75f261a72ad2d2e6ed0946fdb2e1a19",
+    "real-a-review.jsonl": "fb775838c3f43f66e9a046c825d3358dd41fe081e695af95ff899ef433a8ab28",
+    "real-b-review.md": "dcd8be8b7a4b65cbca6cdc4f84b41c401d160d96c236e8db35daef360c740744",
+    "real-b-review.jsonl": "e4f5caaaa710956ebe5525179740c6634b6da5c942502188c38d4d92dd51d1b5",
+    "real-omission-crosscheck.md": "b13c9ede6c6ef45bed28953e844922016b9707fc99761972cfb9389cfaea613b",
+    "independent-metric-check.json": "0a97f264dcd60fd0db4ea75b320ce9e52891a5988c550a00fcb23b7a88d55306",
+    "frozen-input-check.json": "148d89966a2dfc8c5658ccea14547e53744211b718bb17a7eee254601a9475aa",
+    "diagnostic-blind-range-comparison.json": "a729a631c5588091dbe5f720a7fab916692b66162268232f4fc4162d6f77d412"
+  }
+}

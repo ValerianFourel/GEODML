@@ -144,3 +144,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [V4 saved judgments for immediate content review](2026-10-04_v4-saved-judgment-review_handoff.md)
 
 - 2026-10-04 — [V4 evidence transfer for content review](2026-10-04_v4-hf-review-transfer_handoff.md)
+
+- 2026-10-04 — [Actual v4 r2 evidence reviewed against its goals](2026-10-04_v4-actual-semantic-review_handoff.md)
