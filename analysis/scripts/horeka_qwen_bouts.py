@@ -102,6 +102,14 @@ def divide(args):
     exchange = Exchange(HubStore(args.repo_id), out.parent / (out.name + '-journal'))
     revision = exchange.store.head()
     published = published_fingerprints(exchange, read_index(exchange.store, revision))
+    write_division(args, plan, tasks, completed, blocked, published, revision)
+
+
+def write_division(args, plan, tasks, completed, blocked, published, revision):
+    """Freeze a division from verified local inputs and a captured Hub inventory."""
+    out = args.output.resolve()
+    if out.exists():
+        raise ValueError('division already exists; preserve the frozen work')
     rows = remaining_rows(plan, tasks, completed, blocked, published)
     primary_cells = capacity(args.walltime, args.seconds_per_cell, args.startup_seconds)
     bouts = split(rows, primary_cells, args.overbook)
@@ -235,6 +243,9 @@ def submit(args):
         print(json.dumps({'dry_run': True, 'bouts': numbers, 'first_command': planned[0][2],
                           'previously_refused': [d.name for d in refused]}, indent=2))
         return
+    if (args.division.parent / 'recovery.json').is_file():
+        from analysis.scripts.horeka_qwen_recovery import before_gpu_submission
+        before_gpu_submission(args.division.parent, numbers)
     stamp = int(time.time())
     for directory in refused:
         # Slurm rejected this sbatch outright (no job exists); keep its evidence, free the bout.
