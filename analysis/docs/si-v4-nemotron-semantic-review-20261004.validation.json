@@ -1,0 +1,175 @@
+{
+  "format_version": "nemotron-v4-semantic-review-validation-v1",
+  "review_date": "2026-10-04",
+  "scientific_result": false,
+  "formal_acceptance_established": false,
+  "reviewers": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "max",
+    "count": 3,
+    "design": "Two disjoint ten-cell blind-first reviews plus one post-output protocol audit; not human gold or formal Astra/Sol certification."
+  },
+  "evidence": {
+    "revision": "99d32ee66bc9fd35c4d2b8f099c996c13958babf",
+    "path": "reviews/nemotron-si-v4-20cells-20261004-job5177346/assessment-nemotron-wwd7dud2/all-inference.jsonl",
+    "sha256": "9d940509b83c40e19959e1ab122ca96f523746fb61719caa20e6201b60b50170"
+  },
+  "artifact_directory": "/Users/valerianfourel/Downloads/nemotron-v4-review-20261004",
+  "input_verification": {
+    "cells_equal": 20,
+    "task_inputs_equal": 147,
+    "source_pairs": 107,
+    "nemotron_maps": {
+      "unusable": 18,
+      "ready": 1,
+      "FAILED": 1
+    },
+    "gemma_maps_matched": {
+      "ready": 20
+    },
+    "parsed_outputs_reproduced": {
+      "accepted_maps_reproduced": 19,
+      "rejected_map_reproduced": 1,
+      "source_outputs_reproduced": 7
+    },
+    "scientific_files_identical": {
+      "analysis/interpretability/pipeline/source_importance_v4.py": true,
+      "analysis/scripts/run_source_importance_judge.py": true,
+      "analysis/scripts/run_acl_arr_vllm.py": true
+    },
+    "observed_model_attempts": 29,
+    "all_attempt_finish_reasons_stop": true,
+    "random_selection_reproduced": {
+      "seed": 20261004,
+      "selected": 20,
+      "pool": 40
+    },
+    "blind_review_files": {
+      "real-a-blind.jsonl": "18d3fe896a763561df7bfdc42dd656784943825ad045b41e5fac747f01dffc21",
+      "real-b-blind.jsonl": "33660ffb9020b275e6128e0290dc30482d6daab9467b96c90bd4933613ba44c7"
+    },
+    "request_hashes_reproduced": 27,
+    "attempt_reproduction": {
+      "prompt_hashes": 29,
+      "acceptances": 26,
+      "rejections": 3,
+      "maximum_completion_tokens": 2811
+    }
+  },
+  "coverage": {
+    "cells": 20,
+    "sources": 107,
+    "reviews": {
+      "a": {
+        "cells": 10,
+        "sources": 56,
+        "blind_sha256": "18d3fe896a763561df7bfdc42dd656784943825ad045b41e5fac747f01dffc21"
+      },
+      "b": {
+        "cells": 10,
+        "sources": 51,
+        "blind_sha256": "33660ffb9020b275e6128e0290dc30482d6daab9467b96c90bd4933613ba44c7"
+      }
+    },
+    "all_source_content_hashes_match": true,
+    "blind_freezes_unchanged": true,
+    "model_outcome_records_verified": 254,
+    "raw_response_hashes_verified": 147
+  },
+  "paired_metrics": {
+    "nemotron": {
+      "source_states": {
+        "uncertain": 7,
+        "map_unusable": 93,
+        "map_failed": 7
+      },
+      "numeric_grades": 0,
+      "grade_distribution": {},
+      "complete_cells": 0,
+      "complete_cell_ids": []
+    },
+    "gemma_matched": {
+      "source_states": {
+        "scored": 99,
+        "inference_failed": 1,
+        "global_absence_only": 7
+      },
+      "numeric_grades": 99,
+      "grade_distribution": {
+        "2": 26,
+        "3": 4,
+        "0": 48,
+        "1": 18,
+        "4": 2,
+        "5": 1
+      },
+      "complete_cells": 18,
+      "complete_cell_ids": [
+        "288e52a73496c7f39141",
+        "149343cb6c29e333b1b5",
+        "779fdfc78b624ede0b8e",
+        "9d3e114a47ba2f5b05a4",
+        "3d2c4e46d03a01d63795",
+        "dd7e839f1c21430eb562",
+        "2d3df8f3d3f469070d97",
+        "224b306298e4a68d7f74",
+        "c9975fd2bfc1c6d3e42d",
+        "14f3d6e1e67650a4eb97",
+        "ebd04d863dcd705a9689",
+        "f9c5c4e1940622aa3acb",
+        "1a3e9fa35cb066d65473",
+        "ab28bea4028bc50c3380",
+        "fe8032d957c9c74e4b8a",
+        "166ffa4bb37c4f872e9a",
+        "ccf34042bf62e1e6fea0",
+        "c8758840b9f0bc3868ed"
+      ]
+    },
+    "configuration_differences": {
+      "chat_template_sha256": {
+        "gemma": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+        "nemotron": "ab7813c3abdd9cb655905a410728b26c7884eca45ddfab8d9f931553485a7862"
+      },
+      "model_id": {
+        "gemma": "google/gemma-4-31B-it",
+        "nemotron": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+      },
+      "model_revision": {
+        "gemma": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+        "nemotron": "bf77c3174f68ad409e1c2aa60daeb46e32d1c606"
+      },
+      "tokenizer_path": {
+        "gemma": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/models/models--google--gemma-4-31B-it/snapshots/842da3794eaa0b77d5f08bae87a17459d91ff475",
+        "nemotron": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/models/models--nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/snapshots/bf77c3174f68ad409e1c2aa60daeb46e32d1c606"
+      }
+    },
+    "trial_elapsed_seconds": 610.0891530513763,
+    "accounting_elapsed_seconds": 946,
+    "allocated_node_hours": 0.2627777777777778,
+    "allocated_gpu_hours": 1.051111111111111,
+    "warm_node_hours": 0.051949526887490514,
+    "warm_seconds": 187.01829679496586,
+    "warm_gpu_hours": 0.20779810754996206,
+    "gemma_matched_summed_task_seconds": 1592.3606499810703,
+    "gemma_matched_cost_note": "Request times overlap and selected cells shared an allocation with other cells; no measured matched-subset wall-clock cost available."
+  },
+  "artifact_sha256": {
+    "all-inference.jsonl": "9d940509b83c40e19959e1ab122ca96f523746fb61719caa20e6201b60b50170",
+    "provenance.json": "07f4a0c89d57771572e4e56e9b22771a6d4d5314fffe9509f70d89bc4cc21853",
+    "input-comparison.json": "51dad3eb2bf7f28a3c39511cd76252db441f8c197a851733e4886536e82f0893",
+    "paired-metrics.json": "205750fdbfdb7834470c14cbae4fcc33ab8590199b575a9e44dc120d368dee86",
+    "coverage-check.json": "bd2b0070926caaf70a884c8bc19223abf48c359cc7929bf2436ed9459d32d6ec",
+    "blind-a.jsonl": "523f66263309acfed5eab7fbaf181c71a482e7b1e3e39e977d182784c20d4ad3",
+    "blind-b.jsonl": "7783f5a797b889213aeee7a9cff8e251180c6c5e59f2ea563dee1b9e24499f6d",
+    "paired-a.jsonl": "bcf52e29b56d046c61954f68c11cae2087a65c81695173b7c99df45bfcc81cf7",
+    "paired-b.jsonl": "912af6d8be1cabbc18ca7bc726009a67fa5a6300c7c5437fe8c9ed06b6012aad",
+    "real-a-blind.jsonl": "18d3fe896a763561df7bfdc42dd656784943825ad045b41e5fac747f01dffc21",
+    "real-b-blind.jsonl": "33660ffb9020b275e6128e0290dc30482d6daab9467b96c90bd4933613ba44c7",
+    "real-a-review.jsonl": "5ddcabcac0074c093eb4adab55098544429d8ca72ab82ea1c3a2055f7e14f220",
+    "real-b-review.jsonl": "a0a649a02a71706e96f07611b137bb4fd99c2c438a694abf0382025c5ea7ce0f",
+    "real-a-review.md": "9339a45b3d37949c01ac8e6c9b599de1fe0eba62dec29d2860c6bbc8e4e1f2c1",
+    "real-b-review.md": "3768d71cd753e2dddc45d4637e93427d0239965ef45d4f9e270671643d7d34e6",
+    "protocol-review.json": "1e6ef63161c3e986bd200286b01bb73b3a0f07ae449f73ac38df46a00c8368e7",
+    "protocol-review.md": "2882d3bb6ddeed3cf58f2057f8759fedc1a779b30653ebdd71ff2a8ad9d4219b"
+  }
+}
