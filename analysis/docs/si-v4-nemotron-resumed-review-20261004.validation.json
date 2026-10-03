@@ -1,0 +1,21 @@
+{
+  "review": "resumed maximum-effort Astra diagnostic; supplements the preserved original review",
+  "artifact_root": "/Users/valerianfourel/Hamburg/GEODML_Unified/output/nemotron-v4-review-20261004",
+  "cells": 20,
+  "sources": 107,
+  "coverage_verified": true,
+  "scientific_acceptance": false,
+  "artifact_sha256": {
+    "all-inference.jsonl": "9d940509b83c40e19959e1ab122ca96f523746fb61719caa20e6201b60b50170",
+    "paired-a.jsonl": "bcf52e29b56d046c61954f68c11cae2087a65c81695173b7c99df45bfcc81cf7",
+    "paired-b.jsonl": "912af6d8be1cabbc18ca7bc726009a67fa5a6300c7c5437fe8c9ed06b6012aad",
+    "real-a-blind.jsonl": "1f0e3875c1ea7e14b66df586e1c7e1eb72edab971e88409e9ddfc51b1fe7820f",
+    "real-b-blind.jsonl": "33660ffb9020b275e6128e0290dc30482d6daab9467b96c90bd4933613ba44c7",
+    "real-a-review.jsonl": "ea7cc04c83c52e8ba3ca86a1075c5696758cc85f9b281072a6c9774c86ba019a",
+    "real-b-review.jsonl": "627f8b04fdf0a64a224bb6e4cc6cd0a305d7a8e5b8d1b194d534f06c5ff9a389",
+    "real-a-review.md": "d04af66f4cce84510e2f686d2308c003cced312654110838606f655fd8ab865a",
+    "real-b-review.md": "bb888c0dc21adb932d3cab7a1c6ef10a07fd1ed2827d5eb5beb5c1fc03bcea49",
+    "protocol-review.json": "9a013e904fd34fb00a556f2935989edafa75d7d0cdc6ba45d3d3d7af4c2f7e9a",
+    "protocol-review.md": "a7290164b465ce4a4f127c4c77d3ca8a48620010cbec0bf0cdaacd5aa0ddf7f6"
+  }
+}

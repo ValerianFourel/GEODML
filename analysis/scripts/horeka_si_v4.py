@@ -683,6 +683,9 @@ async def review(args):
         if stage.read(root / name / "manifest.json") != manifest:
             raise ValueError("input manifest changed")
     mode = config.get("workload_mode", "legacy-development")
+    if mode == "gemma-v4-bulk":
+        from analysis.scripts.horeka_gemma_v4 import review as review_bulk
+        return await review_bulk(args, config)
     if mode == "evaluation-v4":
         from analysis.scripts.run_si_v4_cycle import review as review_evaluation
         return await review_evaluation(args, config)

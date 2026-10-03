@@ -25,6 +25,7 @@ from analysis.interpretability.pipeline import source_importance as si
 from analysis.interpretability.pipeline import source_importance_v4 as v4
 from analysis.interpretability.pipeline.agentic_cells import completed_generator_refs, iter_cells
 from analysis.interpretability.pipeline.agentic_judging import _trace_evidence, _visible_evidence, _digest
+from analysis.scripts.run_source_importance_judge import file_hash
 
 FINAL_PURPOSES = ("parallel_final", "reactive_action", "reactive_forced_finish")
 
@@ -281,6 +282,10 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--prompt-ids", type=Path, help="optional file with one prompt_id per line (a frozen sample)")
     parser.add_argument("--cell-fingerprints", type=Path, help="exact frozen cell selection; one verified fingerprint per line")
+    parser.add_argument("--exclude-cell-fingerprints", type=Path,
+                        help="previously judged cells to preserve; exclusions are recorded in the manifest")
+    parser.add_argument("--prior-map-task-ids", type=Path,
+                        help="known SI-v4 maps; overlapping new cells are recorded as blocked for reconciliation")
     parser.add_argument("--protocol", choices=("si-v3", "si-v4"), default="si-v3")
     parser.add_argument("--max-tokens", type=int)
     parser.add_argument("--map-max-tokens", type=int, default=v4.DEFAULT_MAX_TOKENS)
@@ -310,6 +315,12 @@ def main(argv=None) -> int:
         if not fingerprints or len(fingerprints) != len(selected_lines):
             parser.error("cell selection must be nonempty and contain no duplicates")
     missing_fingerprints = set(fingerprints or ())
+    excluded = set(args.exclude_cell_fingerprints.read_text().split()) if args.exclude_cell_fingerprints else set()
+    prior_maps = set(args.prior_map_task_ids.read_text().split()) if args.prior_map_task_ids else set()
+    if args.prior_map_task_ids and args.protocol != "si-v4":
+        parser.error("prior map identities require SI-v4")
+    if fingerprints and fingerprints & excluded:
+        parser.error("selected cells overlap the recorded exclusions")
     partial = args.output.with_name(args.output.name + ".partial")
     partial.mkdir(parents=True)
     # Disk-backed deduplication avoids retaining millions of task IDs in Python.
@@ -324,6 +335,8 @@ def main(argv=None) -> int:
             root_text, _, model = spec.rpartition(":")
             root = Path(root_text)
             refs, ref_counts = completed_generator_refs(root, model=model, prompt_ids=prompt_ids)
+            ref_counts["previously_judged_excluded"] = sum(r["fingerprint"] in excluded for r in refs)
+            refs = [r for r in refs if r["fingerprint"] not in excluded]
             if fingerprints is not None:
                 refs = [r for r in refs if r["fingerprint"] in fingerprints]
             if args.limit is not None:
@@ -338,6 +351,10 @@ def main(argv=None) -> int:
                 extra = {"map_max_tokens": args.map_max_tokens, "preprocessing": args.preprocessing} if args.protocol == "si-v4" else {}
                 record, tasks = builder(cell, max_tokens=args.max_tokens, j1_max_tokens=args.j1_max_tokens,
                                         sensitivity_fraction=args.truncation_sensitivity_fraction, **extra)
+                if record.get("map_task_id") in prior_maps:
+                    record.update(status="prior_map_requires_reconciliation",
+                                  blockage="Earlier diagnostic owns this map; retain this cell for explicit result reuse, without repeating inference.")
+                    tasks = []
                 counts[f"answer_{record.get('answer_source', 'none')}"] += 1
                 counts["stored_answer_sensitivity_cells"] += "stored_answer_sensitivity" in record
                 counts[f"cells_{record['status']}"] += 1
@@ -369,11 +386,17 @@ def main(argv=None) -> int:
                                            "salt": SENSITIVITY_SALT},
                 "prompt_ids_sha256": hashlib.sha256(args.prompt_ids.read_bytes()).hexdigest()
                 if args.prompt_ids else None, "limit": args.limit, "counts": dict(counts),
-                "files": {name: hashlib.sha256((partial / name).read_bytes()).hexdigest()
+                "files": {name: file_hash(partial / name)
                           for name in ("tasks.jsonl.gz", "cells.jsonl.gz")},
                 "git_commit": commit, "scientific_result": False}
     if args.cell_fingerprints:
         manifest["cell_fingerprints_sha256"] = hashlib.sha256(args.cell_fingerprints.read_bytes()).hexdigest()
+    if args.exclude_cell_fingerprints:
+        manifest["excluded_cells"] = {"count": len(excluded),
+            "sha256": file_hash(args.exclude_cell_fingerprints),
+            "path": str(args.exclude_cell_fingerprints.resolve())}
+    if args.prior_map_task_ids:
+        manifest["prior_map_tasks"] = {"count": len(prior_maps), "sha256": file_hash(args.prior_map_task_ids)}
     if args.protocol == "si-v4":
         manifest.update(map_max_tokens=args.map_max_tokens, preprocessing=args.preprocessing,
                         eligibility_version=v4.ELIGIBILITY_VERSION, warm_gpu_hour_ratio_ceiling=3.0)

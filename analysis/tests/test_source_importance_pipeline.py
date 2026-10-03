@@ -77,6 +77,36 @@ def read_gz(path):
         return [json.loads(line) for line in stream]
 
 
+@pytest.mark.parametrize("prior_map", [False, True])
+def test_explicit_prior_cell_exclusion_preserves_remaining_provenance(tmp_path, prior_map):
+    root = dataset(tmp_path)
+    refs, _ = prepare.completed_generator_refs(root, model="qwen38")
+    skipped = refs[0]["fingerprint"]
+    path = tmp_path / "previous.txt"
+    path.write_text(skipped + "\n")
+    output = tmp_path / "new-pass"
+    extra = []
+    if prior_map:
+        prior = tmp_path / "prior"
+        prepare.main(["--source", f"{root}:qwen38", "--output", str(prior), "--protocol", "si-v4",
+                      "--truncation-sensitivity-fraction", "0"])
+        maps = tmp_path / "maps.txt"
+        maps.write_text("\n".join(c["map_task_id"] for c in read_gz(prior / "cells.jsonl.gz")))
+        extra = ["--prior-map-task-ids", str(maps)]
+    prepare.main(["--source", f"{root}:qwen38", "--output", str(output), "--protocol", "si-v4",
+                  "--exclude-cell-fingerprints", str(path), "--truncation-sensitivity-fraction", "0", *extra])
+    cells = read_gz(output / "cells.jsonl.gz")
+    assert {c["fingerprint"] for c in cells} == {r["fingerprint"] for r in refs} - {skipped}
+    assert all(c["generation_record_id"] and c["trace_record_id"] for c in cells)
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["inputs"][0]["cell_selection"]["previously_judged_excluded"] == 1
+    assert manifest["excluded_cells"]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    if prior_map:
+        assert {c["status"] for c in cells} == {"prior_map_requires_reconciliation"}
+        assert read_gz(output / "tasks.jsonl.gz") == []
+        assert manifest["counts"]["cells_prior_map_requires_reconciliation"] == 2
+
+
 def test_freezing_judges_every_observed_source_and_shares_identical_tasks(tmp_path):
     root = dataset(tmp_path)
     out = tmp_path / "si"

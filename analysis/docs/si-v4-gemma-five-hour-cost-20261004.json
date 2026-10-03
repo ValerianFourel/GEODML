@@ -1,0 +1,380 @@
+{
+  "format_version": "si-v4-gemma-five-hour-cost-v1",
+  "prepared_on": "2026-10-04",
+  "source_measurement_file": "analysis/docs/si-v4-r2-full-corpus-cost-20261004.json",
+  "source_measurement_sha256": "209daad558c2857cd8badfdf419fe637898e247d8bf7c521603216c0adfef0c7",
+  "scope": "One saved-dataset Gemma SI-v4 map-plus-source pass. Excludes J1, generation, full-corpus repeats, semantic reference review and v3 cost bridge.",
+  "status": "Planning estimate only; no inference or submission performed by this calculation.",
+  "population": {
+    "registered_inventory_proxy": 624192,
+    "arithmetic_one_generator_proxy": 312096,
+    "actual_saved_successful_eligible_unjudged_cell_count": null,
+    "census_required": true,
+    "registered_inventory_evidence": {
+      "repo": "ValerianFourel/geodml-experiment-v2-paper-private",
+      "revision": "bf9872076b185ead4c3a266319adde7ab449c328",
+      "path": "coordination/progress.json",
+      "registered_task_count": 624192,
+      "note": "Historical frozen task inventory, not current successful/eligible answer census. Current paper theoretical design is 624216."
+    },
+    "note": "Registered tasks are not a live census of saved answers, eligible inputs or missing judgments. The half-count is an arithmetic proxy, not a verified per-generator inventory. Recompute finite work from a verified frozen saved-dataset census."
+  },
+  "measurements": [
+    {
+      "run": "candidate-e2e-1",
+      "warm_node_hours": 0.20070544884999333,
+      "attempted_cells": 40,
+      "complete_cells": 36,
+      "completed_cells_per_warm_node_hour": 179.36732762500282,
+      "warm_seconds_per_completed_cell": 20.070544884999336
+    },
+    {
+      "run": "candidate-e2e-2",
+      "warm_node_hours": 0.1163317259705703,
+      "attempted_cells": 24,
+      "complete_cells": 24,
+      "completed_cells_per_warm_node_hour": 206.30657543988937,
+      "warm_seconds_per_completed_cell": 17.449758895585546
+    },
+    {
+      "run": "candidate-e2e-3",
+      "warm_node_hours": 0.13032495740328967,
+      "attempted_cells": 24,
+      "complete_cells": 23,
+      "completed_cells_per_warm_node_hour": 176.48192992556798,
+      "warm_seconds_per_completed_cell": 20.39868898486273
+    }
+  ],
+  "measurement_interpretation": {
+    "unit": "Cells reported complete by the pipeline per warm four-A100 node-hour.",
+    "rate_range": [
+      176.48192992556798,
+      206.30657543988937
+    ],
+    "seconds_per_reported_complete_cell_range": [
+      17.449758895585546,
+      20.39868898486273
+    ],
+    "semantic_validity": "Reported terminal completion does not mean scientifically valid maps, witnesses or grades. Prior Gemma semantic failures remain unresolved by this cost calculation.",
+    "range_kind": "Extremes of three small end-to-end development measurements; not a confidence interval or guaranteed five-hour throughput.",
+    "completion_and_retry_note": "Failed, uncertain, blocked and N/A terminal tasks remain separate. Never mark them scientifically complete or retry them indefinitely to attain a cell target."
+  },
+  "five_hour_profile": {
+    "nodes_per_bout": 1,
+    "gpus_per_node": 4,
+    "gpu_type": "A100",
+    "cpus_requested_assumed": 32,
+    "memory_assumed": "--mem=0 with --exclusive: all allocatable memory of the single A100 node; no fixed numeric memory override.",
+    "walltime_seconds": 18000,
+    "walltime_hours": 5,
+    "startup_minutes_range": [
+      8.9,
+      10.9
+    ],
+    "drain_cleanup_minutes": 5,
+    "available_warm_minutes_range": [
+      284.1,
+      286.1
+    ],
+    "modeled_reported_complete_cells_per_bout_range": [
+      835.6419381975645,
+      983.7385205558726
+    ],
+    "whole_cell_planning_capacity_per_bout_range": [
+      835,
+      983
+    ],
+    "requested_node_hours_per_bout_max": 5,
+    "requested_gpu_hours_per_bout_max": 20,
+    "formula": "warm_minutes=300-startup_minutes-5; cells_per_bout=floor(measured_complete_cells_per_warm_node_hour*warm_minutes/60).",
+    "walltime_authority": "User explicitly requested five-hour Gemma bouts. This is the task-specific profile; it does not alter unrelated allocation limits."
+  },
+  "estimates": {
+    "per_1000_cells": {
+      "hypothetical_reported_complete_cells": 1000,
+      "current_eligible_census": null,
+      "warm_node_hours_range": [
+        4.847155248773762,
+        5.666302495795203
+      ],
+      "five_hour_bouts_range": [
+        2,
+        2
+      ],
+      "five_hour_requested_node_hour_ceiling_range": [
+        10,
+        10
+      ],
+      "five_hour_requested_gpu_hour_ceiling_range": [
+        40,
+        40
+      ],
+      "modeled_occupancy_node_hours_range_if_last_bouts_end_when_exhausted": [
+        5.310488582107095,
+        6.196302495795203
+      ],
+      "modeled_occupancy_gpu_hours_range_if_last_bouts_end_when_exhausted": [
+        21.24195432842838,
+        24.785209983180813
+      ],
+      "days_at_average_15_running_allocations_from_requested_ceiling": null,
+      "ideal_15_slot_whole_five_hour_wave_elapsed_hours": null,
+      "warm_cost_is_not_semantic_accuracy": true,
+      "why_no_15_running_estimate": "Only two modeled bouts exist; an average of 15 running allocations is impossible for this workload.",
+      "balanced_two_node_modeled_elapsed_hours_range": [
+        2.6552442910535476,
+        3.0981512478976017
+      ],
+      "two_node_requested_wave_hours_ceiling": 5,
+      "tail_note": "The balanced two-node estimate assumes 500 cells per node and early normal job completion. Different static partitioning, queue waits and staggered starts change elapsed time. The finite requested budget remains two five-hour bouts."
+    },
+    "one_generator_registered_proxy": {
+      "hypothetical_reported_complete_cells": 312096,
+      "current_eligible_census": null,
+      "warm_node_hours_range": [
+        1512.7777645212961,
+        1768.4303437276997
+      ],
+      "five_hour_bouts_range": [
+        318,
+        374
+      ],
+      "five_hour_requested_node_hour_ceiling_range": [
+        1590,
+        1870
+      ],
+      "five_hour_requested_gpu_hour_ceiling_range": [
+        6360,
+        7480
+      ],
+      "modeled_occupancy_node_hours_range_if_last_bouts_end_when_exhausted": [
+        1586.4477645212962,
+        1867.5403437276996
+      ],
+      "modeled_occupancy_gpu_hours_range_if_last_bouts_end_when_exhausted": [
+        6345.791058085185,
+        7470.161374910798
+      ],
+      "days_at_average_15_running_allocations_from_requested_ceiling": [
+        4.416666666666667,
+        5.194444444444445
+      ],
+      "ideal_15_slot_whole_five_hour_wave_elapsed_hours": [
+        110,
+        125
+      ],
+      "warm_cost_is_not_semantic_accuracy": true
+    },
+    "both_generators_registered_proxy": {
+      "hypothetical_reported_complete_cells": 624192,
+      "current_eligible_census": null,
+      "warm_node_hours_range": [
+        3025.5555290425923,
+        3536.8606874553993
+      ],
+      "five_hour_bouts_range": [
+        635,
+        748
+      ],
+      "five_hour_requested_node_hour_ceiling_range": [
+        3175,
+        3740
+      ],
+      "five_hour_requested_gpu_hour_ceiling_range": [
+        12700,
+        14960
+      ],
+      "modeled_occupancy_node_hours_range_if_last_bouts_end_when_exhausted": [
+        3172.6638623759254,
+        3735.080687455399
+      ],
+      "modeled_occupancy_gpu_hours_range_if_last_bouts_end_when_exhausted": [
+        12690.655449503702,
+        14940.322749821597
+      ],
+      "days_at_average_15_running_allocations_from_requested_ceiling": [
+        8.819444444444445,
+        10.38888888888889
+      ],
+      "ideal_15_slot_whole_five_hour_wave_elapsed_hours": [
+        215,
+        250
+      ],
+      "warm_cost_is_not_semantic_accuracy": true
+    }
+  },
+  "queue_and_concurrency": {
+    "requested_outstanding_job_window_max": 200,
+    "sender_poll_seconds": 600,
+    "historical_average_running_assumption": 15,
+    "gpus_running_at_average_15_nodes": 60,
+    "modeled_reported_complete_cells_per_clock_hour_at_15_nodes_range": [
+      2505.0,
+      2949.0
+    ],
+    "explanation": "Two hundred outstanding jobs means submitted pending plus running jobs, not 200 active nodes. Fifteen running is a historical scenario, not a scheduler promise. Time follows actual mean running allocations and time-to-start.",
+    "polling_effect": "A 600-second sender poll does not add ten minutes to an already-pending bout. It can delay the next sequential resume of an ended shard by up to a polling interval plus reconciliation/submission time. A wide existing queue limits GPU-slot idle effects; do not allocate nodes to wait.",
+    "elapsed_time_exclusions": [
+      "initial queue wait",
+      "reduced or variable mean concurrency",
+      "start-spacing and ramp-up",
+      "quota/storage admission stops",
+      "new runtime failures",
+      "changes in answer length or source counts"
+    ],
+    "integer_wave_note": "For large cohorts, node-hours/15 is a fluid average. The companion whole-wave estimate rounds the five-hour tail to an integer 15-slot wave. Real rolling starts need not form synchronized waves."
+  },
+  "finite_200_bout_total_if_that_is_the_budget": {
+    "bouts": 200,
+    "requested_node_hours_max": 1000,
+    "requested_gpu_hours_max": 4000,
+    "modeled_reported_complete_cells_range": [
+      167000,
+      196600
+    ],
+    "fraction_of_624192_proxy_range": [
+      0.2675458833179534,
+      0.3149671895826925
+    ],
+    "fraction_of_312096_proxy_range": [
+      0.5350917666359069,
+      0.629934379165385
+    ],
+    "fluid_hours_at_average_15_running": 66.66666666666667,
+    "ideal_whole_five_hour_waves_at_15_slots": 14,
+    "ideal_whole_wave_elapsed_hours": 70,
+    "note": "This finite total cannot cover either registered proxy. A 200-job outstanding window can serve a larger frozen finite plan, but the window must not be mistaken for a total budget or expanded through an unlimited sender.",
+    "scope_note": "The 167000-196600 estimate assumes well-filled bouts. Shard tails can lower coverage. Add at most one preparation node-hour/four GPU-hours if preparation is included in this total resource budget."
+  },
+  "finite_plan_constraints": [
+    "Freeze the actual eligible saved-input population and completed-task ledger before fixing the total job count.",
+    "Bind the plan to an explicit finite bout list, one-node/four-A100/five-hour profile, immutable scientific settings and total resource-hour ceiling.",
+    "A 200-job window may replenish only from that finite list. No automatic work expansion or unbounded retry/requeue chain.",
+    "Use durable task identity and claims; preserve and verify completed work, failed dispositions and live ownership.",
+    "Recalculate remaining work from verified results and observed five-hour throughput. Treat the range as a planning model, not a bound on successful semantic completion.",
+    "Runtime storage checks and current scheduler admission still apply; this offline cost file does not assert live quota or partition availability."
+  ],
+  "cheaper_scope_choices": {
+    "1000_cell_measurement_requested_gpu_hour_ceiling": 40,
+    "200_bout_finite_wave_requested_gpu_hour_ceiling": 4000,
+    "note": "A smaller frozen scope costs less and can measure five-hour throughput; it does not establish full-corpus completion or semantic acceptance."
+  },
+  "estimates_interpretation": "Optimally packed aggregate allocation estimates, before the implementation imposes independent shard ceilings. The implemented_partition section models the actual default sharding and is the relevant finite-budget illustration.",
+  "implemented_partition": {
+    "source": "analysis/scripts/partition_si_v4_tasks.py and analysis/scripts/horeka_gemma_v4.py inspected during preparation",
+    "default_max_shards": 200,
+    "default_minimum_cells_per_shard_parameter": 1500,
+    "budget_formula": "sum(max(1,ceil(shard.cells*20.39868898486273/17046)))",
+    "assumption": "Balanced cells across the default nonempty shards with enough distinct map components. Shared maps cannot split, so actual shard sizes and ceilings can differ. This does not replace the frozen plan census.",
+    "explanation": "Independent shard ceilings can exceed the optimally packed aggregate bout count. A final partial bout ends normally when its fixed backlog is exhausted; the model separates expected occupancy from the finite requested ceiling.",
+    "scenarios": {
+      "per_1000_cells": {
+        "cells": 1000,
+        "assumed_nonempty_shards": 1,
+        "balanced_cells_per_shard_range": [
+          1000,
+          1000
+        ],
+        "assumed_large_shared_map_components": false,
+        "max_allocations_per_shard_range": [
+          2,
+          2
+        ],
+        "finite_inference_bouts_max": 2,
+        "requested_inference_node_hours_max": 10,
+        "requested_inference_gpu_hours_max": 40,
+        "requested_total_node_hours_max_including_one_hour_preparation": 11,
+        "requested_total_gpu_hours_max_including_one_hour_preparation": 44,
+        "modeled_occupancy_node_hours_range_with_early_normal_completion": [
+          5.310488582107095,
+          6.196302495795203
+        ],
+        "modeled_occupancy_gpu_hours_range_with_early_normal_completion": [
+          21.24195432842838,
+          24.785209983180813
+        ],
+        "expected_days_at_average15running_excluding_serial_preparation": null,
+        "requested_full_walltime_budget_days_at_average15running": null,
+        "serial_preparation_elapsed_hours_max": 1,
+        "actual_frozen_plan_authoritative": true,
+        "single_shard_sequential_elapsed_hours_range": [
+          5.310488582107095,
+          6.196302495795203
+        ],
+        "note": "Default partition makes one shard; its second bout resumes sequentially after the first owner ends and is reconciled. Fifteen-way or balanced-two-node elapsed estimates do not apply. Add initial preparation, queue waits and up to a polling interval before refill."
+      },
+      "one_generator_registered_proxy": {
+        "cells": 312096,
+        "assumed_nonempty_shards": 200,
+        "balanced_cells_per_shard_range": [
+          1560,
+          1561
+        ],
+        "assumed_large_shared_map_components": false,
+        "max_allocations_per_shard_range": [
+          2,
+          2
+        ],
+        "finite_inference_bouts_max": 400,
+        "requested_inference_node_hours_max": 2000,
+        "requested_inference_gpu_hours_max": 8000,
+        "requested_total_node_hours_max_including_one_hour_preparation": 2001,
+        "requested_total_gpu_hours_max_including_one_hour_preparation": 8004,
+        "modeled_occupancy_node_hours_range_with_early_normal_completion": [
+          1605.444431187963,
+          1874.4303437276997
+        ],
+        "modeled_occupancy_gpu_hours_range_with_early_normal_completion": [
+          6421.777724751852,
+          7497.721374910799
+        ],
+        "expected_days_at_average15running_excluding_serial_preparation": [
+          4.4595678644110075,
+          5.2067509547991655
+        ],
+        "requested_full_walltime_budget_days_at_average15running": [
+          5.555555555555556,
+          5.555555555555556
+        ],
+        "serial_preparation_elapsed_hours_max": 1,
+        "actual_frozen_plan_authoritative": true
+      },
+      "both_generators_registered_proxy": {
+        "cells": 624192,
+        "assumed_nonempty_shards": 200,
+        "balanced_cells_per_shard_range": [
+          3120,
+          3121
+        ],
+        "assumed_large_shared_map_components": false,
+        "max_allocations_per_shard_range": [
+          4,
+          4
+        ],
+        "finite_inference_bouts_max": 800,
+        "requested_inference_node_hours_max": 4000,
+        "requested_inference_gpu_hours_max": 16000,
+        "requested_total_node_hours_max_including_one_hour_preparation": 4001,
+        "requested_total_gpu_hours_max_including_one_hour_preparation": 16004,
+        "modeled_occupancy_node_hours_range_with_early_normal_completion": [
+          3210.888862375926,
+          3748.8606874553993
+        ],
+        "modeled_occupancy_gpu_hours_range_with_early_normal_completion": [
+          12843.555449503703,
+          14995.442749821597
+        ],
+        "expected_days_at_average15running_excluding_serial_preparation": [
+          8.919135728822015,
+          10.413501909598331
+        ],
+        "requested_full_walltime_budget_days_at_average15running": [
+          11.111111111111112,
+          11.111111111111112
+        ],
+        "serial_preparation_elapsed_hours_max": 1,
+        "actual_frozen_plan_authoritative": true
+      }
+    }
+  }
+}
