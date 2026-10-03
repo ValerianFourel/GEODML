@@ -36,6 +36,7 @@ def prepared_cycle(tmp_path, queue=None):
     (root / "judge-config.json").write_text(json.dumps(settings))
     config = {"workload_mode": "evaluation-v4", "budget": cycle.BUDGET, "evaluation_phase": "development",
               "cycle_budget_path": str(root / "budget.json"), "workspace": str(tmp_path), "account": "fixture",
+              "job_name": pilot.JOB_NAME,
               "git_commit": "a" * 40, "repository": str(tmp_path), "walltime": "01:00:00",
               "estimate": {"minutes": [30, 60]}, "judge_config_sha256": judge.file_hash(root / "judge-config.json"),
               "evaluation_plan_sha256": judge.file_hash(root / "evaluation-plan.json")}
@@ -163,8 +164,9 @@ def test_completed_queue_refuses_changed_settings_before_reusing_results(tmp_pat
     assert external_boundary.calls == calls
 
 
+@pytest.mark.parametrize("interactive", [False, True])
 @pytest.mark.parametrize("block", ["budget", "unresolved", "settings"])
-def test_submission_guards_stop_before_scheduler_or_gpu_work(tmp_path, external_boundary, block):
+def test_submission_guards_stop_before_scheduler_or_gpu_work(tmp_path, external_boundary, monkeypatch, block, interactive):
     root, config_path, _ = prepared_cycle(tmp_path)
     ledger = root / "budget.json"
     budget = cycle.read(ledger)
@@ -177,10 +179,12 @@ def test_submission_guards_stop_before_scheduler_or_gpu_work(tmp_path, external_
         settings["temperature"] = 1
         (root / "judge-config.json").write_text(json.dumps(settings))
     ledger.write_text(json.dumps(budget))
+    if interactive:
+        monkeypatch.delenv("SLURM_JOB_ID")
     match = {"budget": "allocation budget exhausted", "unresolved": "unresolved scheduler ownership",
              "settings": "judge configuration changed"}[block]
     with pytest.raises(ValueError, match=match):
-        cycle.submit(SimpleNamespace(config=config_path))
+        cycle.submit(SimpleNamespace(config=config_path, interactive=interactive))
     assert external_boundary.commands == []
 
 
@@ -198,6 +202,141 @@ def test_submission_records_intent_then_accepts_only_its_identified_job(tmp_path
     with pytest.raises(ValueError, match="not an identified member"):
         cycle.run_segment(SimpleNamespace(config=config_path))
     assert executed == [config_path]
+
+
+@pytest.mark.parametrize("receipt", ["success", "step-failure", "ambiguous", "failed-after-grant"])
+def test_interactive_submission_records_ownership_before_pinned_step_and_preserves_allocation(
+        tmp_path, external_boundary, monkeypatch, receipt):
+    from analysis.scripts import horeka_nemotron as stage
+    root, path, config = prepared_cycle(tmp_path)
+    frozen = path.read_bytes()
+    calls, executed = [], []
+    original = cycle.subprocess.run
+    monkeypatch.delenv("SLURM_JOB_ID")
+    step_code = 2 if receipt == "step-failure" else 0
+    monkeypatch.setattr(stage, "execute", lambda p: executed.append(p) or step_code)
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[0] == "salloc":
+            pending = cycle.read(root / "budget.json")["submissions"]
+            assert len(pending) == 1 and "job_id" not in pending[0]
+            assert "--no-shell" in command and "--time=01:00:00" in command
+            assert "timeout" not in kwargs  # A prolog must not kill the allocation owner.
+            error = "unexpected receipt\n" if receipt == "ambiguous" else "salloc: Granted job allocation 6001\n"
+            return subprocess.CompletedProcess(command, int(receipt == "failed-after-grant"), "", error)
+        if command[0] == "srun":
+            assert "--jobid=6001" in command
+            assert command[-1] == str(root / "run.sh")
+            assert kwargs["env"]["PYTHONPATH"] == config["repository"]
+            # The actual cycle membership gate must be reachable without the submission lock.
+            with cycle.budget_lock(root / "budget.json") as budget:
+                assert budget["submissions"][0]["job_id"] == "6001"
+            monkeypatch.setenv("SLURM_JOB_ID", "6001")
+            code = cycle.run_segment(SimpleNamespace(config=path))
+            monkeypatch.delenv("SLURM_JOB_ID")
+            return subprocess.CompletedProcess(command, code)
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(cycle.subprocess, "run", run)
+    if receipt in ("success", "step-failure"):
+        assert cycle.main(["submit", "--config", str(path), "--interactive"]) == step_code
+        assert executed == [path]
+    else:
+        with pytest.raises((ValueError, RuntimeError), match="ambiguous|did not finish"):
+            cycle.main(["submit", "--config", str(path), "--interactive"])
+        assert executed == []
+        if receipt == "ambiguous":
+            with pytest.raises(ValueError, match="unresolved scheduler ownership"):
+                cycle.main(["submit", "--config", str(path), "--interactive"])
+    assert path.read_bytes() == frozen
+    row = cycle.read(root / "budget.json")["submissions"][0]
+    assert row["mode"] == "salloc-no-shell"
+    assert row.get("job_id") == (None if receipt == "ambiguous" else "6001")
+    assert len([c for c in calls if c[0] == "salloc"]) == 1
+    assert {c[0] for c in calls} <= {"salloc", "srun", "sinfo"}
+
+
+@pytest.mark.parametrize("state", ["COMPLETED", "RUNNING", "wrong-model", "missing"])
+def test_manual_predecessor_is_charged_once_and_must_match_terminal_cycle_allocation(
+        tmp_path, external_boundary, monkeypatch, state):
+    root, path, config = prepared_cycle(tmp_path)
+    budget = cycle.read(root / "budget.json")
+    name = "unrelated" if state == "wrong-model" else pilot.JOB_NAME
+    status = "RUNNING" if state == "RUNNING" else "COMPLETED"
+    original = cycle.subprocess.check_output
+    def output(command, **kwargs):
+        if command[0] == "sacct":
+            if state == "missing":
+                return ""
+            return f"5175818|{name}|fixture|{cycle.getpass.getuser()}|{status}|60|3600|cpu=152,gres/gpu=4,node=1|\n"
+        return original(command, **kwargs)
+    monkeypatch.setattr(cycle.subprocess, "check_output", output)
+    if state == "COMPLETED":
+        cycle.account_existing_job("5175818", path, config, budget)
+        cycle.account_existing_job("5175818", path, config, budget)
+        assert len(budget["submissions"]) == 1
+        assert budget["submissions"][0]["config_sha256"] == judge.file_hash(path)
+    else:
+        with pytest.raises(ValueError, match="accounting is unavailable|does not match"):
+            cycle.account_existing_job("5175818", path, config, budget)
+        assert budget["submissions"] == []
+
+
+def test_resume_estimate_reads_saved_wall_timing_and_excludes_finished_work(tmp_path, external_boundary):
+    root, path, config = prepared_cycle(tmp_path)
+    assert review(root, path, config, "first") == 0
+    for name, hours in (("candidate-e2e-1", 0.1), ("candidate-e2e-2", 0.2)):
+        report = cycle.latest_report(root / "evaluation-results" / name) / "summary.json"
+        summary = cycle.read(report)
+        summary["timing"]["si"]["node_hours"] = hours
+        summary["request_totals"]["source_importance_request_seconds"] = 99999
+        report.write_text(json.dumps(summary))
+    shutil.rmtree(root / "evaluation-results/candidate-fixed-1")
+    estimate = cycle.resume_estimate(path, config)
+    assert estimate["remaining_cell_executions_upper_bound"] == 1
+    assert len(estimate["saved_progress"]) == 3
+    assert [row["status"] for row in estimate["saved_progress"]] == ["finished", "finished", "unstarted"]
+    assert estimate["remaining_warm_minutes_range"] == [6, 12]
+
+
+@pytest.mark.parametrize("accounting", ["complete", "overspent", "unavailable"])
+def test_interactive_replacement_uses_actual_accounting_within_the_phase_limit(
+        tmp_path, external_boundary, monkeypatch, accounting):
+    root, path, config = prepared_cycle(tmp_path)
+    budget = cycle.read(root / "budget.json")
+    for job in ("6101", "6102", "6103"):
+        budget["submissions"].append({"phase": "development", "job_id": job})
+        external_boundary.scheduler_owners.append({"job_id": job, "state": "COMPLETED"})
+    (root / "budget.json").write_text(json.dumps(budget))
+    monkeypatch.delenv("SLURM_JOB_ID")
+    original_output = cycle.subprocess.check_output
+    original_run = cycle.subprocess.run
+    allocations = []
+    def output(command, **kwargs):
+        if command[0] == "sacct":
+            elapsed = 3700 if accounting == "overspent" else 3600
+            return "" if accounting == "unavailable" else f"{command[3]}|COMPLETED|{elapsed}|gres/gpu=4|\n"
+        return original_output(command, **kwargs)
+    def run(command, **kwargs):
+        if command[0] == "salloc":
+            allocations.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "salloc: Granted job allocation 7001\n")
+        if command[0] == "srun":
+            return subprocess.CompletedProcess(command, 0)
+        return original_run(command, **kwargs)
+    monkeypatch.setattr(cycle.subprocess, "check_output", output)
+    monkeypatch.setattr(cycle.subprocess, "run", run)
+    if accounting == "complete":
+        assert cycle.main(["submit", "--config", str(path), "--interactive"]) == 0
+        assert len(allocations) == 1
+        receipt = cycle.read(root / "budget.json")["submissions"][-1]
+        assert receipt["estimate"]["gpu_hours_used_by_phase"]["development"] == 12
+    else:
+        with pytest.raises(ValueError, match="actual resource accounting"):
+            cycle.main(["submit", "--config", str(path), "--interactive"])
+        assert allocations == []
+        assert len(cycle.read(root / "budget.json")["submissions"]) == 3
 
 
 @pytest.mark.parametrize("prior_state", ["missing", "PENDING", "RUNNING", "COMPLETED"])
