@@ -32,6 +32,7 @@ def wave(cluster, monkeypatch):
         c.dependencies = {}
         c.prepare_action = None
         c.detach_failure = False
+        c.omit_prep_from_broad = False
         c.prep_job = '999'
         c.queue_row('999', name='geodml-gemma-v4-prepare')
         c.queue_row('998', name='unrelated-qwen', state='RUNNING')
@@ -44,6 +45,12 @@ def wave(cluster, monkeypatch):
         monkeypatch.setattr(runtime, 'REPO', Path(c.plan['repository']))
         original_command = c.command
         def wire(cmd, **kwargs):
+            if cmd[0] == 'sacct' and '-j' in cmd:
+                r = c.accounting.get('999', c.jobs.get('999'))
+                state = r['state'] if r else ''
+                if state == 'CANCELLED':
+                    state = f'CANCELLED by {os.getuid()}'
+                return SimpleNamespace(returncode=0, stdout=f'999|{state}|0|None|2026-10-03T21:02:56|0:0\n' if r else '', stderr='')
             if cmd[0] == 'sbatch' and '--hold' in cmd:
                 if c.reject_after is not None and len(c.submissions) >= c.reject_after:
                     return SimpleNamespace(returncode=1, stdout='', stderr='QOSMaxSubmitJobPerUserLimit')
@@ -121,7 +128,10 @@ def wave(cluster, monkeypatch):
                 c.holds.remove(job)
                 c.end(job, 'CANCELLED')
                 return SimpleNamespace(returncode=0, stdout='', stderr='')
-            return original_command(cmd, **kwargs)
+            result = original_command(cmd, **kwargs)
+            if cmd[0] == 'sacct' and c.omit_prep_from_broad:
+                result.stdout = '\n'.join(line for line in result.stdout.splitlines() if not line.startswith('999|'))
+            return result
         monkeypatch.setattr(sender.subprocess, 'run', wire)
         def tick(c):
             if '999' in c.jobs:
@@ -255,6 +265,23 @@ def test_login_takeover_preserves_200_jobs_and_releases_them_after_preparation(w
     assert c.accounting['999']['state'] == 'CANCELLED'
     assert set(c.jobs) == {'998'}
     assert sender.read(c.root / 'sender/summary.json')['allocations_attempted'] == 200
+
+
+@pytest.mark.parametrize('resume_old', [False, True])
+def test_login_takeover_uses_exact_job_accounting_when_broad_query_omits_cancelled_preparation(wave, resume_old):
+    c = wave(2)
+    ready_for_login(c)
+    c.omit_prep_from_broad = True
+    if resume_old:
+        c.end('999', 'CANCELLED')
+        c.dependencies = {job: '(null)' for job in c.dependencies}
+        write(c.root / 'prequeue/login-takeover.json', {
+            'helper_pin': '547cb5cc2c5a211054fb0ead8b620a60a17e405f', 'preparation_job': '999'})
+    assert prequeue.login_takeover(c.root, Path(c.plan['repository']), 'c'*40, runtime, sender) == 0
+    assert len(c.released) == 2
+    assert sender.read(c.root / 'prequeue/login-preparation-retired.json')['state'] == 'CANCELLED'
+    if resume_old:
+        assert (c.root / 'prequeue/login-takeover-547cb5cc2c5a211054fb0ead8b620a60a17e405f.json').exists()
 
 
 @pytest.mark.parametrize('failure', ['prep_running', 'detach_unconfirmed'])

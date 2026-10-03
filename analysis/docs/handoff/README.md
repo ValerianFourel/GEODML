@@ -170,3 +170,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Gemma explicitly authorized login preparation takeover](2026-10-04_gemma-login-preparation-takeover_handoff.md)
 
 - 2026-10-04 — [Gemma cancellation confirmation blocked before login preparation](2026-10-04_gemma-cancellation-confirmation-blocked_handoff.md)
+
+- 2026-10-04 — [Gemma exact-job cancellation confirmation and pinned recovery](2026-10-04_gemma-exact-job-cancellation-recovery_handoff.md)

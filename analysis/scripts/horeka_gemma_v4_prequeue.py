@@ -273,6 +273,33 @@ def run(root, repository, helper_pin, runtime, sender):
     return sender.send(root)
 
 
+def preparation_snapshot(sender, since, job):
+    """Explicit job selection includes cancelled jobs that never started."""
+    raw = sender.query(['sacct', '-X', '-j', job, '--noheader', '--parsable2',
+                        f'--starttime={since}', '--format=JobIDRaw,State%40,ElapsedRaw,Start,End,ExitCode'])
+    rows = []
+    for line in raw.splitlines():
+        values = line.strip().split('|')
+        if values and values[0] == job:
+            if len(values) == 7 and values[-1] == '':
+                values.pop()
+            if len(values) != 6 or not values[1].strip():
+                raise ValueError('malformed preparation accounting row')
+            rows.append(values)
+    if len(rows) > 1:
+        raise ValueError('ambiguous preparation accounting records')
+    observed = sender.snapshot(since)  # live queue is read last and still wins
+    if rows:
+        ident, status, elapsed, start, end, code = rows[0]
+        observed['accounting'][job] = {'comment': '', 'job_name': 'geodml-gemma-v4-prepare',
+            **observed['accounting'].get(job, {}),
+            'job_id': ident, 'state': status.strip().split()[0].rstrip('+'),
+            'elapsed_seconds': int(elapsed) if elapsed.isdecimal() else None,
+            'start': start, 'end': end, 'exit_code': code,
+            'confirmation_source': 'job-specific sacct', 'raw_state': status}
+    return observed
+
+
 def login_takeover(root, repository, helper_pin, runtime, sender):
     """Retire only pending GPU preparation, then prepare on the authorized login host."""
     if os.environ.get('SLURM_JOB_ID'):
@@ -291,8 +318,19 @@ def login_takeover(root, repository, helper_pin, runtime, sender):
         with sender.sender_lock(spec['workspace']):
             if takeover_path.exists():
                 takeover = sender.read(takeover_path)
-                if takeover['helper_pin'] != helper_pin or takeover['preparation_job'] != prep_job:
-                    raise ValueError('login takeover pin or preparation job changed')
+                if takeover['preparation_job'] != prep_job:
+                    raise ValueError('login takeover preparation job changed')
+                if takeover['helper_pin'] != helper_pin:
+                    previous = '547cb5cc2c5a211054fb0ead8b620a60a17e405f'
+                    if takeover['helper_pin'] != previous or any((root / name).exists() for name in
+                            ('plan.json', 'sender/state.json', 'frozen', 'frozen.partial', 'shards', 'shards.partial')):
+                        raise ValueError('login takeover pin changed after preparation began; preserve work')
+                    backup = root / 'prequeue' / f'login-takeover-{previous}.json'
+                    if backup.exists() and sender.read(backup) != takeover:
+                        raise ValueError('previous takeover history differs')
+                    sender.save(backup, takeover)
+                    takeover = {**takeover, 'helper_pin': helper_pin, 'previous_helper_pin': previous}
+                    sender.save(takeover_path, takeover)
             else:
                 if (root / 'plan.json').exists() or (root / 'sender/state.json').exists():
                     raise ValueError('preparation/inference already progressed; preserve it')
@@ -307,7 +345,7 @@ def login_takeover(root, repository, helper_pin, runtime, sender):
                             'started_at_epoch': time.time(), 'original_state': state}
                 sender.save(takeover_path, takeover)
             if not (root / 'plan.json').exists():
-                observed = sender.snapshot(since)
+                observed = preparation_snapshot(sender, since, prep_job)
                 if prep_job in observed['jobs']:
                     row = checked_job(prep_job, spec)
                     if row.get('JobState') != 'PENDING':
@@ -343,7 +381,7 @@ def login_takeover(root, repository, helper_pin, runtime, sender):
                 # Require terminal confirmation before any input scan. Queries
                 # remain at least 30 seconds apart if accounting has not settled.
                 for attempt in range(10):
-                    ended = sender.snapshot(since)
+                    ended = preparation_snapshot(sender, since, prep_job)
                     if prep_job not in ended['jobs'] and ended['accounting'].get(prep_job, {}).get('state') == 'CANCELLED':
                         break
                     if attempt == 9:
