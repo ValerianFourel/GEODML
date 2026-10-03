@@ -259,7 +259,7 @@ def submit(args):
         # A durable marker survives an ambiguous sbatch response. Never automatically retry.
         with (directory / 'SUBMISSION_ATTEMPTED').open('x') as stream:
             stream.write(str(time.time()))
-        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        result = subprocess.run(command, text=True, capture_output=True, check=False, timeout=60)
         receipt = {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
         atomic(directory / 'submission.json', canonical(receipt))
         results.append({'bout': number, 'job_id': result.stdout.strip(), 'returncode': result.returncode})

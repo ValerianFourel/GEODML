@@ -24,6 +24,10 @@ from .agentic_hours import CLUSTERS, canonical, digest, identifier
 from .inference_budget import AllocationBudget
 
 
+class AdmissionDeferred(ValueError):
+    """Fresh evidence is valid, but capacity or observed-start spacing requires waiting."""
+
+
 def validate_request(request: dict, profile: dict) -> None:
     identifier(request["attempt_id"])
     import re
@@ -94,11 +98,11 @@ def admission(registry: dict, request: dict, snapshot: dict, storage: dict,
             raise ValueError("existing allocation is missing or cluster concurrency exceeds five")
     else:
         if len(active) >= 5:
-            raise ValueError("cluster concurrency limit reached")
+            raise AdmissionDeferred("cluster concurrency limit reached")
         if any(row["state"] == "PENDING" and not row.get("held", False) for row in jobs):
-            raise ValueError("another released allocation has not started")
+            raise AdmissionDeferred("another released allocation has not started")
         if last and now < last + 600:
-            raise ValueError("ten-minute observed-start gap has not elapsed")
+            raise AdmissionDeferred("ten-minute observed-start gap has not elapsed")
         state["pending_attempt"] = request["attempt_id"]
     state["last_start"] = last
     tickets = state.setdefault("tickets", {})
