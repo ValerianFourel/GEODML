@@ -409,11 +409,121 @@ def login_takeover(root, repository, helper_pin, runtime, sender):
     return sender.send(root)
 
 
+def restart_after_cancel(root, repository, helper_pin, runtime, sender, preserve_job=None):
+    """Reset the cancelled, never-started wave; submit ordinary ready jobs next."""
+    if os.environ.get('SLURM_JOB_ID'):
+        raise ValueError('restart requires a login shell')
+    spec = sender.read(root / 'preparation.json')
+    if (runtime.clean_pin() != spec['git_commit'] or repository != runtime.REPO
+            or spec['root'] != str(root) or not root.is_relative_to(Path(spec['workspace']).resolve())):
+        raise ValueError('original scope or scientific pin changed')
+    since = datetime.fromtimestamp(spec['created_at_epoch'] - 86400).strftime('%Y-%m-%d')
+    state = sender.read(root / 'prequeue/state.json')
+    with (root / 'start.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with sender.sender_lock(spec['workspace']):
+            observed = preparation_snapshot(sender, since, state['preparation_job'])
+            remaining = set(observed['jobs']) - ({preserve_job} if preserve_job else set())
+            if remaining:
+                raise ValueError('jobs other than the preserved allocation remain; wait for cancellation')
+            retired = observed['accounting'].get(state['preparation_job'], {})
+            if retired.get('state') != 'CANCELLED' or retired.get('elapsed_seconds') != 0:
+                raise ValueError('original preparation cancellation is not verified')
+            if list(root.glob('shards/*/results/control/index.sqlite')):
+                raise ValueError('saved inference exists; preserve it for reconciliation rather than reset')
+            # Check every recorded job directly; broad accounting can omit jobs
+            # cancelled before their first allocation. No live job is retired.
+            jobs = {}
+            native = list(root.glob('shards/*/submissions/attempt-*/intent.json'))
+            for intent_path in list(root.glob('prequeue/slot-*/submissions/attempt-*/intent.json')) + native:
+                intent = sender.read(intent_path)
+                receipt_path = intent_path.parent / 'receipt.json'
+                if not receipt_path.exists():
+                    raise ValueError('unresolved submission receipt; no reset')
+                receipt = sender.read(receipt_path)
+                if receipt.get('disposition') == 'capacity_refused':
+                    continue
+                job = receipt.get('job_id')
+                if not job or job in jobs and jobs[job] != intent['comment']:
+                    raise ValueError('unresolved or conflicting submission ownership')
+                jobs[job] = intent['comment']
+            records = {}
+            if jobs:
+                raw = sender.query(['sacct', '-X', '-j', ','.join(sorted(jobs)), '--noheader', '--parsable2',
+                    f'--starttime={since}', '--format=JobIDRaw,State%40,ElapsedRaw,Start,Comment%256'])
+                for line in raw.splitlines():
+                    values = line.strip().split('|')
+                    if len(values) == 6 and not values[-1]:
+                        values.pop()
+                    if len(values) != 5 or values[0] not in jobs or values[0] in records:
+                        raise ValueError('unexpected or duplicate reset accounting')
+                    job, status, elapsed, start, comment = values
+                    if (status.split()[0].rstrip('+') != 'CANCELLED' or elapsed != '0'
+                            or start not in ('None', 'Unknown', '') or comment and comment != jobs[job]):
+                        raise ValueError('a recorded job ran or lacks cancellation proof; preserve results')
+                    records[job] = values
+                if set(records) != set(jobs):
+                    raise ValueError('some cancelled jobs are not yet in exact-ID accounting; rerun after accounting settles')
+            marker = root / 'reset.json'
+            if marker.exists():
+                reset = sender.read(marker)
+                if reset['helper_pin'] != helper_pin or reset.get('preserve_job') != preserve_job:
+                    raise ValueError('reset helper pin or preserved job changed')
+            else:
+                reset = {'helper_pin': helper_pin, 'phase': 'archiving', 'created_at_epoch': time.time(),
+                         'authorization': 'Valerian requested cancel other jobs, preserve Qwen, and relaunch Gemma',
+                         'preserve_job': preserve_job,
+                         'cancelled_before_start': records}
+                sender.save(marker, reset)
+            archive = root / 'cancelled-wave-archive'
+            archive.mkdir(exist_ok=True)
+            if not (root / 'plan.json').exists():
+                if reset['phase'] != 'archiving':
+                    raise ValueError('interrupted login preparation preserved; no automatic repeat')
+                for name in ('frozen', 'frozen.partial', 'shards', 'shards.partial'):
+                    source, destination = root / name, archive / name
+                    if source.exists():
+                        if destination.exists():
+                            raise ValueError('both original and archived preparation exist; preserve both')
+                        source.rename(destination)
+                old = root / 'prequeue/login-takeover.json'
+                if old.exists() and not (archive / 'login-takeover.json').exists():
+                    sender.save(archive / 'login-takeover.json', sender.read(old))
+                sender.save(old, {'helper_pin': helper_pin, 'preparation_job': state['preparation_job'],
+                                 'authorization': reset['authorization']})
+                sender.save(root / 'prequeue/login-preparation-retired.json', retired)
+                runtime.storage(spec, root / 'reset-admission')
+                sender.save(marker, {**reset, 'phase': 'preparing_on_login'})
+                sender.emit({'state': 'preparing_on_login', 'reset': True, 'maximum_seconds': 3600})
+                env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', OMP_NUM_THREADS='1',
+                           MKL_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', TOKENIZERS_PARALLELISM='false')
+                subprocess.run(['nice', '-n', '10', sys.executable, '-u',
+                    str(REPO / 'analysis/scripts/horeka_gemma_v4.py'), 'prepare-login',
+                    '--output', str(root), '--inference-repository', str(repository)],
+                    check=True, timeout=3600, env=env)
+            plan = runtime.checked_plan(root)
+            # Cancelled-before-start native receipts are archived, never deleted.
+            # They consumed no allocation time and have no saved inference.
+            for shard in plan['shards']:
+                source = Path(shard['directory']) / 'submissions'
+                if source.exists():
+                    destination = archive / shard['id'] / 'submissions'
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    if destination.exists():
+                        raise ValueError('submission archive already exists; no overwrite')
+                    source.rename(destination)
+            sender.save(marker, {**reset, 'phase': 'ready', 'plan_sha256': sender.hashlib.sha256((root / 'plan.json').read_bytes()).hexdigest()})
+    return sender.send(root)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--prepare-on-login', action='store_true')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--prepare-on-login', action='store_true')
+    modes.add_argument('--restart-after-cancel', action='store_true')
     parser.add_argument('--repository', type=Path, required=True)
+    parser.add_argument('--preserve-job')
     args = parser.parse_args(argv)
     pin = git_pin(REPO)
     repository = args.repository.resolve(strict=True)
@@ -422,6 +532,8 @@ def main(argv=None):
     from analysis.scripts import horeka_gemma_v4_sender as sender
     root = args.output.resolve(strict=True)
     try:
+        if args.restart_after_cancel:
+            return restart_after_cancel(root, repository, pin, runtime, sender, preserve_job=args.preserve_job)
         controller = login_takeover if args.prepare_on_login else run
         return controller(root, repository, pin, runtime, sender)
     except Exception as error:

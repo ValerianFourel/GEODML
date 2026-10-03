@@ -75,3 +75,21 @@ dataset sources and exclusions stay unchanged. The original conservative budget
 still includes the old one-hour preparation ceiling; actual cancelled GPU use and
 login preparation are recorded separately. No new GPU preparation job is sent.
 The command replaces the existing named tmux controller and writes to prequeue.log.
+
+## Cancel and restart, preserving Qwen
+
+`horeka-gemma-v4-reset.sh WORKSPACE RUN PRESERVED_JOB LOGIN_HOST...` implements
+the later explicit reset request. It stops only Gemma processes on those login
+hosts, cancels the current user's other job IDs, and leaves the preserved Qwen
+job and Qwen senders untouched. Remote login-host cleanup uses noninteractive
+SSH and aborts before cancellation if that access fails. All listed hosts must
+be reachable or locally stopped before proceeding; it never ignores an old
+controller just because it is on another host.
+
+After cancellation confirmation, completed preparation is reused. Incomplete
+preparation is archived under cancelled-wave-archive and rebuilt on login from
+the same dataset paths; recently completed source answers can enter that new
+snapshot. A reset refuses to discard saved inference or reset jobs that actually
+ran. The fresh sender submits ordinary jobs without user holds, up to 200,
+retains the finite per-shard budgets and polls every 600 seconds. Monitor
+reset.log and reset.json. Do not run the older prequeue takeover command afterward.

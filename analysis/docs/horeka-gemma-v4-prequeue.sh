@@ -3,10 +3,28 @@
 # Usage: bash horeka-gemma-v4-prequeue.sh WORKSPACE EXISTING_RUN
 set -euo pipefail
 set +x
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ] || { [ "$#" -eq 3 ] && [ "$3" != --prepare-on-login ]; }; then
-  echo 'Usage: WORKSPACE EXISTING_RUN [--prepare-on-login]' >&2
+if [ "${1:-}" = --stop-local ]; then
+  tmux kill-session -t '=gemma-v4-bouts' 2>/dev/null || true
+  pkill -TERM -u "$(id -u)" -f '[h]oreka_gemma_v4(_prequeue[.]py|[.]py prepare-login)' || true
+  for GEMMA_TRY in {1..10}; do
+    if ! pgrep -u "$(id -u)" -f '[h]oreka_gemma_v4(_prequeue[.]py|[.]py prepare-login)' >/dev/null; then
+      exit 0
+    fi
+    sleep 1
+  done
+  echo 'Gemma login process has not stopped; no cancellation or restart yet.' >&2
+  exit 1
+fi
+if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then
+  echo 'Usage: WORKSPACE EXISTING_RUN [--prepare-on-login | --restart-after-cancel PRESERVED_JOB]' >&2
   exit 2
 fi
+case "${3:-}" in
+  '') test "$#" -eq 2 ;;
+  --prepare-on-login) test "$#" -eq 3 ;;
+  --restart-after-cancel) test "$#" -eq 4 && [[ "$4" =~ ^[0-9]+$ ]] ;;
+  *) exit 2 ;;
+esac
 if [ -n "${SLURM_JOB_ID:-}" ]; then
   echo 'Use a login shell; preserve the existing allocation.' >&2
   exit 2
@@ -38,12 +56,17 @@ GEMMA_ARGS=("$RT/bin/python" -u "$GEMMA_HELPER/analysis/scripts/horeka_gemma_v4_
 if [ "${3:-}" = --prepare-on-login ]; then
   GEMMA_ARGS+=(--prepare-on-login)
 fi
+GEMMA_LOG_NAME=prequeue
+if [ "${3:-}" = --restart-after-cancel ]; then
+  GEMMA_ARGS+=(--restart-after-cancel --preserve-job "$4")
+  GEMMA_LOG_NAME=reset
+fi
 printf -v GEMMA_COMMAND '%q ' "${GEMMA_ARGS[@]}"
 printf -v GEMMA_ENV '%q' "$1/geodml-nemotron-env.sh"
-printf -v GEMMA_LOG '%q' "$GEMMA_ROOT/prequeue.log"
-printf -v GEMMA_LAUNCHER '%q' "$GEMMA_ROOT/prequeue-command.sh"
+printf -v GEMMA_LOG '%q' "$GEMMA_ROOT/$GEMMA_LOG_NAME.log"
+printf -v GEMMA_LAUNCHER '%q' "$GEMMA_ROOT/$GEMMA_LOG_NAME-command.sh"
 printf '#!/bin/bash\nset -euo pipefail\nset +x\nsource %s\nexport PYTHONDONTWRITEBYTECODE=1\nunset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE\nexec %s >> %s 2>&1\n' \
-  "$GEMMA_ENV" "$GEMMA_COMMAND" "$GEMMA_LOG" > "$GEMMA_ROOT/prequeue-command.sh"
+  "$GEMMA_ENV" "$GEMMA_COMMAND" "$GEMMA_LOG" > "$GEMMA_ROOT/$GEMMA_LOG_NAME-command.sh"
 # The user explicitly authorized replacing this named login-side tmux session.
 # The preparation sbatch and all Qwen/interactive allocations remain untouched.
 if tmux has-session -t '=gemma-v4-bouts' 2>/dev/null; then
@@ -51,5 +74,5 @@ if tmux has-session -t '=gemma-v4-bouts' 2>/dev/null; then
   sleep 2
 fi
 tmux new-session -d -s gemma-v4-bouts "bash $GEMMA_LAUNCHER"
-printf 'First-wave controller started. Log: %s/prequeue.log\n' "$GEMMA_ROOT"
+printf 'Controller started. Log: %s/%s.log\n' "$GEMMA_ROOT" "$GEMMA_LOG_NAME"
 printf 'Watch: tmux attach -t gemma-v4-bouts\n'

@@ -46,6 +46,10 @@ def wave(cluster, monkeypatch):
         original_command = c.command
         def wire(cmd, **kwargs):
             if cmd[0] == 'sacct' and '-j' in cmd:
+                if '--format=JobIDRaw,State%40,ElapsedRaw,Start,Comment%256' in cmd:
+                    ids = cmd[cmd.index('-j') + 1].split(',')
+                    rows = [f"{job}|{c.accounting[job]['state']}|0|None|{c.accounting[job]['comment']}" for job in ids if job in c.accounting]
+                    return SimpleNamespace(returncode=0, stdout='\n'.join(rows), stderr='')
                 r = c.accounting.get('999', c.jobs.get('999'))
                 state = r['state'] if r else ''
                 if state == 'CANCELLED':
@@ -299,3 +303,75 @@ def test_login_takeover_preserves_jobs_when_exclusive_preparation_cannot_be_esta
     assert '999' in c.jobs
     assert not c.released and not c.cancelled
     assert not (c.root / 'plan.json').exists()
+
+
+def test_cancelled_wave_restart_archives_partial_inputs_and_submits_ready_jobs_preserving_qwen(wave):
+    c = wave(2)
+    ready_for_login(c)
+    c.end('999', 'CANCELLED')
+    for job in list(c.holds):
+        c.end(job, 'CANCELLED')
+    c.holds.clear()
+    partial = c.root / 'frozen.partial'
+    partial.mkdir()
+    (partial / 'evidence').write_text('saved partial inputs')
+    assert prequeue.restart_after_cancel(c.root, Path(c.plan['repository']), 'c'*40, runtime, sender, preserve_job='998') == 0
+    assert (c.root / 'cancelled-wave-archive/frozen.partial/evidence').read_text() == 'saved partial inputs'
+    assert len(c.submissions) == 202
+    assert not c.released  # new jobs use normal sbatch, never a user hold
+    assert set(c.jobs) == {'998'}
+    assert sender.read(c.root / 'sender/summary.json')['allocations_attempted'] == 2
+
+
+def test_wave_reset_refuses_to_archive_inputs_until_other_jobs_are_gone(wave):
+    c = wave(2)
+    ready_for_login(c)
+    partial = c.root / 'frozen.partial'
+    partial.mkdir()
+    with pytest.raises(ValueError, match='jobs other than the preserved'):
+        prequeue.restart_after_cancel(c.root, Path(c.plan['repository']), 'c'*40, runtime, sender, preserve_job='998')
+    assert partial.exists()
+    assert not (c.root / 'cancelled-wave-archive').exists()
+
+
+def test_reset_shell_never_cancels_preserved_job_and_stops_both_login_hosts(tmp_path):
+    import shutil
+    import subprocess
+    import sys
+    scripts = tmp_path / 'repo/analysis/docs'
+    scripts.mkdir(parents=True)
+    reset = scripts / 'horeka-gemma-v4-reset.sh'
+    shutil.copy(prequeue.REPO / 'analysis/docs/horeka-gemma-v4-reset.sh', reset)
+    (scripts / 'horeka-gemma-v4-prequeue.sh').write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RESET_TEST_LOG"\n')
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    (workspace / 'geodml-nemotron-env.sh').write_text(':\n')
+    binaries = tmp_path / 'bin'
+    binaries.mkdir()
+    queue = tmp_path / 'queue'
+    queue.write_text('111\n998\n222\n')
+    wire = tmp_path / 'wire'
+    for name in ('hostname', 'squeue', 'scancel', 'ssh'):
+        executable = binaries / name
+        executable.write_text(f'#!{sys.executable}\n' + '''import json, os, sys
+from pathlib import Path
+name = Path(sys.argv[0]).name
+with open(os.environ['RESET_WIRE'], 'a') as stream:
+    stream.write(json.dumps([name] + sys.argv[1:]) + '\\n')
+queue = Path(os.environ['RESET_QUEUE'])
+if name == 'hostname': print('hkn1990')
+if name == 'squeue': print(queue.read_text(), end='')
+if name == 'scancel': queue.write_text(''.join(j+'\\n' for j in queue.read_text().splitlines() if j not in sys.argv[1:]))
+''')
+        executable.chmod(0o755)
+    log = tmp_path / 'launcher'
+    env = {**os.environ, 'PATH': str(binaries) + os.pathsep + os.environ['PATH'],
+           'RESET_TEST_LOG': str(log), 'RESET_WIRE': str(wire), 'RESET_QUEUE': str(queue)}
+    env.pop('SLURM_JOB_ID', None)
+    subprocess.run(['/bin/bash', str(reset), str(workspace), str(workspace / 'run'),
+                    '998', 'hkn1990', 'hkn1991'], env=env, check=True, capture_output=True, text=True)
+    calls = [json.loads(line) for line in wire.read_text().splitlines()]
+    assert [call for call in calls if call[0] == 'scancel'] == [['scancel', '111', '222']]
+    assert queue.read_text() == '998\n'
+    assert log.read_text().splitlines() == ['--stop-local', f'{workspace} {workspace / "run"} --restart-after-cancel 998']
+    assert any(call[0] == 'ssh' and 'hkn1991' in call and '--stop-local' in call[-1] for call in calls)
