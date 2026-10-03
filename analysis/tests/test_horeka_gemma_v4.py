@@ -191,7 +191,8 @@ def test_restart_rejects_changed_scope_before_submission(tmp_path, monkeypatch, 
     assert not (root / "PREPARATION_SUBMISSION_ATTEMPTED").exists()
 
 
-def test_gpu_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, monkeypatch):
+@pytest.mark.parametrize("login", [False, True])
+def test_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, monkeypatch, login):
     from analysis.scripts import verify_inference_allocation as boundary
     source = dataset(tmp_path)
     root = tmp_path / "run"
@@ -204,8 +205,22 @@ def test_gpu_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path
     bulk.save(root / "judge-config.json", settings)
     monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
     monkeypatch.setattr(bulk, "storage", lambda *a: None)
-    monkeypatch.setattr(boundary, "verify", lambda cluster: {"cluster": cluster, "fixture_boundary": True})
-    assert bulk.prepare(SimpleNamespace(output=root)) == 0
+    def verify(cluster):
+        assert not login, 'login preparation must never request a GPU boundary'
+        return {"cluster": cluster, "fixture_boundary": True}
+    monkeypatch.setattr(boundary, "verify", verify)
+    if login:
+        bulk.save(root / 'prequeue/login-takeover.json', {'helper_pin': 'a'*40, 'preparation_job': '99'})
+        bulk.save(root / 'prequeue/login-preparation-retired.json', {'job_id': '99', 'state': 'CANCELLED'})
+        original = bulk.subprocess.check_output
+        def git(command, **kwargs):
+            if command[:3] == ['git', '-C', str(bulk.REPO)]:
+                return 'a' * 40 + '\n' if command[3] == 'rev-parse' else ''
+            return original(command, **kwargs)
+        monkeypatch.setattr(bulk.subprocess, 'check_output', git)
+        monkeypatch.delenv('SLURM_JOB_ID', raising=False)
+    assert bulk.prepare(SimpleNamespace(output=root, command='prepare-login' if login else 'prepare',
+                                        inference_repository=bulk.REPO)) == 0
     plan = bulk.checked_plan(root)
     assert plan["cells"] == 3
     assert len(plan["shards"]) == 1  # all three synthetic answers share their map
@@ -219,6 +234,10 @@ def test_gpu_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path
     assert config["workload_mode"] == "gemma-v4-bulk"
     assert config["walltime"] == "05:00:00"
     assert bulk.read(directory / "judge-config.json") == settings
+    if login:
+        assert plan['preparation_execution']['execution'] == 'login'
+        assert plan['preparation_execution']['gpu_used'] is False
+        assert plan['git_commit'] == 'a' * 40
     (directory / "inputs/manifest.json").write_text("{}")
     with pytest.raises(ValueError, match="configuration changed"):
         bulk.checked_plan(root)

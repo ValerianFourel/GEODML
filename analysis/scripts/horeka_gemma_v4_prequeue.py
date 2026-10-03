@@ -273,9 +273,108 @@ def run(root, repository, helper_pin, runtime, sender):
     return sender.send(root)
 
 
+def login_takeover(root, repository, helper_pin, runtime, sender):
+    """Retire only pending GPU preparation, then prepare on the authorized login host."""
+    if os.environ.get('SLURM_JOB_ID'):
+        raise ValueError('login preparation requires a login shell')
+    spec = sender.read(root / 'preparation.json')
+    state = sender.read(root / 'prequeue/state.json')
+    if (runtime.clean_pin() != spec['git_commit'] or repository != runtime.REPO
+            or state['repository'] != str(repository) or spec['root'] != str(root)
+            or not root.is_relative_to(Path(spec['workspace']).resolve())):
+        raise ValueError('original preparation/inference pin or root changed')
+    prep_job = state['preparation_job']
+    since = datetime.fromtimestamp(spec['created_at_epoch'] - 86400).strftime('%Y-%m-%d')
+    takeover_path = root / 'prequeue/login-takeover.json'
+    with (root / 'start.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with sender.sender_lock(spec['workspace']):
+            if takeover_path.exists():
+                takeover = sender.read(takeover_path)
+                if takeover['helper_pin'] != helper_pin or takeover['preparation_job'] != prep_job:
+                    raise ValueError('login takeover pin or preparation job changed')
+            else:
+                if (root / 'plan.json').exists() or (root / 'sender/state.json').exists():
+                    raise ValueError('preparation/inference already progressed; preserve it')
+                for name in ('frozen', 'frozen.partial', 'shards', 'shards.partial'):
+                    if (root / name).exists():
+                        raise ValueError('partial preparation exists; preserve and inspect it')
+                row = checked_job(prep_job, spec)
+                if row.get('JobState') != 'PENDING' or row.get('JobName') != 'geodml-gemma-v4-prepare':
+                    raise ValueError('preparation is no longer pending; preserve its allocation')
+                takeover = {'helper_pin': helper_pin, 'preparation_job': prep_job,
+                            'authorization': 'Valerian explicitly requested preparation on the login shell now',
+                            'started_at_epoch': time.time(), 'original_state': state}
+                sender.save(takeover_path, takeover)
+            if not (root / 'plan.json').exists():
+                observed = sender.snapshot(since)
+                if prep_job in observed['jobs']:
+                    row = checked_job(prep_job, spec)
+                    if row.get('JobState') != 'PENDING':
+                        raise ValueError('preparation started; preserve its allocation')
+                    command(['scontrol', 'hold', prep_job])
+                    if not held(checked_job(prep_job, spec)):
+                        raise ValueError('preparation could not be held; no login work started')
+                elif observed['accounting'].get(prep_job, {}).get('state') != 'CANCELLED':
+                    raise ValueError('preparation state unresolved or already executed')
+                # Remove afterok BEFORE cancelling preparation, otherwise Slurm's
+                # kill-on-invalid-dep would cancel the 200 accepted inference jobs.
+                known = []
+                for slot in slots(root, state):
+                    path, intent, job = current(slot, observed, sender)
+                    if not job:
+                        continue
+                    row = checked_job(job, spec, comment=intent['comment'])
+                    if not held(row):
+                        raise ValueError('first-wave job is not held; preserve it')
+                    known.append((slot, intent, job))
+                for slot, intent, job in known:
+                    receipt = Path(slot['directory']) / 'login-dependency.json'
+                    sender.save(receipt, {'job_id': job, 'preparation_job': prep_job, 'state': 'clearing'})
+                    command(['scontrol', 'update', f'JobId={job}', 'Dependency='])
+                    row = checked_job(job, spec, comment=intent['comment'])
+                    if not held(row) or row.get('Dependency') not in ('(null)', '', 'None'):
+                        raise ValueError('dependency removal not verified; preparation preserved')
+                    sender.save(receipt, {'job_id': job, 'preparation_job': prep_job, 'state': 'cleared'})
+                if prep_job in observed['jobs']:
+                    if not held(checked_job(prep_job, spec)):
+                        raise ValueError('preparation no longer held; preserve it')
+                    command(['scancel', prep_job])
+                # Require terminal confirmation before any input scan. Queries
+                # remain at least 30 seconds apart if accounting has not settled.
+                for attempt in range(10):
+                    ended = sender.snapshot(since)
+                    if prep_job not in ended['jobs'] and ended['accounting'].get(prep_job, {}).get('state') == 'CANCELLED':
+                        break
+                    if attempt == 9:
+                        raise ValueError('awaiting terminal preparation accounting; rerun same pinned takeover')
+                    time.sleep(30)
+                sender.save(root / 'prequeue/login-preparation-retired.json', ended['accounting'][prep_job])
+                for name in ('frozen', 'frozen.partial', 'shards', 'shards.partial'):
+                    if (root / name).exists():
+                        raise ValueError('partial preparation exists; no automatic overwrite')
+                runtime.storage(spec, root / 'prequeue/login-admission')
+                sender.emit({'state': 'preparing_on_login', 'gpu_used': False, 'maximum_seconds': 3600})
+                sender.save(root / 'prequeue/status.json', {'state': 'preparing_on_login', 'time': time.time()})
+                env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', OMP_NUM_THREADS='1',
+                           MKL_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', TOKENIZERS_PARALLELISM='false')
+                subprocess.run(['nice', '-n', '10', sys.executable, '-u',
+                    str(REPO / 'analysis/scripts/horeka_gemma_v4.py'), 'prepare-login',
+                    '--output', str(root), '--inference-repository', str(repository)],
+                    check=True, timeout=3600, env=env)
+            plan = runtime.checked_plan(root)
+            execution = plan.get('preparation_execution', {})
+            if execution.get('execution') != 'login' or execution.get('preparation_code_revision') != helper_pin:
+                raise ValueError('plan lacks the pinned login preparation record')
+            if not (root / 'prequeue/activated.json').exists():
+                activate(root, state, spec, sender.snapshot(since), runtime, sender)
+    return sender.send(root)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--prepare-on-login', action='store_true')
     parser.add_argument('--repository', type=Path, required=True)
     args = parser.parse_args(argv)
     pin = git_pin(REPO)
@@ -285,7 +384,8 @@ def main(argv=None):
     from analysis.scripts import horeka_gemma_v4_sender as sender
     root = args.output.resolve(strict=True)
     try:
-        return run(root, repository, pin, runtime, sender)
+        controller = login_takeover if args.prepare_on_login else run
+        return controller(root, repository, pin, runtime, sender)
     except Exception as error:
         sender.save(root / 'prequeue/status.json', {'state': 'blocked', 'reason': str(error),
                     'time': time.time(), 'jobs_preserved': True})

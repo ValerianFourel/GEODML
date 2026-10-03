@@ -47,3 +47,31 @@ do not create a new run root to bypass an error.
 Validation uses Slurm wire fixtures, real durable submission files, the real
 worker binding validator, and the original sender. It does not establish live
 HoreKa acceptance, timing, quota capacity or scientific validity.
+
+## Explicit login preparation takeover
+
+Valerian subsequently requested preparation on the login shell immediately.
+The same shell entry point accepts `--prepare-on-login` as its third argument.
+This is an explicit exception for saved-input preparation only; inference still
+uses the original pinned four-A100 Slurm workflow.
+
+The takeover holds the pending preparation job, verifies the accepted first-wave
+jobs remain user-held, clears their dependencies, and only then cancels the
+pending preparation job. It requires terminal cancellation accounting before
+scanning inputs. If preparation has already started, it preserves that allocation
+and stops. All scheduler changes have durable receipts. The first-wave jobs stay
+held through preparation and are adopted/released using the same existing path.
+
+Preparation runs as one nice-priority login process, with native-library thread
+counts set to one and a one-hour execution timeout. Full-dataset duration and peak
+RAM remain unmeasured; it loads no judge model. It retains storage/quota checks.
+Partial preparation is preserved and never blindly overwritten or restarted.
+An interrupted controller can continue from a fully prepared plan or from a
+retired pending preparation with no partial outputs. It fails for unknown state.
+
+The plan records the new preparation helper revision and login host separately
+from the unchanged original inference checkout/revision. Scientific settings,
+dataset sources and exclusions stay unchanged. The original conservative budget
+still includes the old one-hour preparation ceiling; actual cancelled GPU use and
+login preparation are recorded separately. No new GPU preparation job is sent.
+The command replaces the existing named tmux controller and writes to prequeue.log.

@@ -316,15 +316,36 @@ def exclusions(spec, root):
 
 
 def prepare(args):
-    """Substantial input inspection belongs in the explicit GPU preparation job."""
+    """Freeze saved inputs; login preparation is an explicit operator exception."""
     from analysis.scripts.prepare_source_importance_tasks import main as freeze
     from analysis.scripts.partition_si_v4_tasks import partition
     from analysis.scripts.verify_inference_allocation import verify
     root = args.output.resolve()
     spec = read(root / "preparation.json")
-    if spec["git_commit"] != clean_pin():
-        raise ValueError("preparation checkout changed")
-    save(root / "preparation-boundary.json", verify("horeka"))
+    login = getattr(args, "command", "prepare") == "prepare-login"
+    execution_repo = REPO
+    helper_pin = clean_pin()
+    if login:
+        if os.environ.get("SLURM_JOB_ID"):
+            raise ValueError("login preparation must run outside an allocation")
+        takeover = read(root / "prequeue/login-takeover.json")
+        retired = read(root / "prequeue/login-preparation-retired.json")
+        if (takeover.get("helper_pin") != helper_pin or retired.get("state") != "CANCELLED"
+                or retired.get("job_id") != takeover.get("preparation_job")):
+            raise ValueError("verified retirement of GPU preparation is required")
+        execution_repo = args.inference_repository.resolve(strict=True)
+        pin = subprocess.check_output(["git", "-C", str(execution_repo), "rev-parse", "HEAD"], text=True).strip()
+        dirty = subprocess.check_output(["git", "-C", str(execution_repo), "status", "--porcelain", "--untracked-files=all"], text=True).strip()
+        if dirty or pin != spec["git_commit"]:
+            raise ValueError("original inference checkout changed")
+        boundary = {"execution": "login", "authorization": "explicit user request to prepare on login shell",
+                    "preparation_code_revision": helper_pin, "inference_code_revision": pin,
+                    "hostname": os.uname().nodename, "started_at_epoch": time.time(), "gpu_used": False}
+    else:
+        if spec["git_commit"] != helper_pin:
+            raise ValueError("preparation checkout changed")
+        boundary = verify("horeka")
+    save(root / "preparation-boundary.json", boundary)
     storage(spec, root / "preparation-storage")
     frozen = root / "frozen"
     excluded = exclusions(spec, root)
@@ -346,7 +367,7 @@ def prepare(args):
             claims.add(cell["map_task_id"])
         save(folder / "judge-config.json", settings)
         manifest = read(folder / "inputs/manifest.json")
-        config = {"repository": str(REPO), "git_commit": spec["git_commit"], "workspace": spec["workspace"],
+        config = {"repository": str(execution_repo), "git_commit": spec["git_commit"], "workspace": spec["workspace"],
             "account": spec["account"], "approval": spec["authorization"], "job_name": JOB_NAME,
             "walltime": WALLTIME, "trial": "si-v4-development", "workload_mode": "gemma-v4-bulk",
             "model_id": gemma.MODEL, "model_revision": gemma.REVISION, "serving": stage.SERVING,
@@ -356,7 +377,7 @@ def prepare(args):
             "cache_prefix": "gemma4-v4-bulk", "structured_outputs_config": settings["structured_outputs_config"],
             "scientific_result": False, "semantic_acceptance": "not_established"}
         save(folder / "config.json", config)
-        run = [sys.executable, str(Path(__file__)), "run-shard", "--config", str(folder / "config.json")]
+        run = [sys.executable, str(execution_repo / "analysis/scripts/horeka_gemma_v4.py"), "run-shard", "--config", str(folder / "config.json")]
         script = '#!/bin/bash\nset -euo pipefail\nexport PYTHONDONTWRITEBYTECODE=1\nexport GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1\n'
         script += 'exec srun --jobid="$SLURM_JOB_ID" --nodes=1 --ntasks=1 --gres=gpu:4 --cpus-per-task=32 --unbuffered ' + shlex.join(run) + '\n'
         atomic(folder / "run.sh", script.encode())
@@ -368,7 +389,7 @@ def prepare(args):
         for task_id in sorted(claims):
             stream.write((judge.canonical({"map_task_id": task_id}) + "\n").encode())
     plan = {"format_version": FORMAT, "plan_id": plan_id, "root": str(root),
-        "repository": str(REPO), "git_commit": spec["git_commit"], "workspace": spec["workspace"],
+        "repository": str(execution_repo), "git_commit": spec["git_commit"], "workspace": spec["workspace"],
         "account": spec["account"], "repo_id": spec["repo_id"], "authorization": spec["authorization"],
         "created_at_epoch": int(time.time()), "deadline_epoch": int(time.time()) + 30 * 86400,
         "partition": "accelerated", "walltime": WALLTIME, "job_name": JOB_NAME,
@@ -385,6 +406,8 @@ def prepare(args):
             "queue_wait_excluded": True, "no_automatic_budget_expansion": True}}
     plan["maximum_node_hours"] = 1 + 5 * plan["maximum_allocations"]
     plan["maximum_gpu_hours"] = 4 * plan["maximum_node_hours"]
+    if login:
+        plan["preparation_execution"] = {**boundary, "finished_at_epoch": time.time()}
     save(root / "plan.json", plan)
     print(json.dumps({"prepared_cells": plan["cells"], "maximum_allocations": plan["maximum_allocations"],
                       "maximum_node_hours": plan["maximum_node_hours"], "allocation_submitted": False}), flush=True)
@@ -496,10 +519,13 @@ def main(argv=None):
     p.add_argument("--repo-id", default="ValerianFourel/geodml-experiment-v2-paper-private")
     p = commands.add_parser("prepare")
     p.add_argument("--output", type=Path, required=True)
+    p = commands.add_parser("prepare-login")
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--inference-repository", type=Path, required=True)
     p = commands.add_parser("run-shard")
     p.add_argument("--config", type=Path, required=True)
     args = parser.parse_args(argv)
-    return {"start": start, "prepare": prepare, "run-shard": run_shard}[args.command](args)
+    return {"start": start, "prepare": prepare, "prepare-login": prepare, "run-shard": run_shard}[args.command](args)
 
 
 if __name__ == "__main__":

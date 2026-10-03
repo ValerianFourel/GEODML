@@ -3,8 +3,8 @@
 # Usage: bash horeka-gemma-v4-prequeue.sh WORKSPACE EXISTING_RUN
 set -euo pipefail
 set +x
-if [ "$#" -ne 2 ]; then
-  echo 'Usage: WORKSPACE EXISTING_RUN' >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ] || { [ "$#" -eq 3 ] && [ "$3" != --prepare-on-login ]; }; then
+  echo 'Usage: WORKSPACE EXISTING_RUN [--prepare-on-login]' >&2
   exit 2
 fi
 if [ -n "${SLURM_JOB_ID:-}" ]; then
@@ -35,6 +35,9 @@ PY
 )
 GEMMA_ARGS=("$RT/bin/python" -u "$GEMMA_HELPER/analysis/scripts/horeka_gemma_v4_prequeue.py"
   --repository "$GEMMA_SCIENCE" --output "$GEMMA_ROOT")
+if [ "${3:-}" = --prepare-on-login ]; then
+  GEMMA_ARGS+=(--prepare-on-login)
+fi
 printf -v GEMMA_COMMAND '%q ' "${GEMMA_ARGS[@]}"
 printf -v GEMMA_ENV '%q' "$1/geodml-nemotron-env.sh"
 printf -v GEMMA_LOG '%q' "$GEMMA_ROOT/prequeue.log"

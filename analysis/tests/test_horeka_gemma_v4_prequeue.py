@@ -28,6 +28,10 @@ def wave(cluster, monkeypatch):
         c.reject_after = None
         c.release_loss = False
         c.prep_failure = False
+        c.login = False
+        c.dependencies = {}
+        c.prepare_action = None
+        c.detach_failure = False
         c.prep_job = '999'
         c.queue_row('999', name='geodml-gemma-v4-prepare')
         c.queue_row('998', name='unrelated-qwen', state='RUNNING')
@@ -54,6 +58,7 @@ def wave(cluster, monkeypatch):
                                       'shard': {'directory': str(folder)}})
                 c.queue_row(job, intent['comment'], 'geodml-gemma-v4-bout')
                 c.holds.add(job)
+                c.dependencies[job] = 'afterok:999'
                 if c.loss:
                     c.loss = False
                     raise KeyboardInterrupt
@@ -67,11 +72,28 @@ def wave(cluster, monkeypatch):
                        'TimeLimit': '05:00:00', 'NumNodes': '1-1', 'NumCPUs': '32',
                        'OverSubscribe': 'NO', 'TresPerNode': 'gres/gpu:4',
                        'JobState': r['state'], 'Reason': reason}
+                row['Dependency'] = c.dependencies.get(job, '(null)')
                 return SimpleNamespace(returncode=0, stdout=' '.join(f'{k}={v}' for k,v in row.items()), stderr='')
+            if cmd[:2] == ['scontrol', 'hold']:
+                assert cmd[2] == '999' and c.jobs['999']['state'] == 'PENDING'
+                c.holds.add('999')
+                return SimpleNamespace(returncode=0, stdout='', stderr='')
+            if cmd[:2] == ['scontrol', 'update']:
+                job = cmd[2].split('=', 1)[1]
+                assert job in c.holds and cmd[3] == 'Dependency='
+                if not c.detach_failure:
+                    c.dependencies[job] = '(null)'
+                return SimpleNamespace(returncode=0, stdout='', stderr='')
+            if cmd[0] == 'nice':
+                assert c.login and c.accounting['999']['state'] == 'CANCELLED'
+                assert not c.released and '--inference-repository' in cmd
+                assert kwargs['timeout'] == 3600 and kwargs['env']['OMP_NUM_THREADS'] == '1'
+                c.prepare_action()
+                return SimpleNamespace(returncode=0, stdout='', stderr='')
             if cmd[:2] == ['scontrol', 'release']:
                 job = cmd[2]
                 assert job in c.holds and c.reservations > 0
-                assert c.accounting['999']['state'] == 'COMPLETED'
+                assert c.accounting['999']['state'] == ('CANCELLED' if c.login else 'COMPLETED')
                 attempt = next(p for p in c.root.glob('shard-*/submissions/*/receipt.json')
                                if json.loads(p.read_text())['job_id'] == job)
                 shard = next(s for s in c.plan['shards'] if Path(s['directory']) == attempt.parents[2])
@@ -88,6 +110,12 @@ def wave(cluster, monkeypatch):
                 return SimpleNamespace(returncode=0, stdout='', stderr='')
             if cmd[0] == 'scancel':
                 job = cmd[1]
+                if job == '999':
+                    assert c.login and job in c.holds
+                    assert all(value == '(null)' for value in c.dependencies.values())
+                    c.holds.remove(job)
+                    c.end(job, 'CANCELLED')
+                    return SimpleNamespace(returncode=0, stdout='', stderr='')
                 assert job in c.holds and job not in ('998', '999')
                 c.cancelled.append(job)
                 c.holds.remove(job)
@@ -193,3 +221,54 @@ def test_unknown_submission_acknowledgement_never_submits_duplicate(wave):
     with pytest.raises(ValueError, match='ambiguous submission'):
         launch(c)
     assert len(c.submissions) == 1
+
+
+def ready_for_login(c):
+    # Interrupt the real controller after its initial held submissions, before
+    # preparation completion, then start the explicit login takeover.
+    def stop_before_preparation(c):
+        raise KeyboardInterrupt
+    c.end_action = stop_before_preparation
+    with pytest.raises(KeyboardInterrupt):
+        launch(c)
+    (c.root / 'plan.json').unlink()
+    c.login = True
+    def prepare():
+        plan = {**c.plan, 'preparation_execution': {
+            'execution': 'login', 'preparation_code_revision': 'c'*40}}
+        write(c.root / 'plan.json', plan)
+    c.prepare_action = prepare
+    def finish(c):
+        for s in c.submissions:
+            if s['job'] in c.jobs and s['job'] not in c.holds:
+                c.result(s['shard'])
+                c.end(s['job'])
+    c.end_action = finish
+
+
+def test_login_takeover_preserves_200_jobs_and_releases_them_after_preparation(wave):
+    c = wave()
+    ready_for_login(c)
+    assert prequeue.login_takeover(c.root, Path(c.plan['repository']), 'c'*40, runtime, sender) == 0
+    assert len(c.submissions) == len(c.released) == 200
+    assert not c.cancelled
+    assert c.accounting['999']['state'] == 'CANCELLED'
+    assert set(c.jobs) == {'998'}
+    assert sender.read(c.root / 'sender/summary.json')['allocations_attempted'] == 200
+
+
+@pytest.mark.parametrize('failure', ['prep_running', 'detach_unconfirmed'])
+def test_login_takeover_preserves_jobs_when_exclusive_preparation_cannot_be_established(wave, failure):
+    c = wave(2)
+    ready_for_login(c)
+    if failure == 'prep_running':
+        c.jobs['999']['state'] = 'RUNNING'
+        message = 'no longer pending'
+    else:
+        c.detach_failure = True
+        message = 'dependency removal not verified'
+    with pytest.raises(ValueError, match=message):
+        prequeue.login_takeover(c.root, Path(c.plan['repository']), 'c'*40, runtime, sender)
+    assert '999' in c.jobs
+    assert not c.released and not c.cancelled
+    assert not (c.root / 'plan.json').exists()
