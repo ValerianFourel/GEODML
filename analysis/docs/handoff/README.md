@@ -168,3 +168,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Gemma 200 held jobs confirmed in returned queue](2026-10-04_gemma-held-wave-observed_handoff.md)
 
 - 2026-10-04 — [Gemma explicitly authorized login preparation takeover](2026-10-04_gemma-login-preparation-takeover_handoff.md)
+
+- 2026-10-04 — [Gemma cancellation confirmation blocked before login preparation](2026-10-04_gemma-cancellation-confirmation-blocked_handoff.md)
