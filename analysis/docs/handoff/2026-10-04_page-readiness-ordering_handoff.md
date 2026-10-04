@@ -75,3 +75,13 @@ permutation null and a four-strata replication rule. Code `geo_drivers.py`,
 synthetic recovery verified). Corpus: 21,384 distinct snippets (published as
 snippet-embeddings-corpus-v1, Hub commit d4d5920d). Qwen bouts 2 and 6 died on a duplicate
 failed-attempt record ID (identical retries collide); fix not yet made, awaiting Valerian.
+
+GEO drivers results (job 5180401, COMPLETED 14:03-14:15 UTC, commit a25336b; pasted):
+600,034 answers, 26,008 prompts, 3,250,994 presented pairs, on-keyword share 0.62, topic
+similarity view agreement r 0.78. E1 replicates in all four model x engine strata: ranking
++0.129..+0.238, pool +0.112..+0.164, reordering +0.017..+0.073 (z, within keyword).
+E2: topic similarity (OR/SD 1.91-4.80, 82-97% of fit), on-keyword and page intent replicate;
+intent alignment does not (llama 1.05-1.09, Qwen 0.93-0.99). Method hint: Reactive pool
+shift >= Parallel (llama 0.141 vs 0.131; Qwen 0.150 vs 0.123), so intent enters the pool
+mainly through the AI's own queries. Summary: intent gets a page shortlisted; topic decides
+its rank. Next if wanted: trace-level retrieved/shortlisted/ranked split and search replays.
