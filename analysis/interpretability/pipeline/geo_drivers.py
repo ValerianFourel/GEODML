@@ -230,13 +230,16 @@ def _run(jobs, workers):
 
 
 def estimate_e2(a: Answers, *, bootstrap: int, permutations: int, seed: int, workers: int = 1,
-                rows: DriverRows | None = None) -> dict:
+                rows: DriverRows | None = None, stats: dict | None = None) -> dict:
+    """``a`` needs x, keyword and prompt per answer; ``rows.generation`` indexes it. ``stats``
+    (mean, sd per driver) fixes the standardization, e.g. to compare two steps on one scale."""
     rows = choice_rows(a) if rows is None else rows
     if not rows.sets:
         return {"answers": 0}
-    raw = {"on_keyword": rows.on_keyword, "topic_similarity": rows.topic, "page_intent": rows.z,
-           "intent_alignment": -np.abs(rows.u - a.x[rows.generation])}
-    stats = {name: _standardize(column)[1] for name, column in raw.items()}
+    if stats is None:
+        raw = {"on_keyword": rows.on_keyword, "topic_similarity": rows.topic, "page_intent": rows.z,
+               "intent_alignment": -np.abs(rows.u - a.x[rows.generation])}
+        stats = {name: _standardize(column)[1] for name, column in raw.items()}
     full = fit_choice_model(_driver_features(rows, a.x, stats), rows)
     result = {"answers": int(len(np.unique(rows.generation))), "choice_sets": rows.sets,
               "alternatives": int(len(rows.z)), "mean_negative_log_likelihood": float(full.fun),
@@ -281,10 +284,10 @@ def replication(strata: dict, *, section: str, terms, x_terms=X_TERMS) -> dict:
         rows = []
         for name, values in strata.items():
             block = values.get(section) or {}
-            entry = (block.get("drivers") or {}).get(term) if section == "e2" else block.get(term)
+            entry = (block.get("drivers") or block).get(term)
             if entry is None:
                 continue
-            estimate = entry.get("beta_per_sd", entry.get("slope"))
+            estimate = next((entry[k] for k in ("beta_per_sd", "slope", "estimate") if k in entry), None)
             low, high = entry["ci95"]
             rows.append({"stratum": name, "estimate": estimate, "ci95": [low, high], "p": entry.get("permutation_p")})
         signs = {np.sign(r["estimate"]) for r in rows if r["estimate"] is not None}

@@ -221,6 +221,11 @@ def _ci(ci):
     return "—" if not ci or ci[0] is None else f"[{ci[0]:+.3f}, {ci[1]:+.3f}]"
 
 
+def odds_interval(ci):
+    """The keyword-bootstrap interval of a log-odds coefficient, shown as odds ratios."""
+    return "—" if not ci or ci[0] is None else f"[{np.exp(ci[0]):.2f}, {np.exp(ci[1]):.2f}]"
+
+
 def _p(value):
     return "" if value is None else f" · p {value:.3f}"
 
@@ -260,7 +265,7 @@ def render(results: dict) -> str:
     driver_rows = []
     for name, stratum in results["strata"].items():
         e2 = stratum["e2"]
-        cells = "".join(f"<td>{d['odds_ratio_per_sd']:.2f}<br><small>{_ci(d['ci95'])} · share {d['fit_share'] or 0:.0%}</small></td>"
+        cells = "".join(f"<td>{d['odds_ratio_per_sd']:.2f}<br><small>{odds_interval(d['ci95'])} · share {d['fit_share'] or 0:.0%}</small></td>"
                         for d in e2["drivers"].values())
         driver_rows.append(f"<tr><td>{html.escape(name)}</td><td>{e2['answers']:,}</td>{cells}</tr>")
     head = "".join(f"<th>{html.escape(n)}</th>" for n in names)

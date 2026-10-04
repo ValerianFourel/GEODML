@@ -61,6 +61,30 @@ squares), i.e. the change from the most informational to the most action-ready p
 10. **Contrasts:** llama − Qwen and Reactive − Parallel for every stage slope and increment, with
     the same keyword resamples so differences have valid intervals.
 
+## Addendum (2026-10-05, before any result of this study): the shortlisting step
+
+Added to answer how much intent match raises a page's chance of being shortlisted, and how
+intent compares with topic and keyword at that step. No result of this study existed yet.
+
+11. **Shortlisting drivers.** In every compaction event the reranker keeps the k best-scored
+    candidates (k = 7 Parallel, 3 Reactive; ties by input order; checked for every event during
+    trace extraction). Top-k Plackett–Luce over each event's kept candidates in score order, with
+    the four drivers of E2 (on-keyword, topic similarity, page intent, intent alignment, all
+    relative to the prompt) and no position effects: the cross-encoder scores each candidate on
+    its own. Reported per driver: odds ratio per SD of being shortlisted next, holding the other
+    drivers fixed; 95% keyword-bootstrap interval; fit share; permutation p for intent alignment.
+    Drivers are standardized over the reranker's candidates. The ranking step (shortlist →
+    ranking, E2's specification with presented-position effects) is refitted on the same answers
+    with the same standardization, so both steps are on one scale.
+12. **Pool composition split.** Shares of β_P: retrieval β_R/β_P (the AI's queries through the
+    frozen search), deduplication and condition (β_C − β_R)/β_P, reranker (β_P − β_C)/β_P. With
+    the replay, retrieval splits into the prompt's own words β_R₀/β_P and query rewriting
+    (β_R − β_R₀)/β_P. C − R holds URL deduplication across searches and the condition manipulation.
+
+The reranker analyses (8 and 11) use natural-condition answers: the reranker then sees everything
+the search returned, and the other two conditions repeat nearly the same events. Shortlisting
+drivers replicate under the rule below (permutation p only for intent alignment).
+
 ## Replication and verdicts
 
 Primary strata: model × engine (four). A stage slope or increment **replicates** if, in all four
