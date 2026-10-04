@@ -184,22 +184,30 @@ class ChoiceData:
             raise ValueError("each choice set must contain exactly one chosen page")
 
 
-def fit_plackett_luce(data: ChoiceData, *, axis: np.ndarray | None = None,
-                      set_weight: np.ndarray | None = None, ridge: float = 1e-4,
-                      start: np.ndarray | None = None) -> dict:
-    """Utility = b_page*z + b_interaction*z*(axis-0.5) + position effect (position 0 = 0)."""
+def fit_choice_model(features: np.ndarray, data: "ChoiceData", *, set_weight: np.ndarray | None = None,
+                     ridge: float = 1e-4, start: np.ndarray | None = None):
+    """Conditional-logit fit over the choice sets of ``data`` with K row-level features and
+    presented-position fixed effects (position 0 is the reference). Returns the optimizer result;
+    ``x`` holds the K feature coefficients followed by the position effects."""
 
     from scipy.optimize import minimize
 
-    centered = (data.axis if axis is None else axis)[data.generation] - 0.5
-    interaction = data.z * centered
+    features = np.asarray(features, float)
+    if features.ndim != 2 or features.shape[0] != len(data.z):
+        raise ValueError("one feature row per alternative is required")
+    k = features.shape[1]
     weight = np.ones(data.sets) if set_weight is None else np.asarray(set_weight, float)
     row_weight = weight[data.set]
     total = float(weight.sum())
 
+    columns = [np.ascontiguousarray(features[:, j]) for j in range(k)]
+
     def objective(theta):
-        b_page, b_int, gamma = theta[0], theta[1], np.r_[0.0, theta[2:]]
-        utility = b_page * data.z + b_int * interaction + gamma[data.position]
+        # Column-wise products, not a matrix product: BLAS threads must not exist before the
+        # bootstrap and permutation workers are forked.
+        utility = np.r_[0.0, theta[k:]][data.position]
+        for j, column in enumerate(columns):
+            utility = utility + theta[j] * column
         peak = np.full(data.sets, -np.inf)
         np.maximum.at(peak, data.set, utility)
         expo = np.exp(utility - peak[data.set])
@@ -208,16 +216,27 @@ def fit_plackett_luce(data: ChoiceData, *, axis: np.ndarray | None = None,
         log_norm = peak + np.log(denominator)
         loss = -(np.sum(weight * (np.bincount(data.set, utility * data.chosen, minlength=data.sets) - log_norm)))
         residual = (data.chosen - probability) * row_weight
-        gradient_gamma = -np.bincount(data.position, residual, minlength=data.levels)[1:]
-        gradient = np.r_[-np.dot(residual, data.z), -np.dot(residual, interaction), gradient_gamma]
+        gradient = np.r_[[-np.dot(residual, column) for column in columns],
+                         -np.bincount(data.position, residual, minlength=data.levels)[1:]]
         loss += 0.5 * ridge * np.dot(theta, theta) * total
         gradient += ridge * theta * total
         return loss / total, gradient / total
 
-    start = np.zeros(1 + data.levels) if start is None else np.asarray(start, float)
+    start = np.zeros(k + data.levels - 1) if start is None else np.asarray(start, float)
     result = minimize(objective, start, jac=True, method="L-BFGS-B")
     if not result.success:
-        raise RuntimeError(f"Plackett-Luce fit did not converge: {result.message}")
+        raise RuntimeError(f"choice-model fit did not converge: {result.message}")
+    return result
+
+
+def fit_plackett_luce(data: ChoiceData, *, axis: np.ndarray | None = None,
+                      set_weight: np.ndarray | None = None, ridge: float = 1e-4,
+                      start: np.ndarray | None = None) -> dict:
+    """Utility = b_page*z + b_interaction*z*(axis-0.5) + position effect (position 0 = 0)."""
+
+    centered = (data.axis if axis is None else axis)[data.generation] - 0.5
+    result = fit_choice_model(np.column_stack((data.z, data.z * centered)), data,
+                              set_weight=set_weight, ridge=ridge, start=start)
     return {"page_z": float(result.x[0]), "page_z_x_prompt_axis": float(result.x[1]),
             "position_effects": [0.0, *map(float, result.x[2:])],
             "answers_with_duplicate_content_slots": data.duplicate_content_answers,
