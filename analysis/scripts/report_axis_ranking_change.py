@@ -153,6 +153,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--registration", type=Path,
+                        help="population-registration-v1 folder (default: DATASET_ROOT/local-only/...); "
+                             "e.g. the archived copy in geoaxis-prompts-generation-26k")
     parser.add_argument("--max-pairs-per-keyword", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=20260926)
     parser.add_argument("--summary-only", action="store_true",
@@ -160,7 +163,7 @@ def main():
     args = parser.parse_args()
     if args.output_dir.exists():
         parser.error("output directory already exists; use a new path")
-    registration = args.dataset_root / "local-only/population-registration-v1"
+    registration = args.registration or args.dataset_root / "local-only/population-registration-v1"
     coords, provenance = _load_coordinates(registration / "population-selection-records.jsonl",
                                            registration / "manifest.json")
     observations, accounting = _load_observations(args.dataset_root, coords,

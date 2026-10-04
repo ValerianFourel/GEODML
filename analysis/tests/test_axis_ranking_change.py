@@ -77,3 +77,26 @@ def test_top_k_order_is_missing_for_disjoint_results():
     for k in (3, 5):
         assert pair[f"top{k}_full_set_distance"] == 1
         assert pair[f"top{k}_full_kendall_distance_common"] is None
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_registration_defaults_to_dataset_and_accepts_an_archived_copy(tmp_path, monkeypatch, explicit):
+    import sys as _sys
+    from analysis.scripts import report_axis_ranking_change as report
+
+    used = []
+
+    def coordinates(path, manifest):
+        used.append((path, manifest))
+        raise SystemExit(0)
+
+    monkeypatch.setattr(report, "_load_coordinates", coordinates)
+    archived = tmp_path / "archive/registration/population-registration-v1"
+    argv = ["report", "--dataset-root", str(tmp_path / "dataset"), "--output-dir", str(tmp_path / "out")]
+    if explicit:
+        argv += ["--registration", str(archived)]
+    monkeypatch.setattr(_sys, "argv", argv)
+    with pytest.raises(SystemExit):
+        report.main()
+    folder = archived if explicit else tmp_path / "dataset/local-only/population-registration-v1"
+    assert used == [(folder / "population-selection-records.jsonl", folder / "manifest.json")]
