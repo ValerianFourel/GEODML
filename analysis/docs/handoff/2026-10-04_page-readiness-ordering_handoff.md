@@ -60,3 +60,8 @@ Other launches today: Qwen recovery sender restarted with `--gpu-all-at-once`
 `gemma-si-v4-llama-cpu-5h-20261004`: CPU preparation 5179554 at 94% at 09:23 UTC; the
 sender then submits up to 200 five-hour bouts. Note: a test-failing commit (14f954f)
 was pushed by a `;`-chained command and fixed in 224fc75; chain commits with `&&`.
+
+Snapshot audit (pasted 2026-10-04): DuckDuckGo 10,338 rows, 270 glued-title rows (2.6%,
+211 keywords), 10.7% of llama snippet displays; SearXNG 13,555 rows, 3 flags, all false
+positives. Llama and Qwen used byte-identical snapshots (DDG 894130b7…, SearXNG a693dd56…).
+Valerian decided to ignore the glued rows: no engine-restricted robustness check is planned.
