@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Count search-snapshot rows whose snippet glues together other results' titles.
+"""Count search-snapshot rows that glue together other results' titles.
 
-A row is flagged when its snippet contains at least ``--min-titles`` distinct titles of
-other rows from the same keyword (exact, case-insensitive substring, titles of at least
-``--min-title-chars`` characters). Read-only. Optionally joins an extract's pages file
+A row is flagged when its title or snippet contains at least ``--min-titles`` distinct
+titles of other rows from the same keyword (exact, case-insensitive substring, titles of
+at least ``--min-title-chars`` characters, its own title excluded). A real page title names
+one page; it does not contain other results' full titles. Read-only. A seeded random sample
+of flagged rows is printed for manual precision review. Optionally joins an extract's pages file
 (title + newline + snippet, as shown to generators) to count how often flagged rows were
 actually shown.
 """
@@ -28,7 +30,7 @@ def read_snapshot(path: Path) -> list[dict]:
 
 
 def glued_titles(rows: list[dict], *, min_title_chars: int = 20) -> list[int]:
-    """Per row, the number of other same-keyword titles found inside its snippet."""
+    """Per row, the number of other same-keyword titles found inside its title or snippet."""
     by_keyword = defaultdict(list)
     for index, row in enumerate(rows):
         by_keyword[row["keyword"]].append(index)
@@ -38,8 +40,8 @@ def glued_titles(rows: list[dict], *, min_title_chars: int = 20) -> list[int]:
         titles = {t for t in titles if len(t) >= min_title_chars}
         for i in members:
             own = (rows[i]["title"] or "").strip().casefold()
-            snippet = (rows[i]["snippet"] or "").casefold()
-            counts[i] = sum(1 for t in titles if t != own and t in snippet)
+            text = own + "\n" + (rows[i]["snippet"] or "").casefold()
+            counts[i] = sum(1 for t in titles if t != own and t in text)
     return counts
 
 
@@ -48,7 +50,13 @@ def page_id(title: str, snippet: str) -> str:
     return hashlib.sha256(f"{title.strip()}\n{snippet.strip()}".encode()).hexdigest()
 
 
-def audit(path: Path, *, min_titles: int, min_title_chars: int, pages: dict | None) -> dict:
+def _quantiles(values: list[int]) -> dict:
+    ordered = sorted(values)
+    return {q: ordered[min(len(ordered) - 1, int(float(q) * len(ordered)))] for q in ("0.5", "0.9", "0.99", "1.0")} if ordered else {}
+
+
+def audit(path: Path, *, min_titles: int, min_title_chars: int, pages: dict | None, sample: int = 10) -> dict:
+    import random
     rows = read_snapshot(path)
     counts = glued_titles(rows, min_title_chars=min_title_chars)
     flagged = [i for i, c in enumerate(counts) if c >= min_titles]
@@ -57,6 +65,10 @@ def audit(path: Path, *, min_titles: int, min_title_chars: int, pages: dict | No
               "flagged_rows": len(flagged), "flagged_share": len(flagged) / max(1, len(rows)),
               "keywords_with_a_flagged_row": len(keywords),
               "glued_title_count_distribution": dict(sorted(Counter(counts[i] for i in flagged).items())),
+              "title_chars_all": _quantiles([len(r["title"] or "") for r in rows]),
+              "title_chars_flagged": _quantiles([len(rows[i]["title"] or "") for i in flagged]),
+              "review_sample": [{"url": rows[i]["url"], "glued_titles": counts[i], "title": (rows[i]["title"] or "")[:240]}
+                                for i in random.Random(20261004).sample(flagged, min(sample, len(flagged)))],
               "examples": [{"keyword": rows[i]["keyword"], "url": rows[i]["url"], "glued_titles": counts[i],
                             "snippet": (rows[i]["snippet"] or "")[:200]}
                            for i in sorted(flagged, key=lambda i: -counts[i])[:5]]}
