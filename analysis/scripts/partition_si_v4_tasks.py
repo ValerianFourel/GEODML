@@ -265,7 +265,9 @@ def partition(inputs: Path, output: Path, *, max_shards=200, minimum_cells_per_s
                   if index_directory else partial / "partition-index.sqlite")
     with closing(sqlite3.connect(index_path)) as db:
         db.execute("PRAGMA temp_store=FILE")
-        db.execute("PRAGMA cache_size=-8192")
+        # A node-local index gets a 2 GB page cache: the full-corpus index is several GB
+        # and an 8 MB cache made the shared-filesystem partition I/O-bound (>1h47m).
+        db.execute("PRAGMA cache_size=-2000000" if index_directory else "PRAGMA cache_size=-8192")
         db.executescript("""
             CREATE TABLE tasks (id TEXT PRIMARY KEY,kind TEXT NOT NULL,parent TEXT,raw BLOB NOT NULL,
                                 answer_sha TEXT,request_sha TEXT,source_sha TEXT);

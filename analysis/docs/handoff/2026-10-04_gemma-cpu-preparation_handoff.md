@@ -48,3 +48,10 @@ prior-map hashes), copies it, records `frozen-reuse.json` and `plan.reused_froze
 then partitions and plans in one one-hour cpuonly allocation (default limit).
 Partition's SQLite index can live in node-local `$TMPDIR`; shards are
 byte-identical (tested). Next root: `$W/reviews/gemma-si-v4-llama-reuse-5h-20261004`.
+
+Returned 13:24 CEST: sacct 5179554 TIMEOUT, elapsed 04:00:07, end 13:17:11.
+Freeze promoted 11:30:37; `shards.partial` had 94 entries at 13:17:09, so the
+partition ran about 1h47m on the shared filesystem (8 MB SQLite cache) without
+finishing. The old sender exited with "preparation ended without a verified
+plan". The node-local partition index now also gets a 2 GB page cache; output
+unchanged. Old `shards.partial` is preserved in the old root.
