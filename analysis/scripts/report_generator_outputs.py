@@ -68,7 +68,7 @@ def _number(value):
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
-def compact_cell(task, generation, membership):
+def compact_cell(task, generation, membership, *, keep_answer=False):
     ranking = [url for url in generation.get("ranking") or [] if isinstance(url, str) and url]
     audit = generation.get("condition_audit") or {}
     target, seen = audit.get("target_url"), audit.get("target_observed") is True
@@ -81,10 +81,11 @@ def compact_cell(task, generation, membership):
             "search_count": _number(generation.get("search_count")),
             "final_snippet_count": _number(generation.get("final_snippet_count")),
             "target_selected_if_seen": float(rank is not None) if seen else None,
-            "target_reciprocal_rank_if_seen": (1.0 / rank if rank else 0.0) if seen else None}
+            "target_reciprocal_rank_if_seen": (1.0 / rank if rank else 0.0) if seen else None,
+            **({"answer": generation.get("answer") or ""} if keep_answer else {})}
 
 
-def load_cells(root, model, *, stripes=256, batch=5000):
+def load_cells(root, model, *, stripes=256, batch=5000, keep_answer=False):
     """Compact verified completed cells and the latest ledger state of every registered task."""
     root = Path(root)
     if model not in GENERATOR_MODELS:
@@ -119,7 +120,8 @@ def load_cells(root, model, *, stripes=256, batch=5000):
             generation = rows[reference["record_id"]]
             if generation.get("cell_id") != task.get("task_id"):
                 raise ValueError(f"generation cell differs from its task: {task.get('task_id')}")
-            cells.append(compact_cell(task, generation, memberships.get(task["prompt_id"], {})))
+            cells.append(compact_cell(task, generation, memberships.get(task["prompt_id"], {}),
+                                      keep_answer=keep_answer))
         log("generations", model=model, read=len(cells), total=len(completed))
     return cells, {"registered_tasks": len(tasks), "latest_states": dict(sorted(states.items())),
                    "anomalies": dict(sorted(anomalies.items())), "verified_cells": len(cells)}

@@ -39,3 +39,20 @@ search more (Llama ρ +0.37, Qwen +0.19). Cross-model top-1 disagreement rises
 ranking length. All p are at the 200-permutation floor 0.00498. Flags: Llama
 Parallel-Expansion on searxng has 25% empty rankings; headline bullets omit the
 design-cell labels for per-cell associations (report cosmetic bug).
+
+## Update: answer text along the axis (`answer_readiness.py`)
+
+Valerian: ignore shuffling; focus on how the prompt's latent position changes
+the answer text. New `analysis/scripts/answer_readiness.py` (+ tests):
+`export` writes the natural-condition answers (deduplicated, page format usable
+as `page_readiness_ordering.py embed --pages`) with prompt axis positions;
+`text` reports heuristic text measures (length, sentences, lists, digits,
+currency, URLs, second person, action verbs, immediacy, hedges, explanatory
+words per 100 words), axis deciles, keyword-blocked associations, within-keyword
+high-vs-low-half contrasts and informative-Dirichlet distinctive words;
+`analyze` places answers on the prompt scale after both LLM2Vec views are
+embedded/merged, reusing `aligned`, `consensus` and `PromptScale` unchanged.
+Answer coordinates are out-of-domain descriptions, not treatments/confounders.
+`report_generator_outputs.load_cells` gained `keep_answer` (default unchanged).
+68 tests pass. GPU embedding paths (LLM2Vec snapshots, llm2vec Python, maps,
+battery on HoreKa) are unverified; a probe is needed before the embed step.
