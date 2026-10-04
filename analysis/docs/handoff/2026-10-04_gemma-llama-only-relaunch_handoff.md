@@ -25,3 +25,13 @@ the llama plan, and no code path releases them. Estimate for ~312k llama cells
 The frozen plan decides the actual budget. 30 runner/sender tests pass at 3f32275.
 Codex/Claude executed no cluster commands. Next: get the user's output for the
 lock check, launch and sender.log.
+
+## Update: login preparation explicitly authorized
+
+The llama sender submitted GPU preparation at 06:33:54 local time; it waited on
+priority. Valerian then explicitly chose login preparation "like Qwen" over a
+CPU sbatch or waiting. Commit 1c99831 (branch codex/gemma-v4-llama-login-20261004)
+adds `start --prepare-on-login` for fresh runs only: one attempt, nice 10, single
+threads, one-hour timeout, no sbatch. Mode is pinned in preparation.json. 49 tests
+pass. New root: `$W/reviews/gemma-si-v4-llama-login-5h-20261004`. The earlier
+GPU-prep llama root is left as is; its pending preparation job is cancelled.
