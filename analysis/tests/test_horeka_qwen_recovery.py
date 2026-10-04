@@ -357,3 +357,22 @@ def test_controller_upgrade_accepts_only_descendant_controller_only_changes(tmp_
     recovery.save(root / recovery.ALL_AT_ONCE, {'controller_upgrade': record})
     assert recovery.upgraded_controller(root, old, controller)
     assert not recovery.upgraded_controller(root, old, executor)
+
+
+def test_restart_from_a_verified_newer_controller_records_override_before_pin_check(tmp_path, monkeypatch):
+    root, context, snapshot, clock, calls = sender_fixture(tmp_path, monkeypatch)
+    newer = 'b' * 40
+    monkeypatch.setattr(recovery.subprocess, 'check_output',
+                        lambda command, **kw: newer if 'rev-parse' in command else '')
+    upgrade = {'from': 'a' * 40, 'to': newer, 'changed_files': list(recovery.CONTROLLER_FILES)}
+    monkeypatch.setattr(recovery, 'controller_upgrade', lambda old, new: dict(upgrade) if (old, new) == ('a' * 40, newer)
+                        else pytest.fail('unexpected upgrade check'))
+    monkeypatch.setattr(recovery, 'send', lambda root: 0)
+    arguments = ['send', '--workspace', context['workspace'], '--account', 'test-account',
+                 '--walltime', '05:00:00', '--output', str(root)]
+    with pytest.raises(ValueError, match='clean pinned recovery checkout'):
+        recovery.main(arguments)  # a newer controller without the explicit override is refused
+    assert recovery.main([*arguments, '--gpu-all-at-once']) == 0
+    record = recovery.read(root / recovery.ALL_AT_ONCE)
+    assert record['controller_upgrade'] == upgrade and 'all of the Qwen jobs' in record['authorization']
+    assert recovery.checked_context(root)['git_commit'] == 'a' * 40  # frozen context unchanged

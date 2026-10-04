@@ -283,6 +283,17 @@ def confirmed_submissions(root, snapshot):
     return jobs
 
 
+def record_all_at_once(root):
+    if (root / ALL_AT_ONCE).exists():
+        return
+    pinned = read(root / 'recovery.json')['git_commit']
+    current = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
+    save(root / ALL_AT_ONCE, {'recorded_at_epoch': int(time.time()),
+        'controller_upgrade': controller_upgrade(pinned, current) if current != pinned else None,
+        'authorization': 'Valerian asked to send all of the Qwen jobs at once; finite frozen division, '
+                         'same allocation budget, no five-allocation cap or ten-minute start gap for GPU bouts'})
+
+
 def gpu_admission(root, context, snapshot, health, attempt):
     """Five-allocation/ten-minute admission for GPU bouts, unless the operator
     explicitly recorded an all-at-once override for this finite division."""
@@ -522,15 +533,14 @@ def main(argv=None):
             raise ValueError('run the sender on a login host outside an allocation')
         # Existing contexts are immutable and atomically written. A CPU audit may
         # hold operator.lock while a restarted sender reads its pinned context.
+        # An existing run must record the verified controller upgrade before its
+        # pinned context is checked; a new run records the override after creating it.
+        if args.gpu_all_at_once and (root / 'recovery.json').exists():
+            record_all_at_once(root)
         with nullcontext() if (root / 'recovery.json').exists() else locked(root):
             initialize(args, root)
-        if args.gpu_all_at_once and not (root / ALL_AT_ONCE).exists():
-            pinned = read(root / 'recovery.json')['git_commit']
-            current = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
-            save(root / ALL_AT_ONCE, {'recorded_at_epoch': int(time.time()),
-                'controller_upgrade': controller_upgrade(pinned, current) if current != pinned else None,
-                'authorization': 'Valerian asked to send all of the Qwen jobs at once; finite frozen division, '
-                                 'same allocation budget, no five-allocation cap or ten-minute start gap for GPU bouts'})
+        if args.gpu_all_at_once:
+            record_all_at_once(root)
         return send(root)
     with nullcontext() if args.command == 'status' else locked(root, blocking=args.command == 'cpu'):
         if args.command == 'prepare':
