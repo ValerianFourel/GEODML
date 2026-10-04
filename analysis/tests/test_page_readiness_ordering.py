@@ -441,3 +441,34 @@ def test_publish_refuses_public_or_existing_targets_and_verifies_every_file(tmp_
     assert receipt["path_in_repo"] == "derived/snippet-embeddings/snippet-embeddings-v1" and receipt["files_verified"] == 5
     with pytest.raises(ValueError, match="already published"):
         cli.main(["publish", "--package", str(package_dir)])
+
+
+def test_corpus_covers_every_servable_snapshot_row_and_joins_what_was_shown(tmp_path):
+    ddg = [{"keyword": "tax filing", "position": 1, "url": "https://a.example", "title": "File taxes", "snippet": "Steps to file."},
+           {"keyword": "tax filing", "position": 2, "url": "https://b.example", "title": "Free filing", "snippet": "IRS free file."},
+           {"keyword": "tax filing", "position": 0, "url": "https://c.example", "title": "Bad", "snippet": "position 0"},
+           {"keyword": "tax filing", "position": 3, "url": "ftp://d.example", "title": "Bad", "snippet": "not http"}]
+    srx = [{"keyword": "tax help", "position": 4, "url": "https://a2.example", "title": "File taxes", "snippet": "Steps to file."},
+           {"keyword": "school", "position": 1, "url": "https://s.example", "title": "Scheduling", "snippet": "Plan classes."}]
+    for name, rows in (("ddg.jsonl", ddg), ("srx.jsonl", srx)):
+        (tmp_path / name).write_text("".join(json.dumps(r) + "\n" for r in rows))
+    shared = ordering.page_id(ordering.page_text("File taxes", "Steps to file."))
+    shown_dir = tmp_path / "shown"
+    shown_dir.mkdir()
+    cli.write_jsonl(shown_dir / "pages.jsonl.gz", [
+        {"page_id": shared, "occurrences": 12, "models": ["llama4", "qwen38"]},
+        {"page_id": "f" * 64, "occurrences": 1, "models": ["llama4"]}])  # shown but absent from these snapshots
+    cli.write_json(shown_dir / "manifest.json", {"stage": "extract"})
+    output = tmp_path / "corpus"
+    assert cli.main(["corpus", "--snapshot", f"duckduckgo={tmp_path / 'ddg.jsonl'}",
+                     "--snapshot", f"searxng={tmp_path / 'srx.jsonl'}", "--shown", str(shown_dir),
+                     "--output", str(output)]) == 0
+    pages = {p["page_id"]: p for p in cli.read_jsonl(output / "pages.jsonl.gz")}
+    assert len(pages) == 3  # two servable DDG rows + one new SearXNG row; the shared text counts once
+    assert pages[shared]["engines"] == ["duckduckgo", "searxng"] and pages[shared]["keywords"] == ["tax filing", "tax help"]
+    assert pages[shared]["best_position"] == 1 and pages[shared]["urls"] == ["https://a.example", "https://a2.example"]
+    assert pages[shared]["shown"] and pages[shared]["occurrences"] == 12 and pages[shared]["models"] == ["llama4", "qwen38"]
+    assert sum(p["shown"] for p in pages.values()) == 1
+    counts = json.loads((output / "manifest.json").read_text())["counts"]
+    assert counts["rows_duckduckgo"] == 4 and counts["excluded_duckduckgo_invalid_position"] == 1
+    assert counts["excluded_duckduckgo_invalid_url"] == 1 and counts["shown_not_in_corpus"] == 1

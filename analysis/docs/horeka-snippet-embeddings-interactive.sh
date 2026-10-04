@@ -27,5 +27,27 @@ if [ ! -f "$PACKAGE/manifest.json" ]; then
     --mistral "$R/embed-all-mistral.merged" --battery "$A/battery" \
     --final-axis-map "$A/final-audit/final-axis-map.jsonl" --relocation "$R/relocation-fresh.json" --output "$PACKAGE"
 fi
-echo "PACKAGE $PACKAGE  end $(date -u +%FT%TZ)"
-echo "Next, on a login node: $RT/bin/python $SCRIPT publish --package $PACKAGE"
+echo "PACKAGE $PACKAGE"
+
+# The whole mini internet: every servable row of both frozen snapshots, shown or not.
+CORPUS="$R/corpus-v1"
+CORPUS_PACKAGE="$R/snippet-embeddings-corpus-v1"
+if [ ! -f "$CORPUS/manifest.json" ]; then
+  echo "== corpus: every servable snapshot row, located by the hashes recorded in the traces"
+  step "$RT/bin/python" -u "$SCRIPT" corpus --locate-from "$W/shared-hours/dataset" --locate-from "$W/llama-hf/dataset" \
+    --search-root "$W" --shown "$EXTRACT" --output "$CORPUS"
+fi
+"$RT/bin/python" -c "import json,sys;print('CORPUS', json.load(open(sys.argv[1]))['counts'])" "$CORPUS/manifest.json"
+for VIEW in qwen mistral; do
+  embed_view "$VIEW" "$CORPUS/pages.jsonl.gz" "$R/embed-corpus-$VIEW" --save-embeddings
+done
+if [ ! -f "$CORPUS_PACKAGE/manifest.json" ]; then
+  echo "== package the corpus snippets, vectors and manifest"
+  step "$RT/bin/python" -u "$SCRIPT" package --extract "$CORPUS" --qwen "$R/embed-corpus-qwen.merged" \
+    --mistral "$R/embed-corpus-mistral.merged" --battery "$A/battery" \
+    --final-axis-map "$A/final-audit/final-axis-map.jsonl" --relocation "$R/relocation-fresh.json" --output "$CORPUS_PACKAGE"
+fi
+echo "CORPUS_PACKAGE $CORPUS_PACKAGE  end $(date -u +%FT%TZ)"
+echo "Next, on a login node, publish each package:"
+echo "  $RT/bin/python $SCRIPT publish --package $PACKAGE"
+echo "  $RT/bin/python $SCRIPT publish --package $CORPUS_PACKAGE"

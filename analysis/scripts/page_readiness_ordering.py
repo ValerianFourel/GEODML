@@ -4,6 +4,7 @@ generator rankings to page coordinates along the prompt axis.
 
 Stages (each writes a new directory, never overwriting):
   extract         CPU   answers (presented pages, ranking, prompt axis) + unique page texts
+  corpus          CPU   every servable snapshot row (both engines), deduplicated like shown snippets
   sample-prompts  CPU   deterministic sample of archived prompt texts for re-embedding
   embed           1 GPU one LLM2Vec view; sharded, resumable, one process per GPU
   merge           CPU   join shards into the archived projection format with a manifest
@@ -221,6 +222,67 @@ def extract(args) -> int:
         "counts": {**counts, "answers": len(observations), "unique_pages": len(pages)}})
     partial.rename(Path(args.output).resolve())
     print(json.dumps({"answers": len(observations), "unique_pages": len(pages), **counts}), flush=True)
+    return 0
+
+
+def corpus(args) -> int:
+    """Every servable row of both frozen search snapshots, deduplicated exactly like shown snippets."""
+
+    from analysis.scripts import audit_snapshot_glued_rows as snapshots
+    from analysis.scripts.run_agentic_search_integration_smoke import _normalize_usable_row
+
+    files, recorded = {}, {}
+    for spec in args.snapshot:
+        engine, _, path = str(spec).partition("=")
+        files[engine] = Path(path).resolve(strict=True)
+    if args.locate_from:
+        from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
+        for root in args.locate_from:
+            for engine, record in snapshots.snapshots_from_traces(iter_sealed_rows(root, "traces", required=True)).items():
+                if recorded.setdefault(engine, record)["sha256"] != record["sha256"]:
+                    raise ValueError(f"datasets used different {engine} snapshots; package them separately")
+        for engine, record in recorded.items():
+            files.setdefault(engine, snapshots.resolve_snapshot(record, args.search_root or args.locate_from[0].parent))
+    if not files:
+        raise ValueError("give --snapshot ENGINE=PATH or --locate-from DATASET_ROOT")
+    shown = {r["page_id"]: r for r in read_jsonl(args.shown / "pages.jsonl.gz")} if args.shown else {}
+    partial = new_directory(args.output)
+    counts, pages = Counter(), {}
+    for engine, path in sorted(files.items()):
+        rows = snapshots.read_snapshot(path)
+        counts[f"rows_{engine}"] = len(rows)
+        for row in rows:
+            usable, reason = _normalize_usable_row(row)  # the search adapter's own servability check
+            if usable is None:
+                counts[f"excluded_{engine}_{reason}"] += 1
+                continue
+            text = ordering.page_text(usable["title"], usable["snippet"])
+            identifier = ordering.page_id(text)
+            entry = pages.setdefault(identifier, {"page_id": identifier, "text": text, "text_sha256": identifier,
+                                                  "urls": set(), "engines": set(), "keywords": set(), "best_position": None})
+            entry["urls"].add(usable["url"])
+            entry["engines"].add(engine)
+            entry["keywords"].add(usable["keyword"])
+            entry["best_position"] = min(filter(None, (entry["best_position"], usable["position"])))
+    missing = set(shown) - set(pages)
+    rows = []
+    for identifier in sorted(pages):
+        entry, seen = pages[identifier], shown.get(identifier)
+        rows.append({**entry, "urls": sorted(entry["urls"]), "engines": sorted(entry["engines"]),
+                     "keywords": sorted(entry["keywords"]), "shown": seen is not None,
+                     "occurrences": seen["occurrences"] if seen else 0, "models": seen.get("models", []) if seen else []})
+    write_jsonl(partial / "pages.jsonl.gz", rows)
+    counts.update(unique_pages=len(rows), shown_in_corpus=len(set(shown) & set(pages)), shown_not_in_corpus=len(missing))
+    write_json(partial / "manifest.json", {
+        "format_version": ordering.FORMAT_VERSION, "stage": "corpus", "created_at": now(), "git_commit": git_commit(),
+        "inputs": [{"model": "snapshot-corpus"}],
+        "snapshots": {engine: {"path": str(path), "sha256": sha256_file(path), "recorded": recorded.get(engine)}
+                      for engine, path in files.items()},
+        "shown_extract": identity(args.shown / "manifest.json") if args.shown else None,
+        "page_text_rule": "title.strip() + newline + snippet.strip(), rows the search adapter can serve",
+        "counts": dict(counts)})
+    partial.rename(Path(args.output).resolve())
+    print(json.dumps({"unique_snippets": len(rows), **counts}), flush=True)
     return 0
 
 
@@ -531,6 +593,8 @@ def package(args) -> int:
         "text": [p["text"] for p in pages], "text_sha256": [p["text_sha256"] for p in pages],
         "urls": [p["urls"] for p in pages], "engines": [p.get("engines", []) for p in pages],
         "models": [p.get("models", []) for p in pages], "times_shown": [p["occurrences"] for p in pages],
+        **({"shown": [p["shown"] for p in pages], "keywords": [p["keywords"] for p in pages],
+            "best_position": [p["best_position"] for p in pages]} if "shown" in pages[0] else {}),
         "qwen_raw_axis_1": [r["raw_axis_1"] for r in raw["qwen"]], "qwen_raw_axis_2": [r["raw_axis_2"] for r in raw["qwen"]],
         "mistral_raw_axis_1": [r["raw_axis_1"] for r in raw["mistral"]],
         "mistral_raw_axis_2": [r["raw_axis_2"] for r in raw["mistral"]],
@@ -726,6 +790,13 @@ def main(argv=None) -> int:
     p.add_argument("--final-axis-map", type=Path, required=True)
     p.add_argument("--workers", type=int, help="parallel readers (default: SLURM_CPUS_PER_TASK or 1)")
     p.add_argument("--output", type=Path, required=True)
+    p = stages.add_parser("corpus")
+    p.add_argument("--snapshot", action="append", default=[], metavar="ENGINE=PATH")
+    p.add_argument("--locate-from", type=Path, action="append", default=[], metavar="DATASET_ROOT",
+                   help="find each engine's snapshot from the path and SHA-256 recorded in the traces")
+    p.add_argument("--search-root", type=Path, help="where to look for a same-named copy of a recorded snapshot")
+    p.add_argument("--shown", type=Path, help="extract directory whose snippets were shown to generators")
+    p.add_argument("--output", type=Path, required=True)
     p = stages.add_parser("sample-prompts")
     p.add_argument("--prompts", type=Path, required=True, help="compliant-candidates.jsonl")
     p.add_argument("--count", type=int, default=512)
@@ -786,7 +857,7 @@ def main(argv=None) -> int:
     p.add_argument("--repo-id", default=DEFAULT_REPO)
     p.add_argument("--path-in-repo")
     args = parser.parse_args(argv)
-    return {"extract": extract, "sample-prompts": sample_prompts, "embed": embed, "merge": merge,
+    return {"extract": extract, "corpus": corpus, "sample-prompts": sample_prompts, "embed": embed, "merge": merge,
             "relocate": relocate, "analyze": analyze, "package": package, "publish": publish}[args.stage](args)
 
 
