@@ -152,6 +152,13 @@ def test_extract_reads_presented_snippets_rankings_and_keywords(tmp_path):
     assert all(o["prompt_axis"] == 0.3 for o in observations)
     with pytest.raises(ValueError, match="overwrite"):
         cli.main(["extract", "--source", f"{root}:llama4", "--final-axis-map", str(axis), "--output", str(output)])
+    parallel = tmp_path / "extract-parallel"
+    assert cli.main(["extract", "--source", f"{root}:llama4", "--final-axis-map", str(axis),
+                     "--workers", "2", "--output", str(parallel)]) == 0
+    for name in ("observations.jsonl.gz", "pages.jsonl.gz"):
+        assert cli.read_jsonl(parallel / name) == cli.read_jsonl(output / name)  # same rows, same order
+    counts = lambda path: json.loads((path / "manifest.json").read_text())["counts"]
+    assert counts(parallel) == counts(output)
 
 
 def test_analyze_end_to_end_writes_coordinates_fits_and_report(tmp_path):
