@@ -2,8 +2,9 @@
 """Prepare finite five-hour Gemma SI-v4 bouts on verified saved generator cells.
 
 The login-side start command submits one GPU preparation allocation, or with
---prepare-on-login (explicit operator authorization) freezes inputs on the login
-host, then hands the immutable plan to the finite sender. Inference reuses the existing HoreKa
+--prepare-on-cpu one four-hour CPU-only allocation, or with --prepare-on-login
+freezes inputs on the login host (each an explicit operator authorization), then
+hands the immutable plan to the finite sender. Inference reuses the existing HoreKa
 serving boundary and SI coordinator. No model downloads or scientific repairs.
 """
 from __future__ import annotations
@@ -39,6 +40,10 @@ FORMAT = "gemma-v4-bouts-v1"
 REGISTRY = "coordination/si-v4-gemma/registry.json"
 JOB_NAME = "geodml-gemma-v4-bout"
 PREP_JOB = "geodml-gemma-v4-prepare"
+# Measured 2026-10-04: the single-threaded llama freeze builds ~1,834 cells/min
+# after an 8-minute scan, about three hours for ~312k cells. Valerian approved
+# this one four-hour CPU allocation explicitly.
+CPU_PREP_WALLTIME = "04:00:00"
 WALLTIME = "05:00:00"
 SECONDS_PER_CELL = 20.39868898486273
 USEFUL_SECONDS = 18000 - 654 - 300
@@ -348,7 +353,16 @@ def prepare(args):
     else:
         if spec["git_commit"] != helper_pin:
             raise ValueError("preparation checkout changed")
-        boundary = verify("horeka")
+        if spec.get("preparation_execution") == "cpu":
+            if not os.environ.get("SLURM_JOB_ID"):
+                raise ValueError("CPU preparation must run inside its Slurm allocation")
+            # No model or inference runs here, so no exclusive GPU boundary is needed.
+            boundary = {"execution": "cpu_slurm", "slurm_job_id": os.environ["SLURM_JOB_ID"],
+                        "authorization": "explicit user approval of one four-hour CPU preparation allocation",
+                        "preparation_code_revision": helper_pin, "hostname": os.uname().nodename,
+                        "started_at_epoch": time.time(), "gpu_used": False}
+        else:
+            boundary = verify("horeka")
     save(root / "preparation-boundary.json", boundary)
     storage(spec, root / "preparation-storage")
     frozen = root / "frozen"
@@ -359,6 +373,8 @@ def prepare(args):
                "--prior-map-task-ids", str(root / "previously-attempted-maps.txt")]
     for source in spec["sources"]:
         command += ["--source", source]
+    if spec.get("preparation_execution") == "cpu" and os.environ.get("TMPDIR"):
+        command += ["--index-directory", os.environ["TMPDIR"]]  # node-local scratch, not the shared workspace
     freeze(command)
     storage(spec, root / "preparation-storage")
     shards = partition(frozen, root / "shards")
@@ -410,7 +426,7 @@ def prepare(args):
             "queue_wait_excluded": True, "no_automatic_budget_expansion": True}}
     plan["maximum_node_hours"] = 1 + 5 * plan["maximum_allocations"]
     plan["maximum_gpu_hours"] = 4 * plan["maximum_node_hours"]
-    if login:
+    if login or spec.get("preparation_execution") == "cpu":
         plan["preparation_execution"] = {**boundary, "finished_at_epoch": time.time()}
     save(root / "plan.json", plan)
     print(json.dumps({"prepared_cells": plan["cells"], "maximum_allocations": plan["maximum_allocations"],
@@ -433,6 +449,10 @@ def start(args):
         raise ValueError("duplicate generator dataset source")
     excluded_inputs = [str(p.resolve()) for p in args.exclude_inputs]
     login = bool(getattr(args, "prepare_on_login", False))
+    cpu = bool(getattr(args, "prepare_on_cpu", False))
+    if login and cpu:
+        raise ValueError("choose one preparation mode")
+    mode = "login" if login else "cpu" if cpu else "gpu"
     if not root.is_relative_to(workspace):
         raise ValueError("output must be inside the workspace")
     root.mkdir(parents=True, exist_ok=True)
@@ -464,15 +484,15 @@ def start(args):
                 "exclude_inputs": excluded_inputs,
                 "authorization": "Valerian requested the saved dataset judged by Gemma v4 in five-hour bouts, up to 200 queued ASAP, checking every ten minutes; one finite frozen pass.",
                 "created_at_epoch": int(time.time()), "preparation_deadline_epoch": int(time.time()) + 7 * 86400}
-            if login:
-                spec["preparation_execution"] = "login"
+            if mode != "gpu":
+                spec["preparation_execution"] = mode
             save(root / "judge-config.json", settings)
             save(root / "preparation.json", spec)
         spec = read(root / "preparation.json")
         if (spec["git_commit"] != pin or spec["workspace"] != str(workspace) or spec["account"] != args.account
                 or spec["repo_id"] != args.repo_id or spec["sources"] != sources
                 or spec["exclude_inputs"] != excluded_inputs
-                or (spec.get("preparation_execution") == "login") != login):
+                or spec.get("preparation_execution", "gpu") != mode):
             raise ValueError("saved preparation differs; preserve its pinned command")
         if not (root / "plan.json").exists():
             storage(spec, root / "admission")
@@ -491,16 +511,24 @@ def start(args):
                 submitted = root / "preparation-submission.json"
                 if not submitted.exists():
                     command = [sys.executable, str(Path(__file__)), "prepare", "--output", str(root)]
-                    script = '#!/bin/bash\nset -euo pipefail\nexport PYTHONDONTWRITEBYTECODE=1\nexport GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1\n'
-                    script += 'exec srun --jobid="$SLURM_JOB_ID" --nodes=1 --ntasks=1 --gres=gpu:4 --cpus-per-task=32 --unbuffered ' + shlex.join(command) + '\n'
+                    if cpu:
+                        script = ('#!/bin/bash\nset -euo pipefail\nexport PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 '
+                                  'MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false\n')
+                        script += 'exec ' + shlex.join(command[:1] + ["-u"] + command[1:]) + '\n'
+                        resources = ["--partition=cpuonly", "--nodes=1", "--ntasks=1", "--cpus-per-task=4",
+                                     "--mem=32G", f"--time={CPU_PREP_WALLTIME}"]
+                    else:
+                        script = '#!/bin/bash\nset -euo pipefail\nexport PYTHONDONTWRITEBYTECODE=1\nexport GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1\n'
+                        script += 'exec srun --jobid="$SLURM_JOB_ID" --nodes=1 --ntasks=1 --gres=gpu:4 --cpus-per-task=32 --unbuffered ' + shlex.join(command) + '\n'
+                        resources = ["--partition=accelerated", "--nodes=1", "--ntasks=1", "--gres=gpu:4",
+                                     "--cpus-per-task=32", "--mem=0", "--exclusive", "--time=01:00:00"]
                     atomic(root / "prepare.sh", script.encode())
                     marker = root / "PREPARATION_SUBMISSION_ATTEMPTED"
                     if marker.exists():
                         raise ValueError("preparation submission has no receipt; inspect scheduler before retrying")
                     atomic(marker, b"one preparation allocation; never automatically resubmit\n")
-                    command = ["sbatch", "--parsable", "--no-requeue", f"--account={args.account}", "--partition=accelerated",
-                        "--nodes=1", "--ntasks=1", "--gres=gpu:4", "--cpus-per-task=32", "--mem=0", "--exclusive",
-                        "--time=01:00:00", f"--job-name={PREP_JOB}", f"--output={root}/preparation-%j.log", str(root / "prepare.sh")]
+                    command = ["sbatch", "--parsable", "--no-requeue", f"--account={args.account}", *resources,
+                        f"--job-name={PREP_JOB}", f"--output={root}/preparation-%j.log", str(root / "prepare.sh")]
                     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
                     save(submitted, {"command": command, "returncode": result.returncode,
                         "stdout": result.stdout, "stderr": result.stderr})
@@ -539,6 +567,8 @@ def main(argv=None):
     p.add_argument("--repo-id", default="ValerianFourel/geodml-experiment-v2-paper-private")
     p.add_argument("--prepare-on-login", action="store_true",
                    help="explicit operator authorization: freeze inputs on the login host instead of a GPU job")
+    p.add_argument("--prepare-on-cpu", action="store_true",
+                   help="explicit operator authorization: freeze inputs in one four-hour cpuonly allocation")
     p = commands.add_parser("prepare")
     p.add_argument("--output", type=Path, required=True)
     p = commands.add_parser("prepare-login")

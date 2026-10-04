@@ -191,7 +191,7 @@ def test_restart_rejects_changed_scope_before_submission(tmp_path, monkeypatch, 
     assert not (root / "PREPARATION_SUBMISSION_ATTEMPTED").exists()
 
 
-@pytest.mark.parametrize("login", [False, True, "fresh"])
+@pytest.mark.parametrize("login", [False, True, "fresh", "cpu"])
 def test_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, monkeypatch, login):
     from analysis.scripts import verify_inference_allocation as boundary
     source = dataset(tmp_path)
@@ -202,13 +202,21 @@ def test_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, mo
             "authorization": "five-hour finite fixture"}
     if login == "fresh":
         spec["preparation_execution"] = "login"  # chosen at start; no GPU takeover receipts exist
+    cpu = login == "cpu"
+    if cpu:
+        spec["preparation_execution"] = "cpu"
+        login = False
+        scratch = tmp_path / "node-local"
+        scratch.mkdir()
+        monkeypatch.setenv("SLURM_JOB_ID", "123")
+        monkeypatch.setenv("TMPDIR", str(scratch))
     bulk.save(root / "preparation.json", spec)
     settings = bulk.read(bulk.REPO / "analysis/config/si_v4_gemma_full_pass.template.json")
     bulk.save(root / "judge-config.json", settings)
     monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
     monkeypatch.setattr(bulk, "storage", lambda *a: None)
     def verify(cluster):
-        assert not login, 'login preparation must never request a GPU boundary'
+        assert not login and not cpu, 'login and CPU preparation must never request a GPU boundary'
         return {"cluster": cluster, "fixture_boundary": True}
     monkeypatch.setattr(boundary, "verify", verify)
     if login is True:
@@ -241,6 +249,12 @@ def test_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, mo
         assert plan['preparation_execution']['execution'] == 'login'
         assert plan['preparation_execution']['gpu_used'] is False
         assert plan['git_commit'] == 'a' * 40
+    if cpu:
+        assert plan['preparation_execution']['execution'] == 'cpu_slurm'
+        assert plan['preparation_execution']['slurm_job_id'] == '123'
+        assert plan['preparation_execution']['gpu_used'] is False
+        assert list(scratch.iterdir()) == []  # the node-local index is removed
+    assert not list((root / "frozen").glob("task-index*"))
     (directory / "inputs/manifest.json").write_text("{}")
     with pytest.raises(ValueError, match="configuration changed"):
         bulk.checked_plan(root)
@@ -322,4 +336,67 @@ def test_start_on_login_prepares_once_without_sbatch_then_sends(tmp_path, monkey
     # The preparation mode is part of the pinned scope.
     args.prepare_on_login = False
     with pytest.raises(ValueError, match="saved preparation differs"):
+        bulk.start(args)
+
+
+def test_cpu_preparation_index_location_does_not_change_frozen_inputs(tmp_path):
+    from analysis.scripts import prepare_source_importance_tasks as freeze_tasks
+    source = dataset(tmp_path)
+    scratch = tmp_path / "node-local"
+    scratch.mkdir()
+    common = ["--source", f"{source}:qwen38", "--protocol", "si-v4"]
+    assert freeze_tasks.main([*common, "--output", str(tmp_path / "shared")]) == 0
+    assert freeze_tasks.main([*common, "--output", str(tmp_path / "local"), "--index-directory", str(scratch)]) == 0
+    for name in ("tasks.jsonl.gz", "cells.jsonl.gz"):
+        assert gzip.decompress((tmp_path / "shared" / name).read_bytes()) == \
+            gzip.decompress((tmp_path / "local" / name).read_bytes())  # gzip headers carry a timestamp
+    assert list(scratch.iterdir()) == []
+
+
+def test_start_on_cpu_submits_one_four_hour_cpuonly_preparation(tmp_path, monkeypatch):
+    from analysis.scripts import horeka_gemma_v4_sender as sender
+    root = tmp_path / "run"
+    root.mkdir()
+    args = SimpleNamespace(workspace=tmp_path, output=root, account="test", repo_id="fixture/private",
+                           source=[f"{tmp_path}/dataset:llama4"], exclude_inputs=[], prepare_on_cpu=True)
+    bulk.save(root / "preparation.json", {"git_commit": "a" * 40, "workspace": str(tmp_path),
+        "account": "test", "repo_id": args.repo_id, "sources": args.source, "exclude_inputs": [],
+        "preparation_execution": "cpu", "preparation_deadline_epoch": bulk.time.time() + 3600})
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
+    monkeypatch.setattr(bulk, "storage", lambda *a: None)
+    submissions, handed_off = [], []
+
+    def run(command, **kwargs):
+        submissions.append(command)
+        return SimpleNamespace(returncode=0, stdout="42\n", stderr="")
+
+    def scheduler(command, **kwargs):
+        if command[0] == "squeue":
+            bulk.save(root / "plan.json", {"fixture": "CPU preparation completed"})
+            return ""
+        if command[0] == "sacct":
+            return "42|COMPLETED\n"
+        raise AssertionError(command)
+
+    monkeypatch.setattr(bulk.subprocess, "run", run)
+    monkeypatch.setattr(bulk.subprocess, "check_output", scheduler)
+    monkeypatch.setattr(sender, "send", lambda path: handed_off.append(path) or 0)
+    assert bulk.start(args) == 0
+    assert handed_off == [root] and len(submissions) == 1
+    command = submissions[0]
+    assert command[0] == "sbatch" and "--no-requeue" in command
+    assert "--partition=cpuonly" in command and "--time=04:00:00" in command
+    assert not any(part.startswith(("--gres", "--partition=accelerated")) or part == "--exclusive" for part in command)
+    script = (root / "prepare.sh").read_text()
+    assert "srun" not in script and "GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY" not in script
+    assert script.rstrip().endswith(f"prepare --output {root}")
+    # A restart after the plan exists goes straight to the sender; no second allocation.
+    assert bulk.start(args) == 0 and len(submissions) == 1
+    # The preparation mode is part of the pinned scope.
+    args.prepare_on_cpu = False
+    with pytest.raises(ValueError, match="saved preparation differs"):
+        bulk.start(args)
+    args.prepare_on_cpu = args.prepare_on_login = True
+    with pytest.raises(ValueError, match="one preparation mode"):
         bulk.start(args)

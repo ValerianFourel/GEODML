@@ -17,6 +17,7 @@ import json
 import subprocess
 import sys
 import sqlite3
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -295,6 +296,8 @@ def main(argv=None) -> int:
     parser.add_argument("--limit", type=int, help="at most this many cells per source (development only)")
     parser.add_argument("--truncation-sensitivity-fraction", type=float, default=0.1,
                         help="share of truncated cells whose stored 1,200-character answer is also judged")
+    parser.add_argument("--index-directory", type=Path,
+                        help="scratch folder (e.g. node-local $TMPDIR) for the temporary deduplication index")
     args = parser.parse_args(argv)
     selected = v4 if args.protocol == "si-v4" else si
     if args.max_tokens is None:
@@ -324,7 +327,9 @@ def main(argv=None) -> int:
     partial = args.output.with_name(args.output.name + ".partial")
     partial.mkdir(parents=True)
     # Disk-backed deduplication avoids retaining millions of task IDs in Python.
-    seen = sqlite3.connect(partial / "task-index.sqlite")
+    index = (Path(tempfile.mkdtemp(prefix="si-freeze-index-", dir=args.index_directory)) / "task-index.sqlite"
+             if args.index_directory else partial / "task-index.sqlite")
+    seen = sqlite3.connect(index)
     seen.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, digest TEXT NOT NULL)")
     seen.execute("CREATE TABLE cells (id TEXT PRIMARY KEY)")
     counts: Counter = Counter()
@@ -373,7 +378,9 @@ def main(argv=None) -> int:
                         counts[f"unique_{task['task']}_tasks"] += 1
                         task_file.write(json.dumps(task, ensure_ascii=False, sort_keys=True) + "\n")
     seen.close()
-    (partial / "task-index.sqlite").unlink()
+    index.unlink()
+    if args.index_directory:
+        index.parent.rmdir()
     if missing_fingerprints:
         raise ValueError(f"{len(missing_fingerprints)} selected cells unavailable or excluded; partial freeze was not promoted")
     commit = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "HEAD"],
