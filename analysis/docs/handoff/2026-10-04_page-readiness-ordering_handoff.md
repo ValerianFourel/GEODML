@@ -65,3 +65,13 @@ Snapshot audit (pasted 2026-10-04): DuckDuckGo 10,338 rows, 270 glued-title rows
 211 keywords), 10.7% of llama snippet displays; SearXNG 13,555 rows, 3 flags, all false
 positives. Llama and Qwen used byte-identical snapshots (DDG 894130b7…, SearXNG a693dd56…).
 Valerian decided to ignore the glued rows: no engine-restricted robustness check is planned.
+
+GEO drivers study (protocol `analysis/docs/geo_drivers_study.md`, fixed before running):
+E1 prompt position -> top-weighted ranking intent, split into pool and reordering; E2
+Plackett-Luce drivers (on-keyword, topic similarity with the intent subspace removed,
+page intent, intent alignment) per model x engine with keyword bootstrap, within-keyword
+permutation null and a four-strata replication rule. Code `geo_drivers.py`,
+`geo_drivers_study.py`, runner `horeka-geo-drivers.sbatch` (commit 6da93a7; 23 tests pass;
+synthetic recovery verified). Corpus: 21,384 distinct snippets (published as
+snippet-embeddings-corpus-v1, Hub commit d4d5920d). Qwen bouts 2 and 6 died on a duplicate
+failed-attempt record ID (identical retries collide); fix not yet made, awaiting Valerian.
