@@ -23,3 +23,12 @@ Tests: 142 pass across gemma v4, sender, prequeue and source-importance suites.
 Risk: if the llama population is much larger than ~312k cells, four hours may
 not suffice; the freeze is not resumable. Next: Valerian launches the fresh root
 `$W/reviews/gemma-si-v4-llama-cpu-5h-20261004` and returns sender.log/squeue.
+
+## Update: CPU preparation submitted (pasted evidence)
+
+Sender started 08:51:02 CEST in tmux `gemma-v4-bouts` on hkn1993 (PID 635627)
+from checkout fc9b47a. Startup checks wrote preparation.json at 08:54:06.
+At 08:54:07 sbatch returned 0 for job 5179554 (`cpuonly`, 1 node, 4 CPUs, 32G,
+04:00:00, no requeue), PENDING (Priority). Other live allocations, not touched:
+Qwen 5177268 (running), 5178960 (pending), page-extract 5179545 (running) and
+page-relocate 5179548 (pending). That makes five, the AGENTS.md limit.
