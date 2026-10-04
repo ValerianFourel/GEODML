@@ -100,3 +100,22 @@ one pinned worker per GPU. The fresh 512-prompt re-embedding must reproduce
 the archived axis before any page is embedded. Finished stages are skipped and
 embedding resumes from saved shards, so the same command continues in a later
 allocation. The script never cancels, extends or releases the allocation.
+
+## Snippet embedding dataset
+
+`horeka-snippet-embeddings-interactive.sh JOBID` extracts every distinct snippet
+shown to llama (`llama-hf/dataset`) and Qwen (`shared-hours/dataset`, sealed
+finished cells at extraction time) across both engines. It embeds them with both
+views using `--save-embeddings`, and `package` writes `snippet-embeddings-v1/`:
+
+- `snippets.parquet`: snippet id, title, snippet, text, URLs, engines, models,
+  times shown, raw and aligned axis values, consensus z, prompt-scale percentile;
+- `embeddings/qwen3-8b-llm2vec.npy`, `embeddings/mistral-7b-instruct-v0.2-llm2vec.npy`:
+  float32 vectors, row `i` = parquet `row` `i`;
+- `README.md`, and `manifest.json` with model revisions, code commit, the relocation
+  check and SHA-256 of every file.
+
+`publish --package DIR` (login node, write token prompted) uploads it to the private
+dataset under `derived/snippet-embeddings/<name>/`. It refuses a public dataset or an
+existing path, verifies every file's size and LFS SHA-256, and writes
+`<name>.published.json`. Later Qwen completions need a new extract and package name.
