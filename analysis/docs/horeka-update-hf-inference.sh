@@ -69,8 +69,8 @@ with (reviews / 'qwen-hf-update.lock').open('a') as lock:
         save(output / 'context.json', context)
         warnings.simplefilter('error', getpass.GetPassWarning)
         # Always ask: the cached login token may be read-only (403 on upload).
-        with open('/dev/tty', 'r+') as terminal:
-            token = getpass.getpass('HF WRITE token for the private dataset (hidden): ', stream=terminal).strip()
+        # getpass reads from /dev/tty itself; output may be piped through tee.
+        token = getpass.getpass('HF WRITE token for the private dataset (hidden): ').strip()
         if not token:
             raise ValueError('A write token is required in the terminal prompt')
         os.environ['HF_TOKEN'] = token
