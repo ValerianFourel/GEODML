@@ -45,6 +45,40 @@ def glued_titles(rows: list[dict], *, min_title_chars: int = 20) -> list[int]:
     return counts
 
 
+def snapshots_from_traces(traces) -> dict[str, dict]:
+    """Snapshot path and SHA-256 per engine, as recorded in the search events' raw payloads."""
+    found: dict[str, dict] = {}
+    for trace in traces:
+        for event in trace.get("events", []):
+            if not isinstance(event, dict) or event.get("event_type") != "search":
+                continue
+            payload = event.get("payload", {})
+            raw = payload.get("raw_payload") or {}
+            if payload.get("engine") and raw.get("snapshot") and raw.get("snapshot_sha256"):
+                record = {"path": raw["snapshot"], "sha256": raw["snapshot_sha256"]}
+                if found.setdefault(payload["engine"], record) != record:
+                    raise ValueError(f"traces use more than one {payload['engine']} snapshot")
+        if {"duckduckgo", "searxng"} <= found.keys():
+            break
+    return found
+
+
+def resolve_snapshot(record: dict, search_root: Path) -> Path:
+    """The recorded file if it still has the recorded hash, else a same-named copy under search_root."""
+    recorded = Path(record["path"])
+    candidates = [recorded] if recorded.is_file() else []
+    candidates += sorted(p for p in Path(search_root).rglob(recorded.name)
+                         if p.is_file() and "checkouts" not in p.parts and p != recorded)
+    for path in candidates:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(8 << 20), b""):
+                digest.update(chunk)
+        if digest.hexdigest() == record["sha256"]:
+            return path
+    raise FileNotFoundError(f"no file with the recorded hash for {recorded} under {search_root}")
+
+
 def page_id(title: str, snippet: str) -> str:
     """Same identity as page_readiness_ordering.page_text/page_id."""
     return hashlib.sha256(f"{title.strip()}\n{snippet.strip()}".encode()).hexdigest()
@@ -84,17 +118,34 @@ def audit(path: Path, *, min_titles: int, min_title_chars: int, pages: dict | No
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--snapshot", type=Path, action="append", required=True, metavar="ENGINE=PATH")
+    parser.add_argument("--snapshot", type=Path, action="append", default=[], metavar="ENGINE=PATH")
+    parser.add_argument("--locate-from", type=Path, action="append", default=[], metavar="DATASET_ROOT",
+                        help="find each engine's snapshot from the paths and hashes recorded in this dataset's traces")
+    parser.add_argument("--search-root", type=Path, help="where to look for a same-named copy (default: dataset parent)")
     parser.add_argument("--pages", type=Path, help="extract pages.jsonl.gz to count displays of flagged rows")
     parser.add_argument("--min-titles", type=int, default=2)
     parser.add_argument("--min-title-chars", type=int, default=20)
     args = parser.parse_args(argv)
+    snapshots = [str(spec) for spec in args.snapshot]
+    if args.locate_from:
+        from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
+        records = {}
+        for root in args.locate_from:
+            found = snapshots_from_traces(iter_sealed_rows(root, "traces", required=True))
+            print(json.dumps({"dataset": str(root), "recorded_snapshots": found}, indent=1), flush=True)
+            for engine, record in found.items():
+                if records.setdefault(engine, record)["sha256"] != record["sha256"]:
+                    print(json.dumps({"warning": f"datasets used different {engine} snapshots"}), flush=True)
+        search_root = args.search_root or args.locate_from[0].parent
+        snapshots += [f"{engine}={resolve_snapshot(record, search_root)}" for engine, record in sorted(records.items())]
+    if not snapshots:
+        parser.error("give --snapshot ENGINE=PATH or --locate-from DATASET_ROOT")
     pages = None
     if args.pages:
         with gzip.open(args.pages, "rt", encoding="utf-8") as stream:
             pages = {json.loads(line)["page_id"]: json.loads(line)["occurrences"] for line in stream if line.strip()}
-    for spec in args.snapshot:
-        engine, _, path = str(spec).partition("=")
+    for spec in snapshots:
+        engine, _, path = spec.partition("=")
         report = audit(Path(path), min_titles=args.min_titles, min_title_chars=args.min_title_chars, pages=pages)
         print(json.dumps({"engine": engine, **report}, indent=1, ensure_ascii=False), flush=True)
     return 0

@@ -35,3 +35,25 @@ def test_flags_only_rows_that_contain_other_results_titles(tmp_path):
     with gzip.open(pages, "wt") as stream:
         stream.write(json.dumps({"page_id": shown, "occurrences": 30}) + "\n")
     assert audit.main(["--snapshot", f"duckduckgo={snapshot}", "--pages", str(pages)]) == 0
+
+
+def test_snapshots_are_located_by_the_hash_recorded_in_search_traces(tmp_path):
+    import hashlib
+    import pytest
+    copy = tmp_path / "workspace/inputs/ddg-results.jsonl"
+    copy.parent.mkdir(parents=True)
+    copy.write_text("".join(json.dumps(r) + "\n" for r in ROWS))
+    digest = hashlib.sha256(copy.read_bytes()).hexdigest()
+    traces = [{"events": [{"event_type": "llm_call", "payload": {}}]},
+              {"events": [{"event_type": "search", "payload": {"engine": "duckduckgo", "raw_payload": {
+                  "snapshot": "/e/jupiter/frozen/ddg-results.jsonl", "snapshot_sha256": digest}}}]}]
+    recorded = audit.snapshots_from_traces(traces)
+    assert recorded == {"duckduckgo": {"path": "/e/jupiter/frozen/ddg-results.jsonl", "sha256": digest}}
+    assert audit.resolve_snapshot(recorded["duckduckgo"], tmp_path / "workspace") == copy  # found by name, confirmed by hash
+    copy.write_text("changed\n")
+    with pytest.raises(FileNotFoundError, match="recorded hash"):
+        audit.resolve_snapshot(recorded["duckduckgo"], tmp_path / "workspace")
+    conflicting = traces + [{"events": [{"event_type": "search", "payload": {"engine": "duckduckgo", "raw_payload": {
+        "snapshot": "/other.jsonl", "snapshot_sha256": "0" * 64}}}]}]
+    with pytest.raises(ValueError, match="more than one"):
+        audit.snapshots_from_traces(conflicting)
