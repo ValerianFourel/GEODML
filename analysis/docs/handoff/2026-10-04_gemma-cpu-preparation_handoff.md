@@ -32,3 +32,19 @@ At 08:54:07 sbatch returned 0 for job 5179554 (`cpuonly`, 1 node, 4 CPUs, 32G,
 04:00:00, no requeue), PENDING (Priority). Other live allocations, not touched:
 Qwen 5177268 (running), 5178960 (pending), page-extract 5179545 (running) and
 page-relocate 5179548 (pending). That makes five, the AGENTS.md limit.
+
+## Update: CPU preparation timed out after a complete freeze (pasted, 13:15 CEST)
+
+At 13:15:52 job 5179554 had used 3:58:48 of 4:00:00. The freeze had finished
+and was promoted to `frozen/`: 312,052 cells_ok, 208,002 answer-map tasks,
+1,104,124 source-dependency tasks, 208,132 fulfilment tasks, 907 trace-full
+answers, 18 prior-map cells. No `shards/` or `plan.json`: partition and planning
+cannot finish, and the pinned sender stops on a missing plan. No bouts submitted.
+
+New `start --prepare-on-cpu --reuse-frozen <dir>` (fresh run only, pinned in
+preparation.json) verifies the earlier freeze against this run's own inputs
+(manifest hash at start, file hashes, protocol/budgets, sources, exclusion and
+prior-map hashes), copies it, records `frozen-reuse.json` and `plan.reused_frozen`,
+then partitions and plans in one one-hour cpuonly allocation (default limit).
+Partition's SQLite index can live in node-local `$TMPDIR`; shards are
+byte-identical (tested). Next root: `$W/reviews/gemma-si-v4-llama-reuse-5h-20261004`.

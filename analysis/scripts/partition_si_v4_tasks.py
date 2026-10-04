@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import sqlite3
 import sys
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.interpretability.pipeline import source_importance as v3
@@ -232,12 +233,15 @@ def _write_shard(db, manifest, source_hash, partial, output, number):
             "manifest_sha256": file_hash(destination / "manifest.json"), "counts": dict(counts)}
 
 
-def partition(inputs: Path, output: Path, *, max_shards=200, minimum_cells_per_shard=1500) -> list[dict]:
+def partition(inputs: Path, output: Path, *, max_shards=200, minimum_cells_per_shard=1500,
+              index_directory=None) -> list[dict]:
     """Return nonempty contiguous shards; shared maps override the target balance.
 
     Ready cells have status ``ok``. Blocked cells remain in a separate raw stream.
     If fewer map components exist than the requested shard count, emit fewer
     shards. A failed preparation preserves its .partial directory for inspection.
+    ``index_directory`` (e.g. node-local $TMPDIR) holds the temporary SQLite index;
+    shard contents do not depend on where it lives.
     """
     if any(type(n) is not int or n <= 0 for n in (max_shards, minimum_cells_per_shard)):
         raise ValueError("partition sizes must be positive integers")
@@ -257,7 +261,8 @@ def partition(inputs: Path, output: Path, *, max_shards=200, minimum_cells_per_s
         raise ValueError("constructed diagnostics are not corpus inputs")
     _verify_files(inputs, manifest, source_hash)
     partial.mkdir(parents=True)
-    index_path = partial / "partition-index.sqlite"
+    index_path = (Path(tempfile.mkdtemp(prefix="si-partition-index-", dir=index_directory)) / "partition-index.sqlite"
+                  if index_directory else partial / "partition-index.sqlite")
     with closing(sqlite3.connect(index_path)) as db:
         db.execute("PRAGMA temp_store=FILE")
         db.execute("PRAGMA cache_size=-8192")
@@ -300,6 +305,8 @@ def partition(inputs: Path, output: Path, *, max_shards=200, minimum_cells_per_s
         _json(partial / "partition.json", summary)
     _verify_files(inputs, manifest, source_hash)
     index_path.unlink()
+    if index_directory:
+        index_path.parent.rmdir()
     if output.exists():
         raise ValueError("partition output appeared during preparation; partial output preserved")
     partial.rename(output)

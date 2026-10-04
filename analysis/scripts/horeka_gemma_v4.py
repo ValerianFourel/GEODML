@@ -4,7 +4,9 @@
 The login-side start command submits one GPU preparation allocation, or with
 --prepare-on-cpu one four-hour CPU-only allocation, or with --prepare-on-login
 freezes inputs on the login host (each an explicit operator authorization), then
-hands the immutable plan to the finite sender. Inference reuses the existing HoreKa
+hands the immutable plan to the finite sender. With --reuse-frozen, a completed
+freeze of the same inputs (e.g. left by a timed-out preparation) is verified and
+adopted, and the CPU allocation only partitions and plans. Inference reuses the existing HoreKa
 serving boundary and SI coordinator. No model downloads or scientific repairs.
 """
 from __future__ import annotations
@@ -21,6 +23,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -44,6 +47,8 @@ PREP_JOB = "geodml-gemma-v4-prepare"
 # after an 8-minute scan, about three hours for ~312k cells. Valerian approved
 # this one four-hour CPU allocation explicitly.
 CPU_PREP_WALLTIME = "04:00:00"
+# Partition and plan only, from a verified earlier freeze; within the default limit.
+CPU_REUSE_WALLTIME = "01:00:00"
 WALLTIME = "05:00:00"
 SECONDS_PER_CELL = 20.39868898486273
 USEFUL_SECONDS = 18000 - 654 - 300
@@ -321,6 +326,42 @@ def exclusions(spec, root):
     return path
 
 
+def adopt_frozen(reuse, frozen, spec, root, excluded):
+    """Adopt a completed freeze of exactly these inputs instead of freezing again."""
+    source = Path(reuse["path"])
+    if judge.file_hash(source / "manifest.json") != reuse["manifest_sha256"]:
+        raise ValueError("reused freeze manifest changed since start")
+    manifest = read(source / "manifest.json")
+    for name in ("tasks.jsonl.gz", "cells.jsonl.gz"):
+        if judge.file_hash(source / name) != manifest["files"][name]:
+            raise ValueError(f"reused freeze file changed: {name}")
+    # Same settings as the freeze command in prepare(); partition rechecks them.
+    if (manifest.get("protocol") != v4.PROTOCOL or manifest.get("max_tokens") != 4096
+            or manifest.get("map_max_tokens") != 4096
+            or manifest.get("truncation_sensitivity", {}).get("fraction") != 0
+            or manifest.get("limit") is not None or manifest.get("cell_fingerprints_sha256")):
+        raise ValueError("reused freeze used different settings")
+    if [f"{i['dataset_root']}:{i['model']}" for i in manifest["inputs"]] != spec["sources"]:
+        raise ValueError("reused freeze covers different generator datasets")
+    if (manifest.get("excluded_cells", {}).get("sha256") != judge.file_hash(excluded)
+            or manifest.get("prior_map_tasks", {}).get("sha256")
+            != judge.file_hash(root / "previously-attempted-maps.txt")):
+        raise ValueError("reused freeze excluded different earlier diagnostics")
+    if frozen.exists():
+        if judge.file_hash(frozen / "manifest.json") != reuse["manifest_sha256"]:
+            raise ValueError("frozen inputs differ from the reused freeze")
+        return
+    partial = frozen.with_name("frozen.reuse-partial")
+    if partial.exists():
+        shutil.rmtree(partial)  # only ever a copy of the verified source
+    partial.mkdir()
+    for name in ("manifest.json", "tasks.jsonl.gz", "cells.jsonl.gz"):
+        shutil.copy2(source / name, partial / name)
+    partial.rename(frozen)
+    save(root / "frozen-reuse.json", {**reuse, "freeze_git_commit": manifest.get("git_commit"),
+                                      "counts": manifest.get("counts"), "adopted_at_epoch": time.time()})
+
+
 def prepare(args):
     """Freeze saved inputs; login preparation is an explicit operator exception."""
     from analysis.scripts.prepare_source_importance_tasks import main as freeze
@@ -375,9 +416,13 @@ def prepare(args):
         command += ["--source", source]
     if spec.get("preparation_execution") == "cpu" and os.environ.get("TMPDIR"):
         command += ["--index-directory", os.environ["TMPDIR"]]  # node-local scratch, not the shared workspace
-    freeze(command)
+    if spec.get("reuse_frozen"):
+        adopt_frozen(spec["reuse_frozen"], frozen, spec, root, excluded)
+    else:
+        freeze(command)
     storage(spec, root / "preparation-storage")
-    shards = partition(frozen, root / "shards")
+    shards = partition(frozen, root / "shards",
+                       index_directory=os.environ.get("TMPDIR") if spec.get("preparation_execution") == "cpu" else None)
     settings = read(root / "judge-config.json")
     plan_id = "gemma-v4-" + hashlib.sha256((judge.file_hash(frozen / "manifest.json") + judge.file_hash(root / "judge-config.json")).encode()).hexdigest()[:24]
     claims = set()
@@ -428,6 +473,8 @@ def prepare(args):
     plan["maximum_gpu_hours"] = 4 * plan["maximum_node_hours"]
     if login or spec.get("preparation_execution") == "cpu":
         plan["preparation_execution"] = {**boundary, "finished_at_epoch": time.time()}
+    if spec.get("reuse_frozen"):
+        plan["reused_frozen"] = spec["reuse_frozen"]
     save(root / "plan.json", plan)
     print(json.dumps({"prepared_cells": plan["cells"], "maximum_allocations": plan["maximum_allocations"],
                       "maximum_node_hours": plan["maximum_node_hours"], "allocation_submitted": False}), flush=True)
@@ -453,6 +500,10 @@ def start(args):
     if login and cpu:
         raise ValueError("choose one preparation mode")
     mode = "login" if login else "cpu" if cpu else "gpu"
+    reuse_path = getattr(args, "reuse_frozen", None)
+    if reuse_path is not None and not cpu:
+        raise ValueError("--reuse-frozen requires --prepare-on-cpu")
+    reuse_path = str(Path(reuse_path).resolve(strict=True)) if reuse_path is not None else None
     if not root.is_relative_to(workspace):
         raise ValueError("output must be inside the workspace")
     root.mkdir(parents=True, exist_ok=True)
@@ -486,13 +537,17 @@ def start(args):
                 "created_at_epoch": int(time.time()), "preparation_deadline_epoch": int(time.time()) + 7 * 86400}
             if mode != "gpu":
                 spec["preparation_execution"] = mode
+            if reuse_path:
+                spec["reuse_frozen"] = {"path": reuse_path,
+                                        "manifest_sha256": judge.file_hash(Path(reuse_path) / "manifest.json")}
             save(root / "judge-config.json", settings)
             save(root / "preparation.json", spec)
         spec = read(root / "preparation.json")
         if (spec["git_commit"] != pin or spec["workspace"] != str(workspace) or spec["account"] != args.account
                 or spec["repo_id"] != args.repo_id or spec["sources"] != sources
                 or spec["exclude_inputs"] != excluded_inputs
-                or spec.get("preparation_execution", "gpu") != mode):
+                or spec.get("preparation_execution", "gpu") != mode
+                or (spec.get("reuse_frozen") or {}).get("path") != reuse_path):
             raise ValueError("saved preparation differs; preserve its pinned command")
         if not (root / "plan.json").exists():
             storage(spec, root / "admission")
@@ -516,7 +571,8 @@ def start(args):
                                   'MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false\n')
                         script += 'exec ' + shlex.join(command[:1] + ["-u"] + command[1:]) + '\n'
                         resources = ["--partition=cpuonly", "--nodes=1", "--ntasks=1", "--cpus-per-task=4",
-                                     "--mem=32G", f"--time={CPU_PREP_WALLTIME}"]
+                                     "--mem=32G",
+                                     f"--time={CPU_REUSE_WALLTIME if reuse_path else CPU_PREP_WALLTIME}"]
                     else:
                         script = '#!/bin/bash\nset -euo pipefail\nexport PYTHONDONTWRITEBYTECODE=1\nexport GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1\n'
                         script += 'exec srun --jobid="$SLURM_JOB_ID" --nodes=1 --ntasks=1 --gres=gpu:4 --cpus-per-task=32 --unbuffered ' + shlex.join(command) + '\n'
@@ -569,6 +625,8 @@ def main(argv=None):
                    help="explicit operator authorization: freeze inputs on the login host instead of a GPU job")
     p.add_argument("--prepare-on-cpu", action="store_true",
                    help="explicit operator authorization: freeze inputs in one four-hour cpuonly allocation")
+    p.add_argument("--reuse-frozen", type=Path,
+                   help="with --prepare-on-cpu: adopt this verified freeze of the same inputs; one-hour allocation")
     p = commands.add_parser("prepare")
     p.add_argument("--output", type=Path, required=True)
     p = commands.add_parser("prepare-login")

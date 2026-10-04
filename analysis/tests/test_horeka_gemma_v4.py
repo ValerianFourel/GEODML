@@ -400,3 +400,115 @@ def test_start_on_cpu_submits_one_four_hour_cpuonly_preparation(tmp_path, monkey
     args.prepare_on_cpu = args.prepare_on_login = True
     with pytest.raises(ValueError, match="one preparation mode"):
         bulk.start(args)
+
+
+def _cpu_run(tmp_path, monkeypatch, name, source, reuse=None):
+    root = tmp_path / name
+    root.mkdir()
+    spec = {"git_commit": "a" * 40, "workspace": str(tmp_path), "account": "test",
+            "repo_id": "fixture/private", "sources": [f"{source}:qwen38"], "exclude_inputs": [],
+            "authorization": "five-hour finite fixture", "preparation_execution": "cpu"}
+    if reuse:
+        spec["reuse_frozen"] = reuse
+    bulk.save(root / "preparation.json", spec)
+    bulk.save(root / "judge-config.json", bulk.read(bulk.REPO / "analysis/config/si_v4_gemma_full_pass.template.json"))
+    return root
+
+
+def test_cpu_preparation_adopts_a_verified_freeze_without_freezing_again(tmp_path, monkeypatch):
+    from analysis.scripts import prepare_source_importance_tasks as freeze_tasks
+    source = dataset(tmp_path)
+    scratch = tmp_path / "node-local"
+    scratch.mkdir()
+    monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
+    monkeypatch.setattr(bulk, "storage", lambda *a: None)
+    monkeypatch.setenv("SLURM_JOB_ID", "123")
+    monkeypatch.setenv("TMPDIR", str(scratch))
+    first = _cpu_run(tmp_path, monkeypatch, "timed-out", source)
+    assert bulk.prepare(SimpleNamespace(output=first, command="prepare")) == 0
+    old = first / "frozen"
+    reuse = {"path": str(old), "manifest_sha256": judge.file_hash(old / "manifest.json")}
+
+    def no_freeze(argv):
+        raise AssertionError("a verified freeze must not be rebuilt")
+
+    monkeypatch.setattr(freeze_tasks, "main", no_freeze)
+    second = _cpu_run(tmp_path, monkeypatch, "reuse", source, reuse)
+    assert bulk.prepare(SimpleNamespace(output=second, command="prepare")) == 0
+    plan = bulk.checked_plan(second)
+    assert plan["cells"] == 3 and plan["reused_frozen"] == reuse
+    assert judge.file_hash(second / "frozen/manifest.json") == reuse["manifest_sha256"]
+    assert bulk.read(second / "frozen-reuse.json")["path"] == str(old)
+    assert list(scratch.iterdir()) == []  # node-local partition index removed
+    first_shard = bulk.read(first / "plan.json")["shards"][0]["files"]
+    assert plan["shards"][0]["files"]["inputs/manifest.json"] == first_shard["inputs/manifest.json"]
+    # A changed or mismatched freeze is refused, never silently adopted.
+    changed = _cpu_run(tmp_path, monkeypatch, "changed", source, {**reuse, "manifest_sha256": "0" * 64})
+    with pytest.raises(ValueError, match="manifest changed since start"):
+        bulk.prepare(SimpleNamespace(output=changed, command="prepare"))
+    other = dataset(tmp_path / "other")
+    mismatched = _cpu_run(tmp_path, monkeypatch, "mismatched", other, reuse)
+    with pytest.raises(ValueError, match="different generator datasets"):
+        bulk.prepare(SimpleNamespace(output=mismatched, command="prepare"))
+
+
+def test_start_reusing_a_freeze_submits_one_hour_cpu_preparation(tmp_path, monkeypatch):
+    from analysis.scripts import horeka_gemma_v4_sender as sender
+    frozen = tmp_path / "old/frozen"
+    frozen.mkdir(parents=True)
+    (frozen / "manifest.json").write_text("{}")
+    root = tmp_path / "run"
+    root.mkdir()
+    args = SimpleNamespace(workspace=tmp_path, output=root, account="test", repo_id="fixture/private",
+                           source=[f"{tmp_path}/dataset:llama4"], exclude_inputs=[], prepare_on_cpu=True,
+                           reuse_frozen=frozen)
+    reuse = {"path": str(frozen.resolve()), "manifest_sha256": judge.file_hash(frozen / "manifest.json")}
+    bulk.save(root / "preparation.json", {"git_commit": "a" * 40, "workspace": str(tmp_path),
+        "account": "test", "repo_id": args.repo_id, "sources": args.source, "exclude_inputs": [],
+        "preparation_execution": "cpu", "reuse_frozen": reuse,
+        "preparation_deadline_epoch": bulk.time.time() + 3600})
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
+    monkeypatch.setattr(bulk, "storage", lambda *a: None)
+    submissions = []
+
+    def run(command, **kwargs):
+        submissions.append(command)
+        return SimpleNamespace(returncode=0, stdout="43\n", stderr="")
+
+    def scheduler(command, **kwargs):
+        if command[0] == "squeue":
+            bulk.save(root / "plan.json", {"fixture": "partitioned from the reused freeze"})
+            return ""
+        return "43|COMPLETED\n"
+
+    monkeypatch.setattr(bulk.subprocess, "run", run)
+    monkeypatch.setattr(bulk.subprocess, "check_output", scheduler)
+    monkeypatch.setattr(sender, "send", lambda path: 0)
+    assert bulk.start(args) == 0
+    assert "--time=01:00:00" in submissions[0] and "--partition=cpuonly" in submissions[0]
+    args.reuse_frozen = None  # the reused freeze is part of the pinned scope
+    with pytest.raises(ValueError, match="saved preparation differs"):
+        bulk.start(args)
+    args.reuse_frozen, args.prepare_on_cpu = frozen, False
+    with pytest.raises(ValueError, match="requires --prepare-on-cpu"):
+        bulk.start(args)
+
+
+def test_partition_index_location_does_not_change_shards(tmp_path):
+    from analysis.scripts import prepare_source_importance_tasks as freeze_tasks
+    from analysis.scripts.partition_si_v4_tasks import partition
+    source = dataset(tmp_path)
+    frozen = tmp_path / "frozen"
+    assert freeze_tasks.main(["--source", f"{source}:qwen38", "--output", str(frozen), "--protocol", "si-v4",
+                              "--max-tokens", "4096", "--map-max-tokens", "4096",
+                              "--truncation-sensitivity-fraction", "0"]) == 0
+    scratch = tmp_path / "node-local"
+    scratch.mkdir()
+    shared = partition(frozen, tmp_path / "shards-shared")
+    local = partition(frozen, tmp_path / "shards-local", index_directory=scratch)
+    assert [s["cells"] for s in shared] == [s["cells"] for s in local]
+    for a, b in zip(shared, local):
+        for name in ("inputs/cells.jsonl.gz", "inputs/tasks.jsonl.gz"):
+            assert (bulk.Path(a["directory"]) / name).read_bytes() == (bulk.Path(b["directory"]) / name).read_bytes()
+    assert list(scratch.iterdir()) == []
