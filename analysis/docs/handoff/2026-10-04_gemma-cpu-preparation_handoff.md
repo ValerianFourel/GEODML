@@ -63,3 +63,11 @@ no requeue); RUNNING on hkn0848 by 13:35. The per-bout ("rapid") preparation
 design was discussed: answer-map identity includes the request, so prompt slices
 are exact, but the HF map reservation needs all identities before submission,
 so it is deferred to the Qwen Gemma pass rather than replacing this run.
+
+Pre-flight 13:4x CEST (pasted): the HoreKa cached HF token is role `read`; the
+env script does not set HF_TOKEN; the private registry has 0 Gemma reservations;
+no association MaxSubmit/MaxJobs. A read token cannot commit the reservation, so
+the sender would stop before any sbatch. Remedy given: restart only the tmux
+sender with a hidden-typed write token inherited from the environment (never
+on disk or argv); start() reuses preparation-submission.json for job 5180168
+and never resubmits preparation.
