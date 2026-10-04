@@ -121,39 +121,79 @@ def axis_by_prompt(final_axis_map: Path) -> dict[str, float]:
 
 # ---------------------------------------------------------------- extract
 
+def checked_cell(cell, prompt_axis):
+    """Shared validity rules for one generator cell. Returns (fields, None) or (None, skip reason).
+    Fields: prompt_id, keyword, evidence (presented order, URL-deduplicated), urls, ranking."""
+    from analysis.interpretability.pipeline.agentic_judging import _trace_evidence
+
+    generation = cell["generation"]
+    prompt_id = generation.get("prompt_id")
+    keyword = (cell.get("keyword_memberships") or {}).get("primary_keyword_id")
+    if prompt_id not in prompt_axis:
+        return None, "skipped_prompt_without_axis"
+    if not keyword:
+        return None, "skipped_without_keyword"
+    try:
+        # The final evidence the generator saw, in presented order (shared with SI judging).
+        evidence, _ = _trace_evidence(cell["trace"], generation["method"])
+    except (ValueError, KeyError, TypeError):
+        return None, "skipped_unreadable_evidence"
+    urls = [row["url"] for row in evidence]
+    ranking = list(generation.get("ranking") or [])
+    if len(set(urls)) != len(urls):
+        return None, "skipped_duplicate_presented_url"
+    if len(set(ranking)) != len(ranking) or not set(ranking) <= set(urls):
+        return None, "skipped_ranking_outside_evidence"
+    return {"prompt_id": prompt_id, "keyword": keyword, "evidence": evidence, "urls": urls, "ranking": ranking}, None
+
+
+def parallel_chunks(sources, worker, extra, workers):
+    """Completed cells of each DATASET_ROOT:MODEL source, read in contiguous slices by forked workers.
+    Returns (inputs, iterator of (chunk number, chunk count, worker result)) in deterministic order."""
+    from analysis.interpretability.pipeline.agentic_cells import completed_generator_refs
+
+    inputs, jobs = [], []
+    for spec in sources:
+        root, _, model = spec.rpartition(":")
+        root = Path(root).resolve(strict=True)
+        refs, ref_counts = completed_generator_refs(root, model=model)
+        inputs.append({"dataset_root": str(root), "model": model, "cells_completed": len(refs),
+                       "selection": dict(ref_counts)})
+        size = max(1, -(-len(refs) // (workers * 2)))
+        jobs += [(root, model, refs[start:start + size], extra) for start in range(0, len(refs), size)]
+    print(json.dumps({"cells": sum(len(j[2]) for j in jobs), "chunks": len(jobs), "workers": workers}), flush=True)
+
+    def results():
+        if workers == 1:
+            for number, result in enumerate(map(worker, jobs), 1):
+                yield number, len(jobs), result
+            return
+        import multiprocessing
+        pool = multiprocessing.get_context("fork").Pool(workers)
+        try:
+            for number, result in enumerate(pool.imap(worker, jobs), 1):  # ordered: deterministic output
+                yield number, len(jobs), result
+        finally:
+            pool.close()
+            pool.join()
+
+    return inputs, results()
+
+
 def _extract_chunk(job):
     """One contiguous slice of completed cells (keeps shard reads local); runs in a forked worker."""
     from analysis.interpretability.pipeline.agentic_cells import iter_cells
-    from analysis.interpretability.pipeline.agentic_judging import _trace_evidence
 
     root, model, refs, prompt_axis = job
     counts, pages, observations = Counter(), {}, []
     for cell in iter_cells(root, refs):
         generation = cell["generation"]
-        prompt_id = generation.get("prompt_id")
-        keyword = (cell.get("keyword_memberships") or {}).get("primary_keyword_id")
-        if prompt_id not in prompt_axis:
-            counts["skipped_prompt_without_axis"] += 1
-            continue
-        if not keyword:
-            counts["skipped_without_keyword"] += 1
-            continue
-        try:
-            # The final evidence the generator saw, in presented order (shared with SI judging).
-            evidence, _ = _trace_evidence(cell["trace"], generation["method"])
-        except (ValueError, KeyError, TypeError):
-            counts["skipped_unreadable_evidence"] += 1
-            continue
-        urls = [row["url"] for row in evidence]
-        ranking = list(generation.get("ranking") or [])
-        if len(set(urls)) != len(urls):
-            counts["skipped_duplicate_presented_url"] += 1
-            continue
-        if len(set(ranking)) != len(ranking) or not set(ranking) <= set(urls):
-            counts["skipped_ranking_outside_evidence"] += 1
+        fields, skipped = checked_cell(cell, prompt_axis)
+        if skipped:
+            counts[skipped] += 1
             continue
         by_url = {}
-        for row in evidence:
+        for row in fields["evidence"]:
             text = ordering.page_text(row["title"], row["text"])
             identifier = ordering.page_id(text)
             by_url[row["url"]] = identifier
@@ -164,40 +204,23 @@ def _extract_chunk(job):
             entry["engines"].add(generation.get("engine"))
             entry["models"].add(model)
         observations.append({
-            "generation_id": cell["fingerprint"], "prompt_id": prompt_id, "keyword": keyword, "model": model,
-            **{k: generation.get(k) for k in ("method", "engine", "condition")},
-            "prompt_axis": prompt_axis[prompt_id], "presented": [by_url[u] for u in urls],
-            "ranking": [by_url[u] for u in ranking]})
+            "generation_id": cell["fingerprint"], "prompt_id": fields["prompt_id"], "keyword": fields["keyword"],
+            "model": model, **{k: generation.get(k) for k in ("method", "engine", "condition")},
+            "prompt_axis": prompt_axis[fields["prompt_id"]], "presented": [by_url[u] for u in fields["urls"]],
+            "ranking": [by_url[u] for u in fields["ranking"]]})
         counts[f"answers_{model}"] += 1
     return observations, pages, counts
 
 
 def extract(args) -> int:
-    from analysis.interpretability.pipeline.agentic_cells import completed_generator_refs
-
     prompt_axis = axis_by_prompt(args.final_axis_map)
     partial = new_directory(args.output)
     workers = max(1, args.workers or int(os.environ.get("SLURM_CPUS_PER_TASK", "1")))
-    counts, inputs = Counter(), []
+    counts = Counter()
     pages: dict[str, dict] = {}
     observations = []
-    jobs = []
-    for spec in args.source:
-        root, _, model = spec.rpartition(":")
-        root = Path(root).resolve(strict=True)
-        refs, ref_counts = completed_generator_refs(root, model=model)
-        inputs.append({"dataset_root": str(root), "model": model, "cells_completed": len(refs),
-                       "selection": dict(ref_counts)})
-        size = max(1, -(-len(refs) // (workers * 2)))
-        jobs += [(root, model, refs[start:start + size], prompt_axis) for start in range(0, len(refs), size)]
-    print(json.dumps({"cells": sum(len(j[2]) for j in jobs), "chunks": len(jobs), "workers": workers}), flush=True)
-    if workers == 1:
-        results = map(_extract_chunk, jobs)
-    else:
-        import multiprocessing
-        pool = multiprocessing.get_context("fork").Pool(workers)
-        results = pool.imap(_extract_chunk, jobs)  # ordered, so output order is deterministic
-    for number, (chunk_observations, chunk_pages, chunk_counts) in enumerate(results, 1):
+    inputs, results = parallel_chunks(args.source, _extract_chunk, prompt_axis, workers)
+    for number, total, (chunk_observations, chunk_pages, chunk_counts) in results:
         observations += chunk_observations
         counts += chunk_counts
         for identifier, entry in chunk_pages.items():
@@ -206,10 +229,7 @@ def extract(args) -> int:
             merged["occurrences"] += entry["occurrences"]
             for key in ("urls", "engines", "models"):
                 merged[key] |= entry[key]
-        print(json.dumps({"chunk": number, "of": len(jobs), "answers": len(observations), "time": now()}), flush=True)
-    if workers > 1:
-        pool.close()
-        pool.join()
+        print(json.dumps({"chunk": number, "of": total, "answers": len(observations), "time": now()}), flush=True)
     write_jsonl(partial / "observations.jsonl.gz", observations)
     write_jsonl(partial / "pages.jsonl.gz", ({"page_id": p["page_id"], "text": p["text"], "text_sha256": p["page_id"],
                                               "occurrences": p["occurrences"], "urls": sorted(p["urls"]),

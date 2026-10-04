@@ -272,9 +272,9 @@ def estimate_e2(a: Answers, *, bootstrap: int, permutations: int, seed: int, wor
     return result
 
 
-def replication(strata: dict, *, section: str, terms) -> dict:
+def replication(strata: dict, *, section: str, terms, x_terms=X_TERMS) -> dict:
     """A term replicates if every stratum has the same sign, a 95% CI excluding 0 and,
-    for terms involving the prompt position, permutation p < 0.05."""
+    for terms involving the prompt position (``x_terms``), permutation p < 0.05."""
 
     summary = {}
     for term in terms:
@@ -289,7 +289,7 @@ def replication(strata: dict, *, section: str, terms) -> dict:
             rows.append({"stratum": name, "estimate": estimate, "ci95": [low, high], "p": entry.get("permutation_p")})
         signs = {np.sign(r["estimate"]) for r in rows if r["estimate"] is not None}
         excludes = all(r["ci95"][0] is not None and (r["ci95"][0] > 0 or r["ci95"][1] < 0) for r in rows)
-        significant = all(r["p"] is not None and r["p"] < 0.05 for r in rows) if term in X_TERMS else True
+        significant = all(r["p"] is not None and r["p"] < 0.05 for r in rows) if term in x_terms else True
         summary[term] = {"replicates": bool(rows) and len(signs) == 1 and excludes and significant,
                          "strata": rows}
     return summary

@@ -71,6 +71,33 @@ def intent_free(matrix: np.ndarray, map_path: Path, chunk: int = 4096) -> np.nda
     return out
 
 
+def pair_topic_similarity(pairs: np.ndarray, prompt_ids: list[str], prompt_dirs: dict, doc_vector_files: dict,
+                          map_dirs: dict, chunk: int = 50000) -> tuple[np.ndarray, dict]:
+    """Intent-free cosine for (prompt index, document row) pairs, averaged over both views.
+    ``prompt_ids[i]`` names prompt index i; documents are rows of each view's vector file."""
+
+    similarity_sum, diagnostics, per_view = np.zeros(len(pairs)), {}, {}
+    for view in VIEWS:
+        ids, vectors = load_prompt_vectors(prompt_dirs[view])
+        where = {pid: i for i, pid in enumerate(ids)}
+        missing = [p for p in prompt_ids if p not in where]
+        if missing:
+            raise ValueError(f"{len(missing)} prompts lack archived {view} embeddings")
+        frozen_map = Path(map_dirs[view]) / "readiness_embedding_map.json"
+        prompts = intent_free(vectors[[where[p] for p in prompt_ids]], frozen_map)
+        docs = intent_free(np.load(doc_vector_files[view], mmap_mode="r"), frozen_map)
+        similarity = np.empty(len(pairs), np.float64)
+        for start in range(0, len(pairs), chunk):
+            block = pairs[start:start + chunk]
+            similarity[start:start + chunk] = np.einsum("ij,ij->i", prompts[block[:, 0]], docs[block[:, 1]])
+        diagnostics[view] = {"mean": float(similarity.mean()), "sd": float(similarity.std())} if len(pairs) else {}
+        per_view[view] = similarity
+        similarity_sum += similarity
+    if len(pairs) > 2:
+        diagnostics["view_agreement_pearson"] = float(np.corrcoef(per_view["qwen"], per_view["mistral"])[0, 1])
+    return similarity_sum / len(VIEWS), diagnostics
+
+
 def assemble(args) -> int:
     import pyarrow.parquet as pq
 
@@ -120,25 +147,10 @@ def assemble(args) -> int:
     pair_prompt, p_docs_array = np.asarray(pair_prompt), np.asarray(p_docs)
     unique_pairs, pair_inverse = np.unique(np.stack([pair_prompt, p_docs_array], axis=1), axis=0, return_inverse=True)
     prompt_ids = sorted(codes["prompt"], key=codes["prompt"].get)
-    topic, diagnostics = np.zeros(len(unique_pairs)), {}
-    for view, prompt_dir, map_dir in (("qwen", args.qwen_prompts, args.qwen_map), ("mistral", args.mistral_prompts, args.mistral_map)):
-        ids, vectors = load_prompt_vectors(prompt_dir)
-        where = {pid: i for i, pid in enumerate(ids)}
-        missing = [p for p in prompt_ids if p not in where]
-        if missing:
-            raise ValueError(f"{len(missing)} prompts lack archived {view} embeddings")
-        prompts = intent_free(vectors[[where[p] for p in prompt_ids]], map_dir / "readiness_embedding_map.json")
-        docs = intent_free(np.load(args.corpus_package / EMBEDDING_FILES[view], mmap_mode="r"),
-                           map_dir / "readiness_embedding_map.json")
-        similarity = np.empty(len(unique_pairs), np.float64)
-        for start in range(0, len(unique_pairs), 50000):
-            block = unique_pairs[start:start + 50000]
-            similarity[start:start + 50000] = np.einsum("ij,ij->i", prompts[block[:, 0]], docs[block[:, 1]])
-        diagnostics[view] = {"mean": float(similarity.mean()), "sd": float(similarity.std())}
-        topic += similarity / len(VIEWS)
-        if view == "qwen":
-            first = similarity
-    diagnostics["view_agreement_pearson"] = float(np.corrcoef(first, similarity)[0, 1])
+    topic, diagnostics = pair_topic_similarity(
+        unique_pairs, prompt_ids, {"qwen": args.qwen_prompts, "mistral": args.mistral_prompts},
+        {view: args.corpus_package / EMBEDDING_FILES[view] for view in VIEWS},
+        {"qwen": args.qwen_map, "mistral": args.mistral_map})
     partial = new_directory(args.output)
     arrays = {name: np.asarray(values, float if name == "x" else np.int64) for name, values in columns.items()}
     np.savez(partial / "answers.npz", **arrays, p_offsets=np.asarray(p_offsets), p_docs=p_docs_array,
