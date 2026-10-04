@@ -191,7 +191,7 @@ def test_restart_rejects_changed_scope_before_submission(tmp_path, monkeypatch, 
     assert not (root / "PREPARATION_SUBMISSION_ATTEMPTED").exists()
 
 
-@pytest.mark.parametrize("login", [False, True])
+@pytest.mark.parametrize("login", [False, True, "fresh"])
 def test_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, monkeypatch, login):
     from analysis.scripts import verify_inference_allocation as boundary
     source = dataset(tmp_path)
@@ -200,6 +200,8 @@ def test_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, mo
     spec = {"git_commit": "a" * 40, "workspace": str(tmp_path), "account": "test",
             "repo_id": "fixture/private", "sources": [f"{source}:qwen38"], "exclude_inputs": [],
             "authorization": "five-hour finite fixture"}
+    if login == "fresh":
+        spec["preparation_execution"] = "login"  # chosen at start; no GPU takeover receipts exist
     bulk.save(root / "preparation.json", spec)
     settings = bulk.read(bulk.REPO / "analysis/config/si_v4_gemma_full_pass.template.json")
     bulk.save(root / "judge-config.json", settings)
@@ -209,9 +211,10 @@ def test_preparation_builds_verified_finite_shards_from_saved_cells(tmp_path, mo
         assert not login, 'login preparation must never request a GPU boundary'
         return {"cluster": cluster, "fixture_boundary": True}
     monkeypatch.setattr(boundary, "verify", verify)
-    if login:
+    if login is True:
         bulk.save(root / 'prequeue/login-takeover.json', {'helper_pin': 'a'*40, 'preparation_job': '99'})
         bulk.save(root / 'prequeue/login-preparation-retired.json', {'job_id': '99', 'state': 'CANCELLED'})
+    if login:
         original = bulk.subprocess.check_output
         def git(command, **kwargs):
             if command[:3] == ['git', '-C', str(bulk.REPO)]:
@@ -272,3 +275,51 @@ def test_preparation_aged_out_of_squeue_uses_terminal_accounting(tmp_path, monke
     monkeypatch.setattr(bulk.subprocess, "check_output", scheduler)
     assert bulk.start(args) == 0
     assert handed_off == [root]
+
+
+def test_takeover_login_preparation_still_requires_retired_gpu_job(tmp_path, monkeypatch):
+    root = tmp_path / "run"
+    root.mkdir()
+    bulk.save(root / "preparation.json", {"git_commit": "a" * 40, "sources": []})
+    monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    with pytest.raises(FileNotFoundError):
+        bulk.prepare(SimpleNamespace(output=root, command="prepare-login", inference_repository=bulk.REPO))
+
+
+def test_start_on_login_prepares_once_without_sbatch_then_sends(tmp_path, monkeypatch):
+    from analysis.scripts import horeka_gemma_v4_sender as sender
+    root = tmp_path / "run"
+    root.mkdir()
+    args = SimpleNamespace(workspace=tmp_path, output=root, account="test", repo_id="fixture/private",
+                           source=[f"{tmp_path}/dataset:llama4"], exclude_inputs=[], prepare_on_login=True)
+    spec = {"git_commit": "a" * 40, "workspace": str(tmp_path), "account": "test", "repo_id": args.repo_id,
+            "sources": args.source, "exclude_inputs": [], "preparation_execution": "login"}
+    bulk.save(root / "preparation.json", spec)
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
+    monkeypatch.setattr(bulk, "storage", lambda *a: None)
+    monkeypatch.setattr(bulk, "checked_plan", lambda path: bulk.read(path / "plan.json"))
+    calls, handed_off = [], []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        assert command[:3] == ["nice", "-n", "10"] and "prepare-login" in command
+        assert kwargs["timeout"] == 3600 and kwargs["env"]["OMP_NUM_THREADS"] == "1"
+        bulk.save(root / "plan.json", {"fixture": "login preparation"})
+
+    monkeypatch.setattr(bulk.subprocess, "run", run)
+    monkeypatch.setattr(sender, "send", lambda path: handed_off.append(path) or 0)
+    assert bulk.start(args) == 0
+    assert len(calls) == 1 and handed_off == [root]
+    assert not (root / "PREPARATION_SUBMISSION_ATTEMPTED").exists()
+    # A restart after the plan exists goes straight to the sender.
+    assert bulk.start(args) == 0 and len(calls) == 1
+    # An interrupted login preparation is never repeated automatically.
+    (root / "plan.json").unlink()
+    with pytest.raises(ValueError, match="no automatic repeat"):
+        bulk.start(args)
+    # The preparation mode is part of the pinned scope.
+    args.prepare_on_login = False
+    with pytest.raises(ValueError, match="saved preparation differs"):
+        bulk.start(args)

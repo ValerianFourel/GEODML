@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Prepare finite five-hour Gemma SI-v4 bouts on verified saved generator cells.
 
-The login-side start command submits one GPU preparation allocation, then hands
-the immutable plan to the finite sender. Inference reuses the existing HoreKa
+The login-side start command submits one GPU preparation allocation, or with
+--prepare-on-login (explicit operator authorization) freezes inputs on the login
+host, then hands the immutable plan to the finite sender. Inference reuses the existing HoreKa
 serving boundary and SI coordinator. No model downloads or scientific repairs.
 """
 from __future__ import annotations
@@ -328,11 +329,14 @@ def prepare(args):
     if login:
         if os.environ.get("SLURM_JOB_ID"):
             raise ValueError("login preparation must run outside an allocation")
-        takeover = read(root / "prequeue/login-takeover.json")
-        retired = read(root / "prequeue/login-preparation-retired.json")
-        if (takeover.get("helper_pin") != helper_pin or retired.get("state") != "CANCELLED"
-                or retired.get("job_id") != takeover.get("preparation_job")):
-            raise ValueError("verified retirement of GPU preparation is required")
+        # A fresh run chose login preparation at start; otherwise this is a
+        # takeover of a retired GPU preparation job.
+        if spec.get("preparation_execution") != "login":
+            takeover = read(root / "prequeue/login-takeover.json")
+            retired = read(root / "prequeue/login-preparation-retired.json")
+            if (takeover.get("helper_pin") != helper_pin or retired.get("state") != "CANCELLED"
+                    or retired.get("job_id") != takeover.get("preparation_job")):
+                raise ValueError("verified retirement of GPU preparation is required")
         execution_repo = args.inference_repository.resolve(strict=True)
         pin = subprocess.check_output(["git", "-C", str(execution_repo), "rev-parse", "HEAD"], text=True).strip()
         dirty = subprocess.check_output(["git", "-C", str(execution_repo), "status", "--porcelain", "--untracked-files=all"], text=True).strip()
@@ -428,6 +432,7 @@ def start(args):
     if len(sources) != len(set(sources)):
         raise ValueError("duplicate generator dataset source")
     excluded_inputs = [str(p.resolve()) for p in args.exclude_inputs]
+    login = bool(getattr(args, "prepare_on_login", False))
     if not root.is_relative_to(workspace):
         raise ValueError("output must be inside the workspace")
     root.mkdir(parents=True, exist_ok=True)
@@ -459,50 +464,65 @@ def start(args):
                 "exclude_inputs": excluded_inputs,
                 "authorization": "Valerian requested the saved dataset judged by Gemma v4 in five-hour bouts, up to 200 queued ASAP, checking every ten minutes; one finite frozen pass.",
                 "created_at_epoch": int(time.time()), "preparation_deadline_epoch": int(time.time()) + 7 * 86400}
+            if login:
+                spec["preparation_execution"] = "login"
             save(root / "judge-config.json", settings)
             save(root / "preparation.json", spec)
         spec = read(root / "preparation.json")
         if (spec["git_commit"] != pin or spec["workspace"] != str(workspace) or spec["account"] != args.account
                 or spec["repo_id"] != args.repo_id or spec["sources"] != sources
-                or spec["exclude_inputs"] != excluded_inputs):
+                or spec["exclude_inputs"] != excluded_inputs
+                or (spec.get("preparation_execution") == "login") != login):
             raise ValueError("saved preparation differs; preserve its pinned command")
         if not (root / "plan.json").exists():
             storage(spec, root / "admission")
-            submitted = root / "preparation-submission.json"
-            if not submitted.exists():
-                command = [sys.executable, str(Path(__file__)), "prepare", "--output", str(root)]
-                script = '#!/bin/bash\nset -euo pipefail\nexport PYTHONDONTWRITEBYTECODE=1\nexport GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1\n'
-                script += 'exec srun --jobid="$SLURM_JOB_ID" --nodes=1 --ntasks=1 --gres=gpu:4 --cpus-per-task=32 --unbuffered ' + shlex.join(command) + '\n'
-                atomic(root / "prepare.sh", script.encode())
-                marker = root / "PREPARATION_SUBMISSION_ATTEMPTED"
+            if login:
+                marker = root / "LOGIN_PREPARATION_ATTEMPTED"
                 if marker.exists():
-                    raise ValueError("preparation submission has no receipt; inspect scheduler before retrying")
-                atomic(marker, b"one preparation allocation; never automatically resubmit\n")
-                command = ["sbatch", "--parsable", "--no-requeue", f"--account={args.account}", "--partition=accelerated",
-                    "--nodes=1", "--ntasks=1", "--gres=gpu:4", "--cpus-per-task=32", "--mem=0", "--exclusive",
-                    "--time=01:00:00", f"--job-name={PREP_JOB}", f"--output={root}/preparation-%j.log", str(root / "prepare.sh")]
-                result = subprocess.run(command, capture_output=True, text=True, timeout=60)
-                save(submitted, {"command": command, "returncode": result.returncode,
-                    "stdout": result.stdout, "stderr": result.stderr})
-            result = read(submitted)
-            job = result["stdout"].strip().split(";")[0]
-            if result["returncode"] or not job.isdecimal():
-                raise ValueError("preparation submission failed; see preparation-submission.json")
-            while time.time() < spec["preparation_deadline_epoch"]:
-                queue = subprocess.check_output(["squeue", "--noheader", "--me", "--array", "--format=%i|%T"], text=True, timeout=30)
-                live = next((r.split("|", 1)[1].strip() for r in queue.splitlines()
-                             if r.split("|", 1)[0].strip() == job), "")
-                if not live:
-                    raw = subprocess.check_output(["sacct", "-X", "-j", job, "--noheader", "--parsable2", "--format=JobIDRaw,State"], text=True, timeout=30)
-                    states = [r.split("|")[1].strip().split()[0].rstrip("+") for r in raw.splitlines() if r.split("|")[0].strip() == job]
-                    if states and states[0] in TERMINAL_STATES:
-                        if states[0] != "COMPLETED" or not (root / "plan.json").exists():
-                            raise ValueError("preparation ended without a verified plan; inspect its log")
-                        break
-                print(json.dumps({"preparation_job": job, "state": live or "awaiting_accounting", "time": time.time()}), flush=True)
-                time.sleep(600)
+                    raise ValueError("interrupted login preparation preserved; no automatic repeat")
+                atomic(marker, b"one login preparation; never automatically repeated\n")
+                print(json.dumps({"state": "preparing_on_login", "maximum_seconds": 3600, "time": time.time()}), flush=True)
+                env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1",
+                           OPENBLAS_NUM_THREADS="1", TOKENIZERS_PARALLELISM="false")
+                subprocess.run(["nice", "-n", "10", sys.executable, "-u", str(Path(__file__)), "prepare-login",
+                    "--output", str(root), "--inference-repository", str(REPO)], check=True, timeout=3600, env=env)
+                checked_plan(root)
             else:
-                raise ValueError("preparation sender expired; all allocations preserved")
+                submitted = root / "preparation-submission.json"
+                if not submitted.exists():
+                    command = [sys.executable, str(Path(__file__)), "prepare", "--output", str(root)]
+                    script = '#!/bin/bash\nset -euo pipefail\nexport PYTHONDONTWRITEBYTECODE=1\nexport GEODML_ALLOW_EXCLUSIVE_SLURM_BOUNDARY=1\n'
+                    script += 'exec srun --jobid="$SLURM_JOB_ID" --nodes=1 --ntasks=1 --gres=gpu:4 --cpus-per-task=32 --unbuffered ' + shlex.join(command) + '\n'
+                    atomic(root / "prepare.sh", script.encode())
+                    marker = root / "PREPARATION_SUBMISSION_ATTEMPTED"
+                    if marker.exists():
+                        raise ValueError("preparation submission has no receipt; inspect scheduler before retrying")
+                    atomic(marker, b"one preparation allocation; never automatically resubmit\n")
+                    command = ["sbatch", "--parsable", "--no-requeue", f"--account={args.account}", "--partition=accelerated",
+                        "--nodes=1", "--ntasks=1", "--gres=gpu:4", "--cpus-per-task=32", "--mem=0", "--exclusive",
+                        "--time=01:00:00", f"--job-name={PREP_JOB}", f"--output={root}/preparation-%j.log", str(root / "prepare.sh")]
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+                    save(submitted, {"command": command, "returncode": result.returncode,
+                        "stdout": result.stdout, "stderr": result.stderr})
+                result = read(submitted)
+                job = result["stdout"].strip().split(";")[0]
+                if result["returncode"] or not job.isdecimal():
+                    raise ValueError("preparation submission failed; see preparation-submission.json")
+                while time.time() < spec["preparation_deadline_epoch"]:
+                    queue = subprocess.check_output(["squeue", "--noheader", "--me", "--array", "--format=%i|%T"], text=True, timeout=30)
+                    live = next((r.split("|", 1)[1].strip() for r in queue.splitlines()
+                                 if r.split("|", 1)[0].strip() == job), "")
+                    if not live:
+                        raw = subprocess.check_output(["sacct", "-X", "-j", job, "--noheader", "--parsable2", "--format=JobIDRaw,State"], text=True, timeout=30)
+                        states = [r.split("|")[1].strip().split()[0].rstrip("+") for r in raw.splitlines() if r.split("|")[0].strip() == job]
+                        if states and states[0] in TERMINAL_STATES:
+                            if states[0] != "COMPLETED" or not (root / "plan.json").exists():
+                                raise ValueError("preparation ended without a verified plan; inspect its log")
+                            break
+                    print(json.dumps({"preparation_job": job, "state": live or "awaiting_accounting", "time": time.time()}), flush=True)
+                    time.sleep(600)
+                else:
+                    raise ValueError("preparation sender expired; all allocations preserved")
     from analysis.scripts.horeka_gemma_v4_sender import send
     return send(root)
 
@@ -517,6 +537,8 @@ def main(argv=None):
     p.add_argument("--exclude-inputs", type=Path, action="append", default=[])
     p.add_argument("--account", required=True)
     p.add_argument("--repo-id", default="ValerianFourel/geodml-experiment-v2-paper-private")
+    p.add_argument("--prepare-on-login", action="store_true",
+                   help="explicit operator authorization: freeze inputs on the login host instead of a GPU job")
     p = commands.add_parser("prepare")
     p.add_argument("--output", type=Path, required=True)
     p = commands.add_parser("prepare-login")
