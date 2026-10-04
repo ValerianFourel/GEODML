@@ -154,10 +154,10 @@ def test_authorized_walltime_sizes_a_finite_division_from_verified_remaining_cel
     assert identity_fingerprint(ids['saved']) not in primary
 
 
-def sender_fixture(tmp_path, monkeypatch, *, submit_result=None):
+def sender_fixture(tmp_path, monkeypatch, *, submit_result=None, extra=0, walltime=18000):
     """Real controller, division, receipts and CPU audits; external Slurm/Hub/model files only."""
     from analysis.scripts import manage_agentic_hours, prepare_horeka_qwen, prepare_shared_hour_inputs
-    root, context, remote, snapshot, ledger, ids = fixture(tmp_path)
+    root, context, remote, snapshot, ledger, ids = fixture(tmp_path, extra=extra)
     workspace = tmp_path / 'workspace'
     runtime = workspace / 'environment/qwen-runtime/bin/python'
     runtime.parent.mkdir(parents=True)
@@ -166,7 +166,7 @@ def sender_fixture(tmp_path, monkeypatch, *, submit_result=None):
     recovery.save(manifests / 'manifest.json', {'models': {'qwen38': {'reference_runtime': {}}}})
     context.update(format_version=recovery.FORMAT, workspace=str(workspace), account='test-account',
                    git_commit='a' * 40, source_division_sha256=recovery.file_hash(Path(context['source_division']) / 'division.json'),
-                   plan_sha256=recovery.digest(recovery.read(context['plan'])), gpu_walltime_seconds=18000,
+                   plan_sha256=recovery.digest(recovery.read(context['plan'])), gpu_walltime_seconds=walltime,
                    since='2026-09-25', authorization='test finite five-hour sweep')
     recovery.save(root / 'recovery.json', context)
     clock = SimpleNamespace(now=1800000000)
@@ -299,3 +299,61 @@ def test_restarted_sender_waits_for_the_cpu_audit_operator_lock(tmp_path, monkey
         assert recovery.main(['send', '--output', str(root), '--walltime', '05:00:00']) == 3
     assert not calls
     assert recovery.read(root / 'sender-status.json')['state'] == 'expired'
+
+
+def test_all_at_once_override_submits_every_frozen_bout_without_cap_or_start_gap(tmp_path, monkeypatch):
+    root, context, snapshot, clock, calls = sender_fixture(tmp_path, monkeypatch, extra=600, walltime=3600)
+    monkeypatch.setattr(recovery, 'admit', lambda context, snapshot, health, attempt:
+                        {'admission': 'admitted'} if 'bout' not in attempt and not attempt[-1].isdigit()
+                        else pytest.fail('GPU bouts must not use the capped admission under the override'))
+    recovery.save(root / recovery.ALL_AT_ONCE, {'authorization': 'test'})
+    assert recovery.send(root) == 2
+    names = [next(s for s in command if s.startswith('--job-name=')) for _, command in calls]
+    gpu = [(at, name) for (at, _), name in zip(calls, names) if 'bout-' in name]
+    assert [name for _, name in gpu] == [f'--job-name=geodml-qwen-bout-{n:04d}' for n in range(1, 9)]
+    assert len({at for at, _ in gpu}) == 1  # one sender step, no start gap, despite pending jobs
+    assert names[0].endswith('recovery-preparation') and names[-1].endswith('recovery-final')
+    assert recovery.send(root) == 2 and len(calls) == len(names)  # restart never resubmits
+
+
+def test_without_override_only_one_bout_is_admitted_per_step(tmp_path, monkeypatch):
+    root, context, snapshot, clock, calls = sender_fixture(tmp_path, monkeypatch, extra=600, walltime=3600)
+    assert recovery.send(root) == 2
+    starts = [at for at, command in calls if any('bout-' in s for s in command if s.startswith('--job-name='))]
+    assert len(starts) == 8 and all(b - a >= 600 for a, b in zip(starts, starts[1:]))
+
+
+def test_controller_upgrade_accepts_only_descendant_controller_only_changes(tmp_path, monkeypatch):
+    import subprocess
+    repo = tmp_path / 'repo'
+    def git(*args):
+        return subprocess.run(['git', '-C', str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+    repo.mkdir()
+    git('init', '-q')
+    git('config', 'user.email', 't@example.com')
+    git('config', 'user.name', 't')
+    for path in (*recovery.CONTROLLER_FILES, 'analysis/scripts/horeka_qwen_bouts.py'):
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text('v1\n')
+    git('add', '-A')
+    git('commit', '-qm', 'pinned')
+    old = git('rev-parse', 'HEAD')
+    (repo / recovery.CONTROLLER_FILES[0]).write_text('v2\n')
+    git('commit', '-qam', 'controller only')
+    controller = git('rev-parse', 'HEAD')
+    (repo / 'analysis/scripts/horeka_qwen_bouts.py').write_text('v2\n')
+    git('commit', '-qam', 'executor change')
+    executor = git('rev-parse', 'HEAD')
+    monkeypatch.setattr(recovery, 'REPO', repo)
+    record = recovery.controller_upgrade(old, controller)
+    assert record['changed_files'] == [recovery.CONTROLLER_FILES[0]]
+    with pytest.raises(ValueError, match='may only change'):
+        recovery.controller_upgrade(old, executor)
+    with pytest.raises(ValueError, match='may only change'):
+        recovery.controller_upgrade(controller, old)  # not a descendant
+    root = tmp_path / 'run'
+    root.mkdir()
+    assert not recovery.upgraded_controller(root, old, controller)  # nothing recorded
+    recovery.save(root / recovery.ALL_AT_ONCE, {'controller_upgrade': record})
+    assert recovery.upgraded_controller(root, old, controller)
+    assert not recovery.upgraded_controller(root, old, executor)

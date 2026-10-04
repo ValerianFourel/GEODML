@@ -60,13 +60,33 @@ def locked(root, *, blocking=False, name='operator.lock'):
         yield
 
 
+ALL_AT_ONCE = 'gpu-all-at-once.json'
+CONTROLLER_FILES = ('analysis/scripts/horeka_qwen_recovery.py', 'analysis/tests/test_horeka_qwen_recovery.py')
+
+
+def controller_upgrade(old, new):
+    """A newer controller may drive a frozen run only if it descends from the pinned
+    commit and changes nothing but this controller, so bouts run identical inference code."""
+    ancestor = subprocess.run(['git', '-C', str(REPO), 'merge-base', '--is-ancestor', old, new]).returncode == 0
+    changed = sorted(subprocess.check_output(['git', '-C', str(REPO), 'diff', '--name-only', old, new], text=True).split())
+    if not ancestor or not set(changed) <= set(CONTROLLER_FILES):
+        raise ValueError(f'controller upgrade from {old} may only change {list(CONTROLLER_FILES)}; got {changed}')
+    return {'from': old, 'to': new, 'changed_files': changed}
+
+
+def upgraded_controller(root, old, new):
+    override = Path(root) / ALL_AT_ONCE
+    record = read(override).get('controller_upgrade') if override.exists() else None
+    return bool(record) and record['from'] == old and record['to'] == new and controller_upgrade(old, new) == record
+
+
 def checked_context(root):
     context = read(root / 'recovery.json')
     if context.get('format_version') != FORMAT:
         raise ValueError('unsupported recovery context')
     pin = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
     dirty = subprocess.check_output(['git', '-C', str(REPO), 'status', '--porcelain', '--untracked-files=all'], text=True).strip()
-    if dirty or pin != context['git_commit']:
+    if dirty or (pin != context['git_commit'] and not upgraded_controller(root, context['git_commit'], pin)):
         raise ValueError('use the clean pinned recovery checkout')
     source = Path(context['source_division'])
     if file_hash(source / 'division.json') != context['source_division_sha256']:
@@ -263,6 +283,15 @@ def confirmed_submissions(root, snapshot):
     return jobs
 
 
+def gpu_admission(root, context, snapshot, health, attempt):
+    """Five-allocation/ten-minute admission for GPU bouts, unless the operator
+    explicitly recorded an all-at-once override for this finite division."""
+    override = Path(root) / ALL_AT_ONCE
+    if override.exists():
+        return {'admission': 'all_at_once_override', 'override': read(override), 'attempt_id': attempt}
+    return admit(context, snapshot, health, attempt)
+
+
 def before_gpu_submission(root, numbers):
     context = checked_context(root)
     ready = read(root / 'preparation/ready.json')
@@ -285,7 +314,7 @@ def before_gpu_submission(root, numbers):
     assert_old_pass_ended(context, snapshot)
     assert_previous_recovery_ended(context, snapshot)
     confirmed_submissions(root, snapshot)
-    ticket = admit(context, snapshot, healthy, f'qwen-recovery-{numbers[0]}')
+    ticket = gpu_admission(root, context, snapshot, healthy, f'qwen-recovery-{numbers[0]}')
     save(check / 'scheduler.json', snapshot)
     save(check / 'admission.json', ticket)
     print(json.dumps({'finite_budget': ready['totals'], 'next_bout': numbers[0], 'sizing': ready['sizing'],
@@ -374,11 +403,14 @@ def submit_next(root, context, snapshot):
     if not todo:
         return False
     # Defer before model/input verification and Hub transfer; the final hook checks again.
-    admit(context, snapshot, storage(context, root), f'qwen-recovery-{todo[0]}')
-    bouts.submit(SimpleNamespace(division=root / 'division', workspace=Path(context['workspace']),
-        first=todo[0], count=1, account=context['account'], partition='accelerated', reservation=None,
-        approved_walltime=ready['sizing']['walltime'], approved_count=ready['maximum_allocations'],
-        approval=context['authorization'] + '; maximum GPU-hours ' + str(ready['totals']['gpu_hours']), dry_run=False))
+    gpu_admission(root, context, snapshot, storage(context, root), f'qwen-recovery-{todo[0]}')
+    # Each bout is still submitted alone, so every integrity check runs per bout and a
+    # refused or ambiguous sbatch stops the remaining submissions.
+    for number in todo if (root / ALL_AT_ONCE).exists() else todo[:1]:
+        bouts.submit(SimpleNamespace(division=root / 'division', workspace=Path(context['workspace']),
+            first=number, count=1, account=context['account'], partition='accelerated', reservation=None,
+            approved_walltime=ready['sizing']['walltime'], approved_count=ready['maximum_allocations'],
+            approval=context['authorization'] + '; maximum GPU-hours ' + str(ready['totals']['gpu_hours']), dry_run=False))
     return True
 
 
@@ -480,6 +512,9 @@ def main(argv=None):
                         help='Explicitly authorized GPU ceiling, frozen on preparation; default one hour')
     parser.add_argument('--previous-recovery', type=Path,
                         help='Earlier recovery directory whose work must finish before this sweep')
+    parser.add_argument('--gpu-all-at-once', action='store_true',
+                        help='Explicit operator override: submit every remaining frozen GPU bout without the '
+                             'five-allocation cap and ten-minute start gap; recorded durably in the run root')
     args = parser.parse_args(argv)
     root = args.output.resolve()
     if args.command == 'send':
@@ -489,6 +524,13 @@ def main(argv=None):
         # hold operator.lock while a restarted sender reads its pinned context.
         with nullcontext() if (root / 'recovery.json').exists() else locked(root):
             initialize(args, root)
+        if args.gpu_all_at_once and not (root / ALL_AT_ONCE).exists():
+            pinned = read(root / 'recovery.json')['git_commit']
+            current = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
+            save(root / ALL_AT_ONCE, {'recorded_at_epoch': int(time.time()),
+                'controller_upgrade': controller_upgrade(pinned, current) if current != pinned else None,
+                'authorization': 'Valerian asked to send all of the Qwen jobs at once; finite frozen division, '
+                                 'same allocation budget, no five-allocation cap or ten-minute start gap for GPU bouts'})
         return send(root)
     with nullcontext() if args.command == 'status' else locked(root, blocking=args.command == 'cpu'):
         if args.command == 'prepare':
