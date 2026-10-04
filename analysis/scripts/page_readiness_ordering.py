@@ -231,18 +231,14 @@ def corpus(args) -> int:
     from analysis.scripts import audit_snapshot_glued_rows as snapshots
     from analysis.scripts.run_agentic_search_integration_smoke import _normalize_usable_row
 
-    files, recorded = {}, {}
+    files = {}
     for spec in args.snapshot:
         engine, _, path = str(spec).partition("=")
         files[engine] = Path(path).resolve(strict=True)
     if args.locate_from:
-        from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
-        for root in args.locate_from:
-            for engine, record in snapshots.snapshots_from_traces(iter_sealed_rows(root, "traces", required=True)).items():
-                if recorded.setdefault(engine, record)["sha256"] != record["sha256"]:
-                    raise ValueError(f"datasets used different {engine} snapshots; package them separately")
-        for engine, record in recorded.items():
-            files.setdefault(engine, snapshots.resolve_snapshot(record, args.search_root or args.locate_from[0].parent))
+        for engine, path in snapshots.locate(args.locate_from, args.search_root or args.locate_from[0].parent,
+                                             report=lambda line: print(line, flush=True)).items():
+            files.setdefault(engine, path)
     if not files:
         raise ValueError("give --snapshot ENGINE=PATH or --locate-from DATASET_ROOT")
     shown = {r["page_id"]: r for r in read_jsonl(args.shown / "pages.jsonl.gz")} if args.shown else {}
@@ -281,8 +277,7 @@ def corpus(args) -> int:
     write_json(partial / "manifest.json", {
         "format_version": ordering.FORMAT_VERSION, "stage": "corpus", "created_at": now(), "git_commit": git_commit(),
         "inputs": [{"model": "snapshot-corpus"}],
-        "snapshots": {engine: {"path": str(path), "sha256": sha256_file(path), "recorded": recorded.get(engine)}
-                      for engine, path in files.items()},
+        "snapshots": {engine: {"path": str(path), "sha256": sha256_file(path)} for engine, path in files.items()},
         "shown_extract": identity(args.shown / "manifest.json") if args.shown else None,
         "page_text_rule": "title.strip() + newline + snippet.strip(), rows the search adapter can serve",
         "counts": dict(counts)})

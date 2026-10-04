@@ -51,7 +51,7 @@ def test_snapshots_are_located_by_the_hash_recorded_in_search_traces(tmp_path):
     assert recorded == {"duckduckgo": {"path": "/e/jupiter/frozen/ddg-results.jsonl", "sha256": digest}}
     assert audit.resolve_snapshot(recorded["duckduckgo"], tmp_path / "workspace") == copy  # found by name, confirmed by hash
     copy.write_text("changed\n")
-    with pytest.raises(FileNotFoundError, match="recorded hash"):
+    with pytest.raises(FileNotFoundError, match="no file with SHA-256"):
         audit.resolve_snapshot(recorded["duckduckgo"], tmp_path / "workspace")
     conflicting = traces + [{"events": [{"event_type": "search", "payload": {"engine": "duckduckgo", "raw_payload": {
         "snapshot": "/other.jsonl", "snapshot_sha256": "0" * 64}}}]}]
@@ -75,3 +75,15 @@ def test_recorded_snapshot_is_used_without_walking_and_heavy_trees_are_skipped(t
     recorded.write_text("changed\n")
     with pytest.raises(FileNotFoundError):
         audit.resolve_snapshot(record, tmp_path)
+
+
+def test_content_addressed_mirror_is_found_under_another_name(tmp_path):
+    import hashlib
+    dataset = tmp_path / "workspace/shared-hours/dataset"
+    digest = hashlib.sha256(b"ddg rows\n").hexdigest()
+    mirror = dataset / "artifacts/shared-inputs/qwen38" / digest / "phase0_top20_ddg.parquet"
+    mirror.parent.mkdir(parents=True)
+    mirror.write_bytes(b"ddg rows\n")
+    record = {"path": "/e/project1/run/search/duckduckgo.parquet", "sha256": digest}  # JUPITER path, other name
+    assert audit.resolve_snapshot(record, tmp_path / "workspace", roots=[dataset]) == mirror
+    assert audit.resolve_snapshot(record, tmp_path / "workspace", names={"phase0_top20_ddg.parquet"}) == mirror

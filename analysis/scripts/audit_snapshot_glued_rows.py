@@ -75,22 +75,44 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def resolve_snapshot(record: dict, search_root: Path) -> Path:
-    """The recorded file if it still has the recorded hash, else a same-named copy under search_root.
+def resolve_snapshot(record: dict, search_root: Path, *, names=(), roots=()) -> Path:
+    """A local file with the recorded SHA-256: the recorded path, else a copy found by name or
+    in a content-addressed folder named after the hash (shared inputs are mirrored as
+    ``artifacts/shared-inputs/<model>/<sha256>/<name>``).
 
-    The workspace walk happens only when the recorded file is missing or changed, and it skips
-    model, environment, checkout and ledger trees, which never hold search snapshots.
+    Each dataset's ``artifacts/shared-inputs`` is searched before the workspace; the workspace
+    walk skips model, environment, checkout and ledger trees, which never hold snapshots.
     """
     recorded = Path(record["path"])
     if recorded.is_file() and _sha256(recorded) == record["sha256"]:
         return recorded
-    for directory, subdirectories, files in os.walk(search_root):
-        subdirectories[:] = sorted(d for d in subdirectories if d not in SKIPPED_DIRECTORIES)
-        if recorded.name in files:
-            path = Path(directory) / recorded.name
-            if path != recorded and _sha256(path) == record["sha256"]:
-                return path
-    raise FileNotFoundError(f"no file with the recorded hash for {recorded} under {search_root}")
+    wanted = {recorded.name, *names}
+    places = [Path(root) / "artifacts" / "shared-inputs" for root in roots] + [Path(search_root)]
+    for place in places:
+        for directory, subdirectories, files in os.walk(place):
+            subdirectories[:] = sorted(d for d in subdirectories if d not in SKIPPED_DIRECTORIES)
+            here = Path(directory)
+            candidates = [f for f in files if f in wanted] + (sorted(files) if here.name == record["sha256"] else [])
+            for name in dict.fromkeys(candidates):
+                if _sha256(here / name) == record["sha256"]:
+                    return here / name
+    raise FileNotFoundError(f"no file with SHA-256 {record['sha256']} (recorded as {recorded}) "
+                            f"under {', '.join(map(str, places))}")
+
+
+def locate(dataset_roots, search_root: Path, report=print) -> dict[str, Path]:
+    """Snapshot file per engine from the traces of each dataset, required to agree on the hash."""
+    from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
+    records, names = {}, {}
+    for root in dataset_roots:
+        found = snapshots_from_traces(iter_sealed_rows(root, "traces", required=True))
+        report(json.dumps({"dataset": str(root), "recorded_snapshots": found}, indent=1))
+        for engine, record in found.items():
+            if records.setdefault(engine, record)["sha256"] != record["sha256"]:
+                raise ValueError(f"datasets used different {engine} snapshots; audit them separately")
+            names.setdefault(engine, set()).add(Path(record["path"]).name)
+    return {engine: resolve_snapshot(record, search_root, names=names[engine], roots=dataset_roots)
+            for engine, record in sorted(records.items())}
 
 
 def page_id(title: str, snippet: str) -> str:
@@ -142,16 +164,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     snapshots = [str(spec) for spec in args.snapshot]
     if args.locate_from:
-        from analysis.interpretability.pipeline.agentic_dataset import iter_sealed_rows
-        records = {}
-        for root in args.locate_from:
-            found = snapshots_from_traces(iter_sealed_rows(root, "traces", required=True))
-            print(json.dumps({"dataset": str(root), "recorded_snapshots": found}, indent=1), flush=True)
-            for engine, record in found.items():
-                if records.setdefault(engine, record)["sha256"] != record["sha256"]:
-                    print(json.dumps({"warning": f"datasets used different {engine} snapshots"}), flush=True)
-        search_root = args.search_root or args.locate_from[0].parent
-        snapshots += [f"{engine}={resolve_snapshot(record, search_root)}" for engine, record in sorted(records.items())]
+        found = locate(args.locate_from, args.search_root or args.locate_from[0].parent,
+                       report=lambda line: print(line, flush=True))
+        snapshots += [f"{engine}={path}" for engine, path in found.items()]
+        print(json.dumps({"resolved_snapshots": {k: str(v) for k, v in found.items()}}, indent=1), flush=True)
     if not snapshots:
         parser.error("give --snapshot ENGINE=PATH or --locate-from DATASET_ROOT")
     pages = None
