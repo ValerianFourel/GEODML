@@ -78,3 +78,9 @@ had already written plan.json (the local-index partition took about 13 minutes),
 so start() went straight to send(): the HF reservation succeeded and attempt-1
 submissions began (shards 0077–0079 at 11:47:36Z). Valerian: only HoreKa is
 used now; JUPITER is retired, and the registry merely records ownership.
+
+13:49 CEST (pasted): plan `gemma-v4-8941a1ffac3f691766f0552d`, 312,052 cells,
+200 shards, maximum 400 five-hour bouts / 2,001 node-hours. Reservation committed
+at HF revision ae8c99e33832a7339a14d498a3843b3e79783854. 200 attempt-1 bouts
+submitted 11:47:36–11:47:44Z; `squeue` shows 200 PENDING, none running yet.
+Sender state `monitoring`. First-bout startup/log check pending.
