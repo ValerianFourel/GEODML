@@ -90,3 +90,13 @@ page effect and interaction, a null with no interaction, extraction from a
 sealed fixture dataset, sharded and resumable embedding with merge, and an
 end-to-end analysis with the HTML report. These synthetic tests establish no
 scientific result.
+
+## One interactive allocation
+
+`horeka-page-readiness-interactive.sh JOBID` runs every stage inside an existing
+four-A100 allocation, from the login shell that holds it, with `srun
+--jobid`. CPU stages use 32 cores. Each embedding view is one 4-GPU step with
+one pinned worker per GPU. The fresh 512-prompt re-embedding must reproduce
+the archived axis before any page is embedded. Finished stages are skipped and
+embedding resumes from saved shards, so the same command continues in a later
+allocation. The script never cancels, extends or releases the allocation.
