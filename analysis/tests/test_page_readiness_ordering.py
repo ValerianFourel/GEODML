@@ -481,4 +481,4 @@ def test_corpus_covers_every_servable_snapshot_row_and_joins_what_was_shown(tmp_
     counts = json.loads((output / "manifest.json").read_text())["counts"]
     assert counts["rows_duckduckgo"] == 7 and counts["excluded_duckduckgo_invalid_position"] == 1
     assert counts["excluded_duckduckgo_invalid_url"] == 1 and counts["shown_not_in_corpus"] == 1
-    assert counts["glued_rows_duckduckgo"] == 1 and "glued_rows_searxng" not in counts
+    assert counts["glued_rows_duckduckgo"] == 1 and counts["glued_rows_searxng"] == 0  # explicit zero
