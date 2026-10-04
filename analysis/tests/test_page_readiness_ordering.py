@@ -146,6 +146,7 @@ def test_extract_reads_presented_snippets_rankings_and_keywords(tmp_path):
     assert len(observations) == 3 and {o["keyword"] for o in observations} == {"kw1"}
     expected = {ordering.page_id(ordering.page_text(r["title"], r["text"])): r["url"] for r in (A, B, C)}
     assert {pid: p["urls"] for pid, p in pages.items()} == {pid: [url] for pid, url in expected.items()}
+    assert all(p["engines"] == ["ddg"] and p["models"] == ["llama4"] for p in pages.values())
     natural = next(o for o in observations if o["condition"] == "natural")
     assert [expected[p] for p in natural["presented"]] == [A["url"], B["url"]]
     assert [expected[p] for p in natural["ranking"]] == [B["url"], A["url"]]
@@ -283,3 +284,160 @@ def test_distinct_urls_with_identical_snippet_text_each_take_one_slot():
                                  "presented": ["a", "b", "a"], "ranking": ["a", "b", "a"]}], {"a": 0.0, "b": 1.0})
     assert full.sets == 3 and full.set.tolist() == [0, 0, 0, 1, 1, 2]
     assert full.chosen.tolist() == [True, False, False, True, False, True]
+
+
+def embed_fixture(tmp_path, monkeypatch, texts):
+    """Real embed/merge code with stand-ins for the GPU model and the frozen map."""
+    from types import SimpleNamespace
+    from interpretability.pipeline import readiness_prompt_population as population
+    from interpretability.pipeline import two_axis_prompt_population as embedding
+    from analysis.scripts import build_readiness_prompt_population as builder
+
+    pages = tmp_path / "pages.jsonl.gz"
+    rows = sorted(({"page_id": ordering.page_id(t), "text": t, "text_sha256": ordering.page_id(t),
+                    "urls": [f"https://e.example/{n}"], "engines": ["duckduckgo"], "models": ["llama4"], "occurrences": n + 1}
+                   for n, t in enumerate(texts)), key=lambda r: r["page_id"])
+    cli.write_jsonl(pages, rows)
+    (tmp_path / "map").mkdir(exist_ok=True)
+    (tmp_path / "map/readiness_embedding_map.json").write_text("{}")
+
+    class Embedder:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def embed(self, batch):  # a vector that identifies its text
+            return np.asarray([[len(text), sum(map(ord, text)) % 97, 1.0] for text in batch])
+
+    monkeypatch.setattr(embedding, "LLM2VecPromptEmbedder", Embedder)
+    monkeypatch.setattr(population, "load_readiness_embedding_map", lambda path: SimpleNamespace(map_id="map-q"))
+    monkeypatch.setattr(population, "fit_reference_bounds", lambda rows: None)
+    monkeypatch.setattr(population, "project_text_embeddings", lambda fitted, bounds, *, item_ids, text_sha256s, embeddings: [
+        population.ReadinessTextProjection(i, h, float(e[0]), float(e[1]), 0.0, 0.0, 0.5)
+        for i, h, e in zip(item_ids, text_sha256s, embeddings)])
+    monkeypatch.setattr(builder, "_validate_embedding_model_revision", lambda fitted, model: None)
+    monkeypatch.setattr(cli, "read_jsonl", lambda path, _read=cli.read_jsonl: [] if path.name.endswith("coordinates.jsonl") else _read(path))
+    return pages, rows, Embedder
+
+
+def test_saved_vectors_stay_aligned_with_snippets_through_shards_resume_and_merge(tmp_path, monkeypatch):
+    texts = [f"title {n}\nsnippet text number {n}" for n in range(7)]
+    pages, rows, embedder = embed_fixture(tmp_path, monkeypatch, texts)
+    output = tmp_path / "embed"
+    base = ["embed", "--pages", str(pages), "--view", "qwen", "--map", str(tmp_path / "map"), "--embedding-model", "m",
+            "--shard-size", "3", "--workers", "2", "--save-embeddings", "--output", str(output)]
+    assert cli.main([*base, "--worker-index", "1"]) == 0
+    assert cli.main([*base, "--worker-index", "0"]) == 0
+    with pytest.raises(ValueError, match="different settings"):  # vectors on/off is part of the pinned settings
+        cli.main([a for a in base if a != "--save-embeddings"] + ["--worker-index", "0"])
+    merged = tmp_path / "merged"
+    assert cli.main(["merge", "--input", str(output), "--pages", str(pages), "--output", str(merged)]) == 0
+    vectors = np.load(merged / "embeddings.npy")
+    assert vectors.dtype == np.float32 and vectors.shape == (7, 3)
+    assert np.array_equal(vectors, embedder().embed([r["text"] for r in rows]).astype(np.float32))
+    manifest = json.loads((merged / "projection_manifest.json").read_text())
+    assert manifest["embedding_arrays_included"] and manifest["embedding_arrays"]["sha256"] == cli.sha256_file(merged / "embeddings.npy")
+    (output / "shards/00001.npz").write_bytes((output / "shards/00000.npz").read_bytes())  # misaligned vectors
+    with pytest.raises(ValueError, match="not aligned"):
+        cli.main(["merge", "--input", str(output), "--pages", str(pages), "--output", str(tmp_path / "merged-2")])
+
+
+def package_inputs(tmp_path, monkeypatch):
+    _, _, bat, final = prompt_archive(tmp_path)
+    texts = [f"title {n}\nsnippet text number {n}" for n in range(5)]
+    pages, rows, _ = embed_fixture(tmp_path, monkeypatch, texts)
+    extract = tmp_path / "extract"
+    extract.mkdir()
+    cli.write_jsonl(extract / "pages.jsonl.gz", rows)
+    cli.write_json(extract / "manifest.json", {"inputs": [{"model": "llama4"}, {"model": "qwen38"}], "counts": {}})
+    rng = np.random.default_rng(1)
+    merged = {}
+    for view, map_id in (("qwen", "map-q"), ("mistral", "map-m")):
+        root = projections(tmp_path / f"snippets-{view}", map_id, {r["page_id"]: rng.normal(size=2) for r in rows}, rng)
+        cli.write_npy(root / "embeddings.npy", rng.normal(size=(len(rows), 4)).astype(np.float32))
+        cli.write_json(root / "projection_manifest.json", {"map_id": map_id, "embedding": {"view": view},
+            "embedding_arrays_included": True, "embedding_arrays": {"sha256": cli.sha256_file(root / "embeddings.npy")}})
+        merged[view] = root
+    relocation = tmp_path / "relocation-fresh.json"
+    cli.write_json(relocation, {"passed": True, "fresh_reembedding": {"qwen": {"spearman": 0.9999}, "mistral": {"spearman": 0.9999}}})
+    return extract, merged, bat, final, relocation, rows
+
+
+def test_package_writes_table_vectors_and_checksummed_manifest(tmp_path, monkeypatch):
+    import pyarrow.parquet as pq
+    extract, merged, bat, final, relocation, rows = package_inputs(tmp_path, monkeypatch)
+    output = tmp_path / "package"
+    arguments = ["package", "--extract", str(extract), "--qwen", str(merged["qwen"]), "--mistral", str(merged["mistral"]),
+                 "--battery", str(bat), "--final-axis-map", str(final), "--relocation", str(relocation), "--output", str(output)]
+    assert cli.main(arguments) == 0
+    table = pq.read_table(output / "snippets.parquet").to_pylist()
+    assert [r["snippet_id"] for r in table] == [r["page_id"] for r in rows] and [r["row"] for r in table] == list(range(5))
+    assert table[0]["title"] == rows[0]["text"].split("\n")[0] and table[0]["engines"] == ["duckduckgo"]
+    assert all(0 <= r["prompt_scale_percentile_0_1"] <= 1 for r in table)
+    for view, name in cli.EMBEDDING_FILES.items():
+        assert np.array_equal(np.load(output / name), np.load(merged[view] / "embeddings.npy"))
+    manifest = cli.verify_package(output)
+    assert manifest["rows"] == 5 and manifest["embedding_dimension"] == 4 and manifest["relocation"]["passed"]
+    with open(output / cli.EMBEDDING_FILES["qwen"], "r+b") as stream:  # any later change is detected
+        stream.seek(-1, 2)
+        stream.write(b"\x00")
+    with pytest.raises(ValueError, match="package file changed"):
+        cli.verify_package(output)
+    cli.write_json(relocation, {"passed": True, "fresh_reembedding": {}})
+    with pytest.raises(ValueError, match="fresh re-embedding"):
+        cli.main([*arguments[:-1], str(tmp_path / "package-2")])
+
+
+class FakeHub:
+    private, existing, size_offset = True, [], 0
+    uploads = []
+
+    def __init__(self, token):
+        self.token = token
+
+    def repo_info(self, repo_id, repo_type):
+        from types import SimpleNamespace
+        return SimpleNamespace(private=FakeHub.private)
+
+    def list_repo_files(self, repo_id, repo_type):
+        return FakeHub.existing
+
+    def upload_folder(self, *, repo_id, repo_type, folder_path, path_in_repo, commit_message):
+        from types import SimpleNamespace
+        FakeHub.uploads.append((folder_path, path_in_repo))
+        return SimpleNamespace(oid="abc123")
+
+    def get_paths_info(self, repo_id, paths, repo_type, expand):
+        from types import SimpleNamespace
+        folder = cli.Path(FakeHub.uploads[-1][0])
+        prefix = FakeHub.uploads[-1][1] + "/"
+        return [SimpleNamespace(path=p, size=(folder / p.removeprefix(prefix)).stat().st_size + FakeHub.size_offset,
+                                lfs=SimpleNamespace(sha256=cli.sha256_file(folder / p.removeprefix(prefix)))) for p in paths]
+
+
+def test_publish_refuses_public_or_existing_targets_and_verifies_every_file(tmp_path, monkeypatch):
+    import getpass
+    import huggingface_hub
+    extract, merged, bat, final, relocation, rows = package_inputs(tmp_path, monkeypatch)
+    package_dir = tmp_path / "snippet-embeddings-v1"
+    assert cli.main(["package", "--extract", str(extract), "--qwen", str(merged["qwen"]), "--mistral", str(merged["mistral"]),
+                     "--battery", str(bat), "--final-axis-map", str(final), "--relocation", str(relocation),
+                     "--output", str(package_dir)]) == 0
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeHub)
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: "hf_secret_token")
+    FakeHub.private, FakeHub.existing, FakeHub.uploads = False, [], []
+    with pytest.raises(RuntimeError, match="not private"):
+        cli.main(["publish", "--package", str(package_dir)])
+    FakeHub.private, FakeHub.existing = True, ["derived/snippet-embeddings/snippet-embeddings-v1/README.md"]
+    with pytest.raises(RuntimeError, match="already exists"):
+        cli.main(["publish", "--package", str(package_dir)])
+    assert FakeHub.uploads == []
+    FakeHub.existing, FakeHub.size_offset = [], 1
+    with pytest.raises(RuntimeError, match="wrong size") as failure:
+        cli.main(["publish", "--package", str(package_dir)])
+    assert "hf_secret_token" not in str(failure.value)
+    FakeHub.size_offset = 0
+    assert cli.main(["publish", "--package", str(package_dir)]) == 0
+    receipt = json.loads((tmp_path / "snippet-embeddings-v1.published.json").read_text())
+    assert receipt["path_in_repo"] == "derived/snippet-embeddings/snippet-embeddings-v1" and receipt["files_verified"] == 5
+    with pytest.raises(ValueError, match="already published"):
+        cli.main(["publish", "--package", str(package_dir)])

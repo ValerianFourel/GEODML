@@ -9,6 +9,8 @@ Stages (each writes a new directory, never overwriting):
   merge           CPU   join shards into the archived projection format with a manifest
   relocate        CPU   prove the archived prompt coordinates are reproduced
   analyze         CPU   page coordinates, ranking models, bootstrap/permutation, HTML
+  package         CPU   snippet table + full vectors per view + manifest, for the dataset
+  publish         login upload a verified package to the private HF dataset
 
 All results are observational. The axis is a measured prompt property; page
 coordinates are out-of-domain descriptions of page text.
@@ -26,6 +28,7 @@ import html
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -86,6 +89,20 @@ def write_json(path: Path, value) -> None:
     temporary.replace(path)
 
 
+def write_npz(path: Path, **arrays) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with temporary.open("wb") as stream:
+        np.savez(stream, **arrays)
+    temporary.replace(path)
+
+
+def write_npy(path: Path, array: np.ndarray) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with temporary.open("wb") as stream:
+        np.save(stream, array)
+    temporary.replace(path)
+
+
 def new_directory(path: Path) -> Path:
     path = Path(path).resolve()
     if path.exists():
@@ -139,9 +156,12 @@ def _extract_chunk(job):
             text = ordering.page_text(row["title"], row["text"])
             identifier = ordering.page_id(text)
             by_url[row["url"]] = identifier
-            entry = pages.setdefault(identifier, {"page_id": identifier, "text": text, "occurrences": 0, "urls": set()})
+            entry = pages.setdefault(identifier, {"page_id": identifier, "text": text, "occurrences": 0,
+                                                  "urls": set(), "engines": set(), "models": set()})
             entry["occurrences"] += 1
             entry["urls"].add(row["url"])
+            entry["engines"].add(generation.get("engine"))
+            entry["models"].add(model)
         observations.append({
             "generation_id": cell["fingerprint"], "prompt_id": prompt_id, "keyword": keyword, "model": model,
             **{k: generation.get(k) for k in ("method", "engine", "condition")},
@@ -180,16 +200,19 @@ def extract(args) -> int:
         observations += chunk_observations
         counts += chunk_counts
         for identifier, entry in chunk_pages.items():
-            merged = pages.setdefault(identifier, {**entry, "occurrences": 0, "urls": set()})
+            merged = pages.setdefault(identifier, {**entry, "occurrences": 0, "urls": set(),
+                                                   "engines": set(), "models": set()})
             merged["occurrences"] += entry["occurrences"]
-            merged["urls"] |= entry["urls"]
+            for key in ("urls", "engines", "models"):
+                merged[key] |= entry[key]
         print(json.dumps({"chunk": number, "of": len(jobs), "answers": len(observations), "time": now()}), flush=True)
     if workers > 1:
         pool.close()
         pool.join()
     write_jsonl(partial / "observations.jsonl.gz", observations)
     write_jsonl(partial / "pages.jsonl.gz", ({"page_id": p["page_id"], "text": p["text"], "text_sha256": p["page_id"],
-                                              "occurrences": p["occurrences"], "urls": sorted(p["urls"])}
+                                              "occurrences": p["occurrences"], "urls": sorted(p["urls"]),
+                                              "engines": sorted(e for e in p["engines"] if e), "models": sorted(p["models"])}
                                              for p in sorted(pages.values(), key=lambda r: r["page_id"])))
     write_json(partial / "manifest.json", {
         "format_version": ordering.FORMAT_VERSION, "stage": "extract", "created_at": now(),
@@ -242,6 +265,8 @@ def embed(args) -> int:
                 "peft_model": str(Path(args.peft_model).resolve()) if args.peft_model else None,
                 "max_length": args.max_length, "attention_implementation": args.attention_implementation,
                 "shard_size": args.shard_size}
+    if args.save_embeddings:  # recorded only when on, so earlier outputs keep resuming
+        settings["save_embeddings"] = True
     settings_path = output / "embed-settings.json"
     if settings_path.exists():
         if json.loads(settings_path.read_text()) != settings:
@@ -267,9 +292,13 @@ def embed(args) -> int:
                                              peft_model_name_or_path=args.peft_model, batch_size=args.batch_size,
                                              max_length=args.max_length,
                                              attention_implementation=args.attention_implementation)
+        vectors = embedder.embed([r["text"] for r in chunk])
         projections = population.project_text_embeddings(
             fitted, bounds, item_ids=[r["page_id"] for r in chunk], text_sha256s=[r["text_sha256"] for r in chunk],
-            embeddings=embedder.embed([r["text"] for r in chunk]))
+            embeddings=vectors)
+        if args.save_embeddings:  # the projections file below marks the shard complete
+            write_npz(output / "shards" / f"{number:05d}.npz", ids=np.asarray([r["page_id"] for r in chunk]),
+                      embeddings=np.asarray(vectors, dtype=np.float32))
         write_jsonl(target, ({"candidate_id": p.item_id, "projection": asdict(p)} for p in projections))
         print(json.dumps({"view": args.view, "shard": number, "pages": len(chunk), "time": now()}), flush=True)
     return 0
@@ -289,12 +318,28 @@ def merge(args) -> int:
         rows.extend(read_jsonl(path))
     if [r["candidate_id"] for r in rows] != pages:
         raise ValueError("merged projections do not cover the pages exactly once, in order")
+    vectors = None
+    if settings.get("save_embeddings"):
+        parts = []
+        for number in range(expected):
+            with np.load(args.input / "shards" / f"{number:05d}.npz", allow_pickle=False) as archive:
+                start = number * settings["shard_size"]
+                if archive["ids"].tolist() != pages[start:start + settings["shard_size"]]:
+                    raise ValueError(f"shard {number} vectors are not aligned with its pages")
+                parts.append(archive["embeddings"])
+        vectors = np.concatenate(parts)
     partial = new_directory(args.output)
     write_jsonl(partial / "question_projections.jsonl", rows)
+    arrays = None
+    if vectors is not None:
+        write_npy(partial / "embeddings.npy", vectors)
+        arrays = {"file": "embeddings.npy", "shape": list(vectors.shape), "dtype": "float32",
+                  "row_order": "pages file order, identical to question_projections.jsonl",
+                  "sha256": sha256_file(partial / "embeddings.npy")}
     write_json(partial / "projection_manifest.json", {
         "format_version": ordering.FORMAT_VERSION, "created_at": now(), "git_commit_sha": git_commit(),
         "map_id": settings["map_id"], "map": settings["map"], "embedding": settings,
-        "candidate_count": len(rows), "embedding_arrays_included": False})
+        "candidate_count": len(rows), "embedding_arrays_included": vectors is not None, "embedding_arrays": arrays})
     partial.rename(Path(args.output).resolve())
     return 0
 
@@ -373,18 +418,25 @@ def relocate(args) -> int:
 
 # ---------------------------------------------------------------- analyze
 
-def analyze(args) -> int:
-    extract_manifest = json.loads((args.extract / "manifest.json").read_text())
-    observations = read_jsonl(args.extract / "observations.jsonl.gz")
-    scale = ordering.PromptScale(read_jsonl(args.final_axis_map))
-    rows = aligned(args.qwen, args.mistral, args.battery)
+def page_coordinates(qwen: Path, mistral: Path, battery: Path, final_axis_map: Path):
+    """Per-view axis-1 z, consensus z and prompt-scale percentile, via the archived alignment."""
+
+    scale = ordering.PromptScale(read_jsonl(final_axis_map))
+    rows = aligned(qwen, mistral, battery)
     views = {"qwen": {r["candidate_id"]: r["reference_axis_1_z"] for r in rows},
              "mistral": {r["candidate_id"]: r["candidate_aligned_axis_1_z"] for r in rows}}
     ids = sorted(views["qwen"])
     views["consensus"] = dict(zip(ids, ordering.consensus([views["qwen"][i] for i in ids],
                                                          [views["mistral"][i] for i in ids])))
     percentile, outside = scale.percentile(np.asarray([views["consensus"][i] for i in ids]))
-    page_percentile, page_outside = dict(zip(ids, map(float, percentile))), dict(zip(ids, map(bool, outside)))
+    return ids, views, dict(zip(ids, map(float, percentile))), dict(zip(ids, map(bool, outside)))
+
+
+def analyze(args) -> int:
+    extract_manifest = json.loads((args.extract / "manifest.json").read_text())
+    observations = read_jsonl(args.extract / "observations.jsonl.gz")
+    ids, views, page_percentile, page_outside = page_coordinates(args.qwen, args.mistral, args.battery,
+                                                                 args.final_axis_map)
     missing = {p for o in observations for p in o["presented"]} - set(ids)
     if missing:
         raise ValueError(f"{len(missing)} presented pages lack projections")
@@ -434,6 +486,145 @@ def analyze(args) -> int:
     (partial / "report.html").write_text(render(results), encoding="utf-8")
     partial.rename(Path(args.output).resolve())
     print(f"REPORT {Path(args.output).resolve() / 'report.html'}", flush=True)
+    return 0
+
+
+# ---------------------------------------------------------------- package / publish
+
+EMBEDDING_FILES = {"qwen": "embeddings/qwen3-8b-llm2vec.npy", "mistral": "embeddings/mistral-7b-instruct-v0.2-llm2vec.npy"}
+DEFAULT_REPO = "ValerianFourel/geodml-experiment-v2-paper-private"
+
+
+def package(args) -> int:
+    """One self-describing folder: snippet table, full vectors per view in the same row order, manifest."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    relocation = json.loads(args.relocation.read_text())
+    if not relocation.get("passed") or not relocation.get("fresh_reembedding"):
+        raise ValueError("package requires a passed relocation report that includes the fresh re-embedding check")
+    pages = read_jsonl(args.extract / "pages.jsonl.gz")
+    order = [p["page_id"] for p in pages]
+    manifests, raw = {}, {}
+    for view, directory in (("qwen", args.qwen), ("mistral", args.mistral)):
+        manifests[view] = json.loads((directory / "projection_manifest.json").read_text())
+        if not manifests[view].get("embedding_arrays_included"):
+            raise ValueError(f"{view} projections were embedded without --save-embeddings")
+        rows = read_jsonl(directory / "question_projections.jsonl")
+        if [r["candidate_id"] for r in rows] != order:
+            raise ValueError(f"{view} projections are not in the pages order")
+        raw[view] = [r["projection"] for r in rows]
+    ids, views, percentile, outside = page_coordinates(args.qwen, args.mistral, args.battery, args.final_axis_map)
+    if set(ids) != set(order):
+        raise ValueError("coordinates do not cover the extracted snippets exactly")
+    partial = new_directory(args.output)
+    (partial / "embeddings").mkdir()
+    for view, directory in (("qwen", args.qwen), ("mistral", args.mistral)):
+        vectors = np.load(directory / "embeddings.npy", mmap_mode="r", allow_pickle=False)
+        if vectors.shape[0] != len(order) or sha256_file(directory / "embeddings.npy") != manifests[view]["embedding_arrays"]["sha256"]:
+            raise ValueError(f"{view} vectors do not match their manifest")
+        shutil.copyfile(directory / "embeddings.npy", partial / EMBEDDING_FILES[view])
+    titles, snippets = zip(*(p["text"].split("\n", 1) if "\n" in p["text"] else (p["text"], "") for p in pages))
+    table = pa.table({
+        "row": list(range(len(pages))), "snippet_id": order, "title": list(titles), "snippet": list(snippets),
+        "text": [p["text"] for p in pages], "text_sha256": [p["text_sha256"] for p in pages],
+        "urls": [p["urls"] for p in pages], "engines": [p.get("engines", []) for p in pages],
+        "models": [p.get("models", []) for p in pages], "times_shown": [p["occurrences"] for p in pages],
+        "qwen_raw_axis_1": [r["raw_axis_1"] for r in raw["qwen"]], "qwen_raw_axis_2": [r["raw_axis_2"] for r in raw["qwen"]],
+        "mistral_raw_axis_1": [r["raw_axis_1"] for r in raw["mistral"]],
+        "mistral_raw_axis_2": [r["raw_axis_2"] for r in raw["mistral"]],
+        "qwen_axis_1_z": [views["qwen"][i] for i in order],
+        "mistral_aligned_axis_1_z": [views["mistral"][i] for i in order],
+        "consensus_axis_1_z": [views["consensus"][i] for i in order],
+        "prompt_scale_percentile_0_1": [percentile[i] for i in order],
+        "outside_prompt_range": [outside[i] for i in order]})
+    pq.write_table(table, partial / "snippets.parquet")
+    extract_manifest = json.loads((args.extract / "manifest.json").read_text())
+    readme = f"""# Evidence snippet embeddings (Experiment V2)
+
+Every distinct evidence snippet shown to a generator in its final answering context
+({len(order):,} snippets; sources: {", ".join(i["model"] for i in extract_manifest["inputs"])}).
+A snippet is `title + newline + snippet text` exactly as presented, deduplicated by SHA-256.
+
+- `snippets.parquet`: one row per snippet; `row` is the row index into each embedding file.
+- `{EMBEDDING_FILES["qwen"]}`, `{EMBEDDING_FILES["mistral"]}`: float32 LLM2Vec vectors, same row order.
+- Axis columns place each snippet on the frozen 26,009-prompt information-seeking to
+  action-readiness axis (Qwen and aligned Mistral axis-1 z, their consensus, and the
+  percentile on the prompt scale). The axis was fitted on prompts, so snippet positions are
+  out-of-domain descriptions; they are not treatments.
+- Evidence came from a frozen snapshot served by corpus-wide lexical search; some snippets
+  were shown under unrelated keywords. `times_shown`, `engines` and `models` record exposure.
+- `manifest.json`: inputs, model revisions, code commit and SHA-256 of every file.
+"""
+    (partial / "README.md").write_text(readme, encoding="utf-8")
+    files = {str(path.relative_to(partial)): {"bytes": path.stat().st_size, "sha256": sha256_file(path)}
+             for path in sorted(partial.rglob("*")) if path.is_file()}
+    write_json(partial / "manifest.json", {
+        "format_version": "geodml-snippet-embeddings-v1", "created_at": now(), "git_commit": git_commit(),
+        "rows": len(order), "embedding_dimension": int(np.load(partial / EMBEDDING_FILES["qwen"], mmap_mode="r").shape[1]),
+        "views": {view: {"file": EMBEDDING_FILES[view], "embedding": manifests[view]["embedding"],
+                         "map_id": manifests[view]["map_id"]} for view in manifests},
+        "extract": {"manifest": extract_manifest, "manifest_sha256": sha256_file(args.extract / "manifest.json"),
+                    "pages_sha256": sha256_file(args.extract / "pages.jsonl.gz")},
+        "final_axis_map": identity(args.final_axis_map), "battery": identity(args.battery / "battery_manifest.json"),
+        "relocation": {"sha256": sha256_file(args.relocation), "passed": relocation["passed"],
+                       "fresh_reembedding": {k: v["spearman"] for k, v in relocation["fresh_reembedding"].items()}},
+        "files": files})
+    partial.rename(Path(args.output).resolve())
+    print(json.dumps({"package": str(Path(args.output).resolve()), "rows": len(order), "files": len(files) + 1}), flush=True)
+    return 0
+
+
+def verify_package(directory: Path) -> dict:
+    manifest = json.loads((directory / "manifest.json").read_text())
+    for name, entry in manifest["files"].items():
+        path = directory / name
+        if path.stat().st_size != entry["bytes"] or sha256_file(path) != entry["sha256"]:
+            raise ValueError(f"package file changed: {name}")
+    return manifest
+
+
+def publish(args) -> int:
+    """Upload a verified package to the private dataset and check every file on the Hub."""
+
+    import getpass
+    from huggingface_hub import HfApi
+
+    directory = Path(args.package).resolve()
+    manifest = verify_package(directory)
+    target = args.path_in_repo or f"derived/snippet-embeddings/{directory.name}"
+    receipt_path = directory.with_name(directory.name + ".published.json")
+    if receipt_path.exists():
+        raise ValueError(f"already published; see {receipt_path}")
+    token = getpass.getpass("HF WRITE token for the private dataset (hidden): ").strip()
+    if not token:
+        raise ValueError("a write token is required")
+    try:
+        api = HfApi(token=token)
+        if not api.repo_info(args.repo_id, repo_type="dataset").private:
+            raise ValueError("destination dataset is not private; refusing to upload")
+        if any(name.startswith(target + "/") for name in api.list_repo_files(args.repo_id, repo_type="dataset")):
+            raise ValueError(f"{target} already exists on the Hub; refusing to overwrite")
+        commit = api.upload_folder(repo_id=args.repo_id, repo_type="dataset", folder_path=str(directory),
+                                   path_in_repo=target, commit_message=f"Add evidence snippet embeddings ({manifest['rows']} rows)")
+        names = [*manifest["files"], "manifest.json"]
+        remote = {info.path: info for info in api.get_paths_info(args.repo_id, [f"{target}/{n}" for n in names],
+                                                                 repo_type="dataset", expand=True)}
+        for name in names:
+            info = remote.get(f"{target}/{name}")
+            local = directory / name
+            if info is None or info.size != local.stat().st_size:
+                raise ValueError(f"remote file missing or wrong size: {name}")
+            lfs = getattr(info, "lfs", None)
+            if lfs is not None and getattr(lfs, "sha256", None) != sha256_file(local):
+                raise ValueError(f"remote file checksum differs: {name}")
+    except Exception as error:
+        raise RuntimeError(str(error).replace(token, "[REDACTED]")) from None
+    receipt = {"repo_id": args.repo_id, "path_in_repo": target, "commit": getattr(commit, "oid", None),
+               "files_verified": len(names), "published_at": now()}
+    write_json(receipt_path, receipt)
+    print(json.dumps(receipt), flush=True)
     return 0
 
 
@@ -551,6 +742,7 @@ def main(argv=None) -> int:
     p.add_argument("--max-length", type=int, default=512)
     p.add_argument("--attention-implementation", choices=("eager", "sdpa", "flash_attention_2"), default="eager")
     p.add_argument("--shard-size", type=int, default=SHARD_SIZE)
+    p.add_argument("--save-embeddings", action="store_true", help="also keep the full float32 vectors per shard")
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--worker-index", type=int, default=0)
     p.add_argument("--output", type=Path, required=True)
@@ -581,9 +773,21 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=20261004)
     p.add_argument("--workers", type=int)
     p.add_argument("--output", type=Path, required=True)
+    p = stages.add_parser("package")
+    p.add_argument("--extract", type=Path, required=True)
+    p.add_argument("--qwen", type=Path, required=True, help="merged Qwen view embedded with --save-embeddings")
+    p.add_argument("--mistral", type=Path, required=True)
+    p.add_argument("--battery", type=Path, required=True)
+    p.add_argument("--final-axis-map", type=Path, required=True)
+    p.add_argument("--relocation", type=Path, required=True, help="relocation report with the fresh re-embedding check")
+    p.add_argument("--output", type=Path, required=True)
+    p = stages.add_parser("publish")
+    p.add_argument("--package", type=Path, required=True)
+    p.add_argument("--repo-id", default=DEFAULT_REPO)
+    p.add_argument("--path-in-repo")
     args = parser.parse_args(argv)
     return {"extract": extract, "sample-prompts": sample_prompts, "embed": embed, "merge": merge,
-            "relocate": relocate, "analyze": analyze}[args.stage](args)
+            "relocate": relocate, "analyze": analyze, "package": package, "publish": publish}[args.stage](args)
 
 
 if __name__ == "__main__":
