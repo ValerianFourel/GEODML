@@ -27,7 +27,6 @@ sys.path.insert(0, str(code))
 from analysis.scripts import publish_qwen_results as publisher
 from analysis.scripts.audit_horeka_saved_progress import qwen_counts
 from analysis.scripts.report_inference_hub_progress import collect as published_counts
-from huggingface_hub import get_token
 from analysis.interpretability.pipeline.agentic_hour_sync import Exchange, HubStore
 
 def save(path, value):
@@ -69,10 +68,9 @@ with (reviews / 'qwen-hf-update.lock').open('a') as lock:
                    'source_settings_changed': False, 'new_inference_started': False}
         save(output / 'context.json', context)
         warnings.simplefilter('error', getpass.GetPassWarning)
-        token = get_token() or ''
-        if not token:
-            with open('/dev/tty', 'r+') as terminal:
-                token = getpass.getpass('HF WRITE token for the private dataset (hidden): ', stream=terminal).strip()
+        # Always ask: the cached login token may be read-only (403 on upload).
+        with open('/dev/tty', 'r+') as terminal:
+            token = getpass.getpass('HF WRITE token for the private dataset (hidden): ', stream=terminal).strip()
         if not token:
             raise ValueError('A write token is required in the terminal prompt')
         os.environ['HF_TOKEN'] = token
