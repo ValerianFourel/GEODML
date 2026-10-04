@@ -146,19 +146,26 @@ class ChoiceData:
         z, position, choice_set, generation, chosen = [], [], [], [], []
         keywords, prompts, axis = [], [], []
         set_count = 0
+        self.duplicate_content_answers = 0
         for g, obs in enumerate(observations):
             keywords.append(obs["keyword"])
             prompts.append(obs["prompt_id"])
             axis.append(float(obs["prompt_axis"]))
             remaining = list(enumerate(obs["presented"]))
+            if len(set(obs["presented"])) < len(obs["presented"]):
+                self.duplicate_content_answers += 1
             for pick in obs["ranking"]:
-                for slot, page in remaining:
+                # Distinct URLs can carry identical title+snippet text (one page id).
+                # Each ranked URL consumes exactly one presented slot: the first
+                # remaining slot with that content (equal content has equal z).
+                taken = next(k for k, (_, page) in enumerate(remaining) if page == pick)
+                for k, (slot, page) in enumerate(remaining):
                     z.append(page_z[page])
                     position.append(min(slot, MAX_POSITION))
                     choice_set.append(set_count)
                     generation.append(g)
-                    chosen.append(page == pick)
-                remaining = [(s, p) for s, p in remaining if p != pick]
+                    chosen.append(k == taken)
+                del remaining[taken]
                 set_count += 1
         if not set_count:
             raise ValueError("no ranked choices to fit")
@@ -213,6 +220,7 @@ def fit_plackett_luce(data: ChoiceData, *, axis: np.ndarray | None = None,
         raise RuntimeError(f"Plackett-Luce fit did not converge: {result.message}")
     return {"page_z": float(result.x[0]), "page_z_x_prompt_axis": float(result.x[1]),
             "position_effects": [0.0, *map(float, result.x[2:])],
+            "answers_with_duplicate_content_slots": data.duplicate_content_answers,
             "theta": [float(v) for v in result.x],
             "mean_negative_log_likelihood": float(result.fun), "choice_sets": data.sets,
             "alternatives": int(len(data.z))}

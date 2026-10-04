@@ -269,3 +269,17 @@ def test_map_replay_requires_exact_raw_axes_from_archived_embeddings(tmp_path, m
     assert ordering.map_replay(archived, replayed)["passed"]
     assert not ordering.map_replay({**archived, "c": (3.0, 1.01)}, replayed)["passed"]
     assert not ordering.map_replay({**archived, "d": (0.0, 0.0)}, replayed)["passed"]
+
+
+def test_distinct_urls_with_identical_snippet_text_each_take_one_slot():
+    # Two presented URLs share title+snippet text, so they share page id "a".
+    data = ordering.ChoiceData([{"keyword": "k", "prompt_id": "q", "prompt_axis": 0.5,
+                                 "presented": ["a", "b", "a"], "ranking": ["a", "b"]}], {"a": 0.0, "b": 1.0})
+    assert data.sets == 2 and data.duplicate_content_answers == 1
+    assert data.set.tolist() == [0, 0, 0, 1, 1]
+    assert data.chosen.tolist() == [True, False, False, True, False]  # first "a" slot, then "b"
+    assert data.position.tolist() == [0, 1, 2, 1, 2]  # the second "a" stays available
+    full = ordering.ChoiceData([{"keyword": "k", "prompt_id": "q", "prompt_axis": 0.5,
+                                 "presented": ["a", "b", "a"], "ranking": ["a", "b", "a"]}], {"a": 0.0, "b": 1.0})
+    assert full.sets == 3 and full.set.tolist() == [0, 0, 0, 1, 1, 2]
+    assert full.chosen.tolist() == [True, False, False, True, False, True]
