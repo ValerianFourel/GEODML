@@ -69,3 +69,14 @@ auto-submitting Gemma sender after preparation job 5179554. It asks for a
 measurement inventory, test catalogue, Gemma gating decision, ordered plan and
 an implementation prompt for milestones 1–2. The answer-text report
 (`$W/reviews/answer-readiness-20261004-text-0941`) is still unreviewed.
+
+## Update: answer embeddings complete (pasted evidence, 2026-10-04)
+
+Interactive allocation 5179583 (hkn0403) expired at its one-hour limit during
+the first Qwen-view pass; 28 of 40 shards survived (atomic writes). Allocation
+5179895 (hkn0402, commit 45099a6): Qwen view 28→40/40 between 09:22:48Z and
+09:34:08Z; Mistral view 0→40/40 between 09:34:08Z and 10:09:44Z, both status 0.
+Shard size 5,000 over 199,329 unique answers. Next: merge both views and run
+`answer_readiness.py analyze` (CPU, minutes) against `$W/geoaxis-archive/battery`
+and the final axis map. The fresh re-embedding (`relocate`) check is still
+unreported, so answer positions stay provisional until it passes.
