@@ -71,3 +71,10 @@ the sender would stop before any sbatch. Remedy given: restart only the tmux
 sender with a hidden-typed write token inherited from the environment (never
 on disk or argv); start() reuses preparation-submission.json for job 5180168
 and never resubmits preparation.
+
+13:47 CEST (pasted): with a write-role token (whoami role `write`) the sender was
+restarted in tmux `gemma-v4-bouts` on hkn1993 (PID 2156460). Preparation 5180168
+had already written plan.json (the local-index partition took about 13 minutes),
+so start() went straight to send(): the HF reservation succeeded and attempt-1
+submissions began (shards 0077–0079 at 11:47:36Z). Valerian: only HoreKa is
+used now; JUPITER is retired, and the registry merely records ownership.
