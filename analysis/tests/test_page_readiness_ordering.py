@@ -448,6 +448,13 @@ def test_corpus_covers_every_servable_snapshot_row_and_joins_what_was_shown(tmp_
            {"keyword": "tax filing", "position": 2, "url": "https://b.example", "title": "Free filing", "snippet": "IRS free file."},
            {"keyword": "tax filing", "position": 0, "url": "https://c.example", "title": "Bad", "snippet": "position 0"},
            {"keyword": "tax filing", "position": 3, "url": "ftp://d.example", "title": "Bad", "snippet": "not http"}]
+    ddg += [{"keyword": "language apps", "position": 1, "url": "https://w.example/apps",
+             "title": "The 4 Best Language Learning Apps of 2026 20 Best Apps for Learning English FluentU 7 Free Apps for English Learners",
+             "snippet": "Tested by our editors."},
+            {"keyword": "language apps", "position": 2, "url": "https://f.example", "title": "20 Best Apps for Learning English FluentU",
+             "snippet": "Apps for learners."},
+            {"keyword": "language apps", "position": 3, "url": "https://g.example", "title": "7 Free Apps for English Learners",
+             "snippet": "Free options."}]
     srx = [{"keyword": "tax help", "position": 4, "url": "https://a2.example", "title": "File taxes", "snippet": "Steps to file."},
            {"keyword": "school", "position": 1, "url": "https://s.example", "title": "Scheduling", "snippet": "Plan classes."}]
     for name, rows in (("ddg.jsonl", ddg), ("srx.jsonl", srx)):
@@ -464,11 +471,14 @@ def test_corpus_covers_every_servable_snapshot_row_and_joins_what_was_shown(tmp_
                      "--snapshot", f"searxng={tmp_path / 'srx.jsonl'}", "--shown", str(shown_dir),
                      "--output", str(output)]) == 0
     pages = {p["page_id"]: p for p in cli.read_jsonl(output / "pages.jsonl.gz")}
-    assert len(pages) == 3  # two servable DDG rows + one new SearXNG row; the shared text counts once
+    assert len(pages) == 6  # five servable DDG rows + one new SearXNG row; the shared text counts once
+    glued = ordering.page_id(ordering.page_text(ddg[4]["title"], ddg[4]["snippet"]))
+    assert pages[glued]["glued_titles"] == 2 and sum(p["glued_titles"] >= 2 for p in pages.values()) == 1
     assert pages[shared]["engines"] == ["duckduckgo", "searxng"] and pages[shared]["keywords"] == ["tax filing", "tax help"]
     assert pages[shared]["best_position"] == 1 and pages[shared]["urls"] == ["https://a.example", "https://a2.example"]
     assert pages[shared]["shown"] and pages[shared]["occurrences"] == 12 and pages[shared]["models"] == ["llama4", "qwen38"]
     assert sum(p["shown"] for p in pages.values()) == 1
     counts = json.loads((output / "manifest.json").read_text())["counts"]
-    assert counts["rows_duckduckgo"] == 4 and counts["excluded_duckduckgo_invalid_position"] == 1
+    assert counts["rows_duckduckgo"] == 7 and counts["excluded_duckduckgo_invalid_position"] == 1
     assert counts["excluded_duckduckgo_invalid_url"] == 1 and counts["shown_not_in_corpus"] == 1
+    assert counts["glued_rows_duckduckgo"] == 1 and "glued_rows_searxng" not in counts

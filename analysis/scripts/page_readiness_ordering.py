@@ -251,7 +251,9 @@ def corpus(args) -> int:
     for engine, path in sorted(files.items()):
         rows = snapshots.read_snapshot(path)
         counts[f"rows_{engine}"] = len(rows)
-        for row in rows:
+        # Other same-keyword results' titles glued into this row (the DuckDuckGo scrape defect).
+        glued = snapshots.glued_titles(rows)
+        for row, glued_count in zip(rows, glued):
             usable, reason = _normalize_usable_row(row)  # the search adapter's own servability check
             if usable is None:
                 counts[f"excluded_{engine}_{reason}"] += 1
@@ -259,7 +261,10 @@ def corpus(args) -> int:
             text = ordering.page_text(usable["title"], usable["snippet"])
             identifier = ordering.page_id(text)
             entry = pages.setdefault(identifier, {"page_id": identifier, "text": text, "text_sha256": identifier,
-                                                  "urls": set(), "engines": set(), "keywords": set(), "best_position": None})
+                                                  "urls": set(), "engines": set(), "keywords": set(), "best_position": None,
+                                                  "glued_titles": 0})
+            entry["glued_titles"] = max(entry["glued_titles"], glued_count)
+            counts[f"glued_rows_{engine}"] += glued_count >= 2
             entry["urls"].add(usable["url"])
             entry["engines"].add(engine)
             entry["keywords"].add(usable["keyword"])
@@ -594,7 +599,8 @@ def package(args) -> int:
         "urls": [p["urls"] for p in pages], "engines": [p.get("engines", []) for p in pages],
         "models": [p.get("models", []) for p in pages], "times_shown": [p["occurrences"] for p in pages],
         **({"shown": [p["shown"] for p in pages], "keywords": [p["keywords"] for p in pages],
-            "best_position": [p["best_position"] for p in pages]} if "shown" in pages[0] else {}),
+            "best_position": [p["best_position"] for p in pages],
+            "glued_titles": [p["glued_titles"] for p in pages]} if "shown" in pages[0] else {}),
         "qwen_raw_axis_1": [r["raw_axis_1"] for r in raw["qwen"]], "qwen_raw_axis_2": [r["raw_axis_2"] for r in raw["qwen"]],
         "mistral_raw_axis_1": [r["raw_axis_1"] for r in raw["mistral"]],
         "mistral_raw_axis_2": [r["raw_axis_2"] for r in raw["mistral"]],
