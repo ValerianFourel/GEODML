@@ -180,3 +180,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Page readiness ordering pipeline](2026-10-04_page-readiness-ordering_handoff.md)
 
 - 2026-10-04 — [Generator output Markdown report](2026-10-04_generator-output-report_handoff.md)
+
+- 2026-10-04 — [Fable plan: pre-Gemma tests on the generator corpus](2026-10-04_fable-pre-gemma-test-plan_handoff.md)
