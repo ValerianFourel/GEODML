@@ -48,12 +48,19 @@ if [ ! -f "$TRACE/manifest.json" ]; then
 fi
 "$RT/bin/python" -c "import json, sys; m = json.load(open(sys.argv[1])); print('TRACE', json.dumps({k: m[k] for k in ('counts', 'consistency_failures', 'mean_pages_per_answer')}))" "$TRACE/manifest.json"
 
-if [ ! -f "$REPLAY/manifest.json" ]; then
+if [ ! -f "$REPLAY/manifest.json" ] && [ ! -f "$REPLAY.fidelity-failed.json" ]; then
   set_aside "$REPLAY"
   echo "== replay $(date -u +%FT%TZ)"
+  # A failed fidelity gate stops only this stage (exit 2 plus its report); any other failure stops the job.
   "$RT/bin/python" -u "$SCRIPT" replay --trace-extract "$TRACE" --corpus-package "$CORPUS" \
     --dataset-root "$W/shared-hours/dataset" --dataset-root "$W/llama-hf/dataset" --search-root "$W" \
-    --workers "$CPUS" --output "$REPLAY"
+    --workers "$CPUS" --output "$REPLAY" || [ -f "$REPLAY.fidelity-failed.json" ]
+fi
+REPLAYED=()
+if [ -f "$REPLAY/manifest.json" ]; then
+  REPLAYED=(--replay "$REPLAY")
+else
+  echo "No replay stage: the fidelity gate failed ($REPLAY.fidelity-failed.json); the analysis runs without R0 and Rk."
 fi
 
 ANSWERS=()
@@ -81,7 +88,7 @@ for DIR in ${RANKING_CHANGE:-}; do EXTRA+=(--ranking-change "$DIR"); done
 if [ ! -f "$OUT/final-report.html" ]; then
   set_aside "$OUT"
   echo "== analyze $(date -u +%FT%TZ)"
-  "$RT/bin/python" -u "$SCRIPT" analyze --trace-extract "$TRACE" --replay "$REPLAY" --corpus-package "$CORPUS" \
+  "$RT/bin/python" -u "$SCRIPT" analyze --trace-extract "$TRACE" ${REPLAYED[@]+"${REPLAYED[@]}"} --corpus-package "$CORPUS" \
     --qwen-prompts "$A/final-audit/projections/qwen" --mistral-prompts "$A/final-audit/projections/mistral" \
     --qwen-map "$A/maps/qwen" --mistral-map "$A/maps/mistral" --battery "$A/battery" \
     --final-axis-map "$A/final-audit/final-axis-map.jsonl" \
