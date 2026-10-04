@@ -22,3 +22,20 @@ readiness pipeline (LLM2Vec page embeddings) belongs to the concurrent session's
 `page_readiness_ordering.py`, whose page-extract 5179545 / page-relocate 5179548
 were live, so no duplicate GPU script was written. Next: download the axis map
 on a login node, run the report in the allocation, return report.md.
+
+## Update: first run returned (pasted evidence, descriptive only)
+
+Run in interactive allocation 5179583 on hkn0403, output
+`$W/reviews/generator-output-report-20261004-0918` (commit 6fc1390, 200
+permutations, axis map sha 43189f68). Qwen `$DS` = `$W/shared-hours/dataset`:
+287,919 verified cells, 24,153 prompts (23,753 never claimed, 250 checkpointed,
+11 running, 163 completed with unverified generation). Llama: 312,090 cells,
+26,008 prompts, 6 terminal_failed. Natural vs shuffled: top-1 differs 1.6%
+(Qwen 0.08%, Llama 3.2%). Llama vs Qwen on the same cell: top-1 differs 50.2%.
+Toward action readiness, both rank fewer URLs (Llama 2.97→2.17, ρ −0.30; Qwen
+5.15→4.79, ρ −0.22), write shorter stored answers (Qwen capped at 1,200) and
+search more (Llama ρ +0.37, Qwen +0.19). Cross-model top-1 disagreement rises
+42%→55%. Target selection falls slightly (ρ −0.07/−0.04), possibly through
+ranking length. All p are at the 200-permutation floor 0.00498. Flags: Llama
+Parallel-Expansion on searxng has 25% empty rankings; headline bullets omit the
+design-cell labels for per-cell associations (report cosmetic bug).
