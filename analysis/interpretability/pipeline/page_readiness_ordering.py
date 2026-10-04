@@ -96,6 +96,19 @@ def projection_agreement(archived: Mapping[str, float], fresh: Mapping[str, floa
             "minimum_spearman": minimum_spearman, "passed": spearman >= minimum_spearman}
 
 
+def map_replay(archived: Mapping[str, Sequence[float]], replayed: Mapping[str, Sequence[float]],
+               *, tolerance: float = 1e-4) -> dict:
+    """Archived prompt embeddings pushed through the frozen map versus archived raw axes."""
+
+    ids = sorted(archived)
+    if set(ids) != set(replayed):
+        return {"items": len(ids), "identities_equal": False, "passed": False}
+    error = float(np.max(np.abs(np.asarray([archived[i] for i in ids], float)
+                                - np.asarray([replayed[i] for i in ids], float))))
+    return {"items": len(ids), "identities_equal": True, "max_abs_raw_difference": error,
+            "tolerance": tolerance, "passed": error <= tolerance}
+
+
 def _ranks(values: np.ndarray) -> np.ndarray:
     from scipy.stats import rankdata
     return rankdata(values)

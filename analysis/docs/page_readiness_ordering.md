@@ -27,6 +27,9 @@ The 26,009-prompt axis comes from the relaxed final audit:
 `relocate` proves this chain is recovered from archived artifacts alone. It
 recomputes every prompt's coordinate from the archived per-view projections and
 the battery, and requires exact agreement (1e-9) with `final-axis-map.jsonl`.
+With `--qwen-map/--qwen-embeddings` (and the Mistral pair) it also pushes the
+archived 26,009 prompt embeddings back through each frozen map and requires the
+archived raw axes (max difference 1e-4, float32 storage); this needs no GPU.
 With `--fresh-qwen/--fresh-mistral`, it also compares a fresh GPU re-embedding of
 512 archived prompts with their archived raw axis-1 values (Spearman ≥ 0.999).
 Together these show that the frozen maps and the embedding models still place

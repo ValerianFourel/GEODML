@@ -278,6 +278,28 @@ def aligned(qwen: Path, mistral: Path, battery: Path) -> list[dict]:
 
 # ---------------------------------------------------------------- relocate
 
+def replay_map(map_dir: Path, embeddings_dir: Path) -> dict[str, tuple[float, float]]:
+    """Project archived prompt embeddings (shard-*/question_embeddings.restricted-local.npz)."""
+
+    population = _readiness_modules()
+    fitted = population.load_readiness_embedding_map(map_dir / "readiness_embedding_map.json")
+    bounds = population.fit_reference_bounds(read_jsonl(map_dir / "readiness_supervised_subspace_coordinates.jsonl"))
+    result = {}
+    shards = sorted(Path(embeddings_dir).glob("shard-*/question_embeddings.restricted-local.npz"))
+    if not shards:
+        raise ValueError(f"no archived embedding shards under {embeddings_dir}")
+    for path in shards:
+        with np.load(path, allow_pickle=False) as archive:
+            ids = [str(i) for i in archive["candidate_ids"]]
+            rows = population.project_text_embeddings(fitted, bounds, item_ids=ids, text_sha256s=ids,
+                                                      embeddings=archive["embeddings"])
+        for row in rows:
+            if row.item_id in result:
+                raise ValueError(f"prompt embedded in two archived shards: {row.item_id}")
+            result[row.item_id] = (row.raw_axis_1, row.raw_axis_2)
+    return result
+
+
 def relocate(args) -> int:
     final_rows = read_jsonl(args.final_axis_map)
     report = {"format_version": ordering.FORMAT_VERSION, "stage": "relocate", "created_at": now(),
@@ -285,6 +307,16 @@ def relocate(args) -> int:
               "battery": identity(args.battery / "readiness_robustness_battery.json"),
               "archived_coordinates": ordering.relocation_audit(
                   final_rows, aligned(args.qwen_projections, args.mistral_projections, args.battery))}
+    replay = {}
+    for view, archived_dir, map_dir, embeddings_dir in (
+            ("qwen", args.qwen_projections, args.qwen_map, args.qwen_embeddings),
+            ("mistral", args.mistral_projections, args.mistral_map, args.mistral_embeddings)):
+        if embeddings_dir is None:
+            continue
+        archived = {r["candidate_id"]: (r["projection"]["raw_axis_1"], r["projection"]["raw_axis_2"])
+                    for r in read_jsonl(archived_dir / "question_projections.jsonl")}
+        replay[view] = ordering.map_replay(archived, replay_map(map_dir, embeddings_dir))
+    report["map_replay"] = replay
     fresh = {}
     for view, archived_dir, fresh_dir in (("qwen", args.qwen_projections, args.fresh_qwen),
                                           ("mistral", args.mistral_projections, args.fresh_mistral)):
@@ -296,12 +328,14 @@ def relocate(args) -> int:
                     for r in read_jsonl(fresh_dir / "question_projections.jsonl")}
         fresh[view] = ordering.projection_agreement(archived, observed)
     report["fresh_reembedding"] = fresh
-    report["passed"] = report["archived_coordinates"]["passed"] and all(v["passed"] for v in fresh.values())
+    report["passed"] = (report["archived_coordinates"]["passed"]
+                        and all(v["passed"] for v in (*replay.values(), *fresh.values())))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     if args.output.exists():
         raise ValueError(f"refusing to overwrite {args.output}")
     write_json(args.output, report)
     print(json.dumps({"passed": report["passed"], **report["archived_coordinates"],
+                      **{f"replay_{k}": v["passed"] for k, v in replay.items()},
                       **{f"fresh_{k}": v["spearman"] for k, v in fresh.items()}}), flush=True)
     return 0 if report["passed"] else 2
 
@@ -497,6 +531,10 @@ def main(argv=None) -> int:
     p.add_argument("--qwen-projections", type=Path, required=True, help="final audit merged/qwen")
     p.add_argument("--mistral-projections", type=Path, required=True, help="final audit merged/mistral")
     p.add_argument("--battery", type=Path, required=True)
+    p.add_argument("--qwen-map", type=Path, help="maps/<qwen view>; with --qwen-embeddings replays the map")
+    p.add_argument("--mistral-map", type=Path)
+    p.add_argument("--qwen-embeddings", type=Path, help="final-audit/projections/qwen")
+    p.add_argument("--mistral-embeddings", type=Path)
     p.add_argument("--fresh-qwen", type=Path)
     p.add_argument("--fresh-mistral", type=Path)
     p.add_argument("--output", type=Path, required=True)

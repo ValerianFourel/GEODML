@@ -238,3 +238,27 @@ def test_embed_shards_split_across_workers_resume_and_merge_exactly(tmp_path, mo
     rows = cli.read_jsonl(merged / "question_projections.jsonl")
     assert [r["candidate_id"] for r in rows] == [r["page_id"] for r in cli.read_jsonl(pages)]
     assert json.loads((merged / "projection_manifest.json").read_text())["map_id"] == "map-q"
+
+
+def test_map_replay_requires_exact_raw_axes_from_archived_embeddings(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from interpretability.pipeline import readiness_prompt_population as population
+
+    shard = tmp_path / "embeddings/shard-000"
+    shard.mkdir(parents=True)
+    vectors = np.asarray([[1.0, 0.0], [0.0, 2.0], [3.0, 1.0]], np.float32)
+    np.savez(shard / "question_embeddings.restricted-local.npz", candidate_ids=np.asarray(["a", "b", "c"]),
+             embeddings=vectors)
+    (tmp_path / "map").mkdir()
+    (tmp_path / "map/readiness_embedding_map.json").write_text("{}")
+    (tmp_path / "map/readiness_supervised_subspace_coordinates.jsonl").write_text("")
+    monkeypatch.setattr(population, "load_readiness_embedding_map", lambda path: SimpleNamespace())
+    monkeypatch.setattr(population, "fit_reference_bounds", lambda rows: None)
+    monkeypatch.setattr(population, "project_text_embeddings", lambda fitted, bounds, *, item_ids, text_sha256s, embeddings:
+                        [population.ReadinessTextProjection(i, i, float(e[0]), float(e[1]), 0, 0, 0)
+                         for i, e in zip(item_ids, embeddings)])
+    replayed = cli.replay_map(tmp_path / "map", tmp_path / "embeddings")
+    archived = {"a": (1.0, 0.0), "b": (0.0, 2.0), "c": (3.0, 1.0)}
+    assert ordering.map_replay(archived, replayed)["passed"]
+    assert not ordering.map_replay({**archived, "c": (3.0, 1.01)}, replayed)["passed"]
+    assert not ordering.map_replay({**archived, "d": (0.0, 0.0)}, replayed)["passed"]
