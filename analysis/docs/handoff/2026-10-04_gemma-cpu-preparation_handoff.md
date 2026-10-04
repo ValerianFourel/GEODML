@@ -55,3 +55,11 @@ partition ran about 1h47m on the shared filesystem (8 MB SQLite cache) without
 finishing. The old sender exited with "preparation ended without a verified
 plan". The node-local partition index now also gets a 2 GB page cache; output
 unchanged. Old `shards.partial` is preserved in the old root.
+
+Reuse run launched 13:26:31 CEST in tmux `gemma-v4-bouts` on hkn1993, root
+`$W/reviews/gemma-si-v4-llama-reuse-5h-20261004`, commit 493d06e. Sender
+submitted preparation job 5180168 at 13:28:16 (cpuonly, 4 CPUs, 32G, 01:00:00,
+no requeue); RUNNING on hkn0848 by 13:35. The per-bout ("rapid") preparation
+design was discussed: answer-map identity includes the request, so prompt slices
+are exact, but the HF map reservation needs all identities before submission,
+so it is deferred to the Qwen Gemma pass rather than replacing this run.
