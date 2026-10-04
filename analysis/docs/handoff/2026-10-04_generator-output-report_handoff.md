@@ -56,3 +56,16 @@ Answer coordinates are out-of-domain descriptions, not treatments/confounders.
 `report_generator_outputs.load_cells` gained `keep_answer` (default unchanged).
 68 tests pass. GPU embedding paths (LLM2Vec snapshots, llm2vec Python, maps,
 battery on HoreKa) are unverified; a probe is needed before the embed step.
+
+## Update: Fable planning prompt
+
+Valerian asked for a prompt asking Fable to determine which tests can run on the
+existing Qwen/Llama generator corpus before Gemma inference. Saved as
+`analysis/docs/fable-pre-gemma-tests-prompt.md` (planning only; no code, cluster
+or inference). It lists files to read, the corpus facts above with their caveats
+(shuffle undone by compaction and out of scope; pool differences; Qwen cap; Llama
+searxng empty rankings), the failed SI-v4 r2/Nemotron reviews, and the
+auto-submitting Gemma sender after preparation job 5179554. It asks for a
+measurement inventory, test catalogue, Gemma gating decision, ordered plan and
+an implementation prompt for milestones 1–2. The answer-text report
+(`$W/reviews/answer-readiness-20261004-text-0941`) is still unreviewed.
