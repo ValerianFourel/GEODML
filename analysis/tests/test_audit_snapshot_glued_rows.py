@@ -57,3 +57,21 @@ def test_snapshots_are_located_by_the_hash_recorded_in_search_traces(tmp_path):
         "snapshot": "/other.jsonl", "snapshot_sha256": "0" * 64}}}]}]
     with pytest.raises(ValueError, match="more than one"):
         audit.snapshots_from_traces(conflicting)
+
+
+def test_recorded_snapshot_is_used_without_walking_and_heavy_trees_are_skipped(tmp_path, monkeypatch):
+    import hashlib
+    import pytest
+    recorded = tmp_path / "inputs/ddg.jsonl"
+    recorded.parent.mkdir(parents=True)
+    recorded.write_text("rows\n")
+    record = {"path": str(recorded), "sha256": hashlib.sha256(b"rows\n").hexdigest()}
+    monkeypatch.setattr(audit.os, "walk", lambda *a, **k: pytest.fail("walked although the recorded file matches"))
+    assert audit.resolve_snapshot(record, tmp_path) == recorded
+    monkeypatch.undo()
+    hidden = tmp_path / "models/ddg.jsonl"  # same content, but under a skipped tree
+    hidden.parent.mkdir()
+    hidden.write_text("rows\n")
+    recorded.write_text("changed\n")
+    with pytest.raises(FileNotFoundError):
+        audit.resolve_snapshot(record, tmp_path)

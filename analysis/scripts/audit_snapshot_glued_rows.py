@@ -16,6 +16,7 @@ from collections import Counter, defaultdict
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -63,19 +64,32 @@ def snapshots_from_traces(traces) -> dict[str, dict]:
     return found
 
 
+SKIPPED_DIRECTORIES = {"checkouts", "environment", "models", "control", ".git", ".cache", "__pycache__"}
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(8 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def resolve_snapshot(record: dict, search_root: Path) -> Path:
-    """The recorded file if it still has the recorded hash, else a same-named copy under search_root."""
+    """The recorded file if it still has the recorded hash, else a same-named copy under search_root.
+
+    The workspace walk happens only when the recorded file is missing or changed, and it skips
+    model, environment, checkout and ledger trees, which never hold search snapshots.
+    """
     recorded = Path(record["path"])
-    candidates = [recorded] if recorded.is_file() else []
-    candidates += sorted(p for p in Path(search_root).rglob(recorded.name)
-                         if p.is_file() and "checkouts" not in p.parts and p != recorded)
-    for path in candidates:
-        digest = hashlib.sha256()
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(8 << 20), b""):
-                digest.update(chunk)
-        if digest.hexdigest() == record["sha256"]:
-            return path
+    if recorded.is_file() and _sha256(recorded) == record["sha256"]:
+        return recorded
+    for directory, subdirectories, files in os.walk(search_root):
+        subdirectories[:] = sorted(d for d in subdirectories if d not in SKIPPED_DIRECTORIES)
+        if recorded.name in files:
+            path = Path(directory) / recorded.name
+            if path != recorded and _sha256(path) == record["sha256"]:
+                return path
     raise FileNotFoundError(f"no file with the recorded hash for {recorded} under {search_root}")
 
 
