@@ -581,6 +581,17 @@ def analyze(args) -> int:
         verdicts[name] = {"pool_carries_more_than_reordering": bool(entry and entry["estimate"] > 0 and entry["ci95"][0] is not None
                                                                     and entry["ci95"][0] > 0)}
     null_anchor = max((abs(strata[n]["slopes"]["Rk"]["slope"]) for n in strata if "Rk" in strata[n]["slopes"]), default=None)
+    # Descriptive curves for the paper figure: stage value by prompt-position bin, per model x engine and per model.
+    # "z" holds every available stage on the consensus z scale; "u" the page stages on the prompt percentile scale.
+    page_u = {k: v for k, v in stages.stage_values(st, doc_u).items() if k in ("R", "C", "P", "K")}
+    groups = dict(primary)
+    for m, model in enumerate(codes["model"]):
+        groups[f"{model} · both engines"] = st.model == m
+    curves = {"bins": 20, "note": "descriptive; natural condition and all conditions; keyword-clustered standard errors",
+              "groups": {name: {condition: {"z": stages.stage_curves(st.x, st.keyword, values, mask & extra),
+                                            "u": stages.stage_curves(st.x, st.keyword, page_u, mask & extra)}
+                                for condition, extra in (("natural", natural), ("all", np.ones_like(natural)))}
+                         for name, mask in groups.items()}}
     results = {
         "format_version": FORMAT_VERSION, "stage": "analyze", "created_at": readiness.now(), "git_commit": readiness.git_commit(),
         "inputs": {"trace_extract": readiness.identity(args.trace_extract / "manifest.json"),
@@ -598,7 +609,7 @@ def analyze(args) -> int:
                      "replay": replay_manifest and {"fidelity_gate": replay_manifest["fidelity_gate"], "counts": replay_manifest["counts"]},
                      "stages_available": [t for t in stages.STAGES if t in values], "null_anchor_max_abs_slope": null_anchor},
         "validity": validity, "ranking_change": ranking_change(args.ranking_change), "strata": strata,
-        "contrasts": contrasts, "replication": replication, "verdicts": verdicts}
+        "contrasts": contrasts, "replication": replication, "verdicts": verdicts, "curves": curves}
     results = finite(results)
     partial = readiness.new_directory(args.output)
     readiness.write_json(partial / "results.json", results)

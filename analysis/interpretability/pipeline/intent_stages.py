@@ -149,6 +149,35 @@ def stage_values(st: Stages, doc_z: np.ndarray, *, query_z=None, answer_z=None, 
     return values
 
 
+def stage_curves(x: np.ndarray, keyword: np.ndarray, values: dict, mask: np.ndarray, *, bins: int = 20) -> dict:
+    """Descriptive curve per stage: mean value in equal-width bins of the prompt position x on [0, 1],
+    with a keyword-clustered standard error (keywords are the dependence unit). Bins without data are None."""
+    x = np.asarray(x, float)
+    which = np.clip(np.floor(x * bins).astype(int), 0, bins - 1)
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    out = {"bin_lower": edges[:-1].tolist(), "bin_upper": edges[1:].tolist(), "terms": {}}
+    for term, array in values.items():
+        array = np.asarray(array, float)
+        means, errors, counts = [], [], []
+        for b in range(bins):
+            v_mask = mask & (which == b) & np.isfinite(array)
+            n = int(v_mask.sum())
+            counts.append(n)
+            if n == 0:
+                means.append(None)
+                errors.append(None)
+                continue
+            v = array[v_mask]
+            mean = float(v.mean())
+            _, groups = np.unique(keyword[v_mask], return_inverse=True)
+            g = int(groups.max()) + 1
+            sums = np.bincount(groups, v - mean, minlength=g)
+            errors.append(float(np.sqrt((sums ** 2).sum() * g / (g - 1)) / n) if g > 1 else None)
+            means.append(mean)
+        out["terms"][term] = {"mean": means, "se_keyword_cluster": errors, "n": counts}
+    return out
+
+
 def oracle_values(st: Stages, doc_z: np.ndarray, doc_u: np.ndarray, pool_topic: np.ndarray) -> dict:
     """Ranking intent each answer would get from its own pool and ranking length under fixed orders:
     presented order, closest to the prompt on the axis first, highest topic similarity first."""

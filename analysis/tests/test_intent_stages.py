@@ -99,6 +99,28 @@ def test_ranking_driven_world_puts_it_in_the_ordering_and_uses_the_whole_oracle(
     assert d["pool_minus_reordering"]["ci95"][1] < 0
 
 
+def test_stage_curves_recover_bin_means_and_cluster_on_keywords():
+    rng = np.random.default_rng(3)
+    n = 4000
+    x = rng.uniform(0, 1, n)
+    keyword = rng.integers(0, 40, n)
+    k_effect = rng.normal(0, 0.5, 40)
+    value = 2.0 * x + k_effect[keyword] + rng.normal(0, 0.1, n)
+    mask = np.ones(n, bool)
+    mask[x > 0.95] = False  # last bin empty
+    out = stages.stage_curves(x, keyword, {"K": value, "P": np.full(n, np.nan)}, mask, bins=20)
+    k = out["terms"]["K"]
+    assert out["bin_lower"][0] == 0.0 and out["bin_upper"][-1] == 1.0
+    assert k["mean"][-1] is None and k["n"][-1] == 0
+    centers = (np.asarray(out["bin_lower"][:-1]) + 0.025)
+    assert np.max(np.abs(np.asarray(k["mean"][:-1]) - 2.0 * centers)) < 0.35
+    # keyword clustering: the shared keyword effect makes the clustered error larger than the naive one
+    b = (x >= 0.5) & (x < 0.55)
+    naive = value[b].std(ddof=1) / np.sqrt(b.sum())
+    assert k["se_keyword_cluster"][10] > naive
+    assert all(m is None for m in out["terms"]["P"]["mean"])
+
+
 def test_mediation_separates_the_direct_path_from_the_pool_path():
     rng = np.random.default_rng(6)
     n = 4000
@@ -485,6 +507,11 @@ def test_analyze_end_to_end_reports_every_section(tmp_path, monkeypatch):
     assert results["validity"]["queries"]["missing"] == 0
     assert set(results["replication"]) == {"slopes", "derived", "selection", "ranking_step"}
     assert "Rk" not in results["replication"]["slopes"]
+    curves = results["curves"]["groups"]
+    assert set(primary) <= set(curves) and any(name.endswith("both engines") for name in curves)
+    first = curves[next(iter(primary))]["natural"]
+    assert set(first["u"]["terms"]) == {"R", "C", "P", "K"} and "Q" in first["z"]["terms"]
+    assert len(first["u"]["terms"]["K"]["mean"]) == 20
     assert {"llama4 − qwen38 · duckduckgo", "Reactive − Parallel · llama4 · searxng"} <= set(results["contrasts"])
     report = (analysis / "final-report.html").read_text()
     assert "<title>Intent Surfacing Study</title>" in report and "How much does intent match raise" in report
