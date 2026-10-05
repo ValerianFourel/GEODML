@@ -315,3 +315,35 @@ def test_direct_dataset_mode_commits_final_shards_and_ledger_without_legacy_resu
     assert resumed["completed_count"] == 12
     assert resumed["direct_dataset"]["reused_count"] == 12
     assert second.call_count == 0
+
+
+def test_identical_repeated_failure_in_dataset_mode_keeps_worker_alive(tmp_path):
+    dataset = tmp_path / "dataset"
+    initialize_dataset(dataset, population_id="smoke-population", acceptance_policy_id="experiment-v2")
+    inputs = replace(_smoke_inputs(tmp_path), dataset_root=dataset,
+                     dataset_writer_id="job-1-worker-0", dataset_ledger_stripes=8)
+    original = ReactiveSnippetLoopV1.run
+    skipped = 0
+
+    async def skip_retrieval_twice(self, user_prompt, condition):
+        nonlocal skipped
+        if skipped < 2:
+            skipped += 1
+            return AgenticResult(method_id=self.method_id, condition=condition, ranking=(),
+                                 answer="Premature finish", final_snippets=(),
+                                 trace=self._trace(user_prompt, condition, {"synthetic_test": 1}))
+        return await original(self, user_prompt, condition)
+
+    # Two identical failures exhaust the bounded retry. Before the fix the second
+    # failure record collided ("duplicate record ID") and killed the whole worker.
+    with patch.object(ReactiveSnippetLoopV1, "run", skip_retrieval_twice), \
+            pytest.raises(RuntimeError, match="1 agentic-search cells failed after bounded retry"):
+        asyncio.run(run(inputs, _FakeClientContext()))
+
+    assert skipped == 2
+    manifest = json.loads((inputs.output / "run_manifest.json").read_text())
+    assert manifest["completed_count"] == 11
+    assert len(manifest["failed_cell_ids"]) == 1
+    rows = [json.loads(line) for path in (dataset / "data/failed_attempts").glob("*.jsonl*")
+            for line in path.read_text().splitlines()]
+    assert len({row["record_id"] for row in rows}) == len(rows) >= 1

@@ -1736,20 +1736,24 @@ async def _run_smoke(
                     "llm_calls": generator.diagnostics,
                 }
                 if dataset_writer is not None:
-                    dataset_writer.append(
-                        "failed_attempts",
-                        {
-                            "cell_id": cell.cell_id,
-                            "trace": error.trace.to_dict(),
-                            "diagnostics": failure_diagnostic,
-                            "error": str(error),
-                        },
-                        transaction_id=transaction_id,
-                        record_id=(
-                            f"failed-{transaction_id}-{len(generator.diagnostics)}-"
-                            f"{failure_hash}"
-                        ),
+                    failure_record_id = (
+                        f"failed-{transaction_id}-{len(generator.diagnostics)}-"
+                        f"{failure_hash}"
                     )
+                    # An identical retry (same transaction, call count and trace hash)
+                    # is already recorded; keep the first copy, as the file path does.
+                    if not dataset_writer.has_active_record("failed_attempts", failure_record_id):
+                        dataset_writer.append(
+                            "failed_attempts",
+                            {
+                                "cell_id": cell.cell_id,
+                                "trace": error.trace.to_dict(),
+                                "diagnostics": failure_diagnostic,
+                                "error": str(error),
+                            },
+                            transaction_id=transaction_id,
+                            record_id=failure_record_id,
+                        )
                 else:
                     failure_path = (
                         inputs.output / "failed_traces" / cell.cell_id

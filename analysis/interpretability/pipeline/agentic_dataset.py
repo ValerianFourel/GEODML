@@ -667,6 +667,12 @@ class FinalDatasetWriter:
                 raise
             return asdict(reference)
 
+    def has_active_record(self, table: str, record_id: str) -> bool:
+        """True if this writer's open shard for ``table`` already holds ``record_id``."""
+        with self._lock:
+            writer = self._writers.get(table)
+            return writer is not None and record_id in writer.record_ids
+
     def seal(self) -> list[dict[str, Any]]:
         with self._lock:
             for table, writer in list(self._writers.items()):

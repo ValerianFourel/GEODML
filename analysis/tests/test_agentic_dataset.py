@@ -217,3 +217,18 @@ def test_terminal_writer_recovery_fails_closed_on_partial_tail(tmp_path):
     with pytest.raises(ValueError, match="incomplete active shard tail"):
         recover_inprogress_writer(root, writer_id="job-7-worker0")
     assert writer.active_path.exists()
+
+
+def test_final_writer_reports_records_already_in_its_active_shard(tmp_path):
+    root = tmp_path / "dataset"
+    initialize_dataset(root, population_id="population", acceptance_policy_id="pilot-v2")
+    writer = FinalDatasetWriter(root, writer_id="job-1")
+    assert not writer.has_active_record("failed_attempts", "failed-t-3-abc")
+    writer.append("failed_attempts", {"error": "x"}, transaction_id="t",
+                  record_id="failed-t-3-abc")
+    assert writer.has_active_record("failed_attempts", "failed-t-3-abc")
+    assert not writer.has_active_record("generations", "failed-t-3-abc")
+    with pytest.raises(ValueError, match="duplicate record ID"):
+        writer.append("failed_attempts", {"error": "x"}, transaction_id="t",
+                      record_id="failed-t-3-abc")
+    writer.close()
