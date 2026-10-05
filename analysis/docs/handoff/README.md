@@ -178,3 +178,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Gemma v4 llama-only relaunch through Slurm preparation](2026-10-04_gemma-llama-only-relaunch_handoff.md)
 
 - 2026-10-04 — [Gemma v4 llama preparation on one four-hour CPU allocation](2026-10-04_gemma-cpu-preparation_handoff.md)
+
+- 2026-10-05 — [Gemma sender stopped on empty sacct comments; 57 bouts FAILED](2026-10-05_gemma-sender-empty-sacct-comment_handoff.md)
