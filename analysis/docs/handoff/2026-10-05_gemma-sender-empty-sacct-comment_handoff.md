@@ -73,3 +73,9 @@ and the deterministic overlap repair. An identical rerun is expected to
 reproduce the same outputs, so no retry was recommended. A different
 correction protocol would change scientific settings and is Valerian's call.
 Failure rate: 1,835 of 208,002 maps. Attempt counts on failures not yet checked.
+
+Confirmed (pasted): failed maps by validation attempts: 2 attempts 1,831,
+1 attempt 3, none 1. The corrective retry ran for nearly all failures; they are
+final under the frozen protocol. The 4 maps without a second attempt are not
+diagnosed and are too few to justify an allocation. Sender at shard-0090 at
+15:05 UTC, still reconciling. No further Gemma llama launches are needed.
