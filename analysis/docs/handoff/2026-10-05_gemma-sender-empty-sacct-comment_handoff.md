@@ -50,3 +50,15 @@ terminal bouts. With no pending work it should end as finished or
 finished_with_failures without new submissions. Semantic acceptance of the
 Gemma judgments remains not established. Next: return the blocked-status
 breakdown and the sender's final status.
+
+## Update: blocked tasks classified (pasted, 14:54 UTC)
+
+Answer maps (208,002): 194,178 ok and eligible; 11,958 ok with
+global_absence_only; 21 no_substantive_content; 10 map_unusable; 1,835 failed
+(ok=0). Blocked source tasks (99,816): global_absence_only 85,894,
+map_failed 9,804, map_quarantined 3,946, no_substantive_content 110,
+map_unusable 62. Only the 1,835 failed maps and their 9,804 source tasks are
+inference failures; the rest are protocol outcomes. The plan never retries known
+failures, so a targeted retry is new scope and needs explicit approval and a
+small code path. Failure reasons were requested first. Sender was still
+reconciling (shard-0027 at 14:54 UTC).
