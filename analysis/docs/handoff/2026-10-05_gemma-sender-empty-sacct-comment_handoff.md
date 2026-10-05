@@ -62,3 +62,14 @@ inference failures; the rest are protocol outcomes. The plan never retries known
 failures, so a targeted retry is new scope and needs explicit approval and a
 small code path. Failure reasons were requested first. Sender was still
 reconciling (shard-0027 at 14:54 UTC).
+
+## Update: failed maps are output-validation failures (pasted)
+
+All 1,835 failed answer maps, spread over all 200 shards, are JudgeOutputError:
+mostly "exclusion overlaps claim or exclusion", some "map leaves answer words
+uncovered". The judge runs at temperature zero with task-derived seeds; the
+frozen tasks carry the v4 corrective-retry contract (si-map-corrective-retry-v4-r2)
+and the deterministic overlap repair. An identical rerun is expected to
+reproduce the same outputs, so no retry was recommended. A different
+correction protocol would change scientific settings and is Valerian's call.
+Failure rate: 1,835 of 208,002 maps. Attempt counts on failures not yet checked.
