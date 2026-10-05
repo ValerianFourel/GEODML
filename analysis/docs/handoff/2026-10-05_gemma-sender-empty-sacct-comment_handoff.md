@@ -79,3 +79,25 @@ Confirmed (pasted): failed maps by validation attempts: 2 attempts 1,831,
 final under the frozen protocol. The 4 maps without a second attempt are not
 diagnosed and are too few to justify an allocation. Sender at shard-0090 at
 15:05 UTC, still reconciling. No further Gemma llama launches are needed.
+
+## Update: Qwen pass launcher; failed-map relaunch declined (2026-10-06)
+
+squeue empty. Valerian asked to relaunch the failed maps and to start Gemma on
+the Qwen answers saved so far. Relaunching the 1,835 failed maps was not built:
+they already had the corrective retry at temperature zero, the protocol has no
+retry path for terminal failures, and a third attempt is a protocol change for
+Valerian to decide.
+
+Added `analysis/docs/horeka-gemma-v4-qwen.sh`: `start --source QWEN:qwen38
+--prepare-on-cpu` with the llama run's account and exclusions, in tmux
+`gemma-v4-qwen`. The HF write token is typed hidden inside the session (needed
+for the new reservation commit), never on disk or argv. It refuses to start
+while the `gemma-v4-bouts` session exists, because one sender lock is shared per
+workspace. The freeze takes the Qwen answers complete at that moment; later
+completions need a later pass. Preparation is one cpuonly 4 CPUs/32G
+allocation with a four-hour limit, above the one-hour default; running the
+command is Valerian's approval. Llama measured about 3 h freeze + 13 min
+partition for 312k cells. Inference uses the same frozen settings, 200 in flight,
+five-hour bouts and per-shard ceilings from the plan. This is within the
+original whole-dataset Gemma authorization (qwen38 + llama4).
+Stand-in shell test passed (command, session, no token on disk).
