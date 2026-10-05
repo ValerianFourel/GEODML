@@ -101,3 +101,13 @@ partition for 312k cells. Inference uses the same frozen settings, 200 in flight
 five-hour bouts and per-shard ceilings from the plan. This is within the
 original whole-dataset Gemma authorization (qwen38 + llama4).
 Stand-in shell test passed (command, session, no token on disk).
+
+## Update: Qwen pass submitted (pasted, 2026-10-05 15:25–15:35 UTC)
+
+Llama sender ended `finished_with_failures`, no extra submissions. Qwen sender
+started 15:25:43 UTC in tmux `gemma-v4-qwen` on hkn1990 (PID 50912) from
+469b786, root `$W/reviews/gemma-si-v4-qwen-cpu-5h-20261006`, Qwen source
+`$W/shared-hours/dataset`, account hk-project-p0026831, same exclusions as llama.
+Startup checks took about 7 minutes. sbatch rc 0: preparation job 5183428
+(cpuonly, 4:00:00) PENDING (Priority). Next: confirm it runs, writes plan.json,
+and that the sender reserves on HF and submits bouts.
