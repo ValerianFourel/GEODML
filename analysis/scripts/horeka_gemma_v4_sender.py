@@ -222,10 +222,15 @@ def identify(path, intent, observed, *, persist):
                                 "recovered_at_epoch": time.time()})
         return job
     if confirmed:
-        # Known IDs cannot be silently reassigned when comments disappear.
-        row = observed["jobs"].get(confirmed, observed["accounting"].get(confirmed))
-        if row is not None and row["comment"] != intent["comment"]:
+        # Known IDs cannot be silently reassigned when comments disappear. HoreKa
+        # accounting does not store job comments, so a finished job's sacct row
+        # has an empty one; only a different comment, or a live mismatch, is a conflict.
+        live = observed["jobs"].get(confirmed)
+        row = live or observed["accounting"].get(confirmed)
+        if row is not None and row["comment"] != intent["comment"] and (live or row["comment"]):
             raise ValueError("known allocation no longer matches its submission comment")
+        if row is not None and row["job_name"] != "geodml-gemma-v4-bout":
+            raise ValueError("known allocation has an unexpected job name")
     return confirmed
 
 

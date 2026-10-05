@@ -328,3 +328,38 @@ def test_empty_eligible_queue_preserves_input_blockage_and_does_not_claim_corpus
     assert result['scientific_result'] is False
     assert result['semantic_acceptance'] == result['full_corpus_completion'] == 'not_established'
     assert not c.submissions
+
+
+def test_finished_job_without_accounted_comment_is_reconciled_and_resumed(cluster):
+    # HoreKa sacct returns an empty Comment for finished jobs; the receipt's job ID still binds it.
+    c = cluster(maximum=2)
+    def end(c):
+        s = c.submissions[-1]
+        if len(c.submissions) == 1:
+            c.result(s['shard'], 'incomplete', done=1, pending=1)
+            c.end(s['job'], 'FAILED')
+            c.accounting[s['job']]['comment'] = ''
+        else:
+            c.result(s['shard'], 'finished', done=2)
+            c.end(s['job'])
+            c.accounting[s['job']]['comment'] = ''
+    c.end_action = end
+    assert run(c) == 0
+    assert c.reconciled == ['1000', '1001']
+    assert len(c.submissions) == 2
+    assert summary(c)['shards'][0]['state'] == 'exhausted'
+
+
+@pytest.mark.parametrize('where', ['accounting', 'queue'])
+def test_known_job_with_a_different_comment_still_stops(cluster, where):
+    c = cluster()
+    def end(c):
+        s = c.submissions[-1]
+        if where == 'queue':
+            c.jobs[s['job']]['comment'] = 'geodml-gemma-v4:' + 'f' * 32
+        else:
+            c.end(s['job'], 'FAILED')
+            c.accounting[s['job']]['comment'] = 'geodml-gemma-v4:' + 'f' * 32
+    c.end_action = end
+    with pytest.raises(ValueError, match='no longer matches its submission comment'):
+        run(c)

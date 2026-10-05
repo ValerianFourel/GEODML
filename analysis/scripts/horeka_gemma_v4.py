@@ -62,17 +62,28 @@ def save(path, value):
     atomic(Path(path), judge.canonical(value).encode())
 
 
-def clean_pin():
-    if subprocess.check_output(["git", "-C", str(REPO), "status", "--porcelain", "--untracked-files=all"], text=True).strip():
+def checkout_pin(repository):
+    if subprocess.check_output(["git", "-C", str(repository), "status", "--porcelain", "--untracked-files=all"], text=True).strip():
         raise ValueError("use a clean committed checkout")
-    return subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip()
+    return subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
+
+
+def clean_pin():
+    return checkout_pin(REPO)
 
 
 def checked_plan(root):
     root = Path(root).resolve()
     plan = read(root / "plan.json")
-    if (plan.get("format_version") != FORMAT or plan.get("git_commit") != clean_pin()
-            or plan.get("repository") != str(REPO) or plan.get("root") != str(root)
+    # Bouts always run from the plan's pinned checkout. A newer clean, committed
+    # sender may supervise them; it then verifies that pinned checkout, not itself.
+    execution = Path(plan.get("repository") or "relative")
+    if not execution.is_absolute():
+        raise ValueError("plan or execution pin differs from the approved five-hour run")
+    supervisor = clean_pin()
+    pinned = supervisor if execution == REPO else checkout_pin(execution)
+    if (plan.get("format_version") != FORMAT or plan.get("git_commit") != pinned
+            or plan.get("root") != str(root)
             or plan.get("walltime") != WALLTIME or plan.get("max_inflight") != 200
             or plan.get("poll_seconds") != 600 or plan.get("job_name") != JOB_NAME
             or plan.get("partition") != "accelerated"):

@@ -512,3 +512,29 @@ def test_partition_index_location_does_not_change_shards(tmp_path):
         for name in ("inputs/cells.jsonl.gz", "inputs/tasks.jsonl.gz"):
             assert (bulk.Path(a["directory"]) / name).read_bytes() == (bulk.Path(b["directory"]) / name).read_bytes()
     assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.parametrize("dirty,head,ok", [("", "b" * 40, True), (" M x.py", "b" * 40, False), ("", "c" * 40, False)])
+def test_newer_sender_checkout_verifies_the_pinned_bout_checkout(tmp_path, monkeypatch, dirty, head, ok):
+    pinned = tmp_path / "checkouts/bout"
+    root = tmp_path / "workspace/run"
+    root.mkdir(parents=True)
+    with gzip.GzipFile(filename=str(root / "claims.jsonl.gz"), mode="wb", mtime=0):
+        pass
+    bulk.save(root / "plan.json", {"format_version": bulk.FORMAT, "git_commit": "b" * 40,
+        "repository": str(pinned), "root": str(root), "walltime": bulk.WALLTIME, "max_inflight": 200,
+        "poll_seconds": 600, "job_name": bulk.JOB_NAME, "partition": "accelerated",
+        "workspace": str(tmp_path / "workspace"), "shards": [], "maximum_allocations": 0,
+        "claims_sha256": judge.file_hash(root / "claims.jsonl.gz")})
+    def git(command, **kwargs):
+        repo, action = command[2], command[3]
+        if repo == str(bulk.REPO):  # the sender's own checkout: clean, on a newer commit
+            return "a" * 40 + "\n" if action == "rev-parse" else ""
+        assert repo == str(pinned)
+        return head + "\n" if action == "rev-parse" else dirty
+    monkeypatch.setattr(bulk.subprocess, "check_output", git)
+    if ok:
+        assert bulk.checked_plan(root)["git_commit"] == "b" * 40
+    else:
+        with pytest.raises(ValueError):
+            bulk.checked_plan(root)
