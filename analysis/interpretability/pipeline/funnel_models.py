@@ -353,7 +353,8 @@ def rr_decomposition(answer: np.ndarray, flags: dict, group: np.ndarray, answer_
         result["ci95"] = {n: _interval(reps[:, j]) for j, n in enumerate(names)}
         result["ci95_total"] = _interval(np.nansum(reps, axis=1))
         total = np.nansum(reps, axis=1)
-        result["share_ci95"] = {n: _interval(reps[:, j] / total) for j, n in enumerate(names)}
+        with np.errstate(divide="ignore", invalid="ignore"):  # a zero total gives a non-finite share, dropped by _interval
+            result["share_ci95"] = {n: _interval(reps[:, j] / total) for j, n in enumerate(names)}
     total = result["total_log_rr_K_given_U"]
     result["share"] = {n: (v / total if total else None) for n, v in result["log_rr"].items()}
     return result
