@@ -111,3 +111,17 @@ started 15:25:43 UTC in tmux `gemma-v4-qwen` on hkn1990 (PID 50912) from
 Startup checks took about 7 minutes. sbatch rc 0: preparation job 5183428
 (cpuonly, 4:00:00) PENDING (Priority). Next: confirm it runs, writes plan.json,
 and that the sender reserves on HF and submits bouts.
+
+## Update: queue blocked; move preparation to dev_cpuonly (pasted, 2026-10-06)
+
+Job 5183428 (cpuonly, 4 h) estimated start 2026-10-12T03:00, priority from age
+only; it was the only pending cpuonly job. Test-only probes: cpuonly 1 h and
+4 h start 2026-10-10 19:18; accelerated 5 h 2026-10-10 20:12; no maintenance
+reservation. dev_cpuonly (MaxTime 04:00:00, 12 nodes) would start a 1 h job
+2026-10-06 11:55; dev_accelerated (1 h max) 14:49. CPU preparation checks only
+that it runs inside a Slurm job, not its partition, so moving the pending job
+with `scontrol update JobId=5183428 Partition=dev_cpuonly` keeps the same job ID
+for the sender. preparation-submission.json still says cpuonly; the actual
+partition is in sacct. The four-hour limit is unchanged and has no extra margin:
+llama needed about 3 h 15 min. Judging bouts still face the accelerated queue
+(estimated 10 October) after the plan exists.
