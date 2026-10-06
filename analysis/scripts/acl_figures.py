@@ -330,9 +330,8 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
         raise ValueError("results.json has no curves; rerun intent_stages_study.py analyze at this commit")
     fig, (a, b) = plt.subplots(1, 2, figsize=(DOUBLE, 2.45), gridspec_kw={"wspace": 0.28})
     for ax in (a, b):
-        ax.plot([0, 1], [0, 1], color=LINE, lw=0.7, ls=":", zorder=0)
         ax.set_xlim(0, 1)
-        ax.set_xlabel("prompt position x  (0 = information seeking, 1 = action ready)")
+        ax.set_xlabel("prompt position $x$ (0 information, 1 action)")
         ax.grid(color="#eef1f3", lw=0.5)
         ax.spines[["top", "right"]].set_visible(False)
     drawn = 0
@@ -375,8 +374,8 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
             ax.set_ylim(max(0, lo - pad), min(1, hi + pad))
     if not drawn:
         raise ValueError("no model x engine curves found in results.json")
-    fig.text(0.5, -0.06, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors; "
-             "dotted diagonal: sources exactly at the prompt’s position. Descriptive, not causal.",
+    fig.text(0.5, -0.10, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors; "
+             "Descriptive, not causal.",
              ha="center", fontsize=6.2, color=MUTED)
     return _save(fig, out_dir, "fig4-cited-vs-prompt")
 
