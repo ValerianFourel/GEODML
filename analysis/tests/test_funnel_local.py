@@ -101,3 +101,25 @@ def test_merge_keeps_folder_order_and_drops_republished_cells(tmp_path, monkeypa
     assert manifest["chunks"] == 3 and manifest["chunk_dirs"] == ["qwen.chunks", "llama.chunks"]
     with pytest.raises(ValueError, match="refusing to overwrite"):
         local.merge_chunks([qwen], out, SimpleNamespace(snapshot_sha256={}))  # never overwrites
+
+
+def test_gemma_support_joins_on_the_generation_fingerprint_and_reports_the_join(tmp_path):
+    import gzip
+    import json
+    fp = ["a" * 64, "b" * 64, "c" * 64]
+    rows = [{"record_id": f"generation-{fp[0]}-g1", "row": {"prompt_id": "p1", "condition": "natural"}},
+            {"record_id": f"generation-{fp[1]}-g1", "row": {"prompt_id": "p2", "condition": "natural"}},
+            {"record_id": f"generation-{fp[2]}-g1", "row": {"prompt_id": "p1", "condition": "shuffled"}}]
+    (tmp_path / "objects").mkdir()
+    (tmp_path / "objects" / "gen.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (tmp_path / "generation-objects.json").write_text(json.dumps({"objects/gen.jsonl": "meta-llama/Llama-4-Scout-17B-16E-Instruct"}))
+    gemma = tmp_path / "gemma"
+    gemma.mkdir()
+    grades = [{"fingerprint": fp[0], "doc": 1, "grade": 3}, {"fingerprint": fp[0], "doc": 2, "grade": 1},
+              {"fingerprint": fp[2], "doc": 1, "grade": 5}, {"fingerprint": "d" * 64, "doc": 1, "grade": 4}]
+    with gzip.open(gemma / "grades.jsonl.gz", "wt") as stream:
+        stream.write("".join(json.dumps(g) + "\n" for g in grades))
+    support, info = kw.gemma_support(gemma, tmp_path, {"p1": "crm", "p2": "erp"})
+    assert support == {"crm": 2.0}  # natural answers only; the shuffled cell's grade is not used
+    assert info["graded_answers"] == 3 and info["graded_answers_joined"] == 2 and info["graded_answers_unjoined"] == 1
+    assert info["natural_answers_with_grades"] == 1 and info["natural_answers_seen"] == 2

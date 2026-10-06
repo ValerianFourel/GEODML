@@ -15,9 +15,11 @@ difficulty tercile, and the top and bottom keywords by shrunken slope. Associati
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 import gzip
 import json
 from pathlib import Path
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -72,6 +74,45 @@ def shrink(slope: np.ndarray, se: np.ndarray) -> dict:
     return {"mu": mu, "mu_se": float(np.sqrt(1 / np.sum(wr))), "fixed_effect_mean": fixed,
             "tau2": tau2, "q": q, "df": df, "i2": max(0.0, (q - df) / q) if q > 0 else 0.0,
             "shrinkage": b, "mean": post_mean, "sd": post_sd}
+
+
+GENERATION_RECORD = re.compile(r"^generation-([0-9a-f]{64})-g\d+$")
+
+
+def gemma_support(gemma_dir: Path, hf_root: Path, keyword_of: dict) -> tuple[dict, dict]:
+    """Mean Gemma SI-v4 grade per keyword (development judgments, natural condition): the answer's mean
+    grade over its graded sources, averaged over the keyword's answers. ``grades.jsonl.gz`` of
+    ``intent_stages_study.py gemma-extract`` is keyed by the generation cell fingerprint, which the
+    published generation rows carry inside record_id ('generation-<fingerprint>-g<n>'); the join rate
+    is reported so that a key mismatch is visible, never silent."""
+    grades = defaultdict(list)
+    for row in readiness.read_jsonl(Path(gemma_dir) / "grades.jsonl.gz"):
+        grades[row["fingerprint"]].append(float(row["grade"]))
+    mapping = json.loads((Path(hf_root) / "generation-objects.json").read_text())
+    per_keyword, joined, natural_seen, matched = defaultdict(list), 0, 0, set()
+    for path in mapping:
+        local = Path(hf_root) / path
+        if not local.exists():
+            continue
+        with open(local, encoding="utf-8") as stream:
+            for line in stream:
+                record = json.loads(line)
+                hit = GENERATION_RECORD.match(record.get("record_id", ""))
+                fingerprint = hit.group(1) if hit else record.get("record_id")
+                if fingerprint in grades:
+                    matched.add(fingerprint)
+                row = record["row"]
+                if row.get("condition") != "natural":
+                    continue
+                natural_seen += 1
+                keyword = keyword_of.get(row.get("prompt_id"))
+                if fingerprint in grades and keyword is not None:
+                    joined += 1
+                    per_keyword[keyword].append(float(np.mean(grades[fingerprint])))
+    info = {"graded_answers": len(grades), "graded_answers_joined": len(matched),
+            "graded_answers_unjoined": len(grades) - len(matched), "natural_answers_with_grades": joined,
+            "natural_answers_seen": natural_seen, "development_only": True}
+    return {k: float(np.mean(v)) for k, v in per_keyword.items()}, info
 
 
 def build(args) -> int:
@@ -138,9 +179,11 @@ def build(args) -> int:
         ex = ex[ex["condition"] == "natural"]
         table["retrieved_offtopic_share"] = ex.groupby("keyword_text")["R_offtopic"].mean().reindex(keywords).to_numpy()
     table["gemma_mean_support"] = np.nan  # development judgments: filled from the HoreKa gemma-extract when supplied
-    if args.gemma and Path(args.gemma).exists():
-        g = pd.read_parquet(args.gemma)
-        table["gemma_mean_support"] = g.groupby("keyword")["mean_grade"].mean().reindex(keywords).to_numpy()
+    gemma_info = {"supplied": False}
+    if args.gemma:
+        support, gemma_info = gemma_support(args.gemma, args.hf_root, dict(zip(prompts["prompt_id"], prompts["keyword"])))
+        table["gemma_mean_support"] = [support.get(k, np.nan) for k in keywords]
+        gemma_info["supplied"] = True
     examples = []
     for k in keywords:
         p = prompts[prompts["keyword"] == k].sort_values("x")
@@ -177,7 +220,7 @@ def build(args) -> int:
                "null_q_mean": float(np.mean(null_q)) if null_q else None, "null_q_max": float(np.max(null_q)) if null_q else None,
                "permutations": args.permutations, "share_keywords_shrunk_interval_above_0": float(np.mean(table["slope_shrunk_lo95"] > 0)),
                "share_keywords_shrunk_interval_below_0": float(np.mean(table["slope_shrunk_hi95"] < 0)),
-               "by_intent_class": by_class, "by_difficulty_tercile": by_tercile,
+               "by_intent_class": by_class, "by_difficulty_tercile": by_tercile, "gemma": gemma_info,
                "top20": ranked.tail(20)[["keyword", "slope_shrunk", "slope_shrunk_lo95", "slope_shrunk_hi95", "kw_main_intent"]].iloc[::-1].to_dict("records"),
                "bottom20": ranked.head(20)[["keyword", "slope_shrunk", "slope_shrunk_lo95", "slope_shrunk_hi95", "kw_main_intent"]].to_dict("records"),
                "correlations_with_shrunk_slope": {c: float(table[["slope_shrunk", c]].corr(method="spearman").iloc[0, 1])
@@ -206,7 +249,8 @@ def main(argv=None) -> int:
     parser.add_argument("--features", type=Path, default=home / "geodml-inputs/funnel-features-v1")
     parser.add_argument("--snippets", type=Path, default=hf / "derived/snippet-embeddings/snippet-embeddings-corpus-v1/snippets.parquet")
     parser.add_argument("--prompts", type=Path, default=hf / "snapshots/recovery-5ad9bf081e45d0d0a3131b51/data/prompts.jsonl.gz")
-    parser.add_argument("--gemma", type=Path, help="per-answer Gemma table (development) with keyword, mean_grade")
+    parser.add_argument("--gemma", type=Path, help="intent_stages_study.py gemma-extract folder (development judgments)")
+    parser.add_argument("--hf-root", type=Path, default=hf, help="local Hugging Face mirror with generation-objects.json")
     parser.add_argument("--bootstrap", type=int, default=200)
     parser.add_argument("--permutations", type=int, default=200)
     parser.add_argument("--seed", type=int, default=20261007)
