@@ -29,8 +29,9 @@ ANALYSIS="$R/funnel-analysis-v1"
 REPORT="$R/funnel-report-v1"
 SHARD=${SHARD:-1/1}
 SPECS=${SPECS:-main,visible,complete}
+SPLIT=${SPLIT:-confirmation}  # addendum A1: confirmatory results use the held-out keywords
 CPUS=${SLURM_CPUS_PER_TASK:-1}
-echo "commit $(git -C "$CODE" rev-parse HEAD) job ${SLURM_JOB_ID:-none} shard $SHARD start $(date -u +%FT%TZ)"
+echo "commit $(git -C "$CODE" rev-parse HEAD) job ${SLURM_JOB_ID:-none} shard $SHARD split $SPLIT start $(date -u +%FT%TZ)"
 test -f "$FEATURES/manifest.json" || { echo "missing $FEATURES: fetch the Mac feature table first" >&2; exit 2; }
 
 find_snapshot() {  # the snapshot mirrored next to the datasets (the extract checks its sha256 against the traces)
@@ -74,10 +75,11 @@ if [ ! -f "$ASSEMBLED/manifest.json" ]; then
     --qwen-map "$A/maps/qwen" --mistral-map "$A/maps/mistral" --output "$ASSEMBLED"
 fi
 echo "== analyze shard $SHARD $(date -u +%FT%TZ)"
-"$RT/bin/python" -u "$SCRIPT" analyze --assembled "$ASSEMBLED" --output "$ANALYSIS" --specs "$SPECS" \
+"$RT/bin/python" -u "$SCRIPT" analyze --assembled "$ASSEMBLED" --output "$ANALYSIS" --specs "$SPECS" --split "$SPLIT" \
   --shard "$SHARD" --workers "$CPUS"
 if [ ! -f "$REPORT/final-report.html" ]; then
   echo "== report (exit 3 = other shards still missing) $(date -u +%FT%TZ)"
-  "$RT/bin/python" -u "$SCRIPT" report --assembled "$ASSEMBLED" --output "$ANALYSIS" --specs "$SPECS" --report "$REPORT" || [ $? -eq 3 ]
+  "$RT/bin/python" -u "$SCRIPT" report --assembled "$ASSEMBLED" --output "$ANALYSIS" --specs "$SPECS" --split "$SPLIT" \
+    --report "$REPORT" || [ $? -eq 3 ]
 fi
 echo "end $(date -u +%FT%TZ)"
