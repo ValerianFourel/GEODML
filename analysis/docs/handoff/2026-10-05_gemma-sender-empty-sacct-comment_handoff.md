@@ -125,3 +125,17 @@ for the sender. preparation-submission.json still says cpuonly; the actual
 partition is in sacct. The four-hour limit is unchanged and has no extra margin:
 llama needed about 3 h 15 min. Judging bouts still face the accelerated queue
 (estimated 10 October) after the plan exists.
+
+## Update: fire-all script (2026-10-06)
+
+Valerian asked for one script that sends all missing work now. Added
+`analysis/docs/horeka-fire-all.sh` (b8643ef). Rerunnable, starts only missing
+senders: (1) Gemma-on-Qwen sender, restarted on the same root if its tmux is gone;
+(2) second Qwen recovery sweep at 405b408, `--walltime 05:00:00 --gpu-all-at-once
+--previous-recovery qwen-recovery-20261003`, root `$W/reviews/qwen-recovery-20261006`,
+tmux qwen-recovery-2; (3) tmux dev-mover moving our pending cpuonly preparation
+jobs to dev_cpuonly every 2 min for 6 h, logged to `$W/reviews/fire-all.log`.
+Syntax checked only; not run on the cluster by Claude. The Qwen sweep stops with
+an error if the 2026-10-03 sweep is unfinished. It covers ~456 cells in the
+current division; ~1,000 missing Qwen cells outside it still have no route.
+GPU bouts still face the accelerated queue (estimated 2026-10-10).
