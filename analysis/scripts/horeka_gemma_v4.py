@@ -618,8 +618,17 @@ def start(args):
                     time.sleep(600)
                 else:
                     raise ValueError("preparation sender expired; all allocations preserved")
-    from analysis.scripts.horeka_gemma_v4_sender import send
-    return send(root)
+    from analysis.scripts.horeka_gemma_v4_sender import SenderBusy, send
+    # One Gemma sender per workspace. A later pass waits for the earlier sender to
+    # finish instead of failing; nothing is submitted while it waits.
+    while True:
+        try:
+            return send(root)
+        except SenderBusy as busy:
+            if time.time() + 600 > read(root / "plan.json").get("deadline_epoch", 0):
+                raise ValueError("plan deadline reached while another Gemma sender held the lock") from busy
+            print(json.dumps({"state": "waiting_for_other_gemma_sender", "reason": str(busy), "time": time.time()}), flush=True)
+            time.sleep(600)
 
 
 def main(argv=None):

@@ -66,6 +66,10 @@ def emit(value):
     print(json.dumps({"timestamp_utc": stamp(), **value}, sort_keys=True), flush=True)
 
 
+class SenderBusy(ValueError):
+    """Another finite Gemma sender in this workspace holds the lock."""
+
+
 @contextmanager
 def sender_lock(workspace):
     path = Path(workspace) / "control/gemma-v4-sender.lock"
@@ -74,7 +78,7 @@ def sender_lock(workspace):
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise ValueError(f"another Gemma sender holds {path}; preserve it") from error
+            raise SenderBusy(f"another Gemma sender holds {path}; preserve it") from error
         yield
 
 

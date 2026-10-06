@@ -538,3 +538,35 @@ def test_newer_sender_checkout_verifies_the_pinned_bout_checkout(tmp_path, monke
     else:
         with pytest.raises(ValueError):
             bulk.checked_plan(root)
+
+
+def test_start_waits_for_another_gemma_sender_then_sends(tmp_path, monkeypatch):
+    from analysis.scripts import horeka_gemma_v4_sender as sender
+    root = tmp_path / "run"
+    root.mkdir()
+    args = SimpleNamespace(workspace=tmp_path, output=root, account="test", repo_id="fixture/private",
+                           source=[f"{tmp_path}/dataset:llama4"], exclude_inputs=[], prepare_on_cpu=True)
+    bulk.save(root / "preparation.json", {"git_commit": "a" * 40, "workspace": str(tmp_path), "account": "test",
+        "repo_id": args.repo_id, "sources": args.source, "exclude_inputs": [], "preparation_execution": "cpu"})
+    bulk.save(root / "plan.json", {"deadline_epoch": 10_000})
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
+    now = [1_000.0]
+    sleeps = []
+    monkeypatch.setattr(bulk.time, "time", lambda: now[0])
+    monkeypatch.setattr(bulk.time, "sleep", lambda s: sleeps.append(s) or now.__setitem__(0, now[0] + s))
+    calls = []
+    def send(path):
+        calls.append(path)
+        if len(calls) < 3:
+            raise sender.SenderBusy("another Gemma sender holds the lock")
+        return 0
+    monkeypatch.setattr(sender, "send", send)
+    assert bulk.start(args) == 0
+    assert len(calls) == 3 and sleeps == [600, 600]
+    # The wait is finite: it stops at the plan deadline instead of looping forever.
+    calls.clear()
+    now[0] = 9_500.0
+    monkeypatch.setattr(sender, "send", lambda path: (_ for _ in ()).throw(sender.SenderBusy("busy")))
+    with pytest.raises(ValueError, match="deadline"):
+        bulk.start(args)

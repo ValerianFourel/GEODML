@@ -175,3 +175,22 @@ registered 312,096 Qwen cells, 310,623 published on HF, 402 remaining and runnab
 The other ~1,071 unpublished cells were excluded by the ledger as completed-unpublished,
 claimed/running by ended writers, saved or terminal failures; they need publication
 or Slurm reconciliation, not new inference. Gemma Qwen prep 5183428 at 52 min.
+
+## Update: Qwen Gemma plan and llama top-up pass (2026-10-06)
+
+Qwen Gemma plan (pasted): 288,531 cells_ok, 193 shards, max 386 bouts; 26 cells
+share a prior map, 40 excluded diagnostic cells; 127,715 unique answer maps,
+720,973 source tasks. 193 bouts submitted (fewer than 200 because the partition
+targets at least 1,500 cells per shard).
+
+Valerian asked to finish llama Gemma coverage. Added
+`analysis/docs/horeka-gemma-v4-topup.sh` (any model, one or more `--exclude-inputs`),
+for a llama pass excluding the original diagnostics and the llama run's `frozen/`
+(protocol + file hashes verified by `exclusions()`), so none of the 312,052 judged
+cells repeat. `start` now waits (600 s polls, up to the plan deadline) when another
+Gemma sender holds the workspace lock, via `SenderBusy`, instead of failing; the
+one-sender-per-workspace rule and the 200 in-flight cap are unchanged. The top-up's
+bouts therefore go out only after the Qwen Gemma sender ends. Its freeze re-reads all
+llama answers (about 2–3 h on dev_cpuonly); whether new llama answers exist is
+unknown until then. The 1,835 failed llama maps are not retried (protocol decision).
+Tests: 62 Gemma v4/sender/prequeue pass, including the new wait test; stand-in shell test.
