@@ -53,19 +53,24 @@ def keyword_slopes(prompt_x: np.ndarray, prompt_y: np.ndarray, prompt_kw: np.nda
 
 
 def shrink(slope: np.ndarray, se: np.ndarray) -> dict:
-    """Empirical-Bayes normal-normal shrinkage with the DerSimonian-Laird between-keyword variance."""
+    """Empirical-Bayes normal-normal shrinkage. tau2 is the DerSimonian-Laird between-keyword variance
+    (Q around the fixed-effect mean); the common centre mu is the random-effects mean, weights
+    1/(se^2 + tau2), so that precise keywords do not dominate it when the slopes are heterogeneous."""
     ok = np.isfinite(slope) & np.isfinite(se) & (se > 0)
     w = 1 / se[ok] ** 2
-    mu = float(np.sum(w * slope[ok]) / np.sum(w))
-    q = float(np.sum(w * (slope[ok] - mu) ** 2))
+    fixed = float(np.sum(w * slope[ok]) / np.sum(w))
+    q = float(np.sum(w * (slope[ok] - fixed) ** 2))
     df = int(ok.sum()) - 1
     tau2 = max(0.0, (q - df) / (np.sum(w) - np.sum(w ** 2) / np.sum(w)))
+    wr = 1 / (se[ok] ** 2 + tau2)
+    mu = float(np.sum(wr * slope[ok]) / np.sum(wr))
     b = np.full(len(slope), np.nan)
     post_mean, post_sd = np.full(len(slope), np.nan), np.full(len(slope), np.nan)
     b[ok] = tau2 / (tau2 + se[ok] ** 2)
     post_mean[ok] = mu + b[ok] * (slope[ok] - mu)
     post_sd[ok] = np.sqrt(b[ok] * se[ok] ** 2) if tau2 > 0 else 0.0
-    return {"mu": mu, "tau2": tau2, "q": q, "df": df, "i2": max(0.0, (q - df) / q) if q > 0 else 0.0,
+    return {"mu": mu, "mu_se": float(np.sqrt(1 / np.sum(wr))), "fixed_effect_mean": fixed,
+            "tau2": tau2, "q": q, "df": df, "i2": max(0.0, (q - df) / q) if q > 0 else 0.0,
             "shrinkage": b, "mean": post_mean, "sd": post_sd}
 
 
@@ -163,8 +168,13 @@ def build(args) -> int:
 
     ranked = table.dropna(subset=["slope_shrunk"]).sort_values("slope_shrunk")
     summary = {"keywords": n_kw, "keywords_with_slope": int(np.isfinite(slope).sum()),
-               "pooled_mean_slope": eb["mu"], "between_keyword_variance_tau2": eb["tau2"], "i2": eb["i2"],
+               "pooled_mean_slope": eb["mu"], "pooled_mean_slope_ci95": [eb["mu"] - 1.96 * eb["mu_se"], eb["mu"] + 1.96 * eb["mu_se"]],
+               "fixed_effect_mean_slope": eb["fixed_effect_mean"],
+               "raw_slope_mean_by_se_quintile": [float(v) for v in pd.Series(slope[np.isfinite(slope) & (se > 0)]).groupby(
+                   pd.qcut(se[np.isfinite(slope) & (se > 0)], 5, labels=False)).mean()],
+               "between_keyword_variance_tau2": eb["tau2"], "i2": eb["i2"],
                "heterogeneity_q": eb["q"], "heterogeneity_df": eb["df"], "heterogeneity_permutation_p": p_het,
+               "null_q_mean": float(np.mean(null_q)) if null_q else None, "null_q_max": float(np.max(null_q)) if null_q else None,
                "permutations": args.permutations, "share_keywords_shrunk_interval_above_0": float(np.mean(table["slope_shrunk_lo95"] > 0)),
                "share_keywords_shrunk_interval_below_0": float(np.mean(table["slope_shrunk_hi95"] < 0)),
                "by_intent_class": by_class, "by_difficulty_tercile": by_tercile,

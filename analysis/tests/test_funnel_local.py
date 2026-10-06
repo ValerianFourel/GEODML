@@ -33,6 +33,12 @@ def test_shrinkage_pulls_noisy_keywords_and_detects_heterogeneity():
     noisy[0] = 0.3
     eb3 = kw.shrink(observed, noisy)
     assert abs(eb3["mean"][0] - eb3["mu"]) < abs(observed[0] - eb3["mu"])  # a noisy keyword is pulled to the mean
+    se_mixed = np.r_[np.full(200, 0.01), np.full(200, 0.06)]            # precise keywords have smaller slopes
+    slopes = np.r_[rng.normal(0.02, 0.03, 200), rng.normal(0.12, 0.07, 200)]
+    eb4 = kw.shrink(slopes, se_mixed)
+    wr = 1 / (se_mixed ** 2 + eb4["tau2"])
+    assert eb4["mu"] == pytest.approx(np.sum(wr * slopes) / np.sum(wr))  # the centre is the random-effects mean
+    assert eb4["fixed_effect_mean"] < eb4["mu"] and eb4["fixed_effect_mean"] < 0.04
 
 
 def test_query_lexicon_metrics():
