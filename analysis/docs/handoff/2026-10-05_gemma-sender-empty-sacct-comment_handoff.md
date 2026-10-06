@@ -152,3 +152,18 @@ No Qwen preparation or GPU bout has been submitted. Restarted in tmux qwen-recov
 with the saved settings. fire-all script previous path corrected to
 qwen-recovery-5h-20261003. Holding the two unrelated jobs would unblock admission;
 Valerian's decision.
+
+## Update: direct Qwen division without the recovery check (2026-10-06)
+
+Valerian cancelled 5184572 (never-started Qwen recovery preparation) and 5184545
+(intent-stages), held 5184546, and asked twice to send the missing Qwen cells as
+GPU jobs now without the recovery CPU check. Given route: stop tmux qwen-recovery-2,
+then `horeka_qwen_bouts.py divide` (pin 405b408) on the login host into a new
+`$W/qwen-bouts/division-direct-20261006`, using dataset, plan, seconds-per-cell
+and startup from the CURRENT division, then `submit` all bouts (05:00:00) at once.
+No admission gate applies (no recovery.json in its parent). It skips Slurm
+reconciliation of writers that died: their cells are in the division, but the
+ledger may still refuse them, so they can stay missing. The inventory and HF
+read run on the login node, against the usual rule, at Valerian's request.
+qwen-recovery-20261006 is left as is (preparation renamed only if Valerian
+ran that block).
