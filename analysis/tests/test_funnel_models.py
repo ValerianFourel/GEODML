@@ -1,6 +1,7 @@
 """Funnel estimators: Chamberlain conditional logit, block designs with shared draws, exact decomposition."""
 
 from itertools import combinations
+import json
 
 import numpy as np
 import pytest
@@ -108,7 +109,7 @@ def test_invisible_feature_is_null_when_visible_text_is_controlled_and_not_other
     assert no_text.x[1] > 0.3  # without the visible text, the hidden feature absorbs it (the negative-control logic)
 
 
-def test_estimate_blocks_reports_odds_ratios_intervals_and_x_permutations():
+def _toy_choice_stage():
     rng = np.random.default_rng(5)
     keywords, prompts_per = 40, 6
     answers = keywords * prompts_per
@@ -130,6 +131,11 @@ def test_estimate_blocks_reports_odds_ratios_intervals_and_x_permutations():
     draws = stages.keyword_draws(keywords, 12, 7)
     prompt_x = answer_x  # one answer per prompt here
     shuffles = stages.shuffle_draws(prompt_x, answer_keyword, 19, 8)
+    return stage, answer_x, answer_keyword, draws, shuffles
+
+
+def test_estimate_blocks_reports_odds_ratios_intervals_and_x_permutations():
+    stage, answer_x, answer_keyword, draws, shuffles = _toy_choice_stage()
     out = fm.estimate_blocks(stage, answer_x=answer_x, answer_keyword=answer_keyword, draws=draws, shuffles=shuffles)
     f = out["features"]
     assert f["alignment"]["beta_per_sd"] > 0.3 and f["alignment"]["permutation_p"] == pytest.approx(1 / 20)
@@ -184,3 +190,31 @@ def test_contrast_and_empirical_null():
     c = fm.contrast_from_replicates(a, b, "brand")
     assert c["estimate"] == pytest.approx(0.65) and c["ci95"][0] > 0.5
     assert fm.empirical_null(a, "C2")["features"] == 2
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_a_task_stopped_at_the_deadline_resumes_from_its_checkpoint(tmp_path, monkeypatch, workers):
+    stage, answer_x, answer_keyword, draws, shuffles = _toy_choice_stage()
+    args = dict(answer_x=answer_x, answer_keyword=answer_keyword, draws=draws, shuffles=shuffles, workers=workers)
+    reference = fm.estimate_blocks(stage, **args)
+    clock = iter(range(10 ** 6))
+    monkeypatch.setattr(fm.time, "monotonic", lambda: next(clock))  # each deadline check advances the clock by one
+    parts = tmp_path / "task.parts.jsonl"
+    with pytest.raises(fm.DeadlineReached):
+        fm.estimate_blocks(stage, parts=parts, deadline=6, **args)
+    saved = [json.loads(line)["key"] for line in parts.read_text().splitlines()]
+    assert saved[0] == "full-0" and 1 < len(saved) < 1 + 2 + len(draws) + len(shuffles)
+    with open(parts, "a") as stream:
+        stream.write('{"key": "bootstrap-9", "val')  # a torn line from a killed writer is ignored
+    monkeypatch.setattr(fm, "_fit", _counting(fm._fit, calls := []))
+    resumed = fm.estimate_blocks(stage, parts=parts, **args)
+    assert resumed == reference
+    if workers == 1:  # the full fit and the saved units are not refitted
+        assert len(calls) == 2 + len(draws) + len(shuffles) - (len(saved) - 1)
+
+
+def _counting(function, calls):
+    def wrapped(*a, **k):
+        calls.append(1)
+        return function(*a, **k)
+    return wrapped

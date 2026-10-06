@@ -11,6 +11,8 @@ C, presented P, ranked K. This module provides
   each shuffle of the prompt position for the features that depend on it.
 * ``estimate_blocks``: full fit, drop-one-block fit shares, keyword-bootstrap and within-keyword
   shuffle replicates (shared draws so contrasts between stages and strata have valid intervals).
+  Every fit is one work unit: units can be checkpointed to a JSON-lines file and a deadline stops
+  admitting new units (``DeadlineReached``), so a long task resumes in the next allocation.
 * ``rr_decomposition``: the exact identity log RR(K|U) = log RR(R|U) + log RR(C|R) + log RR(P|C)
   + log RR(K|P) between two groups of items, in every bootstrap replicate.
 Observational throughout.
@@ -19,7 +21,12 @@ Observational throughout.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import multiprocessing
+import os
+from pathlib import Path
+import time
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -175,19 +182,28 @@ class Design:
             self.stats[f.name] = (mean, sd if sd > 0 else 1.0)
         return self.stats
 
+    def _column(self, f: Feature, x_row: np.ndarray) -> np.ndarray:
+        mean, sd = self.stats[f.name]
+        z = (self.raw(f, x_row) - mean) / sd
+        return np.where(np.isfinite(z), z, 0.0)
+
     def matrix(self, x_row: np.ndarray, *, drop_block: str | None = None, rows: np.ndarray | None = None) -> np.ndarray:
         """Standardised design; missing values become 0 (the mean) — missingness enters through the
-        block indicators the caller adds as static features."""
-        out = []
-        for f in self.features:
-            if drop_block is not None and f.block == drop_block:
-                continue
-            column = self.raw(f, x_row)
-            mean, sd = self.stats[f.name]
-            z = (column - mean) / sd
-            z = np.where(np.isfinite(z), z, 0.0)
-            out.append(z if rows is None else z[rows])
-        return np.column_stack(out) if out else np.zeros((len(x_row) if rows is None else len(rows), 0))
+        block indicators the caller adds as static features. Column-major, so that the choice fit's
+        per-column arrays are views and a refresh of the x-dependent columns touches only those."""
+        kept = [f for f in self.features if drop_block is None or f.block != drop_block]
+        n = len(x_row) if rows is None else len(rows)
+        out = np.empty((n, len(kept)), order="F")
+        for j, f in enumerate(kept):
+            z = self._column(f, x_row)
+            out[:, j] = z if rows is None else z[rows]
+        return out
+
+    def refresh(self, X: np.ndarray, x_row: np.ndarray) -> None:
+        """Overwrite, in place, the x-dependent columns of a full ``matrix`` with those of ``x_row``."""
+        for j, f in enumerate(self.features):
+            if f.kind != "static":
+                X[:, j] = self._column(f, x_row)
 
     @property
     def names(self):
@@ -220,6 +236,10 @@ class Stage:
 _STATE: dict = {}
 
 
+class DeadlineReached(Exception):
+    """The deadline passed with work units of a task still unstarted; finished units are checkpointed."""
+
+
 def _fit(stage: Stage, X: np.ndarray, weight=None, start=None):
     if stage.kind == "admission":
         return fit_admission(X, stage.data, weight=weight, start=start)
@@ -233,44 +253,102 @@ def _group_keyword(stage: Stage, answer_keyword: np.ndarray) -> np.ndarray:
 
 
 def _replicate(job):
-    kind, value = job
+    kind, _, value = job
     stage, x, keyword, start = _STATE["stage"], _STATE["x"], _STATE["keyword"], _STATE["start"]
     if kind == "drop":  # drop-one-block refit (no start, no weight): its failure is an error, as for the full fit
         return [float(_fit(stage, stage.design.matrix(x[stage.row_answer], drop_block=value)).fun)]
     k = len(stage.design.features)
+    # the full-fit matrix, inherited by forked workers; each unit first writes the x-dependent columns
+    # it needs (the observed x for the bootstrap, a shuffle for the null), so only those pages are copied
+    X = _STATE["X"]
+    stage.design.refresh(X, (x if kind == "bootstrap" else value)[stage.row_answer])
     try:
-        if kind == "bootstrap":  # the observed x: the full-fit matrix, shared read-only with forked workers
-            result = _fit(stage, _STATE["X"], weight=value[_group_keyword(stage, keyword)], start=start)
+        if kind == "bootstrap":
+            result = _fit(stage, X, weight=value[_group_keyword(stage, keyword)], start=start)
         else:
-            X = stage.design.matrix(value[stage.row_answer])
             result = _fit(stage, X, start=start)
         return [float(v) for v in result.x[:k]]
     except RuntimeError:
         return [float("nan")] * k  # counted as a failed replicate, never dropped silently
 
 
-def _run(jobs, workers):
-    if workers <= 1 or len(jobs) < 2:
-        return [_replicate(job) for job in jobs]
-    from concurrent.futures import ProcessPoolExecutor
-    with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork")) as pool:
-        return list(pool.map(_replicate, jobs, chunksize=1))
+def _load_parts(parts: Path | None) -> dict:
+    """Finished units of an interrupted task (a torn last line from a killed writer is ignored)."""
+    done = {}
+    if parts is not None and Path(parts).exists():
+        for line in Path(parts).read_text().splitlines():
+            try:
+                unit = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            done[unit["key"]] = unit["value"]
+    return done
+
+
+def _keep(parts: Path | None, done: dict, key: str, value) -> None:
+    done[key] = value
+    if parts is not None:
+        with open(parts, "a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"key": key, "value": value}) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+
+
+def _run(jobs, workers, parts: Path | None = None, deadline: float | None = None, done: dict | None = None):
+    """Results of ``jobs`` (kind, index, value) in order. Units already in ``done``/``parts`` are reused;
+    after ``deadline`` (time.monotonic) no new unit starts and DeadlineReached is raised once the
+    running ones are saved."""
+    done = _load_parts(parts) if done is None else done
+    todo = [job for job in jobs if f"{job[0]}-{job[1]}" not in done]
+    late = lambda: deadline is not None and time.monotonic() > deadline  # noqa: E731
+    if workers <= 1 or len(todo) < 2:
+        for job in todo:
+            if late():
+                raise DeadlineReached
+            _keep(parts, done, f"{job[0]}-{job[1]}", _replicate(job))
+    else:
+        from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+        queue = iter(todo)
+        with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("fork")) as pool:
+            running = {pool.submit(_replicate, job): job for job in [next(queue) for _ in range(min(workers, len(todo)))]}
+            submitted = len(running)
+            while running:
+                finished, _ = wait(running, return_when=FIRST_COMPLETED)
+                for future in finished:
+                    job = running.pop(future)
+                    _keep(parts, done, f"{job[0]}-{job[1]}", future.result())
+                while len(running) < workers and submitted < len(todo) and not late():
+                    job = next(queue)
+                    running[pool.submit(_replicate, job)] = job
+                    submitted += 1
+        if submitted < len(todo):
+            raise DeadlineReached
+    return [done[f"{job[0]}-{job[1]}"] for job in jobs]
 
 
 def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.ndarray, draws: list,
-                    shuffles: list, workers: int = 1) -> dict:
+                    shuffles: list, workers: int = 1, parts: Path | None = None, deadline: float | None = None) -> dict:
     """Coefficients per SD (odds ratio per SD), 95% keyword-bootstrap intervals, within-keyword
     permutation p for x-dependent features, drop-one-block fit shares and the replicate matrix.
     ``draws``: keyword resample counts (indexed by keyword code); ``shuffles``: answer-level x arrays."""
     design = stage.design
     X = design.matrix(answer_x[stage.row_answer])
-    full = _fit(stage, X)
+    done = _load_parts(parts)
+    if "full-0" not in done:
+        if deadline is not None and time.monotonic() > deadline:
+            raise DeadlineReached
+        fitted = _fit(stage, X)
+        _keep(parts, done, "full-0", {"x": [float(v) for v in fitted.x], "fun": float(fitted.fun)})
+    full = SimpleNamespace(x=np.asarray(done["full-0"]["x"], float), fun=done["full-0"]["fun"])
     k = len(design.features)
     _STATE.update(stage=stage, x=answer_x, keyword=answer_keyword, start=full.x, X=X)
     blocks = list(design.blocks)
-    jobs = [("drop", b) for b in blocks] + [("bootstrap", d) for d in draws] + [("permutation", s) for s in shuffles]
-    done = _run(jobs, workers)
-    _STATE.clear()
+    jobs = ([("drop", i, b) for i, b in enumerate(blocks)] + [("bootstrap", i, d) for i, d in enumerate(draws)]
+            + [("permutation", i, s) for i, s in enumerate(shuffles)])
+    try:
+        done = _run(jobs, workers, parts, deadline, done)
+    finally:
+        _STATE.clear()
     gains = {b: max(0.0, done[i][0] - float(full.fun)) for i, b in enumerate(blocks)}
     total_gain = sum(gains.values())
     replicates = np.asarray(done[len(blocks):], float).reshape(len(jobs) - len(blocks), k)

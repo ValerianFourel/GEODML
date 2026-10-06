@@ -102,7 +102,7 @@ def test_analyze_in_shards_then_report(pipeline, monkeypatch):
     report_args = ["report", "--assembled", str(pipeline["assembled"]), "--output", str(pipeline["tmp"] / "analysis"),
                    "--specs", "main,visible", "--bootstrap", "3", "--permutations", "3", "--secondary-bootstrap", "2",
                    "--split", "all", "--report", str(pipeline["tmp"] / "report")]
-    assert run_analysis(pipeline, "1/2", extra=("--stop-after-minutes", "-1")) == 0  # the guard starts no task
+    assert run_analysis(pipeline, "1/2", extra=("--stop-after-minutes", "-1")) == 4  # deadline checkpoint: no task started
     assert study.main(report_args) == 3
     assert run_analysis(pipeline, "1/2") == 0
     assert study.main(report_args) == 3  # shard 2 is missing

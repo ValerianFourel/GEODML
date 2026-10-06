@@ -512,13 +512,15 @@ def analyze(args) -> int:
     shuffles = [s[ans.prompt] for s in stages.shuffle_draws(prompt_x, prompt_keyword,
                                                             max(args.permutations, args.secondary_permutations), args.seed + 1)]
     cache = ResultCache(Path(args.output), cache_key(data, args))
-    started = time.monotonic()
+    # after the deadline no new task and no new fit within a task starts; finished fits are checkpointed
+    deadline = time.monotonic() + 60 * args.stop_after_minutes
     for stratum, stage, spec in mine:
         name = f"{stratum}|{stage}|{spec}"
-        path = cache.directory / f"{hashlib.sha256(name.encode()).hexdigest()[:16]}.json"
-        if not path.exists() and (time.monotonic() - started) / 60 > args.stop_after_minutes:
-            print(json.dumps({"stopped_before": name, "reason": "allocation deadline guard"}), flush=True)
-            break
+        digest = hashlib.sha256(name.encode()).hexdigest()[:16]
+        path = cache.directory / f"{digest}.json"
+        if not path.exists() and time.monotonic() > deadline:
+            print(json.dumps({"stopped_before": name, "reason": "deadline checkpoint"}), flush=True)
+            return 4
         n_boot, n_perm = draws_for(spec, args)
 
         def compute():
@@ -527,9 +529,14 @@ def analyze(args) -> int:
                 return {"empty": True}
             task.design.stats = dict(stats)
             return fm.estimate_blocks(task, answer_x=ans.x, answer_keyword=ans.keyword, draws=draws[:n_boot],
-                                      shuffles=shuffles[:n_perm], workers=workers)
+                                      shuffles=shuffles[:n_perm], workers=workers,
+                                      parts=cache.directory / f"{digest}.parts.jsonl", deadline=deadline)
 
-        result = cache.get(name, compute)
+        try:
+            result = cache.get(name, compute)
+        except fm.DeadlineReached:
+            print(json.dumps({"stopped_in": name, "reason": "deadline checkpoint", "time": readiness.now()}), flush=True)
+            return 4
         print(json.dumps({"task": name, "reused": cache.reused, "time": readiness.now(),
                           "or": {k: round(v["odds_ratio_per_sd"], 3) for k, v in result.get("features", {}).items()
                                  if k in ("intent_alignment", "topic_similarity", PRIMARY_C1)}}), flush=True)
@@ -734,7 +741,8 @@ def main(argv=None) -> int:
             p.add_argument("--shard", default="1/1")
             p.add_argument("--workers", type=int)
             p.add_argument("--stop-after-minutes", type=float, default=50.0,
-                           help="do not start a new task after this many minutes (one-hour allocations)")
+                           help="after this many minutes start no new task or fit; finished fits are checkpointed "
+                                "and the command exits 4 (deadline checkpoint); rerun to continue")
         else:
             p.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(argv)
