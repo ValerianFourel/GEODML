@@ -11,8 +11,17 @@
                    fig4-cited-vs-prompt   prompt position vs the position of the cited sources
                                           (needs --results: results.json of intent_stages_study.py analyze)
 
+                 Funnel study (needs --funnel-results and/or --explore):
+                   fig5-funnel-odds-ratios  odds ratio per SD of selected features at each stage
+                                            (results.json of funnel_study.py report)
+                   fig6-decomposition       exact cumulative log risk ratio from the keyword's rows U to the
+                                            ranked list K, stage by stage (same results.json)
+                   fig7-offtopic            share of items from another keyword's rows at R, P, K
+                   fig8-stage-intent        page intent of the items at R0, R, P, K (explore.json of
+                                            funnel_explore.py)
+
 Every number drawn in fig2 and fig3 is a constant in TESTBED with its source; nothing is invented.
-Fig4 draws only the descriptive curves stored by the analysis; no curve is drawn without data.
+Fig4-8 draw only what the analyses stored; no curve or interval is drawn without data.
 """
 from __future__ import annotations
 
@@ -473,6 +482,174 @@ def _finish_fig4(plt, fig, axes, drawn, condition, out_dir):
     return _save(fig, out_dir, "fig4-cited-vs-prompt" + ("-by-method" if getattr(fig, "_facet", "engine") == "method" else ""))
 
 
+# ---------------------------------------------------------------- funnel study
+
+STAGE_TITLE = {"R|U": "R | U\nretrieval", "R0|U": "R0 | U\nprompt-text search", "P|C": "P | C\nshortlist", "K|P": "K | P\nranking"}
+FUNNEL_FEATURES = [("intent_alignment", "intent alignment −|u − x|", "A1"), ("intent_x_prompt", "page intent × (x − ½)", "A1"),
+                   ("topic_similarity", "topic similarity", "A2"), ("stored_position", "stored engine position", "B"),
+                   ("dfs_organic_count", "domain organic keywords (DataForSEO)", "C1"), ("open_pagerank", "Open PageRank", "C1"),
+                   ("google_top20_url", "URL in Google top 20", "C1"), ("body_structured_data", "page has structured data", "C2"),
+                   ("body_word_count", "page word count", "C2")]
+DECOMPOSITION_STEPS = [("retrieval|U", "R"), ("reranker_candidate|R", "C"), ("shortlist|C", "P"), ("ranking|P", "K")]
+METHOD_SHORT = {"Parallel": "Parallel Expansion", "Reactive": "Reactive Loop"}
+
+
+def _strata(names):
+    """(model, method) of 'model · Method' strata, models then methods in a fixed order."""
+    out = []
+    for name in names:
+        parts = [p.strip() for p in name.split("·")]
+        if len(parts) == 2 and parts[1] in METHOD_SHORT:
+            out.append((name, parts[0], parts[1]))
+    return sorted(out, key=lambda t: (t[1], t[2]))
+
+
+def fig5_funnel(plt, results: dict, out_dir: Path, *, spec="main") -> list[str]:
+    import numpy as np
+    models = results.get("models", {}).get(spec, {})
+    strata = _strata(models)
+    if not strata:
+        raise ValueError(f"results.json has no fitted strata for specification {spec!r}")
+    stages = [s for s in STAGE_TITLE if any(models[n].get(s, {}).get("features") for n, _, _ in strata)]
+    fig, axes = plt.subplots(1, len(stages), figsize=(DOUBLE, 3.0), sharey=True, sharex=True, gridspec_kw={"wspace": 0.08})
+    axes = np.atleast_1d(axes)
+    rows = [f for f in FUNNEL_FEATURES if any(f[0] in models[n].get(s, {}).get("features", {}) for n, _, _ in strata for s in stages)]
+    y = np.arange(len(rows))[::-1]
+    offsets = np.linspace(-0.22, 0.22, len(strata)) if len(strata) > 1 else [0.0]
+    drawn, seen = 0, []
+    for ax, stage in zip(axes, stages):
+        ax.axvline(1.0, color=LINE, lw=0.7, zorder=0)
+        for (name, model, method), dy in zip(strata, offsets):
+            features = models[name].get(stage, {}).get("features", {})
+            for yi, (feature, _, _) in zip(y, rows):
+                f = features.get(feature)
+                if not f:
+                    continue
+                lo, hi = f.get("ci95") or [None, None]
+                colour = MODEL.get(model, INK)
+                marker = "o" if method == "Parallel" else "s"
+                if lo is not None and hi is not None:
+                    ax.plot([np.exp(lo), np.exp(hi)], [yi + dy, yi + dy], color=colour, lw=0.9, solid_capstyle="butt")
+                    seen += [np.exp(lo), np.exp(hi)]
+                seen.append(f["odds_ratio_per_sd"])
+                ax.plot([f["odds_ratio_per_sd"]], [yi + dy], marker=marker, ms=3.0, color=colour,
+                        mfc=colour if method == "Parallel" else "white", mew=0.8, ls="none")
+                drawn += 1
+        ax.set_xscale("log")
+        ax.set_title(STAGE_TITLE[stage], loc="left", fontsize=7.6)
+        ax.grid(axis="x", color="#eef1f3", lw=0.5)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.set_xlabel("odds ratio per SD")
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullFormatter
+    lo, hi = min(seen + [1.0]), max(seen + [1.0])
+    ticks = [t for t in (0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0) if lo / 1.05 <= t <= hi * 1.05] or [1.0]
+    for ax in axes:
+        ax.set_xlim(lo / 1.12, hi * 1.12)
+        ax.xaxis.set_major_locator(FixedLocator(ticks))
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+        ax.xaxis.set_minor_formatter(NullFormatter())
+    axes[0].set_yticks(y)
+    axes[0].set_yticklabels([f"{label}  [{block}]" for _, label, block in rows])
+    from matplotlib.lines import Line2D
+    handles = [Line2D([], [], color=MODEL.get(m, INK), marker="o" if meth == "Parallel" else "s",
+                      mfc=MODEL.get(m, INK) if meth == "Parallel" else "white", lw=0.9)
+               for _, m, meth in strata]
+    labels = [f"{MODEL_LABEL.get(m, m)} · {METHOD_SHORT[meth]}" for _, m, meth in strata]
+    fig.legend(handles, labels, frameon=False, loc="upper center", ncol=len(strata), bbox_to_anchor=(0.5, 0.0))
+    settings = results.get("settings", {})
+    fig.text(0.5, -0.09, f"{settings.get('split', '')} keywords; {spec} specification; 95% keyword-bootstrap intervals "
+             f"({settings.get('bootstrap', '?')} draws).\n[A] visible text, [B] search, [C1] off-page, [C2] page body "
+             "(unseen by every component: negative controls). Associations, not effects.",
+             ha="center", va="top", fontsize=6.0, color=MUTED)
+    if not drawn:
+        raise ValueError("no feature estimates to draw")
+    return _save(fig, out_dir, "fig5-funnel-odds-ratios")
+
+
+def fig6_decomposition(plt, results: dict, out_dir: Path) -> list[str]:
+    import numpy as np
+    decomposition = results.get("decomposition", {})
+    strata = _strata(decomposition)
+    if not strata:
+        raise ValueError("results.json has no decomposition")
+    fig, axes = plt.subplots(1, len(strata), figsize=(DOUBLE, 2.6), sharey=True, gridspec_kw={"wspace": 0.08})
+    axes = np.atleast_1d(axes)
+    palette = ["#2f6f9f", "#7a9a3a", "#c0632b", "#6b4c9a", "#5b6770", "#b8860b", "#2a9d8f", "#a23b72", "#1f2a30"]
+    labels = {f: label for f, label, _ in FUNNEL_FEATURES} | {"page_intent_z": "page intent z"}
+    drawn = 0
+    for ax, (name, model, method) in zip(axes, strata):
+        ax.axhline(0, color=LINE, lw=0.7, zorder=0)
+        for i, (feature, d) in enumerate(decomposition[name].items()):
+            if not d.get("answers"):
+                continue
+            steps = [d["log_rr"].get(key) for key, _ in DECOMPOSITION_STEPS]
+            if any(v is None for v in steps):
+                continue
+            path = np.r_[0.0, np.cumsum(steps)]
+            colour = palette[i % len(palette)]
+            ax.plot(range(5), path, marker="o", ms=2.4, lw=1.0, color=colour, label=labels.get(feature, feature))
+            lo, hi = d.get("ci95_total") or [None, None]
+            if lo is not None:
+                ax.plot([4.08 + 0.02 * i] * 2, [lo, hi], color=colour, lw=0.8)
+            drawn += 1
+        ax.set_xticks(range(5))
+        ax.set_xticklabels(["U", "R", "C", "P", "K"])
+        ax.set_title(f"{MODEL_LABEL.get(model, model)} · {METHOD_SHORT[method]}", loc="left")
+        ax.grid(color="#eef1f3", lw=0.5)
+        ax.spines[["top", "right"]].set_visible(False)
+    axes[0].set_ylabel("cumulative log risk ratio\n(top vs bottom quartile in U)")
+    handles, names = axes[0].get_legend_handles_labels()
+    fig.legend(handles, names, frameon=False, loc="center left", bbox_to_anchor=(1.0, 0.5))
+    fig.text(0.5, -0.06, "Exact identity: log RR(K|U) = R|U + C|R + P|C + K|P; bar at K: 95% keyword-bootstrap interval of the total. "
+             "Associations, not effects.", ha="center", fontsize=6.0, color=MUTED)
+    if not drawn:
+        raise ValueError("no decomposition paths to draw")
+    return _save(fig, out_dir, "fig6-decomposition")
+
+
+def _stage_panels(plt, explore: dict, terms, ylabel: str, name: str, note: str, out_dir: Path) -> list[str]:
+    import numpy as np
+    strata = _strata(explore.get("curves", {}))
+    if not strata:
+        raise ValueError("explore.json has no model x method curves")
+    fig, axes = plt.subplots(1, len(strata), figsize=(DOUBLE, 2.4), sharey=True, gridspec_kw={"wspace": 0.08})
+    axes = np.atleast_1d(axes)
+    drawn = 0
+    for ax, (stratum, model, method) in zip(axes, strata):
+        block = explore["curves"][stratum]
+        for term, label, ls, colour, band in terms(model):
+            drawn += _series(ax, block, term, color=colour, ls=ls, band=band, lw=1.2 if ls == "-" else 0.9, label=label)
+        ax.set_xlim(0, 1)
+        ax.set_xlabel("prompt position $x$ (0 information, 1 action)")
+        ax.set_title(f"{MODEL_LABEL.get(model, model)} · {METHOD_SHORT[method]}", loc="left")
+        ax.grid(color="#eef1f3", lw=0.5)
+        ax.spines[["top", "right"]].set_visible(False)
+    axes[0].set_ylabel(ylabel)
+    axes[0].legend(frameon=False, loc="best")
+    fig.text(0.5, -0.09, f"natural condition; {explore.get('keywords', '?')} exploration keywords, {explore.get('natural', '?')} answers; "
+             f"bands: ±1.96 keyword-clustered SE. {note}", ha="center", fontsize=6.0, color=MUTED)
+    if not drawn:
+        raise ValueError("no stage curves to draw")
+    return _save(fig, out_dir, name)
+
+
+def fig7_offtopic(plt, explore: dict, out_dir: Path) -> list[str]:
+    return _stage_panels(plt, explore, lambda m: [
+        ("R_offtopic", "retrieved by the AI’s searches [R]", ":", MODEL.get(m, INK), False),
+        ("P_offtopic", "shortlist shown [P]", "--", MODEL.get(m, INK), False),
+        ("K_offtopic", "ranked / cited [K]", "-", MODEL.get(m, INK), True)],
+        "share of items from another\nkeyword’s rows", "fig7-offtopic", "Descriptive.", out_dir)
+
+
+def fig8_stage_intent(plt, explore: dict, out_dir: Path) -> list[str]:
+    return _stage_panels(plt, explore, lambda m: [
+        ("R0_u", "frozen search on the prompt text [R0]", "-.", MUTED, False),
+        ("R_u", "retrieved by the AI’s searches [R]", ":", MODEL.get(m, INK), False),
+        ("P_u", "shortlist shown [P]", "--", MODEL.get(m, INK), False),
+        ("K_u", "ranked / cited [K]", "-", MODEL.get(m, INK), True)],
+        "page intent of the items\n(0–1 prompt scale)", "fig8-stage-intent", "Descriptive.", out_dir)
+
+
 # ---------------------------------------------------------------- CLI
 
 def main(argv=None) -> int:
@@ -497,6 +674,8 @@ def main(argv=None) -> int:
     p.add_argument("--results", type=Path, help="results.json of intent_stages_study.py analyze")
     p.add_argument("--condition", choices=["natural", "all"], default="natural")
     p.add_argument("--facet", choices=["engine", "method"], default="method", help="split figure 4 by search engine or search method")
+    p.add_argument("--funnel-results", type=Path, help="results.json of funnel_study.py report (fig5, fig6)")
+    p.add_argument("--explore", type=Path, help="explore.json of funnel_explore.py (fig7, fig8)")
     p.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "axis-examples":
@@ -539,6 +718,14 @@ def main(argv=None) -> int:
     if args.results:
         written["fig4"] = fig4(plt, json.loads(args.results.read_text(encoding="utf-8")), args.output_dir,
                                condition=args.condition, facet=args.facet)
+    if args.funnel_results:
+        funnel = json.loads(args.funnel_results.read_text(encoding="utf-8"))
+        written["fig5"] = fig5_funnel(plt, funnel, args.output_dir)
+        written["fig6"] = fig6_decomposition(plt, funnel, args.output_dir)
+    if args.explore:
+        explore = json.loads(args.explore.read_text(encoding="utf-8"))
+        written["fig7"] = fig7_offtopic(plt, explore, args.output_dir)
+        written["fig8"] = fig8_stage_intent(plt, explore, args.output_dir)
     print(json.dumps(written, indent=2))
     return 0
 

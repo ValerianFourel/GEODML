@@ -86,3 +86,28 @@ def test_cited_from_generations_weights_ranks_dedupes_and_recovers_the_slope():
     assert (d / "fig4-cited-vs-prompt-by-method.pdf").exists()
     assert figs.main(["render", "--results", str(d / "r.json"), "--facet", "engine", "--output-dir", str(d)]) == 0
     assert (d / "fig4-cited-vs-prompt.pdf").exists()
+
+
+def test_funnel_figures_render_from_their_results_and_refuse_empty_input(tmp_path):
+    def feature(block):
+        return {"block": block, "beta_per_sd": 0.1, "odds_ratio_per_sd": 1.105, "ci95": [0.05, 0.15], "permutation_p": None}
+    stage = {"features": {name: feature(block) for name, _, block in figs.FUNNEL_FEATURES}}
+    strata = ["qwen38 · Parallel", "qwen38 · Reactive"]
+    steps = {"retrieval|U": 0.1, "reranker_candidate|R": 0.0, "shortlist|C": 0.5, "ranking|P": 0.1}
+    funnel = {"settings": {"split": "exploration", "bootstrap": 10},
+              "models": {"main": {s: {st: stage for st in ("R|U", "R0|U", "P|C", "K|P")} for s in strata}},
+              "decomposition": {s: {"topic_similarity": {"answers": 10, "log_rr": steps, "ci95_total": [0.5, 0.9]}} for s in strata}}
+    terms = ("R_u", "P_u", "K_u", "R0_u", "R_offtopic", "P_offtopic", "K_offtopic")
+    block = {"bin_lower": [0.0, 0.5], "bin_upper": [0.5, 1.0],
+             "terms": {t: {"mean": [0.3, 0.4], "se_keyword_cluster": [0.01, 0.01], "n": [5, 5]} for t in terms}}
+    explore = {"keywords": 3, "natural": 10, "curves": {**{s: block for s in strata}, "qwen38 · searxng": block}}
+    (tmp_path / "funnel.json").write_text(json.dumps(funnel))
+    (tmp_path / "explore.json").write_text(json.dumps(explore))
+    out = tmp_path / "out"
+    assert figs.main(["render", "--funnel-results", str(tmp_path / "funnel.json"), "--explore", str(tmp_path / "explore.json"),
+                      "--output-dir", str(out)]) == 0
+    for name in ("fig5-funnel-odds-ratios", "fig6-decomposition", "fig7-offtopic", "fig8-stage-intent"):
+        assert (out / f"{name}.pdf").exists() and (out / f"{name}.png").exists()
+    (tmp_path / "empty.json").write_text(json.dumps({"models": {"main": {}}, "decomposition": {}}))
+    with pytest.raises(ValueError, match="no fitted strata"):
+        figs.main(["render", "--funnel-results", str(tmp_path / "empty.json"), "--output-dir", str(tmp_path / "out2")])
