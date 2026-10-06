@@ -486,7 +486,8 @@ def draws_for(spec: str, args) -> tuple[int, int]:
 
 
 def cache_key(data, args) -> dict:
-    return {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
+    commit = getattr(args, "analysis_commit", None) or readiness.git_commit()
+    return {"git_commit": commit, "assembled": data.manifest.get("created_at"),
             "settings": [args.bootstrap, args.permutations, args.secondary_bootstrap, args.secondary_permutations, args.seed],
             "split": args.split}
 
@@ -582,6 +583,18 @@ def _groups(keys, payload):
     return zip(keys[np.r_[0, cuts]], np.split(payload, cuts))
 
 
+def with_columns(value: dict, spec: str, stage: str) -> dict:
+    """Cached fits written before replicate_columns existed: their replicate columns follow the design
+    order, i.e. _features(spec, stage) of the analysis commit; checked against the stored names and width."""
+    if value.get("features") and "replicate_columns" not in value:
+        columns = [f.name for f in _features(spec, stage)]
+        width = len(value["replicates"][0]) if value.get("replicates") else len(columns)
+        if set(columns) != set(value["features"]) or width != len(columns):
+            raise ValueError(f"cannot recover the replicate column order of {spec} {stage}")
+        value = {**value, "replicate_columns": columns}
+    return value
+
+
 def report(args) -> int:
     data = load_assembled(args.assembled)
     ans = answer_arrays(data)
@@ -594,7 +607,7 @@ def report(args) -> int:
         name = f"{stratum}|{stage}|{spec}"
         path = cache.directory / f"{hashlib.sha256(name.encode()).hexdigest()[:16]}.json"
         if path.exists():
-            results.setdefault(spec, {}).setdefault(stratum, {})[stage] = json.loads(path.read_text())["value"]
+            results.setdefault(spec, {}).setdefault(stratum, {})[stage] = with_columns(json.loads(path.read_text())["value"], spec, stage)
         else:
             missing.append(name)
     if missing:
@@ -636,6 +649,7 @@ def report(args) -> int:
         "P3 domain authority K|P − P|C": {"strata": contrasts.get("K|P − P|C (domain authority)"), "c2_null": nulls},
         "P4 page intent × x at R|U": replication["R|U"].get("intent_x_prompt")}
     out = {"format_version": FORMAT_VERSION, "created_at": readiness.now(), "git_commit": readiness.git_commit(),
+           "analysis_commit": cache_key(data, args)["git_commit"],
            "settings": {"bootstrap": args.bootstrap, "permutations": args.permutations, "seed": args.seed, "specs": specs,
                         "split": args.split, "exploratory": args.split != "confirmation"},
            "assembled": data.manifest, "models": results, "replication": replication, "contrasts": contrasts,
@@ -745,6 +759,8 @@ def main(argv=None) -> int:
                                 "and the command exits 4 (deadline checkpoint); rerun to continue")
         else:
             p.add_argument("--report", type=Path, required=True)
+            p.add_argument("--analysis-commit", help="read the cached fits of this earlier commit (post-processing fixes "
+                                                       "only; both commits are recorded in results.json)")
     args = parser.parse_args(argv)
     return {"extract": extract, "replay": replay, "assemble": assemble, "analyze": analyze, "report": report}[args.command](args)
 

@@ -137,3 +137,16 @@ a keyword is an **exploration** keyword if `int(sha256("funnel-exploration-v1:" 
 * The confirmatory family P1–P4 is evaluated on HoreKa on the confirmation keywords only
   (`funnel_study.py analyze/report --split confirmation`). Everything computed on the Mac is
   labelled exploratory.
+
+## Addendum A2 (2026-10-07, before any confirmatory result): pairing of bootstrap replicates in contrasts
+
+The stage contrasts (P2: alignment R − R0; P3: domain authority K|P − P|C) difference two fits' bootstrap
+replicates draw by draw. The helper found each feature's replicate column by its position in the fit's
+`features` mapping, but the analysis cache writes JSON with sorted keys, so cached fits paired the wrong
+columns (found in the exploration run: a P3 estimate of −0.172 had the interval [−0.062, +0.021]). Each fit
+now records its design column order (`replicate_columns`); the helper uses it and refuses fits without it,
+and the report recovers the order of fits cached before this change from the specification's feature list
+(checked against the stored names and width). Per-feature estimates, intervals and permutation tests, the
+block shares, the negative-control null and the decomposition never used this lookup and are unchanged. The
+exploratory report is rebuilt from the cached fits of commit 362a9e9 (`report --analysis-commit`), without
+refitting; both commits are recorded in results.json.

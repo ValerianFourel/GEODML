@@ -356,7 +356,7 @@ def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.nd
     out = {"features": {}, "blocks": {b: {"fit_share": gains[b] / total_gain if total_gain > 0 else None} for b in design.blocks},
            "mean_negative_log_likelihood": float(full.fun),
            "failed_replicates": int(np.sum(~np.isfinite(replicates).all(axis=1))),
-           "replicates": boot.tolist()}
+           "replicates": boot.tolist(), "replicate_columns": [f.name for f in design.features]}
     if stage.kind == "choice" and len(full.x) > k:
         out["position_effects"] = [0.0, *map(float, full.x[k:])]
     if stage.kind == "admission":
@@ -374,9 +374,14 @@ def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.nd
 
 
 def contrast_from_replicates(a: dict, b: dict, name: str) -> dict:
-    """Difference of one feature's coefficient between two fits that used the same bootstrap draws."""
-    ia = list(a["features"]).index(name)
-    ib = list(b["features"]).index(name)
+    """Difference of one feature's coefficient between two fits that used the same bootstrap draws.
+    Replicate columns follow each fit's design order (``replicate_columns``), not the order of the
+    ``features`` mapping: JSON writers sort keys, which once paired the wrong columns."""
+    for result in (a, b):
+        if "replicate_columns" not in result:
+            raise ValueError("fit result without replicate_columns: the order of its replicate columns is unknown")
+    ia = a["replicate_columns"].index(name)
+    ib = b["replicate_columns"].index(name)
     ra, rb = np.asarray(a["replicates"], float)[:, ia], np.asarray(b["replicates"], float)[:, ib]
     estimate = a["features"][name]["beta_per_sd"] - b["features"][name]["beta_per_sd"]
     return {"estimate": estimate, "ci95": _interval(ra - rb)}

@@ -185,11 +185,35 @@ def test_funnel_decomposition_is_exact_and_refuses_non_nested_stages():
 
 def test_contrast_and_empirical_null():
     a = {"features": {"brand": {"beta_per_sd": 0.7, "block": "C1"}, "h": {"beta_per_sd": 0.02, "block": "C2"},
-                      "g": {"beta_per_sd": -0.04, "block": "C2"}}, "replicates": [[0.7, 0.0, 0.0], [0.8, 0.0, 0.0], [0.6, 0, 0]]}
-    b = {"features": {"brand": {"beta_per_sd": 0.05, "block": "C1"}}, "replicates": [[0.05], [0.1], [0.0]]}
+                      "g": {"beta_per_sd": -0.04, "block": "C2"}}, "replicates": [[0.7, 0.0, 0.0], [0.8, 0.0, 0.0], [0.6, 0, 0]],
+         "replicate_columns": ["brand", "h", "g"]}
+    b = {"features": {"brand": {"beta_per_sd": 0.05, "block": "C1"}}, "replicates": [[0.05], [0.1], [0.0]], "replicate_columns": ["brand"]}
     c = fm.contrast_from_replicates(a, b, "brand")
     assert c["estimate"] == pytest.approx(0.65) and c["ci95"][0] > 0.5
     assert fm.empirical_null(a, "C2")["features"] == 2
+    with pytest.raises(ValueError, match="replicate_columns"):
+        fm.contrast_from_replicates({k: v for k, v in a.items() if k != "replicate_columns"}, b, "brand")
+
+
+def test_contrasts_survive_a_sorted_json_round_trip():
+    """The analysis cache writes JSON with sorted keys; replicate columns must still pair by design order."""
+    from analysis.scripts import page_readiness_ordering as readiness
+    stage, answer_x, answer_keyword, draws, shuffles = _toy_choice_stage()
+    out = fm.estimate_blocks(stage, answer_x=answer_x, answer_keyword=answer_keyword, draws=draws, shuffles=[])
+    assert list(out["features"]) == ["text", "alignment"] and sorted(out["features"]) != list(out["features"])
+    other = json.loads(json.dumps(out))
+    for f in other["features"].values():
+        f["beta_per_sd"] = 0.0
+    other["replicates"] = [[0.0, 0.0] for _ in other["replicates"]]
+    direct = fm.contrast_from_replicates(out, other, "alignment")
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as d:
+        readiness.write_json(Path(d) / "a.json", out)
+        loaded = json.loads((Path(d) / "a.json").read_text())
+    assert list(loaded["features"]) == ["alignment", "text"]  # sorted by the writer
+    assert fm.contrast_from_replicates(loaded, other, "alignment") == direct
+    assert direct["ci95"][0] < direct["estimate"] < direct["ci95"][1]
 
 
 @pytest.mark.parametrize("workers", [1, 2])

@@ -181,3 +181,13 @@ def test_forked_workers_survive_blas_after_the_parent_used_it():
     run = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[2], env=env,
                          capture_output=True, text=True, timeout=300)
     assert run.returncode == 0 and run.stdout.strip() == "16", run.stderr[-2000:]
+
+
+def test_cached_fits_without_replicate_columns_get_the_design_order_or_fail():
+    names = [f.name for f in study._features("main", "K|P")]
+    value = {"features": {n: {"beta_per_sd": 0.0, "block": "A1"} for n in sorted(names)}, "replicates": [[0.0] * len(names)]}
+    assert study.with_columns(value, "main", "K|P")["replicate_columns"] == names
+    broken = {**value, "replicates": [[0.0] * (len(names) - 1)]}
+    with pytest.raises(ValueError, match="replicate column order"):
+        study.with_columns(broken, "main", "K|P")
+    assert study.with_columns({"empty": True}, "main", "K|P") == {"empty": True}
