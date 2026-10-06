@@ -167,3 +167,11 @@ ledger may still refuse them, so they can stay missing. The inventory and HF
 read run on the login node, against the usual rule, at Valerian's request.
 qwen-recovery-20261006 is left as is (preparation renamed only if Valerian
 ran that block).
+
+Direct Qwen division result (pasted): `$W/qwen-bouts/division-direct-20261006`,
+registered 312,096 Qwen cells, 310,623 published on HF, 402 remaining and runnable,
+2 bouts (328 primary cells each, 52.5 s/cell measured in division-20260927-1813),
+10 node-hours. Submitted 5184598 and 5184599 (accelerated, 5 h), PENDING Priority.
+The other ~1,071 unpublished cells were excluded by the ledger as completed-unpublished,
+claimed/running by ended writers, saved or terminal failures; they need publication
+or Slurm reconciliation, not new inference. Gemma Qwen prep 5183428 at 52 min.
