@@ -121,3 +121,19 @@ live search engines or other models. Coverage limits: ~21k Qwen cells only on Hu
 ## 12. Deviations
 
 Dated addenda only, written before any result they concern.
+
+## Addendum A1 (2026-10-07, before any funnel result): exploration and confirmation keywords
+
+Valerian asked for a full exploratory review on the Mac (no GPU) before the HoreKa run. To keep the
+confirmatory family untouched, keywords are split once, by a seeded hash fixed now:
+a keyword is an **exploration** keyword if `int(sha256("funnel-exploration-v1:" + keyword)[:8], 16) / 2**32 < 0.30`
+(278 of 1,011 keywords), otherwise a **confirmation** keyword (733).
+
+* Local exploratory analyses may use the exploration keywords for every stage model, the funnel
+  decomposition and the off-topic audit (trace sample downloaded from Hugging Face), and all keywords
+  for analyses of the published generation rows that do not estimate P1–P4 (cited-source intent,
+  ranking length, search count, answer length, cross-model agreement, ranking change, SEO and page
+  features of the cited sources, keyword moderators of the cited-source slope).
+* The confirmatory family P1–P4 is evaluated on HoreKa on the confirmation keywords only
+  (`funnel_study.py analyze/report --split confirmation`). Everything computed on the Mac is
+  labelled exploratory.

@@ -95,13 +95,13 @@ def test_extract_maps_every_answer_and_keeps_stages_nested(pipeline):
 def run_analysis(pipeline, shard, output="analysis", bootstrap="3", permutations="3", extra=()):
     return study.main(["analyze", "--assembled", str(pipeline["assembled"]), "--output", str(pipeline["tmp"] / output),
                        "--specs", "main,visible", "--bootstrap", bootstrap, "--permutations", permutations,
-                       "--secondary-bootstrap", "2", "--shard", shard, "--workers", "1", *extra])
+                       "--secondary-bootstrap", "2", "--split", "all", "--shard", shard, "--workers", "1", *extra])
 
 
 def test_analyze_in_shards_then_report(pipeline, monkeypatch):
     report_args = ["report", "--assembled", str(pipeline["assembled"]), "--output", str(pipeline["tmp"] / "analysis"),
                    "--specs", "main,visible", "--bootstrap", "3", "--permutations", "3", "--secondary-bootstrap", "2",
-                   "--report", str(pipeline["tmp"] / "report")]
+                   "--split", "all", "--report", str(pipeline["tmp"] / "report")]
     assert run_analysis(pipeline, "1/2", extra=("--stop-after-minutes", "-1")) == 0  # the guard starts no task
     assert study.main(report_args) == 3
     assert run_analysis(pipeline, "1/2") == 0
@@ -143,3 +143,12 @@ def test_assemble_refuses_a_feature_table_from_other_snapshots(pipeline):
         study.main(["assemble", "--extract", str(pipeline["extract"]), "--features", str(pipeline["features"]),
                     "--corpus-package", str(pipeline["inputs"]["corpus"]), "--qwen-prompts", "x", "--mistral-prompts", "x",
                     "--qwen-map", "x", "--mistral-map", "x", "--output", str(pipeline["tmp"] / "again")])
+
+
+def test_the_exploration_split_is_fixed_and_about_thirty_percent():
+    import hashlib
+    words = [f"keyword {i}" for i in range(4000)]
+    share = sum(study.exploration_keyword(w) for w in words) / len(words)
+    assert 0.27 < share < 0.33
+    assert study.exploration_keyword("robinhood vs etrade") == (
+        int(hashlib.sha256(b"funnel-exploration-v1:robinhood vs etrade").hexdigest()[:8], 16) / 2 ** 32 < 0.30)

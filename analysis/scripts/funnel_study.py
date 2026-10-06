@@ -341,7 +341,17 @@ def answer_arrays(data):
         prompt=np.asarray([prompt_code.setdefault(r["prompt_id"], len(prompt_code)) for r in a], np.int64),
         model=np.asarray([r["model"] for r in a]), method=np.asarray([r["method"] for r in a]),
         engine=np.asarray([r["engine"] for r in a]), condition=np.asarray([r["condition"] for r in a]),
-        keywords=len(keyword_code))
+        keywords=len(keyword_code), split=np.ones(len(a), bool))
+
+
+def exploration_keyword(keyword: str) -> bool:
+    """Addendum A1: the seeded exploration split of the keywords (about 30%)."""
+    return int(hashlib.sha256(f"funnel-exploration-v1:{keyword}".encode()).hexdigest()[:8], 16) / 2 ** 32 < 0.30
+
+
+def split_mask(data, split: str) -> np.ndarray:
+    explore = np.asarray([exploration_keyword(a["keyword_text"] or "") for a in data.answers], bool)
+    return {"all": np.ones(len(explore), bool), "exploration": explore, "confirmation": ~explore}[split]
 
 
 def strata(ans) -> dict:
@@ -372,7 +382,7 @@ def _features(spec: str, stage: str) -> list:
 def stage_task(data, ans, stratum: str, stage: str, spec: str, *, condition="natural"):
     """(Stage object, the answers it uses) for one task; None if the stratum has no usable data."""
     rf = data.rf
-    mask = strata(ans)[stratum] & (ans.condition == condition if condition != "all" else True)
+    mask = strata(ans)[stratum] & ans.split & (ans.condition == condition if condition != "all" else True)
     columns = {name: rf[name] for name, *_ in ROW_FEATURES}
     columns.update({k: rf[k] for k in MISSING_INDICATORS})
     columns["u"] = rf["u"]
@@ -474,7 +484,8 @@ def draws_for(spec: str, args) -> tuple[int, int]:
 
 def cache_key(data, args) -> dict:
     return {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
-            "settings": [args.bootstrap, args.permutations, args.secondary_bootstrap, args.secondary_permutations, args.seed]}
+            "settings": [args.bootstrap, args.permutations, args.secondary_bootstrap, args.secondary_permutations, args.seed],
+            "split": args.split}
 
 
 def tasks(data, ans, specs) -> list:
@@ -484,6 +495,7 @@ def tasks(data, ans, specs) -> list:
 def analyze(args) -> int:
     data = load_assembled(args.assembled)
     ans = answer_arrays(data)
+    ans.split = split_mask(data, args.split)
     stats = standardisation(data, ans)
     specs = args.specs.split(",")
     every = tasks(data, ans, specs)
@@ -563,6 +575,7 @@ def _groups(keys, payload):
 def report(args) -> int:
     data = load_assembled(args.assembled)
     ans = answer_arrays(data)
+    ans.split = split_mask(data, args.split)
     specs = args.specs.split(",")
     every = tasks(data, ans, specs)
     cache = ResultCache(Path(args.output), cache_key(data, args))
@@ -596,7 +609,7 @@ def report(args) -> int:
     natural = ans.condition[data.u["answer"]] == "natural"
     decomposition = {}
     for s, smask in strata(ans).items():
-        keep = natural & smask[data.u["answer"]]
+        keep = natural & smask[data.u["answer"]] & ans.split[data.u["answer"]]
         order = np.argsort(data.u["answer"][keep], kind="stable")
         sub = {k: v[keep][order] for k, v in data.u.items()}
         decomposition[s] = {}
@@ -613,7 +626,8 @@ def report(args) -> int:
         "P3 domain authority K|P − P|C": {"strata": contrasts.get("K|P − P|C (domain authority)"), "c2_null": nulls},
         "P4 page intent × x at R|U": replication["R|U"].get("intent_x_prompt")}
     out = {"format_version": FORMAT_VERSION, "created_at": readiness.now(), "git_commit": readiness.git_commit(),
-           "settings": {"bootstrap": args.bootstrap, "permutations": args.permutations, "seed": args.seed, "specs": specs},
+           "settings": {"bootstrap": args.bootstrap, "permutations": args.permutations, "seed": args.seed, "specs": specs,
+                        "split": args.split, "exploratory": args.split != "confirmation"},
            "assembled": data.manifest, "models": results, "replication": replication, "contrasts": contrasts,
            "negative_control_null": nulls, "decomposition": decomposition, "confirmatory": confirmatory,
            "scientific_result": True, "observational": True}
@@ -708,6 +722,8 @@ def main(argv=None) -> int:
         p.add_argument("--specs", default="main,visible,complete")
         p.add_argument("--bootstrap", type=int, default=200)
         p.add_argument("--permutations", type=int, default=200)
+        p.add_argument("--split", choices=["confirmation", "exploration", "all"], default="confirmation",
+                       help="addendum A1: confirmatory results use the held-out confirmation keywords")
         p.add_argument("--secondary-bootstrap", type=int, default=100)
         p.add_argument("--secondary-permutations", type=int, default=0)
         p.add_argument("--seed", type=int, default=20261007)
