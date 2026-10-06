@@ -2,9 +2,10 @@
 """Self-contained HTML report of the exploratory funnel review (Mac; addendum A1 of funnel_study.md).
 
 Reads the outputs of funnel_review.py (all keywords), funnel_explore.py (exploration traces),
-funnel_study.py report --split exploration, funnel_keywords.py and the feature table's coverage, plus
-an optional narrative file, and writes one HTML page with inline SVG charts drawn to scale, and a
-results bundle (results.json) next to it. Every number shown comes from those files."""
+funnel_study.py report --split exploration, funnel_contrasts.py, funnel_keywords.py and the feature
+table's coverage, plus an optional narrative file and the acl_figures.py PNGs, and writes one HTML page
+(inline SVG charts drawn to scale, embedded figures, a source line under every section), a results
+bundle (<name>-results.json) and CSV tables (<name>-tables/). Every number shown comes from those files."""
 
 from __future__ import annotations
 
@@ -160,6 +161,7 @@ h1 { font:600 clamp(28px,4.4vw,40px)/1.1 var(--font-display); letter-spacing:-0.
 h2 { font:600 22px/1.25 var(--font-display); margin:0; text-wrap:balance; }
 h3 { font:600 16px/1.3 var(--font-body); margin:0; }
 p, li { max-width:74ch; margin:0; } section { display:grid; gap:14px; min-width:0; }
+main > *, section > *, .grid2 > * { min-width:0; }
 .lede { color:var(--muted); font-size:16px; max-width:74ch; }
 .chips { display:flex; flex-wrap:wrap; gap:8px; }
 .chip { font:500 12px/1 var(--font-data); padding:6px 9px; border:1px solid var(--line); border-radius:3px; background:var(--surface); color:var(--muted); }
@@ -184,6 +186,9 @@ tr:last-child td { border-bottom:0; }
 code { font:12px var(--font-data); background:var(--surface); border:1px solid var(--line); padding:1px 4px; border-radius:3px; overflow-wrap:anywhere; }
 nav.toc { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:13px; } nav.toc a { color:var(--accent); }
 a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+td.blockrow { font:600 12px var(--font-body); color:var(--accent); background:var(--bg); letter-spacing:0.02em; }
+figure.fig { margin:0; display:grid; gap:6px; } figure.fig img { width:100%; height:auto; background:#ffffff; border:1px solid var(--line); border-radius:4px; }
+figcaption { font-size:13px; color:var(--muted); max-width:80ch; } figcaption .src { font:11px var(--font-data); }
 """
 
 
@@ -214,15 +219,140 @@ def means_table(slopes: dict, metrics, strata=STRATA, d=3) -> str:
     return table(["measure (mean for x &lt; 0.2 → mean for x ≥ 0.8)"] + [esc(nice(s)) for s in strata], rows)
 
 
+BLOCKS = [("A1", "A1 · intent (visible text)"), ("A2", "A2 · topic (visible text)"), ("A3", "A3 · snippet surface (visible text)"),
+          ("A4", "A4 · URL string (visible to the generator)"), ("B", "B · search signals (retriever only)"),
+          ("C1", "C1 · off-page SEO (no component sees it directly)"), ("C2", "C2 · page body (unseen by every component: negative controls)")]
+STAGES = (("R|U", "retrieval R|U"), ("R0|U", "prompt-text search R0|U"), ("P|C", "shortlist P|C"), ("K|P", "ranking K|P"))
+DECOMPOSITION = (("retrieval|U", "retrieval R|U"), ("reranker_candidate|R", "scored C|R"), ("shortlist|C", "shortlist P|C"),
+                 ("ranking|P", "ranking K|P"))
+FIGURES = {"fig4": ("fig4-cited-vs-prompt-by-method.png", "Prompt position against the position of the cited sources, by model and search "
+                    "method (all keywords, natural condition, published generation rows)."),
+           "fig5": ("fig5-funnel-odds-ratios.png", "Odds ratio per SD of selected features at each stage (exploration keywords, "
+                    "main specification, 95% keyword-bootstrap intervals)."),
+           "fig6": ("fig6-decomposition.png", "Exact cumulative log risk ratio from the keyword's own rows (U) to the ranked list (K)."),
+           "fig7": ("fig7-offtopic.png", "Share of items from another keyword's rows at each stage."),
+           "fig8": ("fig8-stage-intent.png", "Page intent of the items at each stage, against prompt position.")}
+
+
+def figure(args, key: str) -> str:
+    """One embedded PNG figure (data URI) with its caption; empty when the file is absent."""
+    import base64
+    if not args.figures:
+        return ""
+    name, caption = FIGURES[key]
+    path = Path(args.figures) / name
+    if not path.exists():
+        return ""
+    data = base64.b64encode(path.read_bytes()).decode()
+    return (f'<figure class="fig"><img src="data:image/png;base64,{data}" alt="{esc(caption)}">'
+            f"<figcaption>{esc(caption)} <span class='src'>{esc(name)}</span></figcaption></figure>")
+
+
+def source(*paths) -> str:
+    return '<p class="note">Source: ' + ", ".join(f"<code>{esc(p)}</code>" for p in paths if p) + "</p>"
+
+
+def or_cell(e) -> str:
+    import math
+    if not e:
+        return '<td class="num">—</td>'
+    lo, hi = e.get("ci95") or [None, None]
+    sig = lo is not None and hi is not None and (lo > 0 or hi < 0)
+    p = f' p={e["permutation_p"]:.3f}' if e.get("permutation_p") is not None else ""
+    ci = f' <span class="ci">[{math.exp(lo):.2f}, {math.exp(hi):.2f}]{p}</span>' if lo is not None and hi is not None else ""
+    return f'<td class="num{" sig" if sig else ""}">{e["odds_ratio_per_sd"]:.2f}{ci}</td>'
+
+
+def funnel_strata(models: dict) -> list:
+    return [s for s in STRATA if s in models]
+
+
+def write_tables(directory: Path, review, explore, funnel, contrasts_dir, keywords_dir) -> list:
+    """CSV tables next to the report: every number of the page in long format."""
+    import csv
+    import shutil
+    directory.mkdir(parents=True, exist_ok=False)
+    written = []
+
+    def dump(name, header, rows):
+        with open(directory / name, "w", newline="", encoding="utf-8") as stream:
+            w = csv.writer(stream)
+            w.writerow(header)
+            w.writerows(rows)
+        written.append(name)
+
+    def slope_rows(slopes):
+        for stratum, metrics in slopes.items():
+            for metric, e in metrics.items():
+                yield [stratum, metric, e.get("n"), e.get("mean"), e.get("slope"), *(e.get("ci95") or [None, None]),
+                       e.get("low_x_mean"), e.get("high_x_mean")]
+    head = ["stratum", "measure", "n", "mean", "slope", "ci95_lo", "ci95_hi", "mean_x_below_0.2", "mean_x_at_least_0.8"]
+    dump("review_slopes.csv", head, slope_rows(review["slopes"]))
+    if explore:
+        dump("stage_slopes.csv", head, slope_rows(explore["slopes"]))
+    if funnel:
+        rows, blocks = [], []
+        for spec, strata in funnel["models"].items():
+            for stratum, stages in strata.items():
+                for stage, res in stages.items():
+                    for feature, e in (res.get("features") or {}).items():
+                        rows.append([spec, stratum, stage, feature, e["block"], e["beta_per_sd"], e["odds_ratio_per_sd"],
+                                     *(e.get("ci95") or [None, None]), e.get("permutation_p")])
+                    for block, b in (res.get("blocks") or {}).items():
+                        blocks.append([spec, stratum, stage, block, b.get("fit_share")])
+        dump("stage_models.csv", ["specification", "stratum", "stage", "feature", "block", "beta_per_sd", "odds_ratio_per_sd",
+                                  "beta_ci95_lo", "beta_ci95_hi", "permutation_p"], rows)
+        dump("block_fit_shares.csv", ["specification", "stratum", "stage", "block", "fit_share"], blocks)
+        dec = []
+        for stratum, features in funnel.get("decomposition", {}).items():
+            for feature, d in features.items():
+                for key, _ in DECOMPOSITION:
+                    dec.append([stratum, feature, d.get("answers"), key, d["log_rr"].get(key), *((d.get("ci95") or {}).get(key) or [None, None]),
+                                (d.get("share") or {}).get(key), d.get("total_log_rr_K_given_U"), *(d.get("ci95_total") or [None, None])])
+        dump("decomposition.csv", ["stratum", "feature", "answers", "step", "log_rr", "ci95_lo", "ci95_hi", "share_of_total",
+                                   "total_log_rr_K_given_U", "total_ci95_lo", "total_ci95_hi"], dec)
+    if contrasts_dir and (Path(contrasts_dir) / "contrasts.csv").exists():
+        shutil.copy(Path(contrasts_dir) / "contrasts.csv", directory / "contrasts.csv")
+        written.append("contrasts.csv")
+    if keywords_dir and (Path(keywords_dir) / "keywords.csv").exists():
+        shutil.copy(Path(keywords_dir) / "keywords.csv", directory / "keywords.csv")
+        written.append("keywords.csv")
+    return written
+
+
 def build(args) -> int:
     review = json.loads((Path(args.review) / "review.json").read_text())
     explore = json.loads((Path(args.explore) / "explore.json").read_text()) if args.explore else None
     funnel = json.loads((Path(args.funnel) / "results.json").read_text()) if args.funnel else None
+    contrasts = json.loads((Path(args.contrasts) / "contrasts.json").read_text()) if args.contrasts else None
     keywords_summary = json.loads((Path(args.keywords) / "keywords-summary.json").read_text()) if args.keywords else None
     coverage = json.loads((Path(args.features) / "coverage.json").read_text())
     narrative = Path(args.narrative).read_text() if args.narrative and Path(args.narrative).exists() else ""
     rs, rc = review["slopes"], review["curves"]
+    review_file = f"{Path(args.review).name}/review.json"
     sections = []
+
+    # data and coverage
+    cov_keys = [("html_usable", "HTML usable"), ("dfs_domain", "DataForSEO domain"), ("open_pagerank", "Open PageRank"),
+                ("llms_txt", "llms.txt checked"), ("google_top20_url", "Google top-20 URL"), ("google_top20_domain", "Google top-20 domain")]
+    cov_rows = [[f"<td>{esc(LABEL.get(e, e))}</td>", f'<td class="num">{c.get("rows", 0):,}</td>']
+                + [f'<td class="num">{c[k]:.1%}</td>' if isinstance(c.get(k), float) else '<td class="num">—</td>' for k, _ in cov_keys]
+                for e, c in coverage["by_engine"].items()]
+    cov_head = ["engine", "usable rows"] + [label for _, label in cov_keys]
+    val = coverage["validation_against_experiment1"]
+    funnel_counts = (funnel or {}).get("assembled", {}).get("counts", {})
+    data_html = (f"<p>Published generation rows: {review['answers']:,} answers ({', '.join(f'{LABEL.get(k, k)} {v:,}' for k, v in review['answers_by_model'].items())}); "
+                 f"{review['natural_answers']:,} in the natural condition, 1,011 keywords. "
+                 + (f"Exploration traces: {explore['answers']:,} answers ({explore['natural']:,} natural) from {explore['keywords']} exploration keywords, "
+                    "Qwen3.8 only (the Llama traces could not be downloaded on this connection). " if explore else "")
+                 + (f"Funnel tables: {funnel_counts.get('u_items', 0):,} keyword-row items, {funnel_counts.get('candidates', 0):,} scored candidates, "
+                    f"{funnel_counts.get('presented', 0):,} presented items. " if funnel_counts else "")
+                 + f"Re-extracted page features agree with experiment 1 on {val['body_word_count']['n']:,} shared URLs "
+                 f"(Spearman {min(v['spearman'] for v in val.values()):.3f}–{max(v['spearman'] for v in val.values()):.3f}).</p>"
+                 + "<h3>Feature coverage of the snapshot rows</h3>" + table(cov_head, cov_rows)
+                 + source(review_file, explore and f"{Path(args.explore).name}/explore.json", f"{Path(args.features).name}/coverage.json",
+                          funnel and f"{Path(args.funnel).name}/results.json"))
+    sections.append(("data", "Data and coverage", data_html))
 
     # behaviour
     beh = [("ranking_len", "sources ranked"), ("search_count", "search actions"), ("shown", "snippets shown"),
@@ -231,12 +361,12 @@ def build(args) -> int:
            ("answer_urls", "answer mentions a URL")]
     charts = [line_chart([s for s in (curve_series(rc, st, "ranking_len", nice(st), SERIES[i]) for i, st in enumerate(STRATA)) if s],
                          ylabel="sources ranked", title="Sources ranked per answer"),
-              line_chart([s for s in (curve_series(rc, st, "search_count", nice(st), SERIES[i]) for i, st in enumerate(STRATA)) if s and "Reactive" in st],
+              line_chart([s for s in (curve_series(rc, st, "search_count", nice(st), SERIES[i]) for i, st in enumerate(STRATA) if "Reactive" in st) if s],
                          ylabel="search actions", title="Search actions (Reactive Loop)")]
     sections.append(("behaviour", "Generator behaviour along the axis",
                      "<p>Natural condition, all keywords, published generation rows. Slopes are the change from the most "
                      "informational to the most action-ready prompt of the same keyword.</p>" + slope_table(rs, beh, d=3)
-                     + means_table(rs, beh[:4], d=2) + '<div class="grid2">' + "".join(charts) + "</div>"))
+                     + means_table(rs, beh[:4], d=2) + '<div class="grid2">' + "".join(charts) + "</div>" + source(review_file)))
 
     # cited sources
     cited = [("cited_u", "intent of cited sources (0–1 page scale)"), ("cited_gap", "|cited intent − x|"),
@@ -244,36 +374,41 @@ def build(args) -> int:
              ("top1_gap", "|top-1 intent − x|"), ("cited_on_topic", "cited sources from the prompt's keyword"),
              ("cited_glued", "cited glued-title rows"), ("r0_u", "intent of a literal search on the prompt text (R0)"),
              ("r0_overlap", "cited sources found by the literal prompt search")]
-    chart = line_chart([s for s in (curve_series(rc, st, "cited_u", nice(st), SERIES[i]) for i, st in enumerate(STRATA)) if s]
-                       + [s for s in (curve_series(rc, "llama4 · Parallel", "r0_u", "literal prompt search (R0), Llama cells", "--muted", True),) if s],
-                       ylabel="page intent (0–1)", title="Intent of the cited sources")
-    sections.append(("cited", "Cited sources and intent alignment",
-                     slope_table(rs, cited) + means_table(rs, cited[:5] + cited[7:8]) + chart))
+    sections.append(("cited", "Cited sources follow the prompt",
+                     figure(args, "fig4") + slope_table(rs, cited) + means_table(rs, cited[:5] + cited[7:8]) + source(review_file)))
 
-    # funnel stages (exploration traces)
+    # funnel stages
+    stage_html = ""
     if explore:
-        es, ec = explore["slopes"], explore["curves"]
-        stage = [("R_u", "retrieved by the AI's searches (R)"), ("C_u", "scored by the reranker (C)"), ("P_u", "shown to the generator (P)"),
-                 ("K_u", "ranked (K, top-weighted)"), ("R0_u", "literal prompt search (R0)"), ("R0_recovered", "share of R0 the AI's searches recover"),
+        es = explore["slopes"]
+        stage = [("R0_u", "literal prompt search (R0)"), ("R_u", "retrieved by the AI's searches (R)"), ("C_u", "scored by the reranker (C)"),
+                 ("P_u", "shown to the generator (P)"), ("K_u", "ranked (K, top-weighted)"), ("R0_recovered", "share of R0 the AI's searches recover"),
                  ("R_from_R0", "share of R that R0 would also return"), ("R_offtopic", "off-topic share in R"), ("C_offtopic", "off-topic share in C"),
                  ("P_offtopic", "off-topic share in P"), ("K_offtopic", "off-topic share in K"), ("R_glued", "glued-title share in R"),
-                 ("P_glued", "glued-title share in P"), ("R_ad", "ad-redirect share in R")]
+                 ("P_glued", "glued-title share in P"), ("K_glued", "glued-title share in K"), ("R_ad", "ad-redirect share in R")]
         queries = [("q_count", "queries written"), ("q_words", "words per query"), ("q_prompt_reuse", "query words taken from the prompt"),
                    ("q_keyword_inclusion", "queries containing the keyword"), ("q_action_share", "action vocabulary share"),
                    ("q_information_share", "information vocabulary share"), ("q_distinct_share", "distinct queries")]
-        stage_charts = []
-        for i, st in enumerate(STRATA):
-            series = [curve_series(ec, st, t, n, c, dash) for t, n, c, dash in
-                      (("R_u", "retrieved R", "--s1", True), ("P_u", "shown P", "--s3", True), ("K_u", "ranked K", "--s2", False),
-                       ("R0_u", "literal search R0", "--muted", True))]
-            stage_charts.append(line_chart([s for s in series if s], ylabel="page intent (0–1)", title=nice(st), width=520, height=280))
-        sections.append(("stages", "Where intent enters the pipeline (exploration keywords)",
-                         f"<p>{explore['natural']:,} natural answers from {explore['keywords']} exploration keywords, traced to the exact "
-                         "snapshot rows each answer retrieved, scored, saw and ranked.</p>"
-                         + slope_table(es, stage) + means_table(es, stage[:5]) + '<div class="grid2">' + "".join(stage_charts) + "</div>"
-                         + "<h3>The AI's own search queries</h3>" + slope_table(es, queries) + means_table(es, queries)))
+        qstrata = [s for s in STRATA if s in es]
+        stage_html += (f"<p>{explore['natural']:,} natural answers from {explore['keywords']} exploration keywords, traced to the exact "
+                       "snapshot rows each answer retrieved (R), had scored (C), saw (P) and ranked (K).</p>"
+                       + figure(args, "fig8") + slope_table(es, stage, strata=qstrata) + means_table(es, stage[:5], strata=qstrata)
+                       + figure(args, "fig7") + "<h3>The AI's own search queries</h3>" + slope_table(es, queries, strata=qstrata)
+                       + means_table(es, queries, strata=qstrata) + source(f"{Path(args.explore).name}/explore.json"))
+    if funnel:
+        main = funnel["models"].get("main", {})
+        intent = [("intent_alignment", "intent alignment −|u − x|"), ("intent_x_prompt", "page intent × (x − ½)"),
+                  ("page_intent_z", "page intent (z)"), ("topic_similarity", "topic similarity")]
+        for st in funnel_strata(main):
+            rows = [[f"<td>{esc(label)}</td>"] + [or_cell((main[st].get(stage, {}).get("features") or {}).get(f)) for stage, _ in STAGES]
+                    for f, label in intent]
+            stage_html += f"<h3>Intent at each stage · {esc(nice(st))}</h3>" + table(["feature (odds ratio per SD [95% CI], permutation p)"]
+                                                                                     + [lab for _, lab in STAGES], rows)
+        stage_html += source(f"{Path(args.funnel).name}/results.json")
+    if stage_html:
+        sections.append(("stages", "Funnel stages: where intent enters (exploration keywords)", stage_html))
 
-    # SEO and page features of the cited sources
+    # SEO and page features by visibility block
     seo = [("cited_dfs_organic_count", "C1 · domain organic keywords (log)"), ("cited_dfs_organic_pos_1", "C1 · domain top-1 keywords (log)"),
            ("cited_opr", "C1 · Open PageRank"), ("cited_has_llms_txt", "C1 · llms.txt"), ("cited_brand_list", "C1 · SaaS brand list"),
            ("cited_earned_list", "C1 · review/press list"), ("cited_google_url", "C1 · URL in Google top 20 for the keyword"),
@@ -282,35 +417,49 @@ def build(args) -> int:
            ("cited_body_structured_data", "C2 · JSON-LD structured data"), ("cited_body_question_headings", "C2 · question headings"),
            ("cited_body_freshness", "C2 · freshness (0–4)"), ("cited_body_word_count", "C2 · page words (log)"),
            ("cited_html_usable", "C2 · page HTML available")]
-    sections.append(("seo", "SEO and page features of the cited sources",
-                     "<p>How the cited sources' off-page (C1), URL (A4) and page-body (C2) properties change with prompt position. "
-                     "These are descriptions of what gets cited, not effects of the features.</p>" + slope_table(rs, seo) + means_table(rs, seo)))
-
-    # funnel models
+    seo_html = ("<p>(a) How the cited sources' off-page (C1), URL (A4) and page-body (C2) properties change with prompt position: "
+                "descriptions of what gets cited, all keywords.</p>" + slope_table(rs, seo) + means_table(rs, seo) + source(review_file))
     if funnel:
-        main = funnel["models"]["main"]
-        feats = ["intent_alignment", "intent_x_prompt", "page_intent_z", "topic_similarity", "on_keyword", "stored_position",
-                 "snip_names_domain", "snip_glued", "url_user_content", "dfs_organic_count", "open_pagerank", "google_top20_url",
-                 "brand_list", "has_llms_txt", "body_structured_data", "body_word_count", "body_freshness"]
-        blocks_html = []
-        for st in STRATA:
+        main = funnel["models"].get("main", {})
+        null = funnel.get("negative_control_null", {})
+        seo_html += ("<p>(b) Stage models: each feature's odds ratio per SD at each stage, all blocks together (main specification). "
+                     "Blocks follow what each component can see. C2 features are unseen by every component, so their associations measure "
+                     "proxy confounding; their 95th percentile of |β| (the empirical null) is the bar a C1 or A4 association must clear.</p>"
+                     + figure(args, "fig5"))
+        for st in funnel_strata(main):
             rows = []
-            for f in feats:
-                cells = [f"<td>{esc(f)}</td>"]
-                for stage_name in ("R|U", "R0|U", "P|C", "K|P"):
-                    e = (main.get(st, {}).get(stage_name, {}).get("features") or {}).get(f)
-                    if not e:
-                        cells.append('<td class="num">—</td>')
-                        continue
-                    lo, hi = e["ci95"]
-                    sig = lo is not None and (lo > 0 or hi < 0)
-                    p = f' p={e["permutation_p"]:.3f}' if e.get("permutation_p") is not None else ""
-                    import math
-                    ci = f' <span class="ci">[{math.exp(lo):.2f}, {math.exp(hi):.2f}]{p}</span>' if lo is not None else ""
-                    cells.append(f'<td class="num{" sig" if sig else ""}">{e["odds_ratio_per_sd"]:.2f}{ci}</td>')
-                rows.append(cells)
-            blocks_html.append(f"<h3>{esc(nice(st))}</h3>" + table(["feature (odds ratio per SD [95% CI])", "retrieval R|U", "literal search R0|U",
-                                                                         "reranker P|C", "generator K|P"], rows))
+            feats = {}
+            for stage, _ in STAGES:
+                for f, e in (main[st].get(stage, {}).get("features") or {}).items():
+                    feats.setdefault(f, e["block"])
+            for block, label in BLOCKS:
+                members = sorted(f for f, b in feats.items() if b == block)
+                if not members:
+                    continue
+                rows.append([f'<td colspan="5" class="blockrow">{esc(label)}</td>'])
+                for f in members:
+                    rows.append([f"<td>{esc(f)}</td>"] + [or_cell((main[st].get(stage, {}).get("features") or {}).get(f)) for stage, _ in STAGES])
+            share = [[f"<td>{esc(label)}</td>"] + [f'<td class="num">{((main[st].get(stage, {}).get("blocks") or {}).get(block) or {}).get("fit_share") or 0:.1%}</td>'
+                                                   for stage, _ in STAGES] for block, label in BLOCKS]
+            nullrow = [["<td>C2 empirical null: 95th percentile of |β|</td>"] + [f'<td class="num">{(null.get(st, {}).get(stage) or {}).get("quantile", float("nan")):.3f}</td>'
+                                                                               for stage, _ in STAGES]]
+            seo_html += (f"<h3>{esc(nice(st))}</h3>" + table(["feature (odds ratio per SD [95% CI], permutation p)"] + [lab for _, lab in STAGES], rows)
+                         + table(["block: share of the fit lost when the block is dropped"] + [lab for _, lab in STAGES], share + nullrow))
+        specs = [s for s in ("main", "visible", "complete") if s in funnel["models"]]
+        robust = []
+        for st in funnel_strata(main):
+            for f in ("intent_alignment", "topic_similarity", "dfs_organic_count"):
+                for stage, label in STAGES:
+                    cells = [f"<td>{esc(nice(st))}</td><td>{esc(f)}</td><td>{esc(label)}</td>"]
+                    cells += [or_cell((funnel["models"][sp].get(st, {}).get(stage, {}).get("features") or {}).get(f)) for sp in specs]
+                    robust.append(cells)
+        seo_html += ("<h3>Robustness across specifications</h3>"
+                     + table(["stratum", "feature", "stage"] + [f"{sp} specification" for sp in specs], robust)
+                     + source(f"{Path(args.funnel).name}/results.json"))
+    sections.append(("seo", "SEO and page features by visibility block", seo_html))
+
+    # exact decomposition
+    if funnel:
         dec = funnel.get("decomposition", {})
         dec_rows = []
         for st in STRATA:
@@ -318,24 +467,54 @@ def build(args) -> int:
                 if not d.get("answers"):
                     continue
                 cells = [f"<td>{esc(nice(st))}</td><td>{esc(f)}</td>"]
-                for n in ("retrieval|U", "reranker_candidate|R", "shortlist|C", "ranking|P"):
-                    v = d["log_rr"].get(n)
-                    ci = (d.get("ci95") or {}).get(n, [None, None])
+                for key, _ in DECOMPOSITION:
+                    v = d["log_rr"].get(key)
+                    ci = (d.get("ci95") or {}).get(key) or [None, None]
                     sig = ci[0] is not None and (ci[0] > 0 or ci[1] < 0)
-                    cells.append(f'<td class="num{" sig" if sig else ""}">{v:+.3f}</td>' if v is not None else '<td class="num">—</td>')
-                cells.append(f'<td class="num">{d["total_log_rr_K_given_U"]:+.3f}</td>')
+                    cells.append(f'<td class="num{" sig" if sig else ""}">{v:+.3f} <span class="ci">[{ci[0]:+.3f}, {ci[1]:+.3f}]</span></td>'
+                                 if v is not None and ci[0] is not None else '<td class="num">—</td>')
+                lo, hi = d.get("ci95_total") or [None, None]
+                cells.append(f'<td class="num">{d["total_log_rr_K_given_U"]:+.3f} <span class="ci">[{lo:+.3f}, {hi:+.3f}]</span></td>'
+                             if lo is not None else f'<td class="num">{d["total_log_rr_K_given_U"]:+.3f}</td>')
                 dec_rows.append(cells)
-        sections.append(("models", "Stage models and the exact funnel decomposition (exploration keywords)",
-                         "<p>Odds ratio per standard deviation at each stage, all feature blocks together (main specification); "
-                         "100 keyword-bootstrap draws and 100 within-keyword shuffles of x. Exploratory: the confirmatory P1–P4 run "
-                         "uses the held-out confirmation keywords on HoreKa.</p>" + "".join(blocks_html)
-                         + "<h3>Exact decomposition of log RR(ranked | keyword rows), top vs bottom quartile</h3>"
-                         + table(["stratum", "feature", "retrieval", "dedup/condition", "reranker", "generator", "total"], dec_rows)))
+        sections.append(("decomposition", "Exact decomposition: admission into the pool and ranking within it",
+                         "<p>For each feature, items in the top quartile are compared with items in the bottom quartile among the keyword's own "
+                         "rows U of each answer (binary features: 1 against 0), with equal weight per answer. The log risk ratio of being ranked "
+                         "splits exactly into retrieval, scoring, shortlist and ranking terms; admission into the pool is the first three, "
+                         "ranking within it the last. 95% keyword-bootstrap intervals.</p>" + figure(args, "fig6")
+                         + table(["stratum", "feature"] + [lab for _, lab in DECOMPOSITION] + ["total log RR(K|U)"], dec_rows)
+                         + source(f"{Path(args.funnel).name}/results.json")))
 
-    # contrasts by engine
-    sections.append(("engines", "Engine contrasts", slope_table(rs, [("cited_u", "intent of cited sources"), ("alignment_gain", "alignment gain"),
-                                                                     ("cited_on_topic", "on-topic share"), ("ranking_len", "sources ranked")],
-                                                                 strata=ENGINE_STRATA)))
+    # contrasts
+    con_html = ""
+    if contrasts:
+        measures = [("cited_u", "intent of cited sources"), ("alignment_gain", "alignment gain"), ("cited_on_topic", "on-topic share"),
+                    ("cited_glued", "glued-title share"), ("r0_overlap", "overlap with the literal prompt search"), ("ranking_len", "sources ranked")]
+        names = list(contrasts["contrasts"])
+        rows = []
+        for m, label in measures:
+            cells = [f"<td>{esc(label)}</td>"]
+            for n in names:
+                e = contrasts["contrasts"][n].get(m)
+                cells.append(ci_cell(e, 3, key="difference") if e else '<td class="num">—</td>')
+            rows.append(cells)
+        con_html += (f"<p>Differences between two strata's within-keyword slopes on x, natural condition, all keywords "
+                     f"({contrasts['answers']:,} answers); 95% intervals from {contrasts['bootstrap']} keyword-bootstrap draws shared by both strata.</p>"
+                     + table(["slope difference"] + [esc(n) for n in names], rows) + source(f"{Path(args.contrasts).name}/contrasts.json"))
+    if funnel and funnel.get("contrasts"):
+        crow = []
+        for name, by in funnel["contrasts"].items():
+            for st, e in by.items():
+                lo, hi = e.get("ci95") or [None, None]
+                sig = lo is not None and (lo > 0 or hi < 0)
+                crow.append([f"<td>{esc(name)}</td><td>{esc(nice(st))}</td>",
+                             f'<td class="num{" sig" if sig else ""}">{e["estimate"]:+.3f} <span class="ci">[{lo:+.3f}, {hi:+.3f}]</span></td>'])
+        con_html += ("<h3>Stage contrasts (shared draws, β per SD)</h3>" + table(["contrast", "stratum", "difference [95% CI]"], crow)
+                     + source(f"{Path(args.funnel).name}/results.json"))
+    con_html += ("<h3>By search engine</h3>" + slope_table(rs, [("cited_u", "intent of cited sources"), ("alignment_gain", "alignment gain"),
+                                                                 ("cited_on_topic", "on-topic share"), ("cited_glued", "glued-title share"),
+                                                                 ("ranking_len", "sources ranked")], strata=ENGINE_STRATA) + source(review_file))
+    sections.append(("contrasts", "Model × method and engine contrasts", con_html))
 
     # keywords
     if keywords_summary:
@@ -348,40 +527,56 @@ def build(args) -> int:
                      f'<td class="num">[{r["slope_shrunk_lo95"]:+.3f}, {r["slope_shrunk_hi95"]:+.3f}]</td>', f"<td>{esc(r.get('kw_main_intent') or '—')}</td>"]
                     for r in items]
         cls = [[f"<td>{esc(k)}</td>", ci_cell(v), f'<td class="num">{v["keywords"] if v else "—"}</td>'] for k, v in ks["by_intent_class"].items()]
-        ter = [[f"<td>difficulty tercile {esc(k)}</td>", ci_cell(v), f'<td class="num">{v["keywords"] if v else "—"}</td>'] for k, v in ks["by_difficulty_tercile"].items()]
+        ter = [[f"<td>difficulty tercile {int(k) + 1} of 3</td>", ci_cell(v), f'<td class="num">{v["keywords"] if v else "—"}</td>'] for k, v in ks["by_difficulty_tercile"].items()]
         corr = [[f"<td>{esc(k)}</td>", f'<td class="num">{v:+.3f}</td>'] for k, v in ks["correlations_with_shrunk_slope"].items()]
+        lo, hi = ks.get("pooled_mean_slope_ci95") or [None, None]
+        pooled = f"{ks['pooled_mean_slope']:+.3f}" + (f" (95% CI {lo:+.3f} to {hi:+.3f})" if lo is not None else "")
+        null = (f"; the shuffles' Q ranged up to {ks['null_q_max']:.0f} (mean {ks['null_q_mean']:.0f})" if ks.get("null_q_max") else "")
+        gem = ks.get("gemma") or {}
         sections.append(("keywords", "By keyword",
-                         f"<p>{ks['keywords_with_slope']} keywords with a slope. Pooled mean slope {ks['pooled_mean_slope']:+.3f}; "
-                         f"between-keyword variance τ² = {ks['between_keyword_variance_tau2']:.4f} (I² = {ks['i2']:.2f}); heterogeneity "
-                         f"Q = {ks['heterogeneity_q']:.0f} on {ks['heterogeneity_df']} df, permutation p = {ks['heterogeneity_permutation_p']:.3f} "
-                         f"({ks['permutations']} shuffles). Shrunken interval above 0 for {ks['share_keywords_shrunk_interval_above_0']:.0%} of keywords, "
-                         f"below 0 for {ks['share_keywords_shrunk_interval_below_0']:.0%}.</p>" + hist
-                         + '<div class="grid2"><div>' + "<h3>By DataForSEO intent class</h3>" + table(["class", "slope [95% CI]", "keywords"], cls + ter)
+                         f"<p>{ks['keywords_with_slope']:,} keywords with a slope of the cited sources' intent on x. Random-effects mean slope "
+                         f"{pooled}; between-keyword variance τ² = {ks['between_keyword_variance_tau2']:.4f}, I² = {ks['i2']:.2f}. "
+                         f"Heterogeneity Q = {ks['heterogeneity_q']:.0f} on {ks['heterogeneity_df']} df against {ks['permutations']} within-keyword "
+                         f"shuffles of x{null}: permutation p = {ks['heterogeneity_permutation_p']:.3f}, the smallest value this test can give. "
+                         f"After shrinkage, the 95% interval lies above 0 for {ks['share_keywords_shrunk_interval_above_0']:.0%} of keywords and "
+                         f"below 0 for {ks['share_keywords_shrunk_interval_below_0']:.1%}.</p>"
+                         + (f"<p class='note'>The fixed-effect mean ({ks['fixed_effect_mean_slope']:+.3f}) is lower because precise keywords have "
+                            "smaller slopes (mean raw slope by SE quintile: " + ", ".join(f"{v:+.3f}" for v in ks.get("raw_slope_mean_by_se_quintile", []))
+                            + "); the random-effects mean is the shrinkage centre.</p>" if ks.get("fixed_effect_mean_slope") is not None else "")
+                         + hist + '<div class="grid2"><div>' + "<h3>By DataForSEO intent class and difficulty</h3>"
+                         + table(["keyword group", "pooled within-keyword slope [95% CI]", "keywords"], cls + ter)
                          + "</div><div><h3>Spearman correlation with the shrunken slope</h3>" + table(["keyword descriptor", "ρ"], corr) + "</div></div>"
                          + '<div class="grid2"><div><h3>Steepest 20</h3>' + table(["keyword", "slope", "95% interval", "intent"], kw_rows(ks["top20"]))
                          + "</div><div><h3>Flattest or negative 20</h3>" + table(["keyword", "slope", "95% interval", "intent"], kw_rows(ks["bottom20"])) + "</div></div>"
-                         + '<p class="note">Full table with DataForSEO data, SEO shares and example prompts: <code>keywords.csv</code> next to this report.</p>'))
+                         + ("<p class='note'>Gemma mean support: " + (f"{gem.get('natural_answers_with_grades', 0):,} natural answers joined." if gem.get("supplied")
+                            else "empty until the HoreKa gemma-extract is returned.") + "</p>")
+                         + '<p class="note">Full table (one row per keyword: answers per model, raw and shrunken slope, DataForSEO intent, difficulty, '
+                         "volume and CPC, off-topic, glued, Google top-20 shares, domain organic count, three example prompts): "
+                         "<code>tables/keywords.csv</code>.</p>" + source(f"{Path(args.keywords).name}/keywords-summary.json", f"{Path(args.keywords).name}/keywords.csv")))
 
-    cov_rows = [[f"<td>{esc(LABEL.get(e, e))}</td>"] + [f'<td class="num">{v:.1%}</td>' for v in c.values() if isinstance(v, float)]
-                for e, c in coverage["by_engine"].items()]
-    cov_head = ["engine", "HTML usable", "DataForSEO domain", "Open PageRank", "llms.txt", "Google top-20 URL", "Google top-20 domain"]
-    val = coverage["validation_against_experiment1"]
-    data_html = (f"<p>Published generation rows: {review['answers']:,} answers ({', '.join(f'{LABEL.get(k, k)} {v:,}' for k, v in review['answers_by_model'].items())}); "
-                 f"{review['natural_answers']:,} in the natural condition. "
-                 + (f"Exploration traces: {explore['answers']:,} answers ({explore['natural']:,} natural) from {explore['keywords']} keywords. " if explore else "")
-                 + f"Re-extracted page features agree with experiment 1 on {val['body_word_count']['n']:,} shared URLs "
-                 f"(Spearman {min(v['spearman'] for v in val.values()):.3f}–{max(v['spearman'] for v in val.values()):.3f}).</p>"
-                 + "<h3>Feature coverage of the snapshot rows</h3>" + table(cov_head, cov_rows))
     gemma = ("<p>Gemma SI-v4 grades exist only on HoreKa. They are development judgments (the judge failed semantic review, "
              "<code>scientific_result: false</code>) and enter as stage G through <code>intent_stages_study.py gemma-extract</code> and "
-             "<code>analyze --gemma</code>. The by-keyword Gemma column stays empty until that extract is returned.</p>")
+             "<code>analyze --gemma</code>. No Gemma number appears in this report; the by-keyword Gemma column stays empty until that extract is "
+             "returned and <code>funnel_keywords.py --gemma</code> is rerun.</p>")
     limits = ("<ul class='findings'><li>Closed testbed: a frozen word-overlap search over 23,893 snippet rows, not the live web.</li>"
+              "<li>Everything here is exploratory (addendum A1). The stage models use the 30% exploration keywords; the confirmatory family "
+              "(P1–P4) runs on the held-out 70% on HoreKa.</li>"
+              "<li>The stage models cover Qwen3.8 only: the Llama trace bundles (51 GB) could not be downloaded on this connection. "
+              "Llama's cited-source results come from the published generation rows.</li>"
               "<li>Glued-title DuckDuckGo rows act as hubs; engines are reported separately.</li>"
-              "<li>Coverage: Llama rows are the registered-hours cells on Hugging Face (280k usable); about 21k Qwen cells exist only on Hugging Face "
-              "and are included here, but not in the HoreKa trace runs.</li>"
-              "<li>Stage models on the Mac use the exploration keywords and a trace sample; the confirmatory family runs on the held-out keywords.</li>"
               "<li>Query and answer intent need GPU embeddings and are not measured here; query vocabulary is a lexical proxy.</li>"
-              "<li>The Gemma judge is not validated; no claim rests on it. All results are associations; x is a measured property of prompt text.</li></ul>")
+              "<li>The Gemma judge is not validated; no claim rests on it. All results are associations; x is a measured property of the "
+              "prompt text, not a randomised treatment.</li></ul>")
+    sections.append(("gemma", "Gemma support (development)", gemma))
+    sections.append(("limits", "Limitations", limits))
+
+    out = Path(args.output)
+    if out.exists():
+        raise ValueError(f"refusing to overwrite {out}")
+    tables = write_tables(out.with_name(out.stem + "-tables"), review, explore, funnel, args.contrasts, args.keywords)
+    files = "".join(f"<li><code>tables/{esc(t)}</code></li>" for t in tables)
+    sections.append(("files", "Files", "<p>Every number on this page is in these tables and in <code>results.json</code>, "
+                     f"published next to the page.</p><ul class='findings'>{files}<li><code>results.json</code></li></ul>"))
     toc = "".join(f'<a href="#{sid}">{esc(t)}</a>' for sid, t, _ in sections)
     body = "".join(f'<section id="{sid}"><h2>{esc(t)}</h2>{content}</section>' for sid, t, content in sections)
     page = f"""<title>Prompt Intent Funnel</title>
@@ -396,22 +591,17 @@ def build(args) -> int:
 <p class="lede">From the prompt's position on the information-seeking → action-ready axis to the AI's queries, the frozen search,
 the reranker's shortlist and the generator's ranking, with SEO and page data from the first experiment. Associations only.</p>
 <div class="axis" aria-hidden="true"></div><div class="axislabels"><span>0 · information seeking</span><span>1 · action ready</span></div>
-<nav class="toc">{toc}<a href="#data">Data</a><a href="#gemma">Gemma</a><a href="#limits">Limitations</a></nav>
+<nav class="toc">{toc}</nav>
 </header>
 {('<section id="summary"><h2>What the data show</h2><div class="callout">' + narrative + "</div></section>") if narrative else ""}
 {body}
-<section id="data"><h2>Data and coverage</h2>{data_html}</section>
-<section id="gemma"><h2>Gemma support (development)</h2>{gemma}</section>
-<section id="limits"><h2>Limitations</h2>{limits}</section>
 </main>"""
-    out = Path(args.output)
-    if out.exists():
-        raise ValueError(f"refusing to overwrite {out}")
     out.write_text(page, encoding="utf-8")
     bundle = out.with_name(out.stem + "-results.json")
-    bundle.write_text(json.dumps({"review": review, "explore": explore, "funnel_confirmatory_family_exploratory": funnel and funnel.get("confirmatory"),
-                                  "keywords": keywords_summary, "coverage": coverage}, indent=1), encoding="utf-8")
-    print(json.dumps({"report": str(out), "bundle": str(bundle), "bytes": out.stat().st_size}), flush=True)
+    bundle.write_text(json.dumps({"review": review, "explore": explore, "funnel": funnel, "contrasts": contrasts,
+                                  "keywords": keywords_summary, "coverage": coverage, "commit": args.commit, "date": args.date,
+                                  "exploratory": True}, indent=1), encoding="utf-8")
+    print(json.dumps({"report": str(out), "bundle": str(bundle), "tables": tables, "bytes": out.stat().st_size}), flush=True)
     return 0
 
 
@@ -421,6 +611,8 @@ def main(argv=None) -> int:
     parser.add_argument("--explore", type=Path)
     parser.add_argument("--funnel", type=Path, help="funnel_study.py report folder (results.json)")
     parser.add_argument("--keywords", type=Path)
+    parser.add_argument("--contrasts", type=Path, help="funnel_contrasts.py output folder")
+    parser.add_argument("--figures", type=Path, help="folder with the fig4-fig8 PNGs to embed")
     parser.add_argument("--features", type=Path, default=Path.home() / "Hamburg/geodml-inputs/funnel-features-v1")
     parser.add_argument("--narrative", type=Path, help="HTML fragment with the written findings")
     parser.add_argument("--commit", default="unknown")
