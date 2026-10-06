@@ -88,6 +88,73 @@ def axis_examples(final_axis_rows, population_rows, *, keywords=None, seed=20261
     return {"seed": seed, "bands": BANDS, "eligible_keywords": len(eligible), "keywords": out}
 
 
+# ---------------------------------------------------------------- figure 4 from generation rows only
+
+def cited_from_generations(generation_rows, prompt_rows, page_rows, *, bootstrap=200, seed=20261006) -> dict:
+    """Figure-4 curves and within-keyword slopes from the published generation rows alone (no traces).
+    Each answer's cited position is the top-weighted (1/log2(r+1)) mean prompt-scale percentile of its
+    ranked URLs; a URL seen with several snippet texts takes the mean over them. Rows are deduplicated
+    on (model, prompt, engine, method, condition). Only the ranking stage K is available this way."""
+    import numpy as np
+    from analysis.interpretability.pipeline import geo_drivers as geo
+    from analysis.interpretability.pipeline import intent_stages as stages
+    by_url: dict[str, list] = {}
+    for page in page_rows:
+        for url in page["urls"]:
+            by_url.setdefault(url, []).append(float(page["prompt_scale_percentile_0_1"]))
+    url_u = {u: float(np.mean(v)) for u, v in by_url.items()}
+    prompts = {r["candidate_id"]: (float(r["axis_1_percentile_0_1"]), r["keyword"]) for r in prompt_rows}
+    seen, rows, counts = set(), [], {"rows": 0, "duplicates": 0, "unknown_prompt": 0, "empty_or_unmatched_ranking": 0,
+                                      "ranked_urls": 0, "ranked_urls_matched": 0}
+    for model, row in generation_rows:
+        counts["rows"] += 1
+        key = (model, row["prompt_id"], row["engine"], row["method"], row["condition"])
+        if key in seen:
+            counts["duplicates"] += 1
+            continue
+        seen.add(key)
+        if row["prompt_id"] not in prompts:
+            counts["unknown_prompt"] += 1
+            continue
+        num = den = 0.0
+        for r, url in enumerate(row.get("ranking") or []):
+            counts["ranked_urls"] += 1
+            if url in url_u:
+                counts["ranked_urls_matched"] += 1
+                w = 1.0 / np.log2(r + 2.0)
+                num += w * url_u[url]
+                den += w
+        if den == 0:
+            counts["empty_or_unmatched_ranking"] += 1
+            continue
+        x, keyword = prompts[row["prompt_id"]]
+        rows.append((model, row["engine"], row["method"], row["condition"], keyword, x, num / den))
+    models = sorted({r[0] for r in rows})
+    keyword_code = {k: i for i, k in enumerate(sorted({r[4] for r in rows}))}
+    col = lambda i: np.asarray([r[i] for r in rows])
+    model_a, engine_a, cond_a = col(0), col(1), col(3)
+    x, k = col(5).astype(float), np.asarray([keyword_code[r[4]] for r in rows])
+    cited = col(6).astype(float)
+    draws = stages.keyword_draws(len(keyword_code), bootstrap, seed)
+    groups, slopes = {}, {}
+    natural = cond_a == "natural"
+    for model in models:
+        for engine in sorted(set(engine_a)) + ["both engines"]:
+            mask = (model_a == model) & ((engine_a == engine) if engine != "both engines" else True)
+            name = f"{model} · {engine}"
+            groups[name] = {c: {"u": stages.stage_curves(x, k, {"K": cited}, mask & extra)}
+                            for c, extra in (("natural", natural), ("all", np.ones(len(x), bool)))}
+            m = mask & natural
+            point = geo.within_keyword_slope(x[m], cited[m], k[m])
+            boot = [geo.within_keyword_slope(x[m], cited[m], k[m], d[k[m]]) for d in draws]
+            slopes[name] = {"answers_natural": int(m.sum()), "slope_K_on_x": point,
+                            "ci95": [float(np.nanpercentile(boot, 2.5)), float(np.nanpercentile(boot, 97.5))]}
+    return {"source": "published generation rows (HF exchange), no traces", "counts": counts,
+            "answers_by_model": {m: int((model_a == m).sum()) for m in models},
+            "curves": {"bins": 20, "groups": groups}, "slopes_natural": slopes, "bootstrap": bootstrap,
+            "note": "descriptive association; cited position = top-weighted mean percentile of ranked URLs"}
+
+
 # ---------------------------------------------------------------- drawing helpers
 
 def _setup():
@@ -113,10 +180,10 @@ def _save(fig, out_dir: Path, name: str) -> list[str]:
 
 def _box(ax, x, y, w, h, text, *, face="#ffffff", edge=MUTED, size=7, weight="normal", color=INK, align="center", lw=0.7):
     from matplotlib.patches import FancyBboxPatch
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.004,rounding_size=0.012", fc=face, ec=edge, lw=lw))
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.004,rounding_size=0.012", fc=face, ec=edge, lw=lw, zorder=2))
     ha = {"center": "center", "left": "left"}[align]
     tx = x + w / 2 if align == "center" else x + 0.008
-    ax.text(tx, y + h / 2, text, ha=ha, va="center", fontsize=size, fontweight=weight, color=color, linespacing=1.15)
+    ax.text(tx, y + h / 2, text, ha=ha, va="center", fontsize=size, fontweight=weight, color=color, linespacing=1.15, zorder=3)
 
 
 def _arrow(ax, a, b, *, color=MUTED, lw=0.8, style="-|>", ls="-", rad=0.0):
@@ -157,18 +224,18 @@ def fig1(plt, examples: dict, out_dir: Path) -> list[str]:
     band_h = (top - axis_y - 0.12) / len(rows)
     for i, row in enumerate(rows):
         y0 = top - 0.03 - (i + 1) * band_h
-        ax.text(-0.035, y0 + band_h * 0.5, f"“{row['keyword']}”", rotation=90, ha="center", va="center",
+        ax.text(0.0, y0 + band_h * 0.97, f"keyword: “{row['keyword']}”", ha="left", va="top",
                 fontsize=7, fontweight="bold")
         for band, slot in zip(("start", "middle", "end"), (0.0, 0.345, 0.69)):
             pick = row["picks"][band]
             p = float(pick["position"])
             text = textwrap.fill(pick["prompt"], 46)
             colour = INFO if p < 0.34 else (ACTION if p > 0.66 else "#7d7563")
-            card_w, card_h = 0.305, band_h * 0.78
-            _box(ax, slot, y0 + band_h * 0.14, card_w, card_h, text, size=6.1, edge=colour, align="left", lw=0.8)
-            ax.text(slot + card_w - 0.006, y0 + band_h * 0.14 + card_h - 0.012, f"x = {p:.2f}", ha="right", va="top",
-                    fontsize=6, color=colour, fontweight="bold")
-            ax.plot([slot + card_w / 2, p], [y0 + band_h * 0.14, axis_y + 0.035], color=colour, lw=0.5, alpha=0.7)
+            card_w, card_h = 0.305, band_h * 0.70
+            _box(ax, slot, y0 + band_h * 0.10, card_w, card_h, text, size=6.1, edge=colour, align="left", lw=0.8)
+            ax.text(slot + card_w - 0.006, y0 + band_h * 0.10 + card_h - 0.012, f"x = {p:.2f}", ha="right", va="top",
+                    fontsize=6, color=colour, fontweight="bold", zorder=4)
+            ax.plot([slot + card_w / 2, p], [y0 + band_h * 0.10, axis_y + 0.035], color=colour, lw=0.5, alpha=0.7, zorder=0)
             ax.plot([p], [axis_y + 0.0175], "o", ms=3.2, mfc="white", mec=colour, mew=0.9, zorder=3)
     return _save(fig, out_dir, "fig1-prompt-axis")
 
@@ -328,8 +395,13 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
     curves = results.get("curves", {}).get("groups")
     if not curves:
         raise ValueError("results.json has no curves; rerun intent_stages_study.py analyze at this commit")
-    fig, (a, b) = plt.subplots(1, 2, figsize=(DOUBLE, 2.45), gridspec_kw={"wspace": 0.28})
-    for ax in (a, b):
+    has_pool = any("P" in g.get(condition, {}).get("u", {}).get("terms", {}) for g in curves.values())
+    if has_pool:
+        fig, (a, b) = plt.subplots(1, 2, figsize=(DOUBLE, 2.45), gridspec_kw={"wspace": 0.28})
+    else:
+        fig, a = plt.subplots(1, 1, figsize=(COLUMN, 2.5))
+        b = None
+    for ax in [a] + ([b] if b is not None else []):
         ax.set_xlim(0, 1)
         ax.set_xlabel("prompt position $x$ (0 information, 1 action)")
         ax.grid(color="#eef1f3", lw=0.5)
@@ -345,7 +417,7 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
     a.set_ylabel("position of the cited sources\n(same 0–1 scale, top-weighted)")
     a.set_title("(a) cited sources follow the prompt", loc="left")
     a.legend(frameon=False, loc="upper left")
-    for name, group in curves.items():
+    for name, group in (curves.items() if b is not None else []):
         parts = [s.strip() for s in name.split("·")]
         if len(parts) == 2 and parts[1] == "both engines":
             colour = MODEL.get(parts[0], INK)
@@ -355,6 +427,8 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
             _series(b, block, "K", color=colour, ls="-", lw=1.2, label=MODEL_LABEL.get(parts[0], parts[0]))
             _series(b, block, "G", color=colour, ls="-.", band=False, lw=0.9)
     from matplotlib.lines import Line2D
+    if b is None:
+        return _finish_fig4(plt, fig, [a], drawn, condition, out_dir)
     handles, labels = b.get_legend_handles_labels()
     handles += [Line2D([], [], color=MUTED, ls=":", lw=0.9), Line2D([], [], color=MUTED, ls="--", lw=0.9),
                 Line2D([], [], color=MUTED, ls="-", lw=1.2)]
@@ -365,8 +439,12 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
     b.legend(handles, labels, frameon=False, loc="upper left")
     b.set_ylabel("position on the axis")
     b.set_title("(b) where the shift enters: pool vs. ordering", loc="left")
+    return _finish_fig4(plt, fig, [a, b], drawn, condition, out_dir)
+
+
+def _finish_fig4(plt, fig, axes, drawn, condition, out_dir):
     lows = []
-    for ax in (a, b):
+    for ax in axes:
         lines = [l for l in ax.get_lines() if len(l.get_ydata()) > 2]
         values = [v for l in lines for v in l.get_ydata()]
         if values:
@@ -374,11 +452,11 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
     if lows:
         lo, hi = min(l for l, _ in lows), max(h for _, h in lows)
         pad = 0.04
-        for ax in (a, b):
+        for ax in axes:
             ax.set_ylim(max(0, lo - pad), min(1, hi + pad))
     if not drawn:
         raise ValueError("no model x engine curves found in results.json")
-    fig.text(0.5, -0.10, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors; "
+    fig.text(0.5, -0.10 if len(axes) > 1 else -0.2, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors; "
              "Descriptive, not causal.",
              ha="center", fontsize=6.2, color=MUTED)
     return _save(fig, out_dir, "fig4-cited-vs-prompt")
@@ -395,6 +473,14 @@ def main(argv=None) -> int:
     p.add_argument("--keyword", action="append", help="fixed keyword (repeat for two); default: robinhood vs etrade + a seeded random one")
     p.add_argument("--seed", type=int, default=20261006)
     p.add_argument("--output", type=Path, required=True)
+    p = sub.add_parser("cited-from-generations", help="figure-4 curves from published generation rows (no traces)")
+    p.add_argument("--generations", type=Path, required=True, help="JSON map: generation object path -> model id")
+    p.add_argument("--root", type=Path, required=True, help="directory the object paths are relative to")
+    p.add_argument("--snippets", type=Path, required=True, help="snippet-embeddings-corpus-v1/snippets.parquet")
+    p.add_argument("--final-axis-map", type=Path, required=True)
+    p.add_argument("--population-prompts", type=Path, required=True)
+    p.add_argument("--bootstrap", type=int, default=200)
+    p.add_argument("--output", type=Path, required=True)
     p = sub.add_parser("render")
     p.add_argument("--axis-examples", type=Path)
     p.add_argument("--results", type=Path, help="results.json of intent_stages_study.py analyze")
@@ -409,6 +495,29 @@ def main(argv=None) -> int:
                               keywords=args.keyword, seed=args.seed)
         args.output.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(json.dumps({"keywords": [k["keyword"] for k in value["keywords"]], "output": str(args.output)}))
+        return 0
+    if args.command == "cited-from-generations":
+        import pyarrow.parquet as pq
+        from analysis.scripts import page_readiness_ordering as readiness
+        short = {"meta-llama/Llama-4-Scout-17B-16E-Instruct": "llama4", "Qwen/Qwen3.8-27B": "qwen38"}
+        mapping = json.loads(args.generations.read_text())
+
+        def generation_rows():
+            for path, model in mapping.items():
+                if model not in short or not (args.root / path).exists():
+                    continue
+                with (args.root / path).open(encoding="utf-8") as stream:
+                    for line in stream:
+                        yield short[model], json.loads(line)["row"]
+
+        axis = {r["candidate_id"]: r for r in readiness.read_jsonl(args.final_axis_map)}
+        prompts = [{**axis[r["candidate_id"]], "keyword": r["keyword"]} for r in readiness.read_jsonl(args.population_prompts)
+                   if r["candidate_id"] in axis]
+        pages = pq.read_table(args.snippets, columns=["urls", "prompt_scale_percentile_0_1"]).to_pylist()
+        value = cited_from_generations(generation_rows(), prompts, pages, bootstrap=args.bootstrap)
+        args.output.write_text(json.dumps(value, indent=1) + "\n")
+        print(json.dumps({"counts": value["counts"], "answers_by_model": value["answers_by_model"],
+                          "slopes_natural": value["slopes_natural"]}, indent=1))
         return 0
     plt = _setup()
     args.output_dir.mkdir(parents=True, exist_ok=True)

@@ -56,3 +56,30 @@ def test_render_writes_all_four_figures(tmp_path):
     results.write_text(json.dumps({}))
     with pytest.raises(ValueError, match="no curves"):
         figs.main(["render", "--results", str(results), "--output-dir", str(tmp_path / "out2")])
+
+
+def test_cited_from_generations_weights_ranks_dedupes_and_recovers_the_slope():
+    rng = np.random.default_rng(2)
+    pages = [{"urls": [f"u{i}"], "prompt_scale_percentile_0_1": i / 99} for i in range(100)]
+    pages.append({"urls": ["u0"], "prompt_scale_percentile_0_1": 1.0})  # a URL with two texts takes their mean
+    prompts = [{"candidate_id": f"p{j}", "axis_1_percentile_0_1": j / 199, "keyword": f"k{j % 20}"} for j in range(200)]
+    rows = []
+    for j in range(200):
+        x = j / 199
+        top = int(np.clip(round(30 + 40 * x + rng.normal(0, 3)), 1, 98))
+        for engine in ("duckduckgo", "searxng"):
+            rows.append(("llama4", {"prompt_id": f"p{j}", "engine": engine, "method": "M", "condition": "natural",
+                                    "ranking": [f"u{top}", f"u{top + 1}", "unknown-url"]}))
+    rows.append(rows[0])  # duplicate cell
+    rows.append(("llama4", {"prompt_id": "missing", "engine": "duckduckgo", "method": "M", "condition": "natural", "ranking": ["u1"]}))
+    out = figs.cited_from_generations(iter(rows), prompts, pages, bootstrap=20)
+    assert out["counts"]["duplicates"] == 1 and out["counts"]["unknown_prompt"] == 1
+    assert out["counts"]["ranked_urls_matched"] == 2 * 400
+    slope = out["slopes_natural"]["llama4 · both engines"]
+    assert abs(slope["slope_K_on_x"] - 40 / 99) < 0.05 and slope["ci95"][0] < slope["slope_K_on_x"] < slope["ci95"][1]
+    single = {"curves": out["curves"]}
+    import json, tempfile, pathlib
+    d = pathlib.Path(tempfile.mkdtemp())
+    (d / "r.json").write_text(json.dumps(single))
+    assert figs.main(["render", "--results", str(d / "r.json"), "--output-dir", str(d)]) == 0
+    assert (d / "fig4-cited-vs-prompt.pdf").exists()
