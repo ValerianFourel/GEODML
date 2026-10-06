@@ -399,6 +399,8 @@ def _series(ax, block, term, *, color, ls="-", label=None, band=True, lw=1.1, ma
 
 
 def fig4(plt, results: dict, out_dir: Path, *, condition="natural", facet="engine") -> list[str]:
+    if facet == "method" and not results.get("curves", {}).get("groups_by_method"):
+        facet = "engine"  # older results (the trace-based analysis) carry model x engine curves only
     curves = results.get("curves", {}).get("groups_by_method" if facet == "method" else "groups")
     if not curves:
         raise ValueError("results.json has no curves; rerun intent_stages_study.py analyze at this commit")

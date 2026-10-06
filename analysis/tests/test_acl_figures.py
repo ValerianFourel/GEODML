@@ -81,5 +81,8 @@ def test_cited_from_generations_weights_ranks_dedupes_and_recovers_the_slope():
     import json, tempfile, pathlib
     d = pathlib.Path(tempfile.mkdtemp())
     (d / "r.json").write_text(json.dumps(single))
+    assert set(out["curves"]["groups_by_method"]) == {"llama4 · M"}
     assert figs.main(["render", "--results", str(d / "r.json"), "--output-dir", str(d)]) == 0
+    assert (d / "fig4-cited-vs-prompt-by-method.pdf").exists()
+    assert figs.main(["render", "--results", str(d / "r.json"), "--facet", "engine", "--output-dir", str(d)]) == 0
     assert (d / "fig4-cited-vs-prompt.pdf").exists()
