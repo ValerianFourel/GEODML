@@ -139,3 +139,16 @@ Syntax checked only; not run on the cluster by Claude. The Qwen sweep stops with
 an error if the 2026-10-03 sweep is unfinished. It covers ~456 cells in the
 current division; ~1,000 missing Qwen cells outside it still have no route.
 GPU bouts still face the accelerated queue (estimated 2026-10-10).
+
+## Update: Qwen sweep blocked by the start-gap gate (pasted, 2026-10-06 09:22 UTC)
+
+`$W/reviews/qwen-recovery-20261006` already existed (pin 405b408, previous
+`qwen-recovery-5h-20261003`, 5 h); its sender has polled since 2026-10-05 15:31 UTC
+with "another released allocation has not started". admit() defers while any
+of the user's jobs is PENDING and not held. It was blocked by Gemma prep 5183428,
+now running, and is now blocked by 5184545 geodml-intent-stages (cpuonly) and 5184546
+geodml-gemma-si-v4 (dev_accelerated, QOSMaxJobsPerUserLimit), neither from this work.
+No Qwen preparation or GPU bout has been submitted. Restarted in tmux qwen-recovery-2
+with the saved settings. fire-all script previous path corrected to
+qwen-recovery-5h-20261003. Holding the two unrelated jobs would unblock admission;
+Valerian's decision.

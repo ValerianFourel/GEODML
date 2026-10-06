@@ -13,7 +13,7 @@ GRUN="$W/reviews/gemma-si-v4-qwen-cpu-5h-20261006"
 QPIN=405b408cda3d2bab926c90975cb55476f8cfcd0c
 QCODE="$W/checkouts/qwen-recovery-$QPIN"
 QRUN="$W/reviews/qwen-recovery-20261006"
-QPREV="$W/reviews/qwen-recovery-20261003"
+QPREV="$W/reviews/qwen-recovery-5h-20261003"
 LOG="$W/reviews/fire-all.log"
 
 echo "== 1. Gemma v4 on Qwen answers"
