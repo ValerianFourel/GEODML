@@ -26,6 +26,7 @@ import html  # noqa: E402
 import json  # noqa: E402
 from pathlib import Path  # noqa: E402
 import sys  # noqa: E402
+import time  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -466,6 +467,16 @@ def standardisation(data, ans) -> dict:
     return stats
 
 
+def draws_for(spec: str, args) -> tuple[int, int]:
+    """Main specification: full bootstrap and shuffles; secondary specifications: fewer draws, no shuffles."""
+    return (args.bootstrap, args.permutations) if spec == "main" else (args.secondary_bootstrap, args.secondary_permutations)
+
+
+def cache_key(data, args) -> dict:
+    return {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
+            "settings": [args.bootstrap, args.permutations, args.secondary_bootstrap, args.secondary_permutations, args.seed]}
+
+
 def tasks(data, ans, specs) -> list:
     return [(s, st, sp) for s in strata(ans) for st in STAGE_NAMES for sp in specs]
 
@@ -479,22 +490,29 @@ def analyze(args) -> int:
     shard, of = (int(v) for v in args.shard.split("/"))
     mine = [t for n, t in enumerate(every) if n % of == shard - 1]
     workers = max(1, args.workers or int(os.environ.get("SLURM_CPUS_PER_TASK", "1")))
-    draws = stages.keyword_draws(ans.keywords, args.bootstrap, args.seed)
+    # the same seeds for every specification: the first draws of a secondary specification equal the main ones
+    draws = stages.keyword_draws(ans.keywords, max(args.bootstrap, args.secondary_bootstrap), args.seed)
     prompt_x, prompt_keyword = np.full(ans.prompt.max() + 1, np.nan), np.zeros(ans.prompt.max() + 1, np.int64)
     prompt_x[ans.prompt], prompt_keyword[ans.prompt] = ans.x, ans.keyword
-    shuffles = [s[ans.prompt] for s in stages.shuffle_draws(prompt_x, prompt_keyword, args.permutations, args.seed + 1)]
-    cache = ResultCache(Path(args.output), {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
-                                            "settings": [args.bootstrap, args.permutations, args.seed]})
+    shuffles = [s[ans.prompt] for s in stages.shuffle_draws(prompt_x, prompt_keyword,
+                                                            max(args.permutations, args.secondary_permutations), args.seed + 1)]
+    cache = ResultCache(Path(args.output), cache_key(data, args))
+    started = time.monotonic()
     for stratum, stage, spec in mine:
         name = f"{stratum}|{stage}|{spec}"
+        path = cache.directory / f"{hashlib.sha256(name.encode()).hexdigest()[:16]}.json"
+        if not path.exists() and (time.monotonic() - started) / 60 > args.stop_after_minutes:
+            print(json.dumps({"stopped_before": name, "reason": "allocation deadline guard"}), flush=True)
+            break
+        n_boot, n_perm = draws_for(spec, args)
 
         def compute():
             task = stage_task(data, ans, stratum, stage, spec)
             if task is None:
                 return {"empty": True}
             task.design.stats = dict(stats)
-            return fm.estimate_blocks(task, answer_x=ans.x, answer_keyword=ans.keyword, draws=draws, shuffles=shuffles,
-                                      workers=workers)
+            return fm.estimate_blocks(task, answer_x=ans.x, answer_keyword=ans.keyword, draws=draws[:n_boot],
+                                      shuffles=shuffles[:n_perm], workers=workers)
 
         result = cache.get(name, compute)
         print(json.dumps({"task": name, "reused": cache.reused, "time": readiness.now(),
@@ -547,8 +565,7 @@ def report(args) -> int:
     ans = answer_arrays(data)
     specs = args.specs.split(",")
     every = tasks(data, ans, specs)
-    cache = ResultCache(Path(args.output), {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
-                                            "settings": [args.bootstrap, args.permutations, args.seed]})
+    cache = ResultCache(Path(args.output), cache_key(data, args))
     results, missing = {}, []
     for stratum, stage, spec in every:
         name = f"{stratum}|{stage}|{spec}"
@@ -691,10 +708,14 @@ def main(argv=None) -> int:
         p.add_argument("--specs", default="main,visible,complete")
         p.add_argument("--bootstrap", type=int, default=200)
         p.add_argument("--permutations", type=int, default=200)
+        p.add_argument("--secondary-bootstrap", type=int, default=100)
+        p.add_argument("--secondary-permutations", type=int, default=0)
         p.add_argument("--seed", type=int, default=20261007)
         if name == "analyze":
             p.add_argument("--shard", default="1/1")
             p.add_argument("--workers", type=int)
+            p.add_argument("--stop-after-minutes", type=float, default=50.0,
+                           help="do not start a new task after this many minutes (one-hour allocations)")
         else:
             p.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(argv)

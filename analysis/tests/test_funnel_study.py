@@ -92,15 +92,18 @@ def test_extract_maps_every_answer_and_keeps_stages_nested(pipeline):
     assert np.all(u["ranked"] <= u["presented"]) and np.all(u["presented"] <= u["scored"]) and np.all(u["scored"] <= u["retrieved"])
 
 
-def run_analysis(pipeline, shard, output="analysis", bootstrap="3", permutations="3"):
+def run_analysis(pipeline, shard, output="analysis", bootstrap="3", permutations="3", extra=()):
     return study.main(["analyze", "--assembled", str(pipeline["assembled"]), "--output", str(pipeline["tmp"] / output),
-                       "--specs", "main,visible", "--bootstrap", bootstrap, "--permutations", permutations, "--shard", shard,
-                       "--workers", "1"])
+                       "--specs", "main,visible", "--bootstrap", bootstrap, "--permutations", permutations,
+                       "--secondary-bootstrap", "2", "--shard", shard, "--workers", "1", *extra])
 
 
 def test_analyze_in_shards_then_report(pipeline, monkeypatch):
     report_args = ["report", "--assembled", str(pipeline["assembled"]), "--output", str(pipeline["tmp"] / "analysis"),
-                   "--specs", "main,visible", "--bootstrap", "3", "--permutations", "3", "--report", str(pipeline["tmp"] / "report")]
+                   "--specs", "main,visible", "--bootstrap", "3", "--permutations", "3", "--secondary-bootstrap", "2",
+                   "--report", str(pipeline["tmp"] / "report")]
+    assert run_analysis(pipeline, "1/2", extra=("--stop-after-minutes", "-1")) == 0  # the guard starts no task
+    assert study.main(report_args) == 3
     assert run_analysis(pipeline, "1/2") == 0
     assert study.main(report_args) == 3  # shard 2 is missing
     assert run_analysis(pipeline, "2/2") == 0
@@ -121,6 +124,9 @@ def test_analyze_in_shards_then_report(pipeline, monkeypatch):
                 logs = [v for v in d["log_rr"].values() if v is not None]
                 assert d["total_log_rr_K_given_U"] == pytest.approx(sum(logs))
     assert "NaN" not in (pipeline["tmp"] / "report" / "results.json").read_text()
+    visible = results["models"]["visible"]["llama4 · Parallel"]["K|P"]
+    assert len(visible["replicates"]) == 2 and all(f["permutation_p"] is None for f in visible["features"].values())
+    assert not any(f["block"] in ("C1", "C2") for f in visible["features"].values())
     assert "<title>Funnel Study</title>" in (pipeline["tmp"] / "report" / "final-report.html").read_text()
     # a rerun reuses every cached task and refits nothing
     monkeypatch.setattr(study.fm, "estimate_blocks", lambda *a, **k: pytest.fail("cached tasks must not be refitted"))
