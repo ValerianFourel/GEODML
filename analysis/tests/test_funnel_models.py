@@ -136,6 +136,8 @@ def test_estimate_blocks_reports_odds_ratios_intervals_and_x_permutations():
     assert f["text"]["permutation_p"] is None and f["text"]["ci95"][0] < f["text"]["beta_per_sd"] < f["text"]["ci95"][1]
     assert set(out["blocks"]) == {"A3", "A1"} and abs(sum(b["fit_share"] for b in out["blocks"].values()) - 1) < 1e-9
     assert len(out["replicates"]) == 12 and out["failed_replicates"] == 0
+    pooled = fm.estimate_blocks(stage, answer_x=answer_x, answer_keyword=answer_keyword, draws=draws, shuffles=shuffles, workers=2)
+    assert pooled == out  # forked workers (drop-block refits, bootstrap on the shared matrix) change nothing
 
 
 def test_design_standardises_once_and_rebuilds_x_terms():

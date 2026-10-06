@@ -152,3 +152,32 @@ def test_the_exploration_split_is_fixed_and_about_thirty_percent():
     assert 0.27 < share < 0.33
     assert study.exploration_keyword("robinhood vs etrade") == (
         int(hashlib.sha256(b"funnel-exploration-v1:robinhood vs etrade").hexdigest()[:8], 16) / 2 ** 32 < 0.30)
+
+
+def test_forked_workers_survive_blas_after_the_parent_used_it():
+    """The analyze pool forks after the parent fitted with BLAS. On macOS, Accelerate's libdispatch
+    threads make that crash (SIGSEGV in the child) unless the entry point pins BLAS to one thread."""
+    import subprocess
+    import sys
+    import textwrap
+    from pathlib import Path
+    code = textwrap.dedent("""
+        import analysis.scripts.funnel_study  # first import: sets the BLAS thread variables before numpy loads
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+        import numpy as np
+        A = np.random.default_rng(0).normal(size=(3000, 3000))
+        v = np.ones(3000)
+        for _ in range(20):
+            A @ v
+
+        def job(i):
+            return float((A @ v).sum())
+
+        with ProcessPoolExecutor(4, mp_context=multiprocessing.get_context("fork")) as pool:
+            print(len(list(pool.map(job, range(16)))))
+    """)
+    env = {k: v for k, v in __import__("os").environ.items() if k != "VECLIB_MAXIMUM_THREADS"}
+    run = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[2], env=env,
+                         capture_output=True, text=True, timeout=300)
+    assert run.returncode == 0 and run.stdout.strip() == "16", run.stderr[-2000:]

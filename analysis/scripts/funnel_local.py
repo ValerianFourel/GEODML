@@ -4,7 +4,9 @@
   extract-hf  stream trace objects of the published Hugging Face bundles, keep answers of the
               exploration keywords, map every stage to exact snapshot rows (funnel_rows.answer_items)
               and write the same extract folder as ``funnel_study.py extract``. Each trace file is
-              deleted after use; finished bundles are skipped on rerun.
+              deleted after use; finished bundles are skipped on rerun. ``--model`` keeps one model's
+              bundles (the trace budget then counts only those).
+  merge       one extract folder from several chunk folders (e.g. a Qwen and a Llama extraction).
   review      analyses of the published generation rows (all keywords): behaviour, cited-source intent,
               on-topic share, cited-source SEO and page features, alignment against the keyword's own
               rows, prompt-text search overlap, cross-model agreement, ranking change, moderators.
@@ -64,6 +66,10 @@ def extract_hf(args) -> int:
     for bundle_path in order:
         bundle_path = hf / bundle_path if not Path(bundle_path).is_absolute() else Path(bundle_path)
         bundle = json.loads(bundle_path.read_text())
+        models = Counter((o.get("identity") or {}).get("model_id") for o in bundle.get("outcomes", {}).values())
+        model = SHORT.get(models.most_common(1)[0][0]) if models else None
+        if args.model and model != args.model:
+            continue
         files = bundle.get("files", {})
         trace_bytes = sum(m["bytes"] for p, m in files.items() if "/traces/" in p and p.endswith(".jsonl"))
         if spent + trace_bytes > args.budget_gb * 1e9:
@@ -73,8 +79,6 @@ def extract_hf(args) -> int:
         if target.exists():
             done += 1
             continue
-        models = Counter((o.get("identity") or {}).get("model_id") for o in bundle.get("outcomes", {}).values())
-        model = SHORT.get(models.most_common(1)[0][0]) if models else None
         wanted = {}
         for p, m in files.items():
             if "/generations/" in p and p.endswith(".jsonl") and m["sha256"] in names and (hf / names[m["sha256"]]).exists():
@@ -124,16 +128,23 @@ def extract_hf(args) -> int:
         os.replace(temporary, target)
         done += 1
         print(json.dumps({"bundles": done, "trace_gb": round(spent / 1e9, 2), "answers": len(records), "time": readiness.now()}), flush=True)
-    merge_chunks(chunks, out, rows)
+    merge_chunks([chunks], out, rows)
     return 0
 
 
-def merge_chunks(chunks: Path, out: Path, rows) -> None:
-    """Write the extract folder (answers, items, events, manifest) from the finished chunks."""
+def merge(args) -> int:
+    merge_chunks([Path(c) for c in args.chunks], Path(args.output), fr.snapshot_rows(dict(s.split("=", 1) for s in args.snapshot)))
+    return 0
+
+
+def merge_chunks(chunk_dirs: list, out: Path, rows) -> None:
+    """Write the extract folder (answers, items, events, manifest) from the finished chunks of one or
+    more chunk folders, in the given folder order (files sorted within each folder)."""
     study.refuse_existing(out)
     answers, item_parts, sizes, events, counts, queries = [], [], [], [], Counter(), []
     seen = set()
-    for path in sorted(chunks.glob("*.json.gz")):
+    paths = [path for chunks in chunk_dirs for path in sorted(Path(chunks).glob("*.json.gz"))]
+    for path in paths:
         chunk = json.load(gzip.open(path, "rt", encoding="utf-8"))
         counts.update(chunk["counts"])
         for r in chunk["records"]:
@@ -163,7 +174,9 @@ def merge_chunks(chunks: Path, out: Path, rows) -> None:
     readiness.write_json(partial / "manifest.json", {
         "format_version": study.FORMAT_VERSION, "stage": "extract-hf", "created_at": readiness.now(), "git_commit": readiness.git_commit(),
         "source": REPO, "split": "exploration", "snapshot_sha256": rows.snapshot_sha256, "row_table_digest": fr.row_table_digest(rows),
-        "snapshot_hash_mismatch": {}, "counts": {**counts, "answers": len(answers), "items": int(len(items)), "events": len(events)}})
+        "snapshot_hash_mismatch": {}, "counts": {**counts, "answers": len(answers), "items": int(len(items)), "events": len(events)},
+        "chunk_dirs": [Path(c).name for c in chunk_dirs], "chunks": len(paths),
+        "answers_by_model": dict(Counter(a["model"] for a in answers))})
     partial.rename(out.resolve())
     print(json.dumps({"answers": len(answers), "items": int(len(items)), "events": len(events)}), flush=True)
 
@@ -181,9 +194,15 @@ def main(argv=None) -> int:
                                                             f"searxng={serp / 'phase0_top20_searxng.parquet'}"])
     p.add_argument("--split", choices=["exploration"], default="exploration")
     p.add_argument("--budget-gb", type=float, default=12.0)
+    p.add_argument("--model", choices=sorted(SHORT.values()), help="keep only this model's bundles")
+    p.add_argument("--output", type=Path, required=True)
+    p = sub.add_parser("merge")
+    p.add_argument("--chunks", type=Path, action="append", required=True, help="chunk folder (repeat; order kept)")
+    p.add_argument("--snapshot", action="append", default=[f"duckduckgo={serp / 'phase0_top20_ddg.parquet'}",
+                                                            f"searxng={serp / 'phase0_top20_searxng.parquet'}"])
     p.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
-    return {"extract-hf": extract_hf}[args.command](args)
+    return {"extract-hf": extract_hf, "merge": merge}[args.command](args)
 
 
 if __name__ == "__main__":

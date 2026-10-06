@@ -18,6 +18,9 @@ import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
+# Apple Accelerate (numpy's BLAS on macOS) runs its threads on libdispatch, which is not fork-safe: a forked
+# worker that calls BLAS after the parent did crashes with SIGSEGV. One thread keeps the forked pool safe.
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 
 import argparse  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402

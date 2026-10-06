@@ -235,11 +235,12 @@ def _group_keyword(stage: Stage, answer_keyword: np.ndarray) -> np.ndarray:
 def _replicate(job):
     kind, value = job
     stage, x, keyword, start = _STATE["stage"], _STATE["x"], _STATE["keyword"], _STATE["start"]
+    if kind == "drop":  # drop-one-block refit (no start, no weight): its failure is an error, as for the full fit
+        return [float(_fit(stage, stage.design.matrix(x[stage.row_answer], drop_block=value)).fun)]
     k = len(stage.design.features)
     try:
-        if kind == "bootstrap":
-            X = stage.design.matrix(x[stage.row_answer])
-            result = _fit(stage, X, weight=value[_group_keyword(stage, keyword)], start=start)
+        if kind == "bootstrap":  # the observed x: the full-fit matrix, shared read-only with forked workers
+            result = _fit(stage, _STATE["X"], weight=value[_group_keyword(stage, keyword)], start=start)
         else:
             X = stage.design.matrix(value[stage.row_answer])
             result = _fit(stage, X, start=start)
@@ -265,14 +266,14 @@ def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.nd
     X = design.matrix(answer_x[stage.row_answer])
     full = _fit(stage, X)
     k = len(design.features)
-    gains = {}
-    for block in design.blocks:
-        dropped = _fit(stage, design.matrix(answer_x[stage.row_answer], drop_block=block))
-        gains[block] = max(0.0, float(dropped.fun - full.fun))
+    _STATE.update(stage=stage, x=answer_x, keyword=answer_keyword, start=full.x, X=X)
+    blocks = list(design.blocks)
+    jobs = [("drop", b) for b in blocks] + [("bootstrap", d) for d in draws] + [("permutation", s) for s in shuffles]
+    done = _run(jobs, workers)
+    _STATE.clear()
+    gains = {b: max(0.0, done[i][0] - float(full.fun)) for i, b in enumerate(blocks)}
     total_gain = sum(gains.values())
-    _STATE.update(stage=stage, x=answer_x, keyword=answer_keyword, start=full.x)
-    jobs = [("bootstrap", d) for d in draws] + [("permutation", s) for s in shuffles]
-    replicates = np.asarray(_run(jobs, workers), float).reshape(len(jobs), k)
+    replicates = np.asarray(done[len(blocks):], float).reshape(len(jobs) - len(blocks), k)
     boot, null = replicates[:len(draws)], replicates[len(draws):]
     out = {"features": {}, "blocks": {b: {"fit_share": gains[b] / total_gain if total_gain > 0 else None} for b in design.blocks},
            "mean_negative_log_likelihood": float(full.fun),

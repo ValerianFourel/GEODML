@@ -61,3 +61,37 @@ def test_answer_metrics_weight_ranks_and_compare_with_the_keyword_rows():
     assert m["top1_gap"] == pytest.approx(0.1) and m["null_gap"] == pytest.approx(np.mean([0.6, 0.4]))
     assert m["r0_overlap"] == pytest.approx(1 / 3) and m["r0_u"] == 0.3
     assert m["answer_steps"] == 1 and m["answer_imperatives"] >= 2 and m["answer_currency"] == 1 and m["ranking_len"] == 3
+
+
+def test_merge_keeps_folder_order_and_drops_republished_cells(tmp_path, monkeypatch):
+    import gzip
+    import json
+    from types import SimpleNamespace
+    from analysis.scripts import funnel_local as local
+
+    def record(model, prompt, rows):
+        return {"fingerprint": f"{model}-{prompt}", "model": model, "engine": "searxng", "method": "Parallel-Expansion-v1",
+                "condition": "natural", "prompt_id": prompt, "keyword_text": "crm", "x": 0.5,
+                "items": [[r, 0, i, 1, i, -1] for i, r in enumerate(rows)], "events": [[0, [[rows[0], 0.9, 1]]]], "queries": ["crm"]}
+
+    def chunk(folder, name, model, records):
+        folder.mkdir(exist_ok=True)
+        with gzip.open(folder / f"{name}.json.gz", "wt") as stream:
+            json.dump({"bundle": name, "model": model, "records": records, "counts": {"seen": len(records)}}, stream)
+
+    qwen, llama = tmp_path / "qwen.chunks", tmp_path / "llama.chunks"
+    chunk(qwen, "b", "qwen38", [record("qwen38", "p1", [1, 2])])
+    chunk(qwen, "a", "qwen38", [record("qwen38", "p2", [3])])
+    chunk(llama, "c", "llama4", [record("llama4", "p1", [4, 5, 6]), record("llama4", "p1", [7])])  # republished cell
+    monkeypatch.setattr(local.fr, "row_table_digest", lambda rows: "digest")
+    out = tmp_path / "merged"
+    local.merge_chunks([qwen, llama], out, SimpleNamespace(snapshot_sha256={"searxng": "s"}))
+    answers = [json.loads(line) for line in gzip.open(out / "answers.jsonl.gz", "rt")]
+    assert [a["prompt_id"] + a["model"] for a in answers] == ["p2qwen38", "p1qwen38", "p1llama4"]
+    items = np.load(out / "items.npz")
+    assert items["offsets"].tolist() == [0, 1, 3, 6] and items["row"].tolist() == [3, 1, 2, 4, 5, 6]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["counts"]["duplicate_cells"] == 1 and manifest["answers_by_model"] == {"qwen38": 2, "llama4": 1}
+    assert manifest["chunks"] == 3 and manifest["chunk_dirs"] == ["qwen.chunks", "llama.chunks"]
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        local.merge_chunks([qwen], out, SimpleNamespace(snapshot_sha256={}))  # never overwrites
