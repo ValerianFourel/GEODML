@@ -114,7 +114,8 @@ def extract_hf(args) -> int:
                         records.append({"fingerprint": record_id, "model": model, "engine": engine, "method": generation["method"],
                                         "condition": generation.get("condition"), "prompt_id": generation["prompt_id"],
                                         "keyword_text": keyword, "x": prompt_axis[generation["prompt_id"]],
-                                        "items": items["items"], "events": [[e["search"], e["candidates"]] for e in items["events"]]})
+                                        "items": items["items"], "events": [[e["search"], e["candidates"]] for e in items["events"]],
+                                        "queries": items["queries"]})
             finally:
                 Path(local).unlink(missing_ok=True)
         temporary = target.with_suffix(".partial")
@@ -130,7 +131,7 @@ def extract_hf(args) -> int:
 def merge_chunks(chunks: Path, out: Path, rows) -> None:
     """Write the extract folder (answers, items, events, manifest) from the finished chunks."""
     study.refuse_existing(out)
-    answers, item_parts, sizes, events, counts = [], [], [], [], Counter()
+    answers, item_parts, sizes, events, counts, queries = [], [], [], [], Counter(), []
     seen = set()
     for path in sorted(chunks.glob("*.json.gz")):
         chunk = json.load(gzip.open(path, "rt", encoding="utf-8"))
@@ -143,6 +144,7 @@ def merge_chunks(chunks: Path, out: Path, rows) -> None:
             seen.add(key)
             i = len(answers)
             answers.append({k: r[k] for k in ("fingerprint", "model", "engine", "method", "condition", "prompt_id", "keyword_text", "x")})
+            queries.append({"answer": i, "queries": r.get("queries", [])})
             item_parts.append(np.asarray(r["items"], np.int64).reshape(-1, 6))
             sizes.append(len(r["items"]))
             for search, cands in r["events"]:
@@ -150,6 +152,7 @@ def merge_chunks(chunks: Path, out: Path, rows) -> None:
     partial = readiness.new_directory(out)
     items = np.concatenate(item_parts) if item_parts else np.zeros((0, 6), np.int64)
     readiness.write_jsonl(partial / "answers.jsonl.gz", answers)
+    readiness.write_jsonl(partial / "queries.jsonl.gz", queries)
     readiness.write_npz(partial / "items.npz", offsets=np.r_[0, np.cumsum(sizes)].astype(np.int64), row=items[:, 0], search=items[:, 1],
                         rank=items[:, 2], scored=items[:, 3], presented=items[:, 4], ranked=items[:, 5])
     cand_sizes = [len(c) for _, _, c in events]
