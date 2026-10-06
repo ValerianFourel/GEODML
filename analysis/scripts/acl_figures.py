@@ -415,7 +415,7 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
         drawn += _series(a, group[condition]["u"], "K", color=MODEL.get(model, INK), ls=ENGINE_STYLE.get(engine, "-"),
                          label=f"{MODEL_LABEL.get(model, model)} · {ENGINE_LABEL.get(engine, engine)}")
     a.set_ylabel("position of the cited sources\n(same 0–1 scale, top-weighted)")
-    a.set_title("(a) cited sources follow the prompt", loc="left")
+    a.set_title("(a) cited sources follow the prompt" if has_pool else "cited sources follow the prompt", loc="left")
     a.legend(frameon=False, loc="upper left")
     for name, group in (curves.items() if b is not None else []):
         parts = [s.strip() for s in name.split("·")]
@@ -456,8 +456,8 @@ def _finish_fig4(plt, fig, axes, drawn, condition, out_dir):
             ax.set_ylim(max(0, lo - pad), min(1, hi + pad))
     if not drawn:
         raise ValueError("no model x engine curves found in results.json")
-    fig.text(0.5, -0.10 if len(axes) > 1 else -0.2, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors; "
-             "Descriptive, not causal.",
+    fig.text(0.5, -0.10 if len(axes) > 1 else -0.08, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors;"
+             + (" " if len(axes) > 1 else "\n") + "Descriptive, not causal.",
              ha="center", fontsize=6.2, color=MUTED)
     return _save(fig, out_dir, "fig4-cited-vs-prompt")
 
