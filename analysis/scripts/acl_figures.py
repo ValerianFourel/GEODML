@@ -51,6 +51,8 @@ MODEL = {"llama4": "#2f6f9f", "qwen38": "#c0632b"}
 MODEL_LABEL = {"llama4": "Llama-4-Scout", "qwen38": "Qwen3.8"}
 ENGINE_STYLE = {"duckduckgo": "-", "searxng": "--"}
 ENGINE_LABEL = {"duckduckgo": "DuckDuckGo", "searxng": "SearXNG"}
+METHOD_STYLE = {"Parallel-Expansion-v1": "-", "Reactive-Snippet-Loop-v1": "--"}
+METHOD_LABEL = {"Parallel-Expansion-v1": "Parallel Expansion", "Reactive-Snippet-Loop-v1": "Reactive Loop"}
 
 
 # ---------------------------------------------------------------- axis examples
@@ -132,26 +134,31 @@ def cited_from_generations(generation_rows, prompt_rows, page_rows, *, bootstrap
     models = sorted({r[0] for r in rows})
     keyword_code = {k: i for i, k in enumerate(sorted({r[4] for r in rows}))}
     col = lambda i: np.asarray([r[i] for r in rows])
-    model_a, engine_a, cond_a = col(0), col(1), col(3)
+    model_a, engine_a, method_a, cond_a = col(0), col(1), col(2), col(3)
     x, k = col(5).astype(float), np.asarray([keyword_code[r[4]] for r in rows])
     cited = col(6).astype(float)
     draws = stages.keyword_draws(len(keyword_code), bootstrap, seed)
-    groups, slopes = {}, {}
+    groups, by_method, slopes = {}, {}, {}
     natural = cond_a == "natural"
+
+    def add(target, name, mask):
+        target[name] = {c: {"u": stages.stage_curves(x, k, {"K": cited}, mask & extra)}
+                        for c, extra in (("natural", natural), ("all", np.ones(len(x), bool)))}
+        m = mask & natural
+        point = geo.within_keyword_slope(x[m], cited[m], k[m])
+        boot = [geo.within_keyword_slope(x[m], cited[m], k[m], d[k[m]]) for d in draws]
+        slopes[name] = {"answers_natural": int(m.sum()), "slope_K_on_x": point,
+                        "ci95": [float(np.nanpercentile(boot, 2.5)), float(np.nanpercentile(boot, 97.5))]}
+
     for model in models:
-        for engine in sorted(set(engine_a)) + ["both engines"]:
-            mask = (model_a == model) & ((engine_a == engine) if engine != "both engines" else True)
-            name = f"{model} · {engine}"
-            groups[name] = {c: {"u": stages.stage_curves(x, k, {"K": cited}, mask & extra)}
-                            for c, extra in (("natural", natural), ("all", np.ones(len(x), bool)))}
-            m = mask & natural
-            point = geo.within_keyword_slope(x[m], cited[m], k[m])
-            boot = [geo.within_keyword_slope(x[m], cited[m], k[m], d[k[m]]) for d in draws]
-            slopes[name] = {"answers_natural": int(m.sum()), "slope_K_on_x": point,
-                            "ci95": [float(np.nanpercentile(boot, 2.5)), float(np.nanpercentile(boot, 97.5))]}
+        for engine in sorted(set(engine_a)):
+            add(groups, f"{model} · {engine}", (model_a == model) & (engine_a == engine))
+        add(groups, f"{model} · both engines", model_a == model)
+        for method in sorted(set(method_a)):
+            add(by_method, f"{model} · {method}", (model_a == model) & (method_a == method))
     return {"source": "published generation rows (HF exchange), no traces", "counts": counts,
             "answers_by_model": {m: int((model_a == m).sum()) for m in models},
-            "curves": {"bins": 20, "groups": groups}, "slopes_natural": slopes, "bootstrap": bootstrap,
+            "curves": {"bins": 20, "groups": groups, "groups_by_method": by_method}, "slopes_natural": slopes, "bootstrap": bootstrap,
             "note": "descriptive association; cited position = top-weighted mean percentile of ranked URLs"}
 
 
@@ -391,8 +398,8 @@ def _series(ax, block, term, *, color, ls="-", label=None, band=True, lw=1.1, ma
     return True
 
 
-def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]:
-    curves = results.get("curves", {}).get("groups")
+def fig4(plt, results: dict, out_dir: Path, *, condition="natural", facet="engine") -> list[str]:
+    curves = results.get("curves", {}).get("groups_by_method" if facet == "method" else "groups")
     if not curves:
         raise ValueError("results.json has no curves; rerun intent_stages_study.py analyze at this commit")
     has_pool = any("P" in g.get(condition, {}).get("u", {}).get("terms", {}) for g in curves.values())
@@ -401,6 +408,7 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
     else:
         fig, a = plt.subplots(1, 1, figsize=(COLUMN, 2.5))
         b = None
+    fig._facet = facet
     for ax in [a] + ([b] if b is not None else []):
         ax.set_xlim(0, 1)
         ax.set_xlabel("prompt position $x$ (0 information, 1 action)")
@@ -411,9 +419,10 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
         parts = [s.strip() for s in name.split("·")]
         if len(parts) != 2 or parts[1] == "both engines":
             continue
-        model, engine = parts
-        drawn += _series(a, group[condition]["u"], "K", color=MODEL.get(model, INK), ls=ENGINE_STYLE.get(engine, "-"),
-                         label=f"{MODEL_LABEL.get(model, model)} · {ENGINE_LABEL.get(engine, engine)}")
+        model, level = parts
+        style, label = (METHOD_STYLE, METHOD_LABEL) if facet == "method" else (ENGINE_STYLE, ENGINE_LABEL)
+        drawn += _series(a, group[condition]["u"], "K", color=MODEL.get(model, INK), ls=style.get(level, "-"),
+                         label=f"{MODEL_LABEL.get(model, model)} · {label.get(level, level)}")
     a.set_ylabel("position of the cited sources\n(same 0–1 scale, top-weighted)")
     a.set_title("(a) cited sources follow the prompt" if has_pool else "cited sources follow the prompt", loc="left")
     a.legend(frameon=False, loc="upper left")
@@ -456,10 +465,10 @@ def _finish_fig4(plt, fig, axes, drawn, condition, out_dir):
             ax.set_ylim(max(0, lo - pad), min(1, hi + pad))
     if not drawn:
         raise ValueError("no model x engine curves found in results.json")
-    fig.text(0.5, -0.10 if len(axes) > 1 else -0.08, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors;"
+    fig.text(0.5, -0.10 if len(axes) > 1 else -0.15, f"{condition} condition; 20 bins of x; bands: ±1.96 keyword-clustered standard errors;"
              + (" " if len(axes) > 1 else "\n") + "Descriptive, not causal.",
              ha="center", fontsize=6.2, color=MUTED)
-    return _save(fig, out_dir, "fig4-cited-vs-prompt")
+    return _save(fig, out_dir, "fig4-cited-vs-prompt" + ("-by-method" if getattr(fig, "_facet", "engine") == "method" else ""))
 
 
 # ---------------------------------------------------------------- CLI
@@ -485,6 +494,7 @@ def main(argv=None) -> int:
     p.add_argument("--axis-examples", type=Path)
     p.add_argument("--results", type=Path, help="results.json of intent_stages_study.py analyze")
     p.add_argument("--condition", choices=["natural", "all"], default="natural")
+    p.add_argument("--facet", choices=["engine", "method"], default="method", help="split figure 4 by search engine or search method")
     p.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "axis-examples":
@@ -526,7 +536,7 @@ def main(argv=None) -> int:
         written["fig1"] = fig1(plt, json.loads(args.axis_examples.read_text(encoding="utf-8")), args.output_dir)
     if args.results:
         written["fig4"] = fig4(plt, json.loads(args.results.read_text(encoding="utf-8")), args.output_dir,
-                               condition=args.condition)
+                               condition=args.condition, facet=args.facet)
     print(json.dumps(written, indent=2))
     return 0
 
