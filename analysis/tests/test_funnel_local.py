@@ -123,3 +123,22 @@ def test_gemma_support_joins_on_the_generation_fingerprint_and_reports_the_join(
     assert support == {"crm": 2.0}  # natural answers only; the shuffled cell's grade is not used
     assert info["graded_answers"] == 3 and info["graded_answers_joined"] == 2 and info["graded_answers_unjoined"] == 1
     assert info["natural_answers_with_grades"] == 1 and info["natural_answers_seen"] == 2
+
+
+def test_slope_contrast_uses_shared_draws_and_recovers_the_difference():
+    from analysis.interpretability.pipeline import intent_stages as stages
+    from analysis.scripts import funnel_contrasts as fc
+    rng = np.random.default_rng(3)
+    keywords, per = 80, 20
+    k = np.repeat(np.arange(keywords), per)
+    x = rng.uniform(0, 1, len(k))
+    shift = rng.normal(0, 0.05, keywords)[k]                       # keyword-level slope noise shared by both strata
+    y_a = (0.20 + shift) * x + rng.normal(0, 0.05, len(k))
+    y_b = (0.10 + shift) * x + rng.normal(0, 0.05, len(k))
+    xx, yy, kk = np.r_[x, x], np.r_[y_a, y_b], np.r_[k, k]
+    in_a = np.r_[np.ones(len(k), bool), np.zeros(len(k), bool)]
+    draws = stages.keyword_draws(keywords, 200, 1)
+    c = fc.slope_contrast(xx, yy, kk, in_a, ~in_a, draws)
+    assert abs(c["difference"] - 0.10) < 0.02 and c["ci95"][0] > 0.05 and c["ci95"][1] < 0.15
+    same = fc.slope_contrast(xx, np.r_[y_a, y_a], kk, in_a, ~in_a, draws)
+    assert same["difference"] == 0 and same["ci95"] == [0.0, 0.0]  # identical strata: shared draws cancel exactly
