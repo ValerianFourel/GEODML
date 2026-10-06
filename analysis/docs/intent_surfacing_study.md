@@ -95,3 +95,15 @@ carried by the pool more than by the ranking" holds for a stratum if the pool in
 β_P (equivalently β_R + (β_C − β_R) + (β_P − β_C)) exceeds the reordering increment β_K − β_P
 and their difference has a 95% interval excluding 0. Thresholds are not changed after results
 are seen.
+
+
+## Addendum (2026-10-06, before any result of this study): answer support and figure curves
+
+13. **Answer-support stage G.** For answers judged by the Gemma SI-v4 run, G is the grade-weighted
+    mean intent of the judged sources with a positive grade (what the answer rests on), joined on the
+    cell fingerprint; sources are matched to corpus pages by their exact title and text. Reported:
+    β_G and β_(G−K) per stratum with the same keyword resamples and shuffles. The judge failed its
+    semantic review, so G is a development measurement (`scientific_result: false`); it covers only
+    the judged (llama) cells, is excluded from the four-stratum replication rule, and no claim rests on it.
+14. **Figure curves.** Per model × engine and per model, the mean of each stage in 20 equal bins of x
+    with keyword-clustered standard errors (natural condition and all conditions). Descriptive only.

@@ -78,6 +78,17 @@ if [ -n "${ANSWER_EXPORT:-}" ]; then
            --answers-mistral "$R/answers-embed-mistral.merged")
 fi
 
+GEMMA=()
+if [ -n "${GEMMA_RUN:-}" ]; then  # Gemma SI-v4 run root (development judgments); read-only extraction
+  if [ ! -f "$R/intent-gemma-extract-v1/manifest.json" ]; then
+    set_aside "$R/intent-gemma-extract-v1"
+    echo "== gemma-extract $(date -u +%FT%TZ)"
+    "$RT/bin/python" -u "$SCRIPT" gemma-extract --gemma-run "$GEMMA_RUN" --corpus-package "$CORPUS" \
+      --workers "$CPUS" --output "$R/intent-gemma-extract-v1"
+  fi
+  GEMMA=(--gemma "$R/intent-gemma-extract-v1")
+fi
+
 if [ ! -f "$R/embed-queries-qwen.merged/projection_manifest.json" ] || [ ! -f "$R/embed-queries-mistral.merged/projection_manifest.json" ]; then
   echo "Queries are not embedded yet: run horeka-intent-queries-interactive.sh in a four-A100 allocation, then resubmit."
   exit 0
@@ -93,7 +104,7 @@ if [ ! -f "$OUT/final-report.html" ]; then
     --qwen-map "$A/maps/qwen" --mistral-map "$A/maps/mistral" --battery "$A/battery" \
     --final-axis-map "$A/final-audit/final-axis-map.jsonl" \
     --queries-qwen "$R/embed-queries-qwen.merged" --queries-mistral "$R/embed-queries-mistral.merged" \
-    ${ANSWERS[@]+"${ANSWERS[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} \
+    ${ANSWERS[@]+"${ANSWERS[@]}"} ${GEMMA[@]+"${GEMMA[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} \
     --bootstrap 200 --permutations 200 --workers "$CPUS" --output "$OUT"
 fi
 echo "REPORT $OUT/final-report.html end $(date -u +%FT%TZ)"

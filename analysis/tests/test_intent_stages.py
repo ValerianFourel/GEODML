@@ -465,6 +465,43 @@ def test_replay_reruns_the_frozen_search_only_after_recorded_queries_replay_iden
     assert report["identical"] == report["recorded_searches_replayed"] - 1 and not report["passed"]
 
 
+def fake_gemma_run(tmp_path, trace_extract, inputs):
+    """A Gemma SI-v4 run layout: one shard with a latest report and frozen source task records."""
+    import gzip
+    import sqlite3
+    results = tmp_path / "gemma-run/shards/shard-0001/results"
+    (results / "reports/si-abc").mkdir(parents=True)
+    (results / "control").mkdir()
+    (results / "reports/latest.json").write_text(json.dumps({"directory": "si-abc"}))
+    rows = snapshot_rows()
+    answers = list(study.readiness.read_jsonl(trace_extract / "answers.jsonl.gz"))[:6]
+    db = sqlite3.connect(results / "control/index.sqlite")
+    db.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, record TEXT NOT NULL)")
+    cells = []
+    for i, answer in enumerate(answers):
+        sources = []
+        for j, grade in enumerate((3, 1)):
+            row = rows[(2 * i + j) % len(rows)]
+            tid = f"t-{i}-{j}"
+            db.execute("INSERT INTO tasks VALUES (?, ?)", (tid, json.dumps({"source_title": row["title"], "source_text": row["snippet"]})))
+            sources.append({"url": row["url"], "status": "scored", "importance": grade, "result_logical_id": tid})
+        cells.append({"fingerprint": answer["generation_id"], "status": "ok", "sources": sources})
+    db.execute("INSERT INTO tasks VALUES ('t-x', ?)", (json.dumps({"source_title": "absent", "source_text": "page"}),))
+    cells[0]["sources"].append({"url": "u", "status": "scored", "importance": 2, "result_logical_id": "t-x"})
+    db.commit()
+    db.close()
+    with gzip.open(results / "reports/si-abc/cells.jsonl.gz", "wt") as stream:
+        for cell in cells + [{"fingerprint": "other", "status": "failed"}]:
+            stream.write(json.dumps(cell) + "\n")
+    return tmp_path / "gemma-extract"
+
+
+def test_support_values_weight_positive_grades_only():
+    doc_z = np.array([0.0, 1.0, 2.0])
+    out = stages.support_values(3, np.array([0, 0, 1, 1]), np.array([1, 2, 0, 2]), np.array([1, 3, 0, 0]), doc_z)
+    assert out[0] == pytest.approx((1 * 1.0 + 3 * 2.0) / 4) and np.isnan(out[1]) and np.isnan(out[2])
+
+
 def test_analyze_end_to_end_reports_every_section(tmp_path, monkeypatch):
     inputs = build_inputs(tmp_path)
     output = extract(tmp_path, inputs, monkeypatch)
@@ -480,8 +517,11 @@ def test_analyze_end_to_end_reports_every_section(tmp_path, monkeypatch):
     study.readiness.write_jsonl(tmp_path / "answers-index.jsonl.gz", index)
     answers = {view: projections(tmp_path / f"answers-{view}", f"map-{view[0]}",
                                  {row["answer_id"]: rng.normal(size=2) for row in index}, rng) for view in ("qwen", "mistral")}
+    gemma = fake_gemma_run(tmp_path, output, inputs)
+    assert study.main(["gemma-extract", "--gemma-run", str(tmp_path / "gemma-run"), "--corpus-package", str(inputs["corpus"]),
+                       "--output", str(gemma)]) == 0
     analysis = tmp_path / "analysis"
-    arguments = ["analyze", "--trace-extract", str(output), "--corpus-package", str(inputs["corpus"]),
+    arguments = ["analyze", "--gemma", str(gemma), "--trace-extract", str(output), "--corpus-package", str(inputs["corpus"]),
                  "--qwen-prompts", str(tmp_path / "prompts-qwen"), "--mistral-prompts", str(tmp_path / "prompts-mistral"),
                  "--qwen-map", str(inputs["maps"]["qwen"]), "--mistral-map", str(inputs["maps"]["mistral"]),
                  "--battery", str(inputs["battery"]), "--final-axis-map", str(inputs["final"]), "--replay", str(replay),
@@ -506,11 +546,15 @@ def test_analyze_end_to_end_reports_every_section(tmp_path, monkeypatch):
     assert results["validity"]["answers"]["answers_joined"] == len(index)
     assert results["validity"]["queries"]["missing"] == 0
     assert set(results["replication"]) == {"slopes", "derived", "selection", "ranking_step"}
-    assert "Rk" not in results["replication"]["slopes"]
+    assert "Rk" not in results["replication"]["slopes"] and "G" not in results["replication"]["slopes"]
+    support = results["validity"]["answer_support_gemma"]
+    assert support["graded_sources_joined"] == 2 * support["answers_with_grades"] > 0 and support["graded_sources_unjoined"] == 0
+    assert support["extract"]["graded_sources_not_in_corpus"] == 1 and support["scientific_result"] is False
+    assert "G" in results["strata"]["llama4 · duckduckgo"]["slopes"]
     curves = results["curves"]["groups"]
     assert set(primary) <= set(curves) and any(name.endswith("both engines") for name in curves)
     first = curves[next(iter(primary))]["natural"]
-    assert set(first["u"]["terms"]) == {"R", "C", "P", "K"} and "Q" in first["z"]["terms"]
+    assert set(first["u"]["terms"]) == {"R", "C", "P", "K", "G"} and "Q" in first["z"]["terms"]
     assert len(first["u"]["terms"]["K"]["mean"]) == 20
     assert {"llama4 − qwen38 · duckduckgo", "Reactive − Parallel · llama4 · searxng"} <= set(results["contrasts"])
     report = (analysis / "final-report.html").read_text()

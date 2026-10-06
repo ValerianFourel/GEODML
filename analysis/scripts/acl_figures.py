@@ -353,11 +353,15 @@ def fig4(plt, results: dict, out_dir: Path, *, condition="natural") -> list[str]
             _series(b, block, "R", color=colour, ls=":", band=False, lw=0.9)
             _series(b, block, "P", color=colour, ls="--", band=False, lw=0.9)
             _series(b, block, "K", color=colour, ls="-", lw=1.2, label=MODEL_LABEL.get(parts[0], parts[0]))
+            _series(b, block, "G", color=colour, ls="-.", band=False, lw=0.9)
     from matplotlib.lines import Line2D
     handles, labels = b.get_legend_handles_labels()
     handles += [Line2D([], [], color=MUTED, ls=":", lw=0.9), Line2D([], [], color=MUTED, ls="--", lw=0.9),
                 Line2D([], [], color=MUTED, ls="-", lw=1.2)]
     labels += ["retrieved by the AI’s searches [R]", "shortlist shown [P]", "cited / ranked [K]"]
+    if any(l.get_linestyle() == "-." for l in b.get_lines()):
+        handles.append(Line2D([], [], color=MUTED, ls="-.", lw=0.9))
+        labels.append("answer rests on [G] (judge, development)")
     b.legend(handles, labels, frameon=False, loc="upper left")
     b.set_ylabel("position on the axis")
     b.set_title("(b) where the shift enters: pool vs. ordering", loc="left")

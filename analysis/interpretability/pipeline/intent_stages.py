@@ -19,8 +19,9 @@ from .geo_drivers import DriverRows, _interval, _p_value, within_keyword_slope
 
 PARALLEL, REACTIVE = "Parallel-Expansion-v1", "Reactive-Snippet-Loop-v1"
 CHAIN = ("R", "C", "P", "K")  # retrieved, reranker candidates, shortlist, ranking
-STAGES = ("Q", "R0", "Rk", "R", "C", "P", "K", "A")
-INCREMENTS = ("C-R", "P-C", "K-P", "R-R0")
+STAGES = ("Q", "R0", "Rk", "R", "C", "P", "K", "A", "G")
+# G: sources the answer rests on, grade-weighted (Gemma SI-v4 judge; development judgments, not validated).
+INCREMENTS = ("C-R", "P-C", "K-P", "R-R0", "G-K")
 
 
 # ---------------------------------------------------------------- traces
@@ -135,7 +136,17 @@ def top_weighted(offsets: np.ndarray, values: np.ndarray, sort_key: np.ndarray |
                      out=np.full(n, np.nan), where=total > 0)
 
 
-def stage_values(st: Stages, doc_z: np.ndarray, *, query_z=None, answer_z=None, r0=None, rk=None) -> dict:
+def support_values(n_answers: int, answer: np.ndarray, doc: np.ndarray, grade: np.ndarray, doc_z: np.ndarray) -> np.ndarray:
+    """Per answer, the grade-weighted mean intent of its judged sources with a positive grade
+    (what the answer rests on); NaN where an answer has no positive grade or was not judged."""
+    answer, grade = np.asarray(answer, int), np.asarray(grade, float)
+    weight = np.where(grade > 0, grade, 0.0)
+    total = np.bincount(answer, weight, minlength=n_answers)
+    sums = np.bincount(answer, weight * np.asarray(doc_z, float)[np.asarray(doc, int)], minlength=n_answers)
+    return np.divide(sums, total, out=np.full(n_answers, np.nan), where=total > 0)
+
+
+def stage_values(st: Stages, doc_z: np.ndarray, *, query_z=None, answer_z=None, r0=None, rk=None, support=None) -> dict:
     """Per answer value of every available stage (NaN where an answer lacks it)."""
     values = {"R": csr_mean(st.ret_offsets, doc_z[st.ret_docs]),
               "C": csr_mean(st.cand_offsets, doc_z[st.cand_docs]),
@@ -143,6 +154,8 @@ def stage_values(st: Stages, doc_z: np.ndarray, *, query_z=None, answer_z=None, 
               "K": top_weighted(st.rank_offsets, doc_z[st.rank_docs])}
     if query_z is not None:
         values["Q"] = csr_mean(st.q_offsets, np.asarray(query_z, float)[st.q_ids])
+    if support is not None:
+        values["G"] = support_values(len(st.x), *support, doc_z)
     for name, array in (("A", answer_z), ("R0", r0), ("Rk", rk)):
         if array is not None:
             values[name] = np.asarray(array, float)

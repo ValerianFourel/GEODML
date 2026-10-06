@@ -180,3 +180,5 @@ supersede them with a new dated document that links back.
 - 2026-10-04 — [Page readiness ordering pipeline](2026-10-04_page-readiness-ordering_handoff.md)
 
 - 2026-10-05 — [Intent surfacing study: queries, retrieval, reranker, shortlist, ranking, answer](2026-10-05_intent-surfacing-study_handoff.md)
+
+- 2026-10-06 — [ACL figures and the Gemma answer-support stage](2026-10-06_acl-figures-gemma-stage_handoff.md)

@@ -300,6 +300,83 @@ def replay(args) -> int:
 
 # ---------------------------------------------------------------- analyze
 
+def _gemma_shard(job):
+    """Graded sources of one Gemma SI-v4 shard: its latest report's cells joined to the frozen task records."""
+    import gzip
+    import sqlite3
+    shard, doc_index = job
+    results = Path(shard) / "results"
+    pointer = results / "reports/latest.json"
+    if not pointer.exists():
+        return [], Counter({"shards_without_report": 1})
+    report = results / "reports" / json.loads(pointer.read_text())["directory"]
+    db = sqlite3.connect(f"file:{results / 'control/index.sqlite'}?mode=ro", uri=True)
+    rows, counts = [], Counter()
+    with gzip.open(report / "cells.jsonl.gz", "rt", encoding="utf-8") as stream:
+        for line in stream:
+            cell = json.loads(line)
+            if cell.get("status") != "ok":
+                counts["cells_not_ok"] += 1
+                continue
+            counts["cells"] += 1
+            for source in cell.get("sources", []):
+                counts[f"sources_{source.get('status')}"] += 1
+                tid = source.get("result_logical_id")
+                frozen = db.execute("SELECT record FROM tasks WHERE id=?", (tid,)).fetchone() if tid else None
+                if frozen is None or source.get("importance") is None:
+                    continue
+                record = json.loads(frozen[0])
+                record = record.get("legacy_record", record)
+                doc = doc_index.get(ordering.page_id(ordering.page_text(record.get("source_title", ""), record.get("source_text", ""))))
+                if doc is None:
+                    counts["graded_sources_not_in_corpus"] += 1
+                    continue
+                rows.append({"fingerprint": cell["fingerprint"], "doc": doc, "grade": int(source["importance"])})
+    db.close()
+    counts["graded_sources"] += len(rows)
+    return rows, counts
+
+
+def gemma_extract(args) -> int:
+    """Read-only: graded sources of every shard of a Gemma SI-v4 run, mapped to corpus pages."""
+    refuse_existing(args.output)
+    doc_index = corpus_index(args.corpus_package)
+    shards = sorted(p for p in (args.gemma_run / "shards").iterdir() if (p / "results").is_dir())
+    rows, counts = [], Counter()
+    for part, c in _map(_gemma_shard, [(s, doc_index) for s in shards], max(1, args.workers)):
+        rows += part
+        counts.update(c)
+    partial = readiness.new_directory(args.output)
+    readiness.write_jsonl(partial / "grades.jsonl.gz", rows)
+    readiness.write_json(partial / "manifest.json", {
+        "format_version": FORMAT_VERSION, "stage": "gemma-extract", "created_at": readiness.now(), "git_commit": readiness.git_commit(),
+        "gemma_run": str(args.gemma_run.resolve()), "shards": len(shards), "counts": dict(counts),
+        "scientific_result": False, "judge_status": "SI-v4 development judgments; the judge failed semantic review"})
+    partial.rename(Path(args.output).resolve())
+    print(json.dumps(dict(counts)), flush=True)
+    return 0
+
+
+def support_input(directory: Path | None, trace_extract: Path):
+    """(answer, doc, grade) arrays for the analysis, joined on the cell fingerprint."""
+    if directory is None:
+        return None, None
+    order = {r["generation_id"]: r["answer"] for r in readiness.read_jsonl(trace_extract / "answers.jsonl.gz")}
+    answer, doc, grade, unjoined = [], [], [], 0
+    for row in readiness.read_jsonl(directory / "grades.jsonl.gz"):
+        a = order.get(row["fingerprint"])
+        if a is None:
+            unjoined += 1
+            continue
+        answer.append(a)
+        doc.append(row["doc"])
+        grade.append(row["grade"])
+    manifest = json.loads((directory / "manifest.json").read_text())
+    info = {"graded_sources_joined": len(answer), "graded_sources_unjoined": unjoined,
+            "answers_with_grades": len(set(answer)), "extract": manifest["counts"], "scientific_result": False}
+    return (np.asarray(answer, int), np.asarray(doc, int), np.asarray(grade, float)), info
+
+
 def load_stages(directory: Path):
     with np.load(directory / "stages.npz", allow_pickle=False) as data:
         st = stages.Stages(*(data[name] for name in STAGE_ARRAYS))
@@ -497,7 +574,10 @@ def analyze(args) -> int:
     (pool_on, pool_topic), (candidate.on_keyword, candidate.topic), topic_diagnostics = pair_features(
         st, ev, rows, codes, corpus, prompts, args)
     print(json.dumps({"pairs": topic_diagnostics, "time": readiness.now()}), flush=True)
-    values = stages.stage_values(st, doc_z, query_z=query_z, answer_z=answer_z, r0=r0, rk=rk)
+    support, support_info = support_input(args.gemma, args.trace_extract)
+    if support_info:
+        validity["answer_support_gemma"] = support_info
+    values = stages.stage_values(st, doc_z, query_z=query_z, answer_z=answer_z, r0=r0, rk=rk, support=support)
     oracles = stages.oracle_values(st, doc_z, doc_u, pool_topic)
     prompt_x, prompt_keyword = stages.prompt_table(st)
     draws = stages.keyword_draws(len(codes["keyword"]), args.bootstrap, args.seed)
@@ -571,7 +651,9 @@ def analyze(args) -> int:
             contrasts[f"Reactive − Parallel · {name}"] = stages.contrast(st, mask & (st.method == reactive),
                                                                          mask & (st.method == parallel), values, terms, draws)
     first = {name: strata[name] for name in primary}
-    replication = {"slopes": geo.replication(first, section="slopes", terms=[t for t in terms if t != "Rk"], x_terms=set(terms)),
+    # G (Gemma) covers llama only, so it cannot meet the four-stratum rule and is reported per stratum.
+    replication = {"slopes": geo.replication(first, section="slopes", terms=[t for t in terms if t not in ("Rk", "G", "G-K")],
+                                             x_terms=set(terms)),
                    "derived": geo.replication(first, section="derived", terms=DERIVED_REPLICATION, x_terms=set()),
                    "selection": geo.replication(first, section="selection", terms=geo.DRIVERS),
                    "ranking_step": geo.replication(first, section="ranking_step", terms=geo.DRIVERS)}
@@ -583,7 +665,7 @@ def analyze(args) -> int:
     null_anchor = max((abs(strata[n]["slopes"]["Rk"]["slope"]) for n in strata if "Rk" in strata[n]["slopes"]), default=None)
     # Descriptive curves for the paper figure: stage value by prompt-position bin, per model x engine and per model.
     # "z" holds every available stage on the consensus z scale; "u" the page stages on the prompt percentile scale.
-    page_u = {k: v for k, v in stages.stage_values(st, doc_u).items() if k in ("R", "C", "P", "K")}
+    page_u = {k: v for k, v in stages.stage_values(st, doc_u, support=support).items() if k in ("R", "C", "P", "K", "G")}
     groups = dict(primary)
     for m, model in enumerate(codes["model"]):
         groups[f"{model} · both engines"] = st.model == m
@@ -623,7 +705,8 @@ def analyze(args) -> int:
 
 STAGE_LABELS = {"Q": "AI queries", "R0": "search with the prompt's own text (replay)", "Rk": "search with the bare keyword (replay, null anchor)",
                 "R": "retrieved by the AI's searches", "C": "reranker candidates", "P": "shortlist shown to the model",
-                "K": "final ranking (top-weighted)", "A": "answer text", "C-R": "deduplication and condition",
+                "K": "final ranking (top-weighted)", "A": "answer text",
+                "G": "sources the answer rests on (Gemma, development)", "G-K": "support minus ranking (Gemma, development)", "C-R": "deduplication and condition",
                 "P-C": "reranker selection", "K-P": "reordering by the model", "R-R0": "query rewriting"}
 LADDER = ("Q", "R0", "R", "C", "P", "K", "A")
 
@@ -918,6 +1001,11 @@ def main(argv=None) -> int:
     p.add_argument("--search-root", type=Path, help="where to look for a snapshot with the recorded SHA-256")
     p.add_argument("--workers", type=int)
     p.add_argument("--output", type=Path, required=True)
+    p = commands.add_parser("gemma-extract", help="graded sources of a Gemma SI-v4 run (read-only)")
+    p.add_argument("--gemma-run", type=Path, required=True, help="run root with shards/*/results")
+    p.add_argument("--corpus-package", type=Path, required=True)
+    p.add_argument("--workers", type=int, default=1)
+    p.add_argument("--output", type=Path, required=True)
     p = commands.add_parser("analyze")
     p.add_argument("--trace-extract", type=Path, required=True)
     p.add_argument("--corpus-package", type=Path, required=True)
@@ -934,6 +1022,7 @@ def main(argv=None) -> int:
     p.add_argument("--answers-id-field", default="answer_id")
     p.add_argument("--answers-qwen", type=Path)
     p.add_argument("--answers-mistral", type=Path)
+    p.add_argument("--gemma", type=Path, help="gemma-extract output: stage G, development judgments")
     p.add_argument("--relocation", type=Path, help="relocation report with the fresh re-embedding check")
     p.add_argument("--ranking-change", type=Path, action="append", default=[], help="report_axis_ranking_change.py output")
     p.add_argument("--natural-condition", default="natural")
@@ -947,7 +1036,7 @@ def main(argv=None) -> int:
         parser.error("give both query views or neither")
     if args.stage == "analyze" and args.answers_index and not (args.answers_qwen and args.answers_mistral):
         parser.error("--answers-index needs --answers-qwen and --answers-mistral")
-    return {"trace-extract": trace_extract, "replay": replay, "analyze": analyze}[args.stage](args)
+    return {"trace-extract": trace_extract, "replay": replay, "gemma-extract": gemma_extract, "analyze": analyze}[args.stage](args)
 
 
 if __name__ == "__main__":
