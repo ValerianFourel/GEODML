@@ -96,18 +96,37 @@ def generator(args) -> bool:
             for side in (0, 1):
                 rows.append((f"{variant} delta_gen {key}[{side}]", a["delta_gen"][key][side], b["delta_gen"][key][side], 2e-4))
         rows.append((f"{variant} model_check", a["model_check"]["estimate"], b["model_check"]["estimate"], 1e-4))
+    gated = list(rows)   # PREREG note C1 gates Δ_gen, its intervals, the model check and the TOST verdict
     for key, coefs in cpu_entry["coefficients"].items():
         for name, v in coefs.items():
             if name == "slot_effects":
-                continue
-            rows.append((f"{key} {name}", v["estimate"], torch_entry["coefficients"][key][name]["estimate"], 1e-4))
+                continue   # coefficients: reported, not gated (the CPU fits stop at L-BFGS-B's default tolerance)
+            rows.append((f"[info] {key} {name}", v["estimate"], torch_entry["coefficients"][key][name]["estimate"], 1e-3))
     same_verdict = (cpu_entry["delta"]["main"]["tost_inside_sesoi"] == torch_entry["delta"]["main"]["tost_inside_sesoi"])
-    passed = all(abs(a - b) < thr for _, a, b, thr in rows) and same_verdict and torch_entry["delta"]["main"]["failed_replicates"] == 0
+    passed = all(abs(a - b) < thr for _, a, b, thr in gated) and same_verdict and torch_entry["delta"]["main"]["failed_replicates"] == 0
     write(f"steelman generator {args.stratum} ({args.backend})", rows, passed, args.report,
           f"100 keyword draws, 200 Monte-Carlo draws per answer; {seconds} s on this machine; TOST verdict CPU "
           f"{cpu_entry['delta']['main']['tost_inside_sesoi']} / torch {torch_entry['delta']['main']['tost_inside_sesoi']}.")
     _ = decide
     return passed
+
+
+def fe(args) -> bool:
+    """Run the two-way fixed effects of every stratum on the backend and compare (writes args.torch_fe)."""
+    from analysis.interpretability.pipeline import funnel_models as fm
+    from analysis.interpretability.pipeline import intent_stages as stages
+    from analysis.steelman import generator as gen
+    from analysis.steelman import tables as T
+    fm.set_backend(args.backend)
+    t = T.load()
+    draws = stages.keyword_draws(int(t.keyword.max()) + 1, 200, 20261007)
+    t0 = time.time()
+    body = {"strata": {n: gen.fe_analysis(t, m & t.common(), draws) for n, m in T.strata(t).items() if m.any()}}
+    body["seconds"] = round(time.time() - t0, 1)
+    out = Path(args.torch_fe or "/tmp/fe-torch.json")
+    out.write_text(json.dumps(json.loads(json.dumps(body, default=float).replace("NaN", "null"))))
+    args.torch_fe = str(out)
+    return fe_compare(args)
 
 
 def fe_compare(args) -> bool:
@@ -123,6 +142,7 @@ def fe_compare(args) -> bool:
                 rows.append((f"{stratum} {outcome} {name}", v["estimate"], g["estimate"], 1e-6))
                 rows.append((f"{stratum} {outcome} {name} ci95 lo", v["ci95"][0], g["ci95"][0], 1e-6))
                 rows.append((f"{stratum} {outcome} {name} ci95 hi", v["ci95"][1], g["ci95"][1], 1e-6))
+    rows = [(n, a, (float("nan") if b is None else b), t) for n, a, b, t in rows]
     passed = all(abs(a - b) < thr for _, a, b, thr in rows)
     write("steelman two-way fixed effects (all strata)", rows, passed, args.report,
           f"torch file {args.torch_fe}; seconds {json.loads(Path(args.torch_fe).read_text()).get('seconds')}.")
@@ -131,7 +151,7 @@ def fe_compare(args) -> bool:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("mode", choices=("funnel", "generator", "fe-compare"))
+    p.add_argument("mode", choices=("funnel", "generator", "fe-compare", "fe"))
     p.add_argument("--backend", default="torch-cpu")
     p.add_argument("--task", default="qwen38 · Reactive|P|C|main")
     p.add_argument("--units", type=int, default=3)
@@ -140,7 +160,7 @@ def main(argv=None) -> int:
     p.add_argument("--torch-fe")
     p.add_argument("--report", type=Path, default=REPORT)
     a = p.parse_args(argv)
-    ok = {"funnel": funnel, "generator": generator, "fe-compare": fe_compare}[a.mode](a)
+    ok = {"funnel": funnel, "generator": generator, "fe-compare": fe_compare, "fe": fe}[a.mode](a)
     return 0 if ok else 1
 
 

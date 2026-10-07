@@ -226,3 +226,19 @@ def test_expected_cited_intent_same_on_torch_and_numpy():
         finally:
             fm.set_backend("cpu")
         assert np.max(np.abs(got - ref)) < 1e-13
+
+
+def test_two_way_fe_batch_fails_only_singular_draws():
+    from analysis.steelman import generator as gen
+    rng = np.random.default_rng(6)
+    a = np.repeat(np.arange(30), 4)
+    r = rng.integers(0, 20, len(a))
+    X = np.column_stack([rng.normal(size=len(a)), (a < 10).astype(float) * rng.integers(0, 2, len(a))])
+    y = X @ np.array([0.4, 0.3]) + rng.normal(size=len(a))
+    ok = np.ones(len(a))
+    singular = np.where(a < 10, 0.0, 1.0)          # drops every row where the second column varies
+    got = tf.two_way_fe_batch(y, X, a, r, np.stack([ok, singular, ok]), CPU)
+    assert np.all(np.isfinite(got[[0, 2]])) and np.allclose(got[0], gen.two_way_fe(y, X, a, r, ok), atol=1e-8)
+    with np.errstate(all="ignore"):
+        cpu = gen.two_way_fe(y, X, a, r, singular)
+    assert np.isnan(got[1]).all() == np.isnan(cpu).all()

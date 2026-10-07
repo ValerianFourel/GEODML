@@ -358,8 +358,7 @@ def two_way_fe_batch(y: np.ndarray, X: np.ndarray, a: np.ndarray, r: np.ndarray,
     yt, Xt = out[:, :, 0], out[:, :, 1:]
     A = torch.einsum("bnp,bn,bnq->bpq", Xt, Wb, Xt)
     rhs = torch.einsum("bnp,bn,bn->bp", Xt, Wb, yt)
-    try:
-        coef = torch.linalg.solve(A, rhs)
-    except RuntimeError:
-        coef = torch.full((B, Xt.shape[2]), float("nan"), dtype=DTYPE, device=device)
+    # a singular system (e.g. a bootstrap draw without any row of one slot) fails only its own draw, as on the CPU
+    coef, info = torch.linalg.solve_ex(A, rhs)
+    coef[info != 0] = float("nan")
     return coef.cpu().numpy()
