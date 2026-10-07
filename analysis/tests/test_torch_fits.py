@@ -206,3 +206,23 @@ def test_torch_unit_ranges_assemble_like_cpu_ranges(tmp_path):
     finally:
         fm.set_backend("cpu")
     assert assembled["features"] == whole["features"]   # the torch path is deterministic: identical
+
+
+def test_expected_cited_intent_same_on_torch_and_numpy():
+    from analysis.steelman import generator as gen
+    rng = np.random.default_rng(9)
+    G, n = 30, 5
+    keep_eta = rng.normal(size=(G, n))
+    keep_eta[:4, 4] = -np.inf
+    order_eta, u = rng.normal(size=(G, n)), rng.random((G, n))
+    L = rng.integers(1, 4, G)
+    kept = np.zeros((G, n), bool)
+    kept[:, :3] = True
+    for keep_model in (True, False):
+        ref = gen.expected_cited_intent(keep_eta, order_eta, u, L, kept, keep_model=keep_model, M=60, seed=3, chunk=25)
+        fm.set_backend("torch-cpu")
+        try:
+            got = gen.expected_cited_intent(keep_eta, order_eta, u, L, kept, keep_model=keep_model, M=60, seed=3, chunk=25)
+        finally:
+            fm.set_backend("cpu")
+        assert np.max(np.abs(got - ref)) < 1e-13

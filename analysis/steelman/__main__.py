@@ -59,6 +59,8 @@ def main(argv=None) -> int:
     p.add_argument("--shuffle-seed", type=int, default=20261008)
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--stop-after-minutes", type=float, default=1e9)
+    p.add_argument("--backend", choices=("cpu", "torch-cpu", "cuda"), default="cpu",
+                   help="generator / fe / lexical fits: numpy/scipy (cpu, the reference) or the PyTorch backend")
     p.add_argument("--stratum", help="generator / fe: fill the cache for this stratum only (\"model · Method\"); "
                                       "no part file is written; a run without --stratum assembles from the cache")
     a = p.parse_args(argv)
@@ -76,15 +78,19 @@ def main(argv=None) -> int:
             return 0
         raise SystemExit(f"refusing to overwrite {target}")
     started = time.time()
+    from analysis.interpretability.pipeline import funnel_models as fm
+    fm.set_backend(a.backend)
     t = T.load(a.input_root, a.prompts, assembled=a.assembled, extract=a.extract, replay=a.replay,
                trace_extract=a.trace_extract, split=a.split)
     header = {"part": a.part, "git_commit": readiness.git_commit(), "prereg_sha256": prereg_sha(),
               "settings": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(a).items()},
-              "inputs": t.manifest, "exploratory": a.split != "confirmation", "observational": True, "scientific_result": True}
+              "inputs": t.manifest, "exploratory": a.split != "confirmation", "backend": a.backend, "observational": True, "scientific_result": True}
     deadline = time.monotonic() + 60 * a.stop_after_minutes
     cache_key = {"git_commit": header["git_commit"], "prereg_sha256": header["prereg_sha256"], "split": a.split,
                  "settings": [a.bootstrap, a.permutations, a.model_draws, a.mc, a.seed, a.shuffle_seed, a.selection_draws],
                  "inputs": {k: t.manifest.get(k) for k in ("assembled", "paths")}}
+    if a.backend != "cpu":  # CPU keys unchanged; CPU and torch results never share a cache
+        cache_key["backend"] = a.backend
     fingerprint = hashlib.sha256(json.dumps(cache_key, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
     def cache(name):

@@ -32,6 +32,7 @@ from .tables import PARALLEL, Tables, rank_weights, strata
 
 SLOT_CAP = 10
 SESOI = 0.015
+FE_BATCH = 50   # bootstrap weight vectors demeaned together on the torch device
 KEEP_MODEL_MIN_SHARE = 0.25  # PREREG addendum B1: model the keep decision when this share of answers keeps some, drops some
 VARIANTS = ("main", "no_slot", "score")
 A1 = "A1"
@@ -177,11 +178,21 @@ def expected_cited_intent(keep_eta, order_eta, u, L, kept_obs, *, keep_model: bo
     total = np.zeros(G)
     done = 0
     c = 0
+    torch_device = None
+    if fm.BACKEND != "cpu":  # same numpy random numbers, arithmetic on the torch device
+        from analysis.interpretability.pipeline import torch_fits as tfits
+        torch_device = tfits.device_of(fm.BACKEND)
     while done < M:
         m = min(chunk, M - done)
         U, Gm = crn(G, n, m, seed, c)
-        include = sample_subsets(W, L, U) if keep_model else np.repeat(kept_obs[:, :, None], m, axis=2)
-        total += expected_k(include, order_eta, u, L, Gm) * m
+        if torch_device is None:
+            include = sample_subsets(W, L, U) if keep_model else np.repeat(kept_obs[:, :, None], m, axis=2)
+            total += expected_k(include, order_eta, u, L, Gm) * m
+        else:
+            import torch
+            include = (tfits.sample_subsets(W, L, U, torch_device) if keep_model
+                       else torch.as_tensor(np.repeat(kept_obs[:, :, None], m, axis=2), device=torch_device))
+            total += tfits.expected_k(include, order_eta, u, L, Gm, torch_device) * m
         done += m
         c += 1
     return total / M
@@ -410,12 +421,19 @@ def fe_analysis(t: Tables, mask: np.ndarray, draws: list, workers: int = 1) -> d
         y = (s.kept[m].astype(float) if outcome == "keep" else credit[m])
         kw = t.keyword[s.answer[m]]
         est = two_way_fe(y, X, s.answer[m], s.row[m])
-        _FE.update(y=y, X=X, a=s.answer[m], r=s.row[m], kw=kw, draws=draws)
-        try:
-            with multiprocessing.get_context("fork").Pool(workers) as pool:
-                boot = np.asarray(pool.map(_fe_job, range(len(draws))))
-        finally:
-            _FE.clear()
+        if fm.BACKEND != "cpu":  # every bootstrap weight vector demeaned at once on the torch device
+            from analysis.interpretability.pipeline import torch_fits as tfits
+            device = tfits.device_of(fm.BACKEND)
+            weights = np.stack([d[kw] for d in draws])
+            boot = np.concatenate([tfits.two_way_fe_batch(y, X, s.answer[m], s.row[m], weights[i:i + FE_BATCH], device)
+                                   for i in range(0, len(weights), FE_BATCH)])
+        else:
+            _FE.update(y=y, X=X, a=s.answer[m], r=s.row[m], kw=kw, draws=draws)
+            try:
+                with multiprocessing.get_context("fork").Pool(workers) as pool:
+                    boot = np.asarray(pool.map(_fe_job, range(len(draws))))
+            finally:
+                _FE.clear()
         # identifying variation of x within rows
         rows = np.unique(s.row[m], return_inverse=True)[1]
         xr = x[m] - (np.bincount(rows, x[m]) / np.bincount(rows))[rows]
@@ -500,13 +518,20 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
         todo = [i for i in range(len(draws)) if f"draw-{i}" not in done]
         _STATE.update(st=st, draws=draws, starts=starts)
         try:
-            with multiprocessing.get_context("fork").Pool(args.workers) as pool:
-                for i, res in zip(todo, pool.imap(_job, todo)):
-                    fm._keep(parts, done, f"draw-{i}", res)
+            if fm.BACKEND != "cpu":  # CUDA is not fork-safe: draws run one after another on this process's device
+                for i in todo:
+                    fm._keep(parts, done, f"draw-{i}", _job(i))
                     if time.monotonic() > deadline:
                         print(json.dumps({"stopped_in": name, "draws_done": sum(k.startswith("draw-") for k in done)}), flush=True)
-                        pool.terminate()
                         return None
+            else:
+                with multiprocessing.get_context("fork").Pool(args.workers) as pool:
+                    for i, res in zip(todo, pool.imap(_job, todo)):
+                        fm._keep(parts, done, f"draw-{i}", res)
+                        if time.monotonic() > deadline:
+                            print(json.dumps({"stopped_in": name, "draws_done": sum(k.startswith("draw-") for k in done)}), flush=True)
+                            pool.terminate()
+                            return None
         finally:
             _STATE.clear()
         reps = [done[f"draw-{i}"] for i in range(len(draws))]
