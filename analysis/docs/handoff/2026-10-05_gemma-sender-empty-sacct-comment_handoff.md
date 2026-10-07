@@ -240,3 +240,12 @@ submits at most 200 minus that count. So the Qwen top-up and the llama map recov
 slots as main-run bouts finish, never exceeding Valerian's 200. The small-recovery lock
 exception is removed. 123 tests pass (Gemma v4, sender, prequeue, SI-v4, selector,
 publish).
+
+## Update: Qwen top-up submitting (pasted, 2026-10-07 17:01 UTC)
+
+Top-up plan: 23,387 cells, 16 shards (JUPITER and late Qwen answers), preparation job
+5186411 on dev_cpuonly. Relaunching through `start` with newer code was refused (pinned
+preparation), as designed; the sender alone was restarted from d621fee. It submitted
+7 bouts (attempt 1) under the shared 200 ceiling; 9 shards eligible, waiting for room.
+Gemma bouts in queue: 199. Main + top-up plans cover 311,918 of 312,042 generated Qwen
+cells; the rest are excluded diagnostics.
