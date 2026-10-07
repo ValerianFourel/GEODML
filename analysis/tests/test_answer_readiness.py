@@ -97,3 +97,11 @@ def test_analyze_places_answers_on_the_prompt_scale(tmp_path, monkeypatch):
     monkeypatch.setattr(page_readiness_ordering, "aligned", lambda *a: [])
     with pytest.raises(ValueError, match="lack projections"):
         answers.analyze(export, tmp_path / "q", tmp_path / "m", tmp_path / "b", path, tmp_path / "out2")
+
+
+def test_export_reads_several_roots_per_model_and_drops_duplicate_cells(tmp_path):
+    root = dataset(tmp_path / "qwen38", model="qwen38")
+    path = axis_map(tmp_path, [{"candidate_id": "q1", answers.AXIS: 0.3}])
+    manifest = answers.export([("qwen38", root), ("qwen38", root)], path, tmp_path / "export")
+    assert manifest["observations"] == 1 and manifest["counts"]["qwen38_duplicate_cells_dropped"] == 1
+    assert not (tmp_path / "export.partial").exists()

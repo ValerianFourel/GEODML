@@ -25,7 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from analysis.scripts import page_readiness_ordering as readiness  # noqa: E402
 
 FILES = ("results.json", "decisions.json", "explore.json", "review.json", "keywords-summary.json", "contrasts.json",
-         "manifest.json", "importance.json", "report.json")
+         "manifest.json", "importance.json", "report.json",
+         # steelman parts (analysis/steelman) and the answer analysis (answer_readiness.py analyze)
+         "chain.json", "followup.json", "pairs.json", "generator.json", "fe.json", "lexical.json", "census.json", "supply.json",
+         "ablation.json", "queries.json", "RESULTS.md", "stage_shares.csv", "report.md", "answer_coordinates.jsonl.gz")
 STRATA = ("llama4 · Parallel", "llama4 · Reactive", "qwen38 · Parallel", "qwen38 · Reactive")
 
 

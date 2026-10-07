@@ -23,6 +23,8 @@ import csv
 import gzip
 import hashlib
 import json
+import shutil
+import time
 import math
 import re
 import statistics
@@ -90,14 +92,25 @@ def answer_id(text):
 # ---------------------------------------------------------------- export
 
 def export(datasets, axis_map, output, *, conditions=("natural",), stripes=256):
+    """``datasets``: {model: root} or a list of (model, root) pairs; several roots of one model (a HoreKa dataset and a
+    Hub import) are read in order and a cell seen twice (model, prompt, method, engine, condition) keeps its first copy.
+    Written to ``<output>.partial`` and renamed at the end, so an interrupted export never blocks its rerun."""
     positions, axis = report.load_axis(axis_map)
-    answers, observations, counts = {}, [], Counter()
-    for model, root in datasets.items():
+    pairs = list(datasets.items()) if isinstance(datasets, dict) else [(m, Path(r)) for m, r in datasets]
+    answers, observations, counts, seen = {}, [], Counter(), set()
+    if Path(output).exists():
+        raise ValueError(f"{output} already exists; use a new path")
+    for model, root in pairs:
         cells, inventory = report.load_cells(root, model, stripes=stripes, keep_answer=True)
-        counts[f"{model}_verified_cells"] = inventory["verified_cells"]
+        counts[f"{model}_verified_cells"] += inventory["verified_cells"]
         for cell in cells:
             if cell["condition"] not in conditions:
                 continue
+            key = (model, cell["prompt_id"], cell["method"], cell["engine"], cell["condition"])
+            if key in seen:
+                counts[f"{model}_duplicate_cells_dropped"] += 1
+                continue
+            seen.add(key)
             text = cell["answer"].strip()
             if not text:
                 counts[f"{model}_empty_answer"] += 1
@@ -113,19 +126,24 @@ def export(datasets, axis_map, output, *, conditions=("natural",), stripes=256):
                                  "ranking_length": cell["ranking_length"]})
             counts[f"{model}_answers"] += 1
     observations.sort(key=lambda r: (r["model"], r["prompt_id"], r["method"], r["engine"], r["condition"]))
-    output = new_output(output)
+    final = Path(output)
+    partial = final.with_name(final.name + ".partial")
+    if partial.exists():
+        shutil.move(str(partial), str(final.with_name(f"{final.name}.partial.interrupted-{int(time.time())}")))
+    output = new_output(partial)
     write_jsonl(output / "answers.jsonl.gz", ({"page_id": i, "text": t,
                                                "text_sha256": hashlib.sha256(t.encode("utf-8")).hexdigest()}
                                               for i, t in sorted(answers.items())))
     write_jsonl(output / "observations.jsonl.gz", observations)
     manifest = {"format_version": "geodml-answer-readiness-export-v1", "git_commit": report._git_commit(),
-                "datasets": {m: str(Path(r).resolve()) for m, r in datasets.items()}, "axis_map": axis,
+                "datasets": [[m, str(Path(r).resolve())] for m, r in pairs], "axis_map": axis,
                 "conditions": sorted(conditions), "unique_answers": len(answers),
                 "observations": len(observations), "counts": dict(sorted(counts.items())),
                 "files": {name: sha256_file(output / name) for name in ("answers.jsonl.gz", "observations.jsonl.gz")},
                 "stored_answer_note": "stored answers are capped by the dataset (about 1,200 characters)",
                 "scientific_result": False}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    output.rename(final)
     report.log("export", **manifest["counts"], unique_answers=len(answers))
     return manifest
 
@@ -383,12 +401,12 @@ def main(argv=None):
             p.add_argument("--axis-map", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.stage == "export":
-        datasets = {}
+        datasets = []
         for item in args.dataset:
             model, sep, root = item.partition("=")
-            if not sep or model not in report.GENERATOR_MODELS or model in datasets:
-                parser.error("each --dataset must be qwen38=ROOT or llama4=ROOT, once per model")
-            datasets[model] = Path(root)
+            if not sep or model not in report.GENERATOR_MODELS:
+                parser.error("each --dataset must be qwen38=ROOT or llama4=ROOT (several roots per model are read in order)")
+            datasets.append((model, Path(root)))
         export(datasets, args.axis_map, args.output, conditions=tuple(args.condition or ("natural",)),
                stripes=args.stripes)
     elif args.stage == "text":

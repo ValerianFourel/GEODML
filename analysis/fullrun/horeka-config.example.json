@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy to $W/fullrun/config.json and adjust. W=/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen, R=$W/reviews/page-readiness-20261004, A=$W/geoaxis-archive. Paths are HoreKa paths; the import root holds the Hub-only bundles (hub fetch). Order of sources matters: a cell present in two roots keeps the first.",
+  "code": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/checkouts/fullrun-PIN",
+  "output": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/page-readiness-20261004/fullrun-v1",
+  "sources": [
+    "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/llama-hf/dataset:llama4",
+    "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/shared-hours/dataset:qwen38",
+    "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/hub-import/dataset:llama4",
+    "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/hub-import/dataset:qwen38"
+  ],
+  "snapshots": {"duckduckgo": "SET: phase0_top20_ddg.parquet (find $W/shared-hours/dataset/artifacts -name phase0_top20_ddg.parquet)",
+                "searxng": "SET: phase0_top20_searxng.parquet"},
+  "axis_map": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geoaxis-archive/final-audit/final-axis-map.jsonl",
+  "population": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geoaxis-archive/registration/population-registration-v1/population-prompts.jsonl",
+  "corpus": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/page-readiness-20261004/snippet-embeddings-corpus-v1",
+  "features": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/page-readiness-20261004/funnel-features-v1",
+  "archive": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geoaxis-archive",
+  "search_root": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen",
+  "gemma_run": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-si-v4-llama-reuse-5h-20261004",
+  "shards": 32
+}
