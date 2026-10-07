@@ -44,8 +44,6 @@ TESTBED = {
     "searxng_rows": 13555,
     "rows": 23893,
     "pages": 21384,
-    "glued_rows": 270,
-    "hub_keywords": 530,
     "results_per_search": 20,
     "parallel_top_k": 7,
     "reactive_top_k": 3,
@@ -277,7 +275,6 @@ def fig2(plt, out_dir: Path) -> list[str]:
             fontsize=8, fontweight="bold", va="top")
     centers = [(0.06 + 0.083 * c, 0.80 - 0.175 * r) for r in range(4) for c in range(6)]
     names = ["robinhood vs etrade"]  # the paper's running example; other clusters are schematic and unnamed
-    hub_center = centers[14]
     hits = [0, 2, 9, 14, 20]
     for i, (cx, cy) in enumerate(centers):
         ax.add_patch(plt.Circle((cx, cy), 0.036, fc="#f3f1ec", ec=LINE, lw=0.6))
@@ -296,16 +293,6 @@ def fig2(plt, out_dir: Path) -> list[str]:
     ax.plot([0.20], [0.045], "o", ms=3, color="#7a8b99", mew=0)
     ax.text(0.21, 0.045, f"SearXNG row ({t['searxng_rows']:,})", va="center", fontsize=6)
     ax.text(0.37, 0.045, f"= {t['rows']:,} rows, {t['pages']:,} distinct pages", va="center", fontsize=6, color=MUTED)
-    # glued-title hub row
-    hx, hy = hub_center
-    ax.plot([hx], [hy], "*", ms=8, color="#8c3b2f", zorder=4)
-    for k, (cx, cy) in enumerate(centers):
-        if k % 3 == 1 and (cx, cy) != hub_center:
-            ax.plot([hx, cx], [hy, cy], color="#8c3b2f", lw=0.35, alpha=0.45, zorder=2)
-    ax.plot([0.03], [0.135], "*", ms=6, color="#8c3b2f")
-    ax.text(0.045, 0.135, f"glued-title DuckDuckGo rows ({t['glued_rows']}, 2.6%) contain many common words and match many "
-            f"queries:\none such row was shown under {t['hub_keywords']} of {t['keywords']:,} topics", fontsize=5.8,
-            color="#8c3b2f", va="center")
     # the query and the corpus-wide search
     _box(ax, 0.57, 0.80, 0.19, 0.10, "query written by the AI\n(illustrative: “how to move a\nbrokerage account today”)",
          size=6.2, edge=ACTION)
