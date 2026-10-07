@@ -148,7 +148,8 @@ def trace_extract(args) -> int:
     columns, generation_ids, query_ids = defaultdict(list), [], {}
     parts = defaultdict(list)
     prompts, searches, snapshots, counts = {}, defaultdict(set), defaultdict(set), Counter()
-    inputs, results = readiness.parallel_chunks(args.source, _trace_chunk, (prompt_axis, doc_index), workers)
+    inputs, results = readiness.parallel_chunks(args.source, _trace_chunk, (prompt_axis, doc_index), workers,
+                                                prompt_ids=readiness.shard_prompt_ids(population, getattr(args, "prompt_shard", None)))
     for number, total, chunk in results:
         base = len(generation_ids)
         for (generation_id, *labels, x), queries in zip(chunk["meta"], chunk["queries"]):
@@ -175,6 +176,14 @@ def trace_extract(args) -> int:
         print(json.dumps({"chunk": number, "of": total, "answers": len(generation_ids), "time": readiness.now()}), flush=True)
     if any(len({sha for _, sha in found}) != 1 for found in snapshots.values()):
         raise ValueError(f"traces used more than one snapshot for an engine: {dict(snapshots)}")
+    if not generation_ids and getattr(args, "prompt_shard", None):
+        readiness.write_json(partial / "manifest.json", {"format_version": FORMAT_VERSION, "stage": "trace-extract", "empty_shard": True,
+                                                         "prompt_shard": args.prompt_shard, "created_at": readiness.now(),
+                                                         "git_commit": readiness.git_commit(), "inputs": inputs,
+                                                         "counts": {**counts, "answers": 0}})
+        partial.rename(Path(args.output).resolve())
+        print(json.dumps({"answers": 0, "empty_shard": args.prompt_shard}), flush=True)
+        return 0
     if not generation_ids:
         raise ValueError("no answers passed the checks")
     joined = {name: np.concatenate(parts[name]) for name in parts if name != "q_sizes"}
@@ -208,6 +217,7 @@ def trace_extract(args) -> int:
     sizes = {n: float(np.mean(joined[f"{n}_sizes"])) for n in ("ret", "cand", "pool", "rank")}
     readiness.write_json(partial / "manifest.json", {
         "format_version": FORMAT_VERSION, "stage": "trace-extract", "created_at": readiness.now(),
+        "prompt_shard": getattr(args, "prompt_shard", None),
         "git_commit": readiness.git_commit(), "inputs": inputs, "final_axis_map": readiness.identity(args.final_axis_map),
         "corpus": readiness.identity(args.corpus_package / "manifest.json"),
         "population_prompts": readiness.identity(args.population_prompts),
@@ -992,6 +1002,7 @@ def main(argv=None) -> int:
     p.add_argument("--corpus-package", type=Path, required=True, help="snippet-embeddings-corpus-v1")
     p.add_argument("--population-prompts", type=Path, required=True, help="population-prompts.jsonl (keyword text, question)")
     p.add_argument("--workers", type=int)
+    p.add_argument("--prompt-shard", metavar="K/N", help="only the prompts of keyword-hash shard K of N (full run)")
     p.add_argument("--output", type=Path, required=True)
     p = commands.add_parser("replay")
     p.add_argument("--trace-extract", type=Path, required=True)

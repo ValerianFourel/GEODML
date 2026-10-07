@@ -131,7 +131,9 @@ def extract(args) -> int:
     partial = readiness.new_directory(args.output)
     meta, item_parts, item_sizes, event_rows = [], [], [], []
     counts, snapshot_hashes = Counter(), set()
-    inputs, results = readiness.parallel_chunks(args.source, _extract_chunk, (prompt_axis, keyword_text), workers)
+    population = {str(r["candidate_id"]): r for r in readiness.read_jsonl(args.population_prompts)}
+    inputs, results = readiness.parallel_chunks(args.source, _extract_chunk, (prompt_axis, keyword_text), workers,
+                                                prompt_ids=readiness.shard_prompt_ids(population, args.prompt_shard))
     for number, total, chunk in results:
         for m, it, ev in zip(chunk["meta"], chunk["items"], chunk["events"]):
             answer = len(meta)
@@ -143,6 +145,14 @@ def extract(args) -> int:
         counts.update(chunk["counts"])
         snapshot_hashes |= chunk["snapshots"]
         print(json.dumps({"chunk": number, "of": total, "answers": len(meta), "time": readiness.now()}), flush=True)
+    if not meta and getattr(args, "prompt_shard", None):
+        readiness.write_json(partial / "manifest.json", {"format_version": FORMAT_VERSION, "stage": "extract", "empty_shard": True,
+                                                         "prompt_shard": args.prompt_shard, "created_at": readiness.now(),
+                                                         "git_commit": readiness.git_commit(), "inputs": inputs,
+                                                         "counts": {**counts, "answers": 0}})
+        partial.rename(Path(args.output).resolve())
+        print(json.dumps({"answers": 0, "empty_shard": args.prompt_shard}), flush=True)
+        return 0
     if not meta:
         raise ValueError("no answers passed the checks")
     recorded = {e: {h for en, h in snapshot_hashes if en == e} for e in paths}
@@ -162,7 +172,7 @@ def extract(args) -> int:
     readiness.write_json(partial / "manifest.json", {
         "format_version": FORMAT_VERSION, "stage": "extract", "created_at": readiness.now(), "git_commit": readiness.git_commit(),
         "inputs": inputs, "snapshot_sha256": rows.snapshot_sha256, "row_table_digest": fr.row_table_digest(rows),
-        "snapshot_hash_mismatch": mismatch, "counts": {**counts, "answers": len(meta), "items": int(len(items)),
+        "snapshot_hash_mismatch": mismatch, "prompt_shard": getattr(args, "prompt_shard", None), "counts": {**counts, "answers": len(meta), "items": int(len(items)),
                                                        "events": len(event_rows)}})
     if mismatch:
         raise ValueError(f"traces recorded other snapshots than the row table: {mismatch}")
@@ -724,6 +734,7 @@ def main(argv=None) -> int:
     p.add_argument("--final-axis-map", type=Path, required=True)
     p.add_argument("--population-prompts", type=Path, required=True)
     p.add_argument("--workers", type=int)
+    p.add_argument("--prompt-shard", metavar="K/N", help="only the prompts of keyword-hash shard K of N (full run)")
     p.add_argument("--output", type=Path, required=True)
     p = sub.add_parser("replay")
     p.add_argument("--snapshot", action="append", required=True, metavar="ENGINE=PATH")

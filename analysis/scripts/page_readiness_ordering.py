@@ -151,18 +151,32 @@ def checked_cell(cell, prompt_axis):
     return {"prompt_id": prompt_id, "keyword": keyword, "evidence": evidence, "urls": urls, "ranking": ranking}, None
 
 
-def parallel_chunks(sources, worker, extra, workers):
+def prompt_shard(keyword: str, shard: str) -> bool:
+    """Keyword-hash shard "k/n" (1-based): every prompt of a keyword falls in the same shard."""
+    k, n = (int(v) for v in shard.split("/"))
+    return int(hashlib.sha256(f"fullrun-shard-v1:{keyword}".encode()).hexdigest()[:8], 16) % n == k - 1
+
+
+def shard_prompt_ids(population: dict, shard: str | None) -> set | None:
+    """Prompt ids of a keyword-hash shard (``population``: prompt id -> record with "keyword"); None for no shard."""
+    if not shard:
+        return None
+    return {pid for pid, r in population.items() if prompt_shard(r.get("keyword") or "", shard)}
+
+
+def parallel_chunks(sources, worker, extra, workers, prompt_ids: set | None = None):
     """Completed cells of each DATASET_ROOT:MODEL source, read in contiguous slices by forked workers.
-    Returns (inputs, iterator of (chunk number, chunk count, worker result)) in deterministic order."""
+    Returns (inputs, iterator of (chunk number, chunk count, worker result)) in deterministic order.
+    ``prompt_ids`` restricts the cells to those prompts (a keyword-hash shard of the full run)."""
     from analysis.interpretability.pipeline.agentic_cells import completed_generator_refs
 
     inputs, jobs = [], []
     for spec in sources:
         root, _, model = spec.rpartition(":")
         root = Path(root).resolve(strict=True)
-        refs, ref_counts = completed_generator_refs(root, model=model)
+        refs, ref_counts = completed_generator_refs(root, model=model, prompt_ids=prompt_ids)
         inputs.append({"dataset_root": str(root), "model": model, "cells_completed": len(refs),
-                       "selection": dict(ref_counts)})
+                       "selection": dict(ref_counts), "prompts_in_shard": None if prompt_ids is None else len(prompt_ids)})
         size = max(1, -(-len(refs) // (workers * 2)))
         jobs += [(root, model, refs[start:start + size], extra) for start in range(0, len(refs), size)]
     print(json.dumps({"cells": sum(len(j[2]) for j in jobs), "chunks": len(jobs), "workers": workers}), flush=True)
