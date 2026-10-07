@@ -1,0 +1,92 @@
+"""python -m analysis.steelman <part> --output DIR  (parts: chain, generator, lexical, pairs, report).
+
+Each part writes DIR/<part>.json once (refuses to overwrite) with the git commit, the PREREG.md sha256,
+the settings and the input manifest. Exit 4: deadline checkpoint (finished fits are cached; rerun).
+"""
+
+from __future__ import annotations
+
+import os
+
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_v, "1")
+
+import argparse  # noqa: E402
+import hashlib  # noqa: E402
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+import sys  # noqa: E402
+import time  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from analysis.scripts import page_readiness_ordering as readiness  # noqa: E402
+from analysis.steelman import tables as T  # noqa: E402
+
+PREREG = Path(__file__).with_name("PREREG.md")
+PARTS = ("chain", "generator", "lexical", "pairs", "report")
+
+
+def prereg_sha() -> str:
+    return hashlib.sha256(PREREG.read_bytes()).hexdigest()
+
+
+def clean(value):
+    return json.loads(json.dumps(value, default=float).replace("NaN", "null").replace("-Infinity", "null").replace("Infinity", "null"))
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("part", choices=PARTS)
+    p.add_argument("--output", type=Path, default=T.DEFAULT_INPUTS / "steelman-v1")
+    p.add_argument("--input-root", type=Path, default=T.DEFAULT_INPUTS)
+    p.add_argument("--prompts", type=Path, default=T.DEFAULT_PROMPTS)
+    p.add_argument("--bootstrap", type=int, default=200)
+    p.add_argument("--permutations", type=int, default=200)
+    p.add_argument("--model-draws", type=int, default=100, help="keyword draws for refitted generator models")
+    p.add_argument("--mc", type=int, default=200, help="Monte-Carlo draws per answer for expected cited intent")
+    p.add_argument("--seed", type=int, default=20261007)
+    p.add_argument("--shuffle-seed", type=int, default=20261008)
+    p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--stop-after-minutes", type=float, default=1e9)
+    a = p.parse_args(argv)
+    out_dir = Path(a.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / f"{a.part}.json"
+    if a.part == "report":
+        from analysis.steelman import report
+        return report.build(out_dir)
+    if target.exists():
+        raise SystemExit(f"refusing to overwrite {target}")
+    started = time.time()
+    t = T.load(a.input_root, a.prompts)
+    header = {"part": a.part, "git_commit": readiness.git_commit(), "prereg_sha256": prereg_sha(),
+              "settings": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(a).items()},
+              "inputs": t.manifest, "exploratory": True, "observational": True, "scientific_result": True}
+    deadline = time.monotonic() + 60 * a.stop_after_minutes
+    if a.part == "chain":
+        from analysis.steelman import chain
+        body = chain.run(t, bootstrap=a.bootstrap, permutations=a.permutations, seed=a.seed, shuffle_seed=a.shuffle_seed,
+                         items_path=a.input_root / "funnel-extract-exploration-v1/items.npz",
+                         review_parquet=a.input_root / "funnel-review-v1/answers.parquet")
+    elif a.part == "generator":
+        from analysis.steelman import generator
+        body = generator.run(t, a, cache_root=out_dir / "generator.cache", deadline=deadline)
+        if body is None:
+            return 4
+    elif a.part == "lexical":
+        from analysis.steelman import lexical
+        body = lexical.run(t, a, cache_root=out_dir / "lexical.cache", deadline=deadline)
+        if body is None:
+            return 4
+    else:
+        from analysis.steelman import pairs
+        body = pairs.run(t, a)
+    header["seconds"] = round(time.time() - started, 1)
+    readiness.write_json(target, clean({**header, **body}))
+    print(json.dumps({"wrote": str(target), "seconds": header["seconds"]}), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
