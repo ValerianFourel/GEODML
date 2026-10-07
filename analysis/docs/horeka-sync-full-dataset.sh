@@ -37,7 +37,7 @@ print("actions:", dict(collections.Counter(a["action"] for a in r["actions"])),
       "| still blocked:", dict(collections.Counter(b["reason"] for b in r["blocked"])),
       "| writers sealed:", len(r["recovered_writers"]))' "$OUT/reconcile-receipt.json"
 fi
-echo "== Qwen $([ "$MODE" = apply ] && echo 2/2: download missing Hub results || echo: Hub results missing here)"
+if [ "$MODE" = apply ]; then echo "== Qwen 2/2: download missing Hub results"; else echo "== Qwen: Hub results missing here"; fi
 nice -n 10 "$RT/bin/python" -u - "$QDATA" "$W/qwen-bouts/import-journal" "$MODE" <<'PY'
 import sys
 from pathlib import Path
