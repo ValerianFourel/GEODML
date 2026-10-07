@@ -74,3 +74,24 @@ within (keyword, target); lexical-overlap control in the reranker selection mode
 the published answers (Llama traces are not on the Mac).
 
 No variants are added after the first run; anything added later is labelled exploratory.
+
+## Addendum B1 (2026-10-08, before any Llama-trace or confirmation-keyword result of this study)
+
+The HoreKa run applies the rules above unchanged to both models and to the held-out confirmation keywords
+(`--split confirmation`, `analysis/docs/horeka-steelman.sbatch`). Choices that the Mac run did not need, fixed now:
+
+* **Keep model.** The keep decision is modelled when at least 25% of a stratum's answers keep some and drop some
+  of their shown links; otherwise the cited set is held at its observed value and only the order is modelled.
+  This reproduces the Mac run (Qwen · Parallel 1.5% informative: fixed; Qwen · Reactive 41%: modelled) and models
+  Llama's keep decision wherever it drops links.
+* **Strata and verdicts.** C1 is judged per model × method, Reactive Loop primary for each model. C2 is judged per
+  model across its two methods, with the same SESOI (0.015 u per unit x) and the same thresholds.
+* **Lexicon.** The action-word list is frozen as computed by the Mac run (`analysis/steelman/lexicon.json`, from
+  confirmation-keyword prompt texts and x only), so both runs use the same instrument.
+* **Lexical shortlisting refits.** Skipped on HoreKa (`--selection-draws 0`): reported-only, and about 20 minutes per
+  refit at that size. The BM25 selector comparison is kept.
+* **Agent queries.** Read from the intent trace extract, joined on the cell fingerprint (the funnel extract does
+  not store them).
+* **Prompt fields.** Read from the registration's `population-prompts.jsonl`. A control a file lacks is left out
+  and recorded (`controls_used`); the lattice-target variant and the noise floor are skipped if the target is absent.
+* **Published-answer rows.** Not used on HoreKa: both models are analysed from their own traces.

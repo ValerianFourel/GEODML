@@ -72,20 +72,49 @@ def replay_values(prompt_ids, engines, replay_prompts: list[dict], replay_rows: 
     return np.asarray([r0[index[(p, e)]] if (p, e) in index else np.nan for p, e in zip(prompt_ids, engines)], float)
 
 
+def _open(path: Path):
+    path = Path(path)
+    return gzip.open(path, "rt", encoding="utf-8") if path.suffix == ".gz" else open(path, encoding="utf-8")
+
+
 def prompt_metadata(path: Path) -> dict:
-    """prompt id -> question, words, keyword_in_prompt, candidate_slot, target (normalized lattice target)."""
+    """prompt id -> question, words, keyword_in_prompt, candidate_slot, target (normalized lattice target), target_index.
+
+    Accepts the archived snapshot (``{"prompt": {...}, "axis": {...}}``, the Mac copy) and the registration's
+    ``population-prompts.jsonl`` (the prompt record itself, HoreKa). Fields a file lacks are NaN."""
     out = {}
-    with gzip.open(path, "rt", encoding="utf-8") as stream:
+    with _open(path) as stream:
         for line in stream:
             r = json.loads(line)
-            p = r["prompt"]
+            p = r.get("prompt", r)
             q = p["question"]
-            out[p["candidate_id"]] = {"question": q, "words": len(q.split()),
-                                      "keyword_in_prompt": float(tokens(p["keyword"]) <= tokens(q)),
-                                      "candidate_slot": int(p.get("candidate_slot", 0)),
-                                      "target": float(p["target_normalized_axis_1"]),
-                                      "target_index": int(p["target_index"])}
+            get = lambda k: float(p[k]) if p.get(k) is not None else float("nan")  # noqa: E731
+            out[str(p["candidate_id"])] = {"question": q, "keyword": p.get("keyword") or "", "words": len(q.split()),
+                                           "keyword_in_prompt": float(tokens(p.get("keyword") or "") <= tokens(q)),
+                                           "candidate_slot": get("candidate_slot"), "target": get("target_normalized_axis_1"),
+                                           "target_index": get("target_index")}
     return out
+
+
+def load_queries(extract: Path, trace_extract: Path | None, fingerprints: list[str]) -> tuple[list | None, str]:
+    """The agent's queries of every answer, in search order (index = the ``search`` field of the events).
+
+    From ``<extract>/queries.jsonl.gz`` when the extract has it (Mac, ``funnel_local.py``), else from the intent
+    trace extract (HoreKa, ``intent_stages_study.py trace-extract``), joined on the cell fingerprint."""
+    own = Path(extract) / "queries.jsonl.gz"
+    if own.exists():
+        q = {r["answer"]: r["queries"] for r in (json.loads(line) for line in gzip.open(own, "rt"))}
+        return [q.get(i, []) for i in range(len(fingerprints))], str(own)
+    if trace_extract is None or not (Path(trace_extract) / "stages.npz").exists():
+        return None, "unavailable"
+    d = Path(trace_extract)
+    texts = [r["text"] for r in (json.loads(line) for line in gzip.open(d / "queries.jsonl.gz", "rt"))]
+    gen = [r["generation_id"] for r in (json.loads(line) for line in gzip.open(d / "answers.jsonl.gz", "rt"))]
+    st = np.load(d / "stages.npz")
+    off, ids = st["q_offsets"], st["q_ids"]
+    by_fp = {g: [texts[j] for j in ids[off[i]:off[i + 1]]] for i, g in enumerate(gen)}
+    found = [by_fp.get(f) for f in fingerprints]
+    return [q or [] for q in found], f"{d} (joined on fingerprint; {sum(q is not None for q in found)} of {len(found)} answers)"
 
 
 def shown_scores(cand: dict, event_search: np.ndarray, pres_answer: np.ndarray, pres_row: np.ndarray):
@@ -128,16 +157,23 @@ class Tables:
     data: object = None          # funnel_study.load_assembled namespace (for stage models)
     ans: object = None           # funnel_study.answer_arrays namespace
     manifest: dict = field(default_factory=dict)
+    queries: list | None = None  # the agent's queries per answer, search order (None when unavailable)
+    prompts: dict = field(default_factory=dict)  # prompt id -> prompt_metadata record
 
     def common(self, *names: str) -> np.ndarray:
         names = names or CHAIN
         return np.logical_and.reduce([np.isfinite(self.values[n]) for n in names])
 
 
-def load(input_root: Path = DEFAULT_INPUTS, prompts: Path = DEFAULT_PROMPTS) -> Tables:
+def load(input_root: Path = DEFAULT_INPUTS, prompts: Path = DEFAULT_PROMPTS, *, assembled: Path | None = None,
+         extract: Path | None = None, replay: Path | None = None, trace_extract: Path | None = None,
+         split: str = "exploration") -> Tables:
+    """Defaults are the Mac's exploration tables under ``input_root``; on HoreKa pass the funnel study's
+    extract, replay and assembled folders (all keywords, both models) and ``split='confirmation'``."""
     from analysis.scripts import funnel_study as study
     root = Path(input_root)
-    assembled, extract = root / "funnel-assembled-exploration-v1", root / "funnel-extract-exploration-v1"
+    assembled = Path(assembled or root / "funnel-assembled-exploration-v1")
+    extract = Path(extract or root / "funnel-extract-exploration-v1")
     data = study.load_assembled(assembled)
     ans = study.answer_arrays(data)
     extracted = [json.loads(line) for line in gzip.open(extract / "answers.jsonl.gz", "rt")]
@@ -146,27 +182,31 @@ def load(input_root: Path = DEFAULT_INPUTS, prompts: Path = DEFAULT_PROMPTS) -> 
     items = np.load(extract / "items.npz")
     u = data.rf["u"]
     values = stage_values(items["offsets"], items["row"], items["scored"], items["presented"], items["ranked"], u)
-    replay = root / "funnel-replay-v1"
+    replay = Path(replay or root / "funnel-replay-v1")
     rp = [json.loads(line) for line in gzip.open(replay / "prompts.jsonl.gz", "rt")]
     prompt_ids = np.asarray([a["prompt_id"] for a in data.answers])
     values["R0"] = replay_values(prompt_ids, ans.engine, rp, np.load(replay / "replay.npz")["rows"], u)
     pm = prompt_metadata(prompts)
     meta = {k: np.asarray([pm[p][k] if p in pm else np.nan for p in prompt_ids], float)
             for k in ("words", "keyword_in_prompt", "candidate_slot", "target", "target_index")}
+    queries, query_source = load_queries(extract, trace_extract, [a["fingerprint"] for a in data.answers])
     pres = dict(data.pres)
     events = np.load(extract / "events.npz")
     pres["logit"], pres["block"] = shown_scores(data.cand, events["search"], pres["answer"], pres["row"])
     manifest = {"assembled": data.manifest.get("created_at"), "assembled_counts": data.manifest.get("counts"),
                 "extract": json.loads((extract / "manifest.json").read_text()).get("counts"),
-                "replay": json.loads((replay / "manifest.json").read_text()), "prompts": str(prompts)}
+                "replay": json.loads((replay / "manifest.json").read_text()), "prompts": str(prompts),
+                "paths": {"assembled": str(assembled), "extract": str(extract), "replay": str(replay)}, "split": split,
+                "queries": query_source, "prompt_fields_missing_share": {k: float(np.isnan(v).mean()) for k, v in meta.items()},
+                "models": sorted(set(ans.model)), "answers": len(ans.x)}
     return Tables(x=ans.x, keyword=ans.keyword, keyword_text=np.asarray([a["keyword_text"] or "" for a in data.answers]),
                   prompt=ans.prompt, prompt_id=prompt_ids, model=ans.model, method=ans.method, engine=ans.engine,
-                  condition=ans.condition, split=study.split_mask(data, "exploration"), values=values, meta=meta,
-                  pres=pres, data=data, ans=ans, manifest=manifest)
+                  condition=ans.condition, split=study.split_mask(data, split), values=values, meta=meta,
+                  pres=pres, data=data, ans=ans, manifest=manifest, queries=queries, prompts=pm)
 
 
 def strata(t: Tables, *, by_engine: bool = False) -> dict:
-    """Natural-condition, exploration-split masks per model · method (· engine)."""
+    """Natural-condition masks of the analysis split per model · method (· engine)."""
     base = (t.condition == "natural") & t.split
     out = {}
     for model in sorted(set(t.model)):

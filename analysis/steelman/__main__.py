@@ -40,7 +40,17 @@ def main(argv=None) -> int:
     p.add_argument("part", choices=PARTS)
     p.add_argument("--output", type=Path, default=T.DEFAULT_INPUTS / "steelman-v1")
     p.add_argument("--input-root", type=Path, default=T.DEFAULT_INPUTS)
-    p.add_argument("--prompts", type=Path, default=T.DEFAULT_PROMPTS)
+    p.add_argument("--prompts", type=Path, default=T.DEFAULT_PROMPTS,
+                   help="archived prompt snapshot (Mac) or the registration's population-prompts.jsonl (HoreKa)")
+    p.add_argument("--assembled", type=Path, help="funnel_study assemble output (default: Mac exploration tables)")
+    p.add_argument("--extract", type=Path, help="funnel_study extract output")
+    p.add_argument("--replay", type=Path, help="funnel_study replay output")
+    p.add_argument("--trace-extract", type=Path, help="intent_stages_study trace-extract output (the agent's queries on HoreKa)")
+    p.add_argument("--features", type=Path, help="funnel feature table (rows.parquet), default <input-root>/funnel-features-v1")
+    p.add_argument("--review", type=Path, help="published answer rows (funnel_review.py); skipped when absent")
+    p.add_argument("--split", choices=["exploration", "confirmation", "all"], default="exploration")
+    p.add_argument("--selection-draws", type=int, default=30, help="lexical: keyword draws of the shortlisting-model refits (0 skips them)")
+    p.add_argument("--lexicon", type=Path, help="lexical: frozen action-word list (default analysis/steelman/lexicon.json)")
     p.add_argument("--bootstrap", type=int, default=200)
     p.add_argument("--permutations", type=int, default=200)
     p.add_argument("--model-draws", type=int, default=100, help="keyword draws for refitted generator models")
@@ -59,16 +69,17 @@ def main(argv=None) -> int:
     if target.exists():
         raise SystemExit(f"refusing to overwrite {target}")
     started = time.time()
-    t = T.load(a.input_root, a.prompts)
+    t = T.load(a.input_root, a.prompts, assembled=a.assembled, extract=a.extract, replay=a.replay,
+               trace_extract=a.trace_extract, split=a.split)
     header = {"part": a.part, "git_commit": readiness.git_commit(), "prereg_sha256": prereg_sha(),
               "settings": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(a).items()},
-              "inputs": t.manifest, "exploratory": True, "observational": True, "scientific_result": True}
+              "inputs": t.manifest, "exploratory": a.split != "confirmation", "observational": True, "scientific_result": True}
     deadline = time.monotonic() + 60 * a.stop_after_minutes
     if a.part == "chain":
         from analysis.steelman import chain
         body = chain.run(t, bootstrap=a.bootstrap, permutations=a.permutations, seed=a.seed, shuffle_seed=a.shuffle_seed,
-                         items_path=a.input_root / "funnel-extract-exploration-v1/items.npz",
-                         review_parquet=a.input_root / "funnel-review-v1/answers.parquet")
+                         items_path=Path(t.manifest["paths"]["extract"]) / "items.npz",
+                         review_parquet=a.review or a.input_root / "funnel-review-v1/answers.parquet")
     elif a.part == "generator":
         from analysis.steelman import generator
         body = generator.run(t, a, cache_root=out_dir / "generator.cache", deadline=deadline)
@@ -79,7 +90,9 @@ def main(argv=None) -> int:
         body = chain.followup(t, bootstrap=a.bootstrap, seed=a.seed)
     elif a.part == "fe":
         from analysis.steelman import generator
-        body = generator.fe_run(t, a)
+        body = generator.fe_run(t, a, cache_root=out_dir / "fe.cache", deadline=deadline)
+        if body is None:
+            return 4
     elif a.part == "lexical":
         from analysis.steelman import lexical
         body = lexical.run(t, a, cache_root=out_dir / "lexical.cache", deadline=deadline)

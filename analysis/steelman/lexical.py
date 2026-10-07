@@ -29,7 +29,7 @@ from .chain import summarise, within_keyword_ols
 from .tables import PARALLEL, Tables, prompt_metadata, strata, tokens
 
 LEXICON_SIZE, LEXICON_MIN_PROMPTS = 50, 200
-SELECTION_DRAWS = 30  # reported-only refits of the ~70-feature shortlisting model take ~5 min each
+FROZEN_LEXICON = Path(__file__).with_name("lexicon.json")  # fixed by the first (Mac) run; PREREG addendum B1
 
 
 def action_lexicon(prompt_rows: list[dict], keep_keyword) -> list[str]:
@@ -113,7 +113,7 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     from analysis.scripts import funnel_study as study
     root = Path(args.input_root)
     c = t.data.cand
-    rows = pd.read_parquet(root / "funnel-features-v1/rows.parquet", columns=["row_id", "title", "snippet", "position"])
+    rows = pd.read_parquet(Path(args.features or root / "funnel-features-v1") / "rows.parquet", columns=["row_id", "title", "snippet", "position"])
     doc_tok = [TOK(f"{a} {b}") for a, b in zip(rows["title"], rows["snippet"])]
     doc_tf = [Counter(d) for d in doc_tok]
     doc_len = np.asarray([len(d) for d in doc_tok])
@@ -124,17 +124,22 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     avgdl = float(doc_len.mean())
     position = rows["position"].to_numpy(np.int64)
 
-    pm_raw = []
-    with gzip.open(args.prompts, "rt", encoding="utf-8") as stream:
-        for line in stream:
-            r = json.loads(line)
-            pm_raw.append({"id": r["prompt"]["candidate_id"], "question": r["prompt"]["question"], "keyword": r["prompt"]["keyword"],
-                           "x": float(r["axis"]["axis_1_percentile_0_1"])})
-    lexicon = set(action_lexicon(pm_raw, lambda k: not study.exploration_keyword(k)))
-    pm = prompt_metadata(args.prompts)
-    queries = {r["answer"]: r["queries"] for r in (json.loads(line) for line in
-                                                   gzip.open(root / "funnel-extract-exploration-v1/queries.jsonl.gz", "rt"))}
-    events = np.load(root / "funnel-extract-exploration-v1/events.npz")
+    lexicon_path = Path(args.lexicon) if args.lexicon else FROZEN_LEXICON
+    if lexicon_path.exists():
+        lexicon = set(json.loads(lexicon_path.read_text())["lexicon"])
+        lexicon_source = f"frozen list {lexicon_path.name} (confirmation-keyword prompt texts, top 50 by within-keyword correlation with x)"
+    else:
+        pm_raw = []
+        with gzip.open(args.prompts, "rt", encoding="utf-8") as stream:
+            for line in stream:
+                r = json.loads(line)
+                pm_raw.append({"id": r["prompt"]["candidate_id"], "question": r["prompt"]["question"], "keyword": r["prompt"]["keyword"],
+                               "x": float(r["axis"]["axis_1_percentile_0_1"])})
+        lexicon = set(action_lexicon(pm_raw, lambda k: not study.exploration_keyword(k)))
+        lexicon_source = "computed: confirmation-keyword prompt texts, top 50 by within-keyword correlation with x"
+    pm = t.prompts
+    queries = {i: q for i, q in enumerate(t.queries)} if t.queries is not None else {}
+    events = np.load(Path(t.manifest["paths"]["extract"]) / "events.npz")
     ev_answer, ev_search = events["answer"], events["search"]
 
     natural = (t.condition == "natural") & t.split
@@ -167,11 +172,12 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     extra_all = {"overlap_prompt": np.log1p(ov_prompt), "overlap_action_words": np.log1p(ov_action),
                  "overlap_agent_query": np.log1p(ov_query)}
 
-    draws = stages.keyword_draws(int(t.keyword.max()) + 1, args.bootstrap, args.seed)[:SELECTION_DRAWS]
+    selection_draws = int(args.selection_draws)
+    draws = stages.keyword_draws(int(t.keyword.max()) + 1, args.bootstrap, args.seed)[:selection_draws]
     cache_root.mkdir(parents=True, exist_ok=True)
     common = t.common()
-    out = {"selection_model_draws": SELECTION_DRAWS, "lexicon": sorted(lexicon), "lexicon_source": "confirmation-keyword prompt texts, top 50 by within-keyword correlation with x",
-           "strata": {}}
+    out = {"selection_model_draws": selection_draws, "lexicon": sorted(lexicon), "lexicon_source": lexicon_source,
+           "agent_queries": t.manifest.get("queries"), "strata": {}}
     for name, m in strata(t).items():
         if not m.any():
             continue
@@ -179,9 +185,9 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
         mask = m & common
         entry = {}
         # (i) overlap features in the shortlisting model
-        extra = {k: v for k, v in extra_all.items() if parallel is False or k != "overlap_agent_query"}
+        extra = {k: v for k, v in extra_all.items() if k != "overlap_agent_query" or (not parallel and t.queries is not None)}
         fits = {}
-        for label, ex in (("base", {}), ("lexical", extra)):
+        for label, ex in ((("base", {}), ("lexical", extra)) if selection_draws > 0 else ()):
             stage = selection_stage(t, mask, ex)
             stage.design.fit_stats(t.x[stage.row_answer])
             digest = hashlib.sha256(f"{name}|{label}".encode()).hexdigest()[:12]
@@ -194,19 +200,22 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
                 return None
         keep = ("page_intent_z", "intent_x_prompt", "intent_alignment", "topic_similarity", "on_keyword",
                 "overlap_prompt", "overlap_action_words", "overlap_agent_query")
-        entry["selection_model"] = {label: {f: {"beta_per_sd": v["beta_per_sd"], "ci95": v["ci95"]}
-                                            for f, v in fit["features"].items() if f in keep}
-                                    for label, fit in fits.items()}
-        entry["selection_model_intent_change"] = {
-            f: fm.contrast_from_replicates(fits["lexical"], fits["base"], f) for f in ("intent_x_prompt", "intent_alignment", "page_intent_z")}
-        entry["selection_model_lexical_block_fit_share"] = fits["lexical"]["blocks"].get("LX", {}).get("fit_share")
+        if not fits:
+            entry["selection_model"] = {"skipped": "--selection-draws 0"}
+        else:
+            entry["selection_model"] = {label: {f: {"beta_per_sd": v["beta_per_sd"], "ci95": v["ci95"]}
+                                                for f, v in fit["features"].items() if f in keep}
+                                        for label, fit in fits.items()}
+            entry["selection_model_intent_change"] = {
+                f: fm.contrast_from_replicates(fits["lexical"], fits["base"], f) for f in ("intent_x_prompt", "intent_alignment", "page_intent_z")}
+            entry["selection_model_lexical_block_fit_share"] = fits["lexical"]["blocks"].get("LX", {}).get("fit_share")
         # (ii) lexical selector against the text the reranker scored against (and the prompt, for Reactive)
         cm = mask[c["answer"]]
         idx = np.flatnonzero(cm)
         k_ev = np.where(parallel, 7, 3) * np.ones(len(ev_answer), np.int64)
         P_lex = {}
         for label, qe in (("reranker_text", prompt_of_event if parallel else query_of_event), ("user_prompt", prompt_of_event)):
-            if parallel and label == "user_prompt":
+            if (parallel and label == "user_prompt") or (not parallel and label == "reranker_text" and t.queries is None):
                 continue
             kept = lexical_selector(c["event"][idx], c["answer"][idx], c["row"][idx], qe, k_ev, doc_tf, doc_len, idf, avgdl, position)
             P_lex[label] = shortlist_value(c["answer"][idx], c["row"][idx], kept, t.data.rf["u"], len(t.x))
@@ -224,7 +233,7 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
                 return {"lexical_increment": b["Plex"] - b["C"], "reranker_increment": b["P"] - b["C"],
                         "reranker_minus_lexical": b["P"] - b["Plex"],
                         "lexical_share_of_reranker": (b["Plex"] - b["C"]) / (b["P"] - b["C"]) if b["P"] != b["C"] else np.nan,
-                        "lexical_share_of_K": (b["Plex"] - b["C"]) / b["K"]}
+                        "lexical_share_of_K": (b["Plex"] - b["C"]) / b["K"] if b["K"] else np.nan}
 
             obs = stats_of(None)
             reps = [stats_of(d) for d in stages.keyword_draws(int(t.keyword.max()) + 1, args.bootstrap, args.seed)]

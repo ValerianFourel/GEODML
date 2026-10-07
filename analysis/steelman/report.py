@@ -17,7 +17,12 @@ ROWS = [("R0 · prompt words (lexical replay, mechanical)", "prompt_words_R0"), 
         ("C − R · deduplication", "dedup_condition"), ("P − C · reranker shortlist", "reranker"),
         ("I − P · shown-order weighting", "shown_order"), ("K − I · generator's own choices", "generator"),
         ("K − P · generator vs random selector", "generator_vs_random"), ("P · admission (everything before the generator)", "admission_P")]
-METHODS = ("qwen38 · Reactive", "qwen38 · Parallel")
+METHODS = ("qwen38 · Reactive", "qwen38 · Parallel")  # the Mac run; build() uses the strata present in chain.json
+
+
+def ordered_strata(names) -> tuple:
+    """Model by model (Qwen first), Reactive Loop (primary) before Parallel Expansion."""
+    return tuple(sorted(names, key=lambda n: (n.split(" · ")[0] != "qwen38", n.split(" · ")[0], "Parallel" in n)))
 RESULTS_MD = Path(__file__).with_name("RESULTS.md")
 
 
@@ -26,16 +31,19 @@ def pct(v, digits=0):
 
 
 def ci_pct(e):
-    lo, hi = e["ci95"]
+    lo, hi = e.get("ci95") or (None, None)
     return f"{pct(e['estimate'])} [{pct(lo)}, {pct(hi)}]"
 
 
 def num(e, d=3, key="ci95"):
-    lo, hi = e[key]
-    return f"{e['estimate']:+.{d}f} [{lo:+.{d}f}, {hi:+.{d}f}]"
+    f = lambda v: "—" if v is None else f"{v:+.{d}f}"  # noqa: E731
+    lo, hi = e.get(key) or (None, None)
+    return f"{f(e.get('estimate'))} [{f(lo)}, {f(hi)}]"
 
 
 def deck_shares(explore: dict, method: str) -> dict:
+    if not explore or method not in explore.get("slopes", {}):
+        return {}
     s = {k: explore["slopes"][method][f"{k}_u"]["slope"] for k in ("R0", "R", "P", "K")}
     k = s["K"]
     return {"prompt_words_R0": s["R0"] / k, "query_rewriting": (s["R"] - s["R0"]) / k, "reranker": (s["P"] - s["R"]) / k,
@@ -43,12 +51,21 @@ def deck_shares(explore: dict, method: str) -> dict:
 
 
 def paper_text(ch, gen, fu, v1, v2, lex=None) -> list:
-    """Draft paper text with the numbers of this run (wording follows the verdicts)."""
-    R, P = METHODS
+    """Draft paper text with the numbers of this run, one claim sentence per model (wording follows the verdicts)."""
+    out = ["## Draft paper text\n"]
+    for model in sorted({m.split(" · ")[0] for m in METHODS}, key=lambda m: (m != "qwen38", m)):
+        R, P = f"{model} · Reactive", f"{model} · Parallel"
+        if not all(x in ch["strata"] and x in gen["strata"] for x in (R, P)):
+            continue
+        out += [f"### {model}\n"] + _paper_text_model(ch, gen, fu, v1, v2[model], lex, R, P)
+    return out
+
+
+def _paper_text_model(ch, gen, fu, v1, v2, lex, R, P) -> list:
     cr, cp = ch["strata"][R]["chain"]["common"], ch["strata"][P]["chain"]["common"]
     dr, dp = gen["strata"][R]["delta"]["main"], gen["strata"][P]["delta"]["main"]
     s = lambda c, t: pct(c["shares"][t]["estimate"])
-    lines = ["## Draft paper text\n", "**Claim sentence (as the evidence supports it).**\n"]
+    lines = ["**Claim sentence (as the evidence supports it).**\n"]
     if v2["verdict"] == "supported":
         lines.append("> In agentic LLM search, the prompt's intent reaches the cited sources by changing which documents are "
                      "shortlisted, through the queries the agent writes and the reranker that filters their results, while the "
@@ -65,7 +82,7 @@ def paper_text(ch, gen, fu, v1, v2, lex=None) -> list:
                  f"{s(cp, 'prompt_words_R0')}, {s(cp, 'query_rewriting')}, {s(cp, 'reranker')}, {s(cp, 'shown_order')}, {s(cp, 'generator')}. "
                  "Do not write \"chiefly through the queries\": the reranker step is at least as large in both methods, and the query "
                  "share depends on whether the prompt names its keyword (follow-up section).\n")
-    if lex:
+    if lex and R in lex["strata"] and P in lex["strata"] and "reranker_text" in lex["strata"][R]["lexical_selector"]:
         lr = lex["strata"][R]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
         lp = lex["strata"][P]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
         lines.append(f"Plain word matching yields an increment as large as the reranker's: a BM25 selector scored against the same "
@@ -74,10 +91,15 @@ def paper_text(ch, gen, fu, v1, v2, lex=None) -> list:
                      "prompt, so the intent it adds travels through the agent's queries. Word-overlap controls in the shortlisting model "
                      "leave the reranker's intent coefficients unchanged, so the reranker is not simply counting shared words.\n")
     lines.append("**Limitations paragraph.**\n")
-    lines.append("> These results are exploratory and observational: the prompt's position on the intent axis is a measured "
-                 "property of its text, and the stage decomposition attributes an association, not an effect. The generator analysis "
-                 "rests on one model (Qwen); Llama, which drops most shown links, could not be analysed at the trace level here. "
-                 "The decisive test, which we did not run, holds the shortlist fixed: showing the same documents in the same order "
+    confirmatory = ch["inputs"].get("split") == "confirmation"
+    both = all(f"{m} · Reactive" in gen["strata"] for m in ("qwen38", "llama4"))
+    lines.append("> These results are " + ("confirmatory on held-out keywords" if confirmatory else "exploratory") + " and observational: "
+                 "the prompt's position on the intent axis is a measured "
+                 "property of its text, and the stage decomposition attributes an association, not an effect. "
+                 + ("The generator analysis covers two open-weight models. " if both else
+                    "The generator analysis rests on one model (Qwen); Llama, which drops most shown links, could not be analysed at "
+                    "the trace level here. ")
+                 + "The decisive test, which we did not run, holds the shortlist fixed: showing the same documents in the same order "
                  "under prompts of the same keyword at different intent positions would measure the generator's intent sensitivity by "
                  "design rather than through a fitted choice model. Our counterfactual also conditions on how many sources an answer "
                  f"cites, and that count itself falls with intent under the Reactive Loop "
@@ -96,12 +118,20 @@ def build(out_dir: Path) -> int:
     out_dir = Path(out_dir)
     load = lambda name: json.loads((out_dir / f"{name}.json").read_text()) if (out_dir / f"{name}.json").exists() else None
     ch, gen, fe, lex, pairs, fu = (load(n) for n in ("chain", "generator", "fe", "lexical", "pairs", "followup"))
-    explore = json.loads((DEFAULT_INPUTS / "funnel-explore-v1/explore.json").read_text())
+    explore_path = DEFAULT_INPUTS / "funnel-explore-v1/explore.json"
+    split = ch["inputs"].get("split", "exploration")
+    explore = json.loads(explore_path.read_text()) if split == "exploration" and explore_path.exists() else None
+    global METHODS
+    METHODS = ordered_strata(ch["strata"])
+    models = sorted({m.split(" · ")[0] for m in METHODS}, key=lambda m: (m != "qwen38", m))
+    keywords = max(e["chain"]["common"]["keywords"] for e in ch["strata"].values())
     L = []
     w = L.append
     commits = {n: p["git_commit"] for n, p in (("chain", ch), ("generator", gen), ("fe", fe), ("lexical", lex), ("pairs", pairs)) if p}
     w("# Steelman results: does prompt intent reach the cited sources at the shortlist?\n")
-    w("Exploratory (funnel study addendum A1): Qwen, natural condition, the 237 exploration keywords with traces on the Mac. "
+    w(("Confirmatory run on the held-out keywords (funnel study addendum A1). " if split == "confirmation" else
+       "Exploratory (funnel study addendum A1). ") + f"Models: {', '.join(models)}; natural condition; {keywords} keywords of the "
+      f"{split} split. "
       "Observational: x is a measured property of the prompt text. Rules fixed in `PREREG.md` "
       f"(sha256 `{ch['prereg_sha256'][:12]}…`) before any part ran. Code commits: "
       + ", ".join(f"{k} `{v[:7]}`" for k, v in commits.items()) + ". Rebuild: `python -m analysis.steelman report`.\n")
@@ -110,12 +140,12 @@ def build(out_dir: Path) -> int:
 
     # verdicts
     v1 = {m: decide.verdict_c1(ch["strata"][m], {e: c for e, c in ch["engine_strata"].items() if e.startswith(m)}) for m in METHODS}
-    v2 = decide.verdict_c2({m: gen["strata"][m]["delta"]["main"] for m in METHODS}) if gen else None
+    v2 = ({model: decide.verdict_c2({m: gen["strata"][m]["delta"]["main"] for m in METHODS if m.startswith(model + " ·") and m in gen["strata"]})
+           for model in models} if gen else None)
     w("## Verdicts\n")
-    w("| Claim | Qwen · Reactive (primary) | Qwen · Parallel |\n|---|---|---|")
-    w(f"| C1 admission | **{v1[METHODS[0]]['verdict']}** | **{v1[METHODS[1]]['verdict']}** |")
-    if v2:
-        w(f"| C2 selection (both methods jointly) | **{v2['verdict']}** | |")
+    w("| Stratum | C1 admission | C2 selection (per model, both methods jointly) |\n|---|---|---|")
+    for m in METHODS:
+        w(f"| {m} | **{v1[m]['verdict']}** | **{v2[m.split(' · ')[0]]['verdict']}** |" if v2 else f"| {m} | **{v1[m]['verdict']}** | — |")
     w("")
     for m in METHODS:
         if v1[m]["reasons"]:
@@ -131,16 +161,19 @@ def build(out_dir: Path) -> int:
     for m in METHODS:
         e = ch["strata"][m]
         deck = deck_shares(explore, m)
-        w(f"**{m}** — common sample {e['common_sample']:,} answers; β_K common {num(e['chain']['common']['slopes']['K'])}, "
-          f"with controls {num(e['chain']['controls']['slopes']['K'])}, given lattice target {num(e['chain']['target']['slopes']['K'])}.\n")
+        ok = {v: "skipped" not in e["chain"][v] for v in ("common", "controls", "target")}
+        kslope = lambda v: num(e["chain"][v]["slopes"]["K"]) if ok[v] else e["chain"][v]["skipped"]  # noqa: E731
+        w(f"**{m}** — common sample {e['common_sample']:,} answers; β_K common {kslope('common')}, "
+          f"with controls{(' (' + ', '.join(e['controls_used']['controls']) + ')') if e.get('controls_used') else ''} {kslope('controls')}, "
+          f"given lattice target {kslope('target')}.\n")
         w("| Step | Deck | Common sample | + prompt controls | Given lattice target | Only answers that dropped a link |\n|---|---|---|---|---|---|")
         for label, term in ROWS:
             cells = [pct(deck.get(term)) if term in deck else "—"]
             for variant in ("common", "controls", "target"):
-                cells.append(ci_pct(e["chain"][variant]["shares"][term]))
-            cells.append(ci_pct(e["droppers_only"]["shares"][term]))
+                cells.append(ci_pct(e["chain"][variant]["shares"][term]) if ok[variant] else "—")
+            cells.append(ci_pct(e["droppers_only"]["shares"][term]) if "shares" in e["droppers_only"] else "—")
             w(f"| {label} | " + " | ".join(cells) + " |")
-            for variant in ("common", "controls", "target"):
+            for variant in [v for v in ("common", "controls", "target") if ok[v]]:
                 s = e["chain"][variant]["shares"][term]
                 inc = e["chain"][variant]["increments"][term]
                 csv_rows.append({"stratum": m, "variant": variant, "term": term, "increment": inc["estimate"],
@@ -184,28 +217,31 @@ def build(out_dir: Path) -> int:
     # O2
     if gen:
         w("## O2. Shown order absorbs intent; C2 equivalence\n")
-        w("| Quantity | Qwen · Reactive | Qwen · Parallel |\n|---|---|---|")
-        g = {m: gen["strata"][m] for m in METHODS}
+        G = [m for m in METHODS if m in gen["strata"]]
+        w("| Quantity | " + " | ".join(G) + " |\n|" + "---|" * (len(G) + 1))
+        g = {m: gen["strata"][m] for m in G}
         for label, var, q in (("Δ_gen, drop-intent refit (primary)", "main", "delta_gen"),
                               ("Δ_gen, intent coefficients zeroed", "main", "delta_gen_zeroed"),
                               ("Δ_gen, models without shown slot", "no_slot", "delta_gen"),
                               ("Δ_gen, reranker score as control", "score", "delta_gen"),
                               ("Model check: β_x(E[K]) − β_K", "main", "model_check")):
-            w(f"| {label} | " + " | ".join(num(g[m]["delta"][var][q], 4) for m in METHODS) + " |")
+            w(f"| {label} | " + " | ".join(num(g[m]["delta"][var][q], 4) for m in G) + " |")
         w("| Δ_gen, 90% interval (TOST against ±0.015) | " + " | ".join(
-            f"[{g[m]['delta']['main']['delta_gen']['ci90'][0]:+.4f}, {g[m]['delta']['main']['delta_gen']['ci90'][1]:+.4f}]" for m in METHODS) + " |")
-        w("| Δ_gen as share of β_K | " + " | ".join(ci_pct(g[m]["delta"]["main"]["delta_gen_share_of_K"]) for m in METHODS) + " |")
-        w(f"| Keep-informative answers | {g[METHODS[0]]['keep_informative_answers']:,} | keep fixed (99% kept) |\n")
+            f"[{g[m]['delta']['main']['delta_gen']['ci90'][0]:+.4f}, {g[m]['delta']['main']['delta_gen']['ci90'][1]:+.4f}]" for m in G) + " |")
+        w("| Δ_gen as share of β_K | " + " | ".join(ci_pct(g[m]["delta"]["main"]["delta_gen_share_of_K"]) for m in G) + " |")
+        w("| Keep decision | " + " | ".join(
+            (f"modelled ({g[m]['keep_informative_answers']:,} informative answers)" if g[m].get("keep_modelled", g[m]["keep_informative_answers"] > 0)
+             else f"fixed at the observed set ({pct(g[m].get('keep_informative_share'))} informative)") for m in G) + " |\n")
         w("Keep and order coefficients (per SD, main variant):\n")
-        for m in METHODS:
+        for m in G:
             for key, coefs in g[m]["coefficients"].items():
                 if not key.startswith("main|"):
                     continue
                 w(f"- {m}, {key.split('|')[1]}: " + "; ".join(f"{f} {num(v)}" for f, v in coefs.items() if f != "slot_effects"))
         w("\nWithin-answer correlation of the shown slot with:\n")
-        w("| | " + " | ".join(METHODS) + " |\n|---|---|---|")
+        w("| | " + " | ".join(G) + " |\n|" + "---|" * (len(G) + 1))
         for f in ("u", "intent_alignment", "intent_x_prompt", "topic_similarity", "reranker_logit"):
-            w(f"| {f} | " + " | ".join(num(g[m]["slot_correlations"][f]) for m in METHODS) + " |")
+            w(f"| {f} | " + " | ".join(num(g[m]["slot_correlations"][f]) for m in G) + " |")
         w("")
     if fe:
         w("Two-way fixed effects (answer and snapshot row; the same snippet shown under different prompts), linear "
@@ -246,6 +282,9 @@ def build(out_dir: Path) -> int:
     w("## O4. Wording and length\n")
     for m in METHODS:
         nf = ch["strata"][m]["noise_floor"]
+        if "skipped" in nf:
+            w(f"- **{m}.** Noise floor skipped: {nf['skipped']}.")
+            continue
         w(f"- **{m}.** Within (keyword, lattice target, engine) cells ({nf['cells_with_two_or_more']:,} cells with ≥ 2 prompts, "
           f"{nf['answers_in_such_cells']:,} answers): slope of K on x {num(nf['terms']['K']['slope_within_cell'])}, of P "
           f"{num(nf['terms']['P']['slope_within_cell'])}, of R {num(nf['terms']['R']['slope_within_cell'])}; within-cell SD of K "
@@ -253,9 +292,14 @@ def build(out_dir: Path) -> int:
     w("")
     # O5
     w("## O5. Qwen only\n")
-    w("Llama traces are not on the Mac; its R0 and K come from the published answers (natural condition):\n")
-    w("| Stratum | R0 slope | K slope | R0 / K | Cited count on x | Answers keeping every shown link |\n|---|---|---|---|---|---|")
-    for name, r in ch["published_rows"].items():
+    if "published_rows" not in ch:
+        w("Every model above is analysed from its own traces; the published-answer table was not built in this run.\n")
+    else:
+        w(("Llama traces are not in this run; " if "llama4" not in models else "")
+          + "R0 and K for both models from the published answers (natural condition):\n")
+    if "published_rows" in ch:
+        w("| Stratum | R0 slope | K slope | R0 / K | Cited count on x | Answers keeping every shown link |\n|---|---|---|---|---|---|")
+    for name, r in ch.get("published_rows", {}).items():
         w(f"| {name} | {num(r['R0'])} | {num(r['K_cited_u'])} | {pct(r['R0']['estimate'] / r['K_cited_u']['estimate'])} | "
           f"{num(r['cited_count'], 2)} | {pct(r['share_answers_keeping_all_shown'])} |")
     w("")
@@ -276,9 +320,12 @@ def build(out_dir: Path) -> int:
         w("## Exploratory follow-up (added after the first run, not pre-registered): whether the prompt names its keyword\n")
         w("Adding the prompt controls moved the query-rewriting share. One control at a time, shares of β_K:\n")
         w("| Stratum | Control | Prompt words R0 | Query rewriting | Reranker | Generator K − I |\n|---|---|---|---|---|---|")
-        for m in METHODS:
+        for m in [m for m in METHODS if m in fu["strata"]]:
             e = fu["strata"][m]
             for lab, sh in list(e["single_control"].items()) + [(f"subset: {k}", v) for k, v in e["within_keyword_named"].items()]:
+                if "skipped" in sh:
+                    w(f"| {m} | {lab} | too few answers ({sh['skipped']}) | | | |")
+                    continue
                 w(f"| {m} | {lab} | {ci_pct(sh['prompt_words_R0'])} | {ci_pct(sh['query_rewriting'])} | {ci_pct(sh['reranker'])} | {ci_pct(sh['generator'])} |")
         for m in METHODS:
             w(f"\n{m}: within keyword, the share of prompts naming their keyword changes by "
@@ -298,5 +345,6 @@ def build(out_dir: Path) -> int:
                 "files": {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(out_dir.glob("*.json")) if f.name != "manifest.json"},
                 "verdicts": {"C1": v1, "C2": v2}}
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
-    print(json.dumps({"wrote": str(out_dir / "RESULTS.md"), "C1": {m: v1[m]["verdict"] for m in METHODS}, "C2": v2 and v2["verdict"]}))
+    print(json.dumps({"wrote": str(out_dir / "RESULTS.md"), "C1": {m: v1[m]["verdict"] for m in METHODS},
+                      "C2": v2 and {k: v["verdict"] for k, v in v2.items()}}))
     return 0

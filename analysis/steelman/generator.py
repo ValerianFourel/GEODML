@@ -32,6 +32,7 @@ from .tables import PARALLEL, Tables, rank_weights, strata
 
 SLOT_CAP = 10
 SESOI = 0.015
+KEEP_MODEL_MIN_SHARE = 0.25  # PREREG addendum B1: model the keep decision when this share of answers keeps some, drops some
 VARIANTS = ("main", "no_slot", "score")
 A1 = "A1"
 
@@ -193,9 +194,12 @@ class Stratum:
 
     def __init__(self, t: Tables, mask: np.ndarray, stats: dict, method: str, M: int, seed: int):
         self.t, self.M, self.seed = t, M, seed
-        self.keep_model = method != PARALLEL
         s = shown_rows(t, mask)
         self.s = s
+        L_ans = np.bincount(s.answer, s.kept)[np.unique(s.answer)]
+        n_ans = np.bincount(s.answer)[np.unique(s.answer)]
+        self.informative_share = float(np.mean((L_ans > 0) & (L_ans < n_ans)))
+        self.keep_model = self.informative_share >= KEEP_MODEL_MIN_SHARE
         cols = feature_columns(t, s)
         sd = float(np.nanstd(cols["reranker_logit"]))
         stats = {**stats, "reranker_logit": (float(np.nanmean(cols["reranker_logit"])), sd if sd > 0 else 1.0)}
@@ -307,8 +311,9 @@ def delta_summary(full: dict, reps: list) -> dict:
         e = {}
         for q in ("delta_gen", "delta_gen_zeroed", "slope_expected_full", "slope_observed_K", "model_check"):
             e[q] = summarise(full[v][q], [r[v][q] for r in ok], None)
-        k = full[v]["slope_observed_K"]
-        e["delta_gen_share_of_K"] = summarise(full[v]["delta_gen"] / k, [r[v]["delta_gen"] / r[v]["slope_observed_K"] for r in ok], None)
+        ratio = lambda a, b: a / b if b else float("nan")  # noqa: E731
+        e["delta_gen_share_of_K"] = summarise(ratio(full[v]["delta_gen"], full[v]["slope_observed_K"]),
+                                              [ratio(r[v]["delta_gen"], r[v]["slope_observed_K"]) for r in ok], None)
         lo, hi = e["delta_gen"]["ci90"]
         e["tost_inside_sesoi"] = bool(lo is not None and -SESOI < lo and hi < SESOI)
         out[v] = e
@@ -354,10 +359,27 @@ def _fe_job(i):
     return two_way_fe(_FE["y"], _FE["X"], _FE["a"], _FE["r"], _FE["draws"][i][_FE["kw"]])
 
 
-def fe_run(t: Tables, args) -> dict:
+def fe_run(t: Tables, args, *, cache_root: Path, deadline: float):
+    """Per stratum, cached (``cache_root``); returns None at the deadline (rerun continues)."""
     draws = stages.keyword_draws(int(t.keyword.max()) + 1, args.bootstrap, args.seed)
     common = t.common()
-    return {"strata": {name: fe_analysis(t, m & common, draws, args.workers) for name, m in strata(t).items() if m.any()}}
+    cache_root.mkdir(parents=True, exist_ok=True)
+    out = {"strata": {}}
+    for name, m in strata(t).items():
+        if not m.any():
+            continue
+        path = cache_root / f"{hashlib.sha256(name.encode()).hexdigest()[:12]}.json"
+        if not path.exists():
+            if time.monotonic() > deadline:
+                print(json.dumps({"stopped_before": name, "reason": "deadline checkpoint"}), flush=True)
+                return None
+            value = json.loads(json.dumps(fe_analysis(t, m & common, draws, args.workers), default=float).replace("NaN", "null"))
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"name": name, "value": value}))
+            tmp.replace(path)
+            print(json.dumps({"fe_stratum_done": name}), flush=True)
+        out["strata"][name] = json.loads(path.read_text())["value"]
+    return out
 
 
 def fe_analysis(t: Tables, mask: np.ndarray, draws: list, workers: int = 1) -> dict:
@@ -451,9 +473,14 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
         entry = {"slot_correlations": slot_correlations(t, mask, draws_all)}
         st = Stratum(t, mask, stats, method, args.mc, args.seed)
         entry["answers"] = int(st.use.sum())
+        entry["keep_modelled"] = st.keep_model
+        entry["keep_informative_share"] = st.informative_share
         entry["keep_informative_answers"] = int(st.parts[("main", False)]["keep"][0].data.groups) if st.keep_model else 0
         digest = hashlib.sha256(name.encode()).hexdigest()[:12]
         parts = cache_root / f"{digest}.parts.jsonl"
+        if time.monotonic() > deadline:
+            print(json.dumps({"stopped_before": name, "reason": "deadline checkpoint"}), flush=True)
+            return None
         done = {}
         if parts.exists():
             for line in parts.read_text().splitlines():

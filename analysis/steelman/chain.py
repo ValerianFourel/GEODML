@@ -7,6 +7,8 @@ random (E[K] = P). Observational: x is a measured prompt property.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from analysis.interpretability.pipeline import intent_stages as stages
@@ -211,16 +213,30 @@ def as_stages(t: Tables, items_path) -> "stages.Stages":
                          q_offsets=np.zeros(n + 1, np.int64), q_ids=np.zeros(0, np.int64))
 
 
+def available(t: Tables, mask: np.ndarray, field: str) -> bool:
+    return bool(np.isfinite(t.meta[field][mask]).all())
+
+
 def control_matrix(t: Tables, mask: np.ndarray, kind: str) -> np.ndarray | None:
+    """Prompt controls; a field the prompt file lacks for any answer of the sample is left out (recorded by
+    ``controls_used``). Raises LookupError when a variant has no usable field."""
     m = t.meta
     if kind == "controls":
-        slot = m["candidate_slot"][mask].astype(int)
-        levels = sorted(set(slot.tolist()))[1:]
-        cols = [np.log(m["words"][mask]), m["keyword_in_prompt"][mask]] + [(slot == s).astype(float) for s in levels]
+        cols = [np.log(m["words"][mask]), m["keyword_in_prompt"][mask]]
+        if available(t, mask, "candidate_slot"):
+            slot = m["candidate_slot"][mask].astype(int)
+            cols += [(slot == s).astype(float) for s in sorted(set(slot.tolist()))[1:]]
         return np.column_stack(cols)
     if kind == "target":
+        if not available(t, mask, "target"):
+            raise LookupError("lattice target missing from the prompt file")
         return m["target"][mask][:, None]
     return None
+
+
+def controls_used(t: Tables, mask: np.ndarray) -> dict:
+    return {"controls": ["log_prompt_words", "keyword_in_prompt"] + (["candidate_slot"] if available(t, mask, "candidate_slot") else []),
+            "target": ["target_normalized_axis_1"] if available(t, mask, "target") else []}
 
 
 def run(t: Tables, *, bootstrap: int, permutations: int, seed: int, shuffle_seed: int, items_path=None,
@@ -238,20 +254,29 @@ def run(t: Tables, *, bootstrap: int, permutations: int, seed: int, shuffle_seed
         vals = {n: t.values[n][c] for n in CHAIN}
         x, k, p = t.x[c], t.keyword[c], t.prompt[c]
         entry = {"natural_answers": int(m.sum()), "common_sample": int(c.sum())}
-        entry["chain"] = {variant: chain(vals, x, k, p, draws=draws, shuffles=shuffles if variant == "common" else [],
-                                         controls=control_matrix(t, c, variant))
-                          for variant in ("common", "controls", "target")}
+        entry["controls_used"] = controls_used(t, c)
+        entry["chain"] = {}
+        for variant in ("common", "controls", "target"):
+            try:
+                ctrl = control_matrix(t, c, variant)
+            except LookupError as error:
+                entry["chain"][variant] = {"skipped": str(error)}
+                continue
+            entry["chain"][variant] = chain(vals, x, k, p, draws=draws, shuffles=shuffles if variant == "common" else [], controls=ctrl)
         entry["loko"] = leave_one_keyword_out(vals, x, k)
         drop = c & (t.values["L"] < t.values["n_shown"])
-        entry["droppers_only"] = chain({n: t.values[n][drop] for n in CHAIN}, t.x[drop], t.keyword[drop], t.prompt[drop],
-                                       draws=draws, shuffles=[])
+        entry["droppers_only"] = (chain({n: t.values[n][drop] for n in CHAIN}, t.x[drop], t.keyword[drop], t.prompt[drop],
+                                        draws=draws, shuffles=[]) if drop.sum() >= 100 else {"skipped": int(drop.sum())})
         entry["droppers_share_of_answers"] = float(drop.sum() / max(c.sum(), 1))
         entry["cited_count"] = simple_slope(t.values["L"][m], t.x[m], t.keyword[m], draws, shuffles, t.prompt[m])
         frac = np.divide(t.values["L"], t.values["n_shown"], out=np.full(len(t.x), np.nan), where=t.values["n_shown"] > 0)
         entry["cited_share_of_shown"] = simple_slope(frac[m], t.x[m], t.keyword[m], draws, shuffles, t.prompt[m])
         entry["shown_count"] = simple_slope(t.values["n_shown"][m], t.x[m], t.keyword[m], draws)
-        cell = np.asarray([f"{a}|{b}|{e}" for a, b, e in zip(t.keyword[c], t.meta["target_index"][c].astype(int), t.engine[c])])
-        entry["noise_floor"] = noise_floor(vals, x, k, cell, draws)
+        if available(t, c, "target_index"):
+            cell = np.asarray([f"{a}|{int(b)}|{e}" for a, b, e in zip(t.keyword[c], t.meta["target_index"][c], t.engine[c])])
+            entry["noise_floor"] = noise_floor(vals, x, k, cell, draws)
+        else:
+            entry["noise_floor"] = {"skipped": "lattice target index missing from the prompt file"}
         if items_path is not None:
             st = as_stages(t, items_path)
             sv = stages.stage_values(st, t.data.rf["u"])
@@ -269,7 +294,7 @@ def run(t: Tables, *, bootstrap: int, permutations: int, seed: int, shuffle_seed
             continue
         out["engine_strata"][name] = chain({n: t.values[n][c] for n in CHAIN}, t.x[c], t.keyword[c], t.prompt[c],
                                            draws=draws, shuffles=[])
-    if review_parquet is not None:
+    if review_parquet is not None and Path(review_parquet).exists():
         from analysis.scripts.funnel_study import exploration_keyword
         out["published_rows"] = published_rows(review_parquet, seed, bootstrap, exploration_keyword)
     return out
@@ -287,13 +312,16 @@ def followup(t: Tables, *, bootstrap: int, seed: int) -> dict:
         c = m & common
         vals = {n: t.values[n][c] for n in CHAIN}
         x, k, p = t.x[c], t.keyword[c], t.prompt[c]
-        slot = t.meta["candidate_slot"][c].astype(int)
-        controls = {"keyword_in_prompt": t.meta["keyword_in_prompt"][c][:, None], "log_prompt_words": np.log(t.meta["words"][c])[:, None],
-                    "candidate_slot": np.column_stack([(slot == s).astype(float) for s in sorted(set(slot.tolist()))[1:]])}
+        controls = {"keyword_in_prompt": t.meta["keyword_in_prompt"][c][:, None], "log_prompt_words": np.log(t.meta["words"][c])[:, None]}
+        if available(t, c, "candidate_slot"):
+            slot = t.meta["candidate_slot"][c].astype(int)
+            controls["candidate_slot"] = np.column_stack([(slot == s).astype(float) for s in sorted(set(slot.tolist()))[1:]])
         entry = {"control_on_x": {n: simple_slope(v[:, 0], x, k, draws) for n, v in controls.items() if v.shape[1] == 1}}
         entry["single_control"] = {n: chain(vals, x, k, p, draws=draws, shuffles=[], controls=v)["shares"] for n, v in controls.items()}
         kip = t.meta["keyword_in_prompt"][c] > 0
-        entry["within_keyword_named"] = {lab: chain({n: v[mm] for n, v in vals.items()}, x[mm], k[mm], p[mm], draws=draws, shuffles=[])["shares"]
-                                         for lab, mm in (("prompt_names_keyword", kip), ("prompt_omits_keyword", ~kip))}
+        entry["within_keyword_named"] = {
+            lab: (chain({n: v[mm] for n, v in vals.items()}, x[mm], k[mm], p[mm], draws=draws, shuffles=[])["shares"]
+                  if mm.sum() >= 100 else {"skipped": int(mm.sum())})
+            for lab, mm in (("prompt_names_keyword", kip), ("prompt_omits_keyword", ~kip))}
         out["strata"][name] = entry
     return out
