@@ -43,11 +43,8 @@ set +x
 source $GEMMA_ENV
 export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$GEMMA_CODE_Q
 unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
-if [ -z "\${HF_TOKEN:-}" ]; then
-  read -rsp 'HF write token (hidden, memory only): ' HF_TOKEN
-  echo
-  export HF_TOKEN
-fi
+while [ -z "\${HF_TOKEN:-}" ]; do read -rsp 'HF write token (hidden, memory only; Enter alone asks again): ' HF_TOKEN; echo; done
+export HF_TOKEN
 echo "Gemma Qwen sender started \$(date -u +%FT%TZ) from \$(git -C $GEMMA_CODE_Q rev-parse HEAD)" | tee -a $GEMMA_LOG
 echo 'Detach with Ctrl-b d; the sender keeps running.'
 exec $GEMMA_COMMAND >> $GEMMA_LOG 2>&1

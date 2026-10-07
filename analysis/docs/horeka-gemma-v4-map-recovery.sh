@@ -34,7 +34,8 @@ set +x
 source /hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geodml-nemotron-env.sh
 export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$CODE_Q
 unset HF_HUB_OFFLINE TRANSFORMERS_OFFLINE
-if [ -z "\${HF_TOKEN:-}" ]; then read -rsp 'HF write token (hidden, memory only): ' HF_TOKEN; echo; export HF_TOKEN; fi
+while [ -z "\${HF_TOKEN:-}" ]; do read -rsp 'HF write token (hidden, memory only; Enter alone asks again): ' HF_TOKEN; echo; done
+export HF_TOKEN
 echo "Gemma map recovery started \$(date -u +%FT%TZ) from \$(git -C $CODE_Q rev-parse HEAD)" | tee -a $LOG
 echo 'Detach with Ctrl-b d; the sender keeps running.'
 exec $COMMAND >> $LOG 2>&1
