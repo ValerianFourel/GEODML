@@ -4,6 +4,7 @@ import gzip
 import json
 import os
 import shutil
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -114,6 +115,15 @@ def test_private_reservation_conflicts_and_idempotent_restart(tmp_path, monkeypa
     assert state["writes"] == 2
     registry = json.loads(state["files"][bulk.REGISTRY])
     assert set(registry["plans"]) == {"one", "three"}
+    # A labelled recovery may re-claim exactly the maps of the plan it recovers, and only that plan's.
+    rec_root, rec = reservation(tmp_path, "recovery", ["map-b"])
+    rec["recovery_of"] = "one"
+    bulk.reserve(rec, rec_root)
+    assert set(json.loads(state["files"][bulk.REGISTRY])["plans"]) == {"one", "three", "recovery"}
+    bad_root, bad = reservation(tmp_path, "bad-recovery", ["map-b", "map-d"])
+    bad["recovery_of"] = "one"
+    with pytest.raises(ValueError, match="already reserved by (three|recovery)"):
+        bulk.reserve(bad, bad_root)
     assert all(row["state"] == "reserved" for row in registry["plans"].values())
 
 
@@ -570,3 +580,45 @@ def test_start_waits_for_another_gemma_sender_then_sends(tmp_path, monkeypatch):
     monkeypatch.setattr(sender, "send", lambda path: (_ for _ in ()).throw(sender.SenderBusy("busy")))
     with pytest.raises(ValueError, match="deadline"):
         bulk.start(args)
+
+
+
+def test_map_recovery_start_records_cells_attempts_and_the_recovered_plan(tmp_path, monkeypatch):
+    from analysis.scripts import horeka_gemma_v4_sender as sender
+    root = tmp_path / "rec"
+    cells = tmp_path / "cells.txt"
+    cells.write_text("cell-a\ncell-b\n")
+    args = SimpleNamespace(workspace=tmp_path, output=root, account="test", repo_id="fixture/private",
+                           source=[f"{tmp_path}/dataset:llama4"], exclude_inputs=[], prepare_on_cpu=True,
+                           cells=cells, map_validation_attempts=4, recovery_of="gemma-v4-old")
+    with pytest.raises(ValueError, match="--cells and --recovery-of"):
+        bulk.start(SimpleNamespace(**{**vars(args), "recovery_of": None}))
+    with pytest.raises(ValueError, match="from 2 to 6"):
+        bulk.start(SimpleNamespace(**{**vars(args), "map_validation_attempts": 9}))
+    spec = {"git_commit": "a" * 40, "workspace": str(tmp_path), "account": "test", "repo_id": args.repo_id,
+            "sources": [f"{tmp_path.resolve()}/dataset:llama4"], "exclude_inputs": [], "preparation_execution": "cpu",
+            "cells": {"path": str(cells.resolve()), "sha256": bulk.judge.file_hash(cells)},
+            "map_validation_attempts": 4, "recovery_of": "gemma-v4-old"}
+    root.mkdir()
+    bulk.save(root / "preparation.json", spec)
+    bulk.save(root / "plan.json", {"deadline_epoch": 10**12})
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.setattr(bulk, "clean_pin", lambda: "a" * 40)
+    monkeypatch.setattr(sender, "send", lambda path: 0)
+    assert bulk.start(args) == 0
+    # A restart with different recovery options is refused, never silently merged.
+    with pytest.raises(ValueError, match="saved preparation differs"):
+        bulk.start(SimpleNamespace(**{**vars(args), "map_validation_attempts": 3}))
+
+
+def test_judge_config_accepts_a_bounded_map_attempt_limit(tmp_path):
+    base = json.loads((Path(bulk.REPO) / "analysis/config/si_v4_gemma_full_pass.template.json").read_text())
+    base["tokenizer_path"] = "/tmp/tokenizer"
+    for value, ok in ((4, True), (2, True), (1, False), (7, False), ("4", False)):
+        path = tmp_path / f"c{value}.json"
+        path.write_text(json.dumps({**base, "map_validation_attempts": value}))
+        if ok:
+            assert judge.load_config(path)["map_validation_attempts"] == value
+        else:
+            with pytest.raises(ValueError, match="map_validation_attempts"):
+                judge.load_config(path)

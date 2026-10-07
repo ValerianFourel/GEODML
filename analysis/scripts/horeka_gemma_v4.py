@@ -141,6 +141,8 @@ def reserve(plan, root):
         if registry.get("format_version") != FORMAT:
             raise ValueError("unknown SI ownership registry")
         for other_id, other in registry["plans"].items():
+            if other_id == plan.get("recovery_of"):
+                continue  # labelled recovery of this plan's failed maps; its ownership stays recorded
             if other_id == plan["plan_id"]:
                 if other != entry or store.read(claim_path, revision) != own:
                     raise ValueError("existing SI reservation changed")
@@ -425,6 +427,10 @@ def prepare(args):
                "--prior-map-task-ids", str(root / "previously-attempted-maps.txt")]
     for source in spec["sources"]:
         command += ["--source", source]
+    if spec.get("cells"):
+        if judge.file_hash(Path(spec["cells"]["path"])) != spec["cells"]["sha256"]:
+            raise ValueError("cell selection changed since start")
+        command += ["--cell-fingerprints", spec["cells"]["path"]]
     if spec.get("preparation_execution") == "cpu" and os.environ.get("TMPDIR"):
         command += ["--index-directory", os.environ["TMPDIR"]]  # node-local scratch, not the shared workspace
     if spec.get("reuse_frozen"):
@@ -486,6 +492,10 @@ def prepare(args):
         plan["preparation_execution"] = {**boundary, "finished_at_epoch": time.time()}
     if spec.get("reuse_frozen"):
         plan["reused_frozen"] = spec["reuse_frozen"]
+    for key, name in (("recovery_of", "recovery_of"), ("cells", "cell_selection"),
+                      ("map_validation_attempts", "map_validation_attempts")):
+        if spec.get(key):
+            plan[name] = spec[key]
     save(root / "plan.json", plan)
     print(json.dumps({"prepared_cells": plan["cells"], "maximum_allocations": plan["maximum_allocations"],
                       "maximum_node_hours": plan["maximum_node_hours"], "allocation_submitted": False}), flush=True)
@@ -515,6 +525,14 @@ def start(args):
     if reuse_path is not None and not cpu:
         raise ValueError("--reuse-frozen requires --prepare-on-cpu")
     reuse_path = str(Path(reuse_path).resolve(strict=True)) if reuse_path is not None else None
+    cells_path = getattr(args, "cells", None)
+    cells_path = str(Path(cells_path).resolve(strict=True)) if cells_path is not None else None
+    attempts = getattr(args, "map_validation_attempts", None)
+    recovery_of = getattr(args, "recovery_of", None)
+    if (cells_path is None) != (recovery_of is None) or (attempts is not None and recovery_of is None):
+        raise ValueError("a map recovery needs --cells and --recovery-of together (and optionally --map-validation-attempts)")
+    if attempts is not None and not 2 <= attempts <= 6:
+        raise ValueError("--map-validation-attempts must be from 2 to 6")
     if not root.is_relative_to(workspace):
         raise ValueError("output must be inside the workspace")
     root.mkdir(parents=True, exist_ok=True)
@@ -551,6 +569,14 @@ def start(args):
             if reuse_path:
                 spec["reuse_frozen"] = {"path": reuse_path,
                                         "manifest_sha256": judge.file_hash(Path(reuse_path) / "manifest.json")}
+            if cells_path:
+                spec["cells"] = {"path": cells_path, "sha256": judge.file_hash(Path(cells_path))}
+            if attempts:
+                settings["map_validation_attempts"] = attempts
+                spec["map_validation_attempts"] = attempts
+            if recovery_of:
+                spec["recovery_of"] = recovery_of
+                spec["authorization"] += f" Labelled map recovery of {recovery_of}, requested by Valerian on 2026-10-07."
             save(root / "judge-config.json", settings)
             save(root / "preparation.json", spec)
         spec = read(root / "preparation.json")
@@ -558,7 +584,9 @@ def start(args):
                 or spec["repo_id"] != args.repo_id or spec["sources"] != sources
                 or spec["exclude_inputs"] != excluded_inputs
                 or spec.get("preparation_execution", "gpu") != mode
-                or (spec.get("reuse_frozen") or {}).get("path") != reuse_path):
+                or (spec.get("reuse_frozen") or {}).get("path") != reuse_path
+                or (spec.get("cells") or {}).get("path") != cells_path
+                or spec.get("map_validation_attempts") != attempts or spec.get("recovery_of") != recovery_of):
             raise ValueError("saved preparation differs; preserve its pinned command")
         if not (root / "plan.json").exists():
             storage(spec, root / "admission")
@@ -645,6 +673,9 @@ def main(argv=None):
                    help="explicit operator authorization: freeze inputs on the login host instead of a GPU job")
     p.add_argument("--prepare-on-cpu", action="store_true",
                    help="explicit operator authorization: freeze inputs in one four-hour cpuonly allocation")
+    p.add_argument("--cells", type=Path, help="map recovery: exact cell fingerprints to judge, one per line")
+    p.add_argument("--map-validation-attempts", type=int, help="map recovery: corrective map attempts (default 2)")
+    p.add_argument("--recovery-of", help="map recovery: plan_id whose failed maps this run re-judges")
     p.add_argument("--reuse-frozen", type=Path,
                    help="with --prepare-on-cpu: adopt this verified freeze of the same inputs; one-hour allocation")
     p = commands.add_parser("prepare")

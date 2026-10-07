@@ -363,3 +363,20 @@ def test_known_job_with_a_different_comment_still_stops(cluster, where):
     c.end_action = end
     with pytest.raises(ValueError, match='no longer matches its submission comment'):
         run(c)
+
+
+
+def test_small_map_recovery_uses_its_own_lock_and_a_large_one_is_refused(cluster):
+    c = cluster()
+    main = Path(c.plan['workspace']) / 'control/gemma-v4-sender.lock'
+    main.parent.mkdir(parents=True)
+    plan = json.loads((c.root / 'plan.json').read_text())
+    plan['recovery_of'] = 'gemma-v4-main'
+    write(c.root / 'plan.json', plan)
+    with main.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)  # the main sender is running
+        assert run(c) == 0  # the recovery still sends and finishes
+    assert c.submissions
+    plan['shards'] = [dict(plan['shards'][0], id=str(i)) for i in range(sender.RECOVERY_MAX_SHARDS + 1)]
+    with pytest.raises(ValueError, match="at most"):
+        sender.lock_name(plan)

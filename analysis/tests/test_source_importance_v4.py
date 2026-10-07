@@ -569,3 +569,32 @@ def test_comparison_binds_inputs_references_and_uncached_repetition(tmp_path):
     refs.write_text(json.dumps(reference) + "\n")
     with pytest.raises(ValueError, match="hash mismatch"):
         compare(reports[0], reports[1], references=refs)
+
+
+class LateMap(Responses):
+    """Invalid maps (each different, so not a repeated output) until the given attempt, then a valid one."""
+    def __init__(self, valid_from):
+        super().__init__()
+        self.valid_from, self.map_calls = valid_from, 0
+
+    async def complete(self, **kw):
+        if kw["schema_name"] == "answer_map_v4":
+            self.map_calls += 1
+            self.calls.append(kw)
+            if self.map_calls < self.valid_from:
+                return f"not a map {self.map_calls}", {"finish_reason": "stop", "completion_tokens": 3, "prompt_tokens": 100}
+            return json.dumps(MAP), {"finish_reason": "stop", "completion_tokens": 30, "prompt_tokens": 100}
+        return await super().complete(**kw)
+
+
+@pytest.mark.parametrize("attempts,map_ok", [(None, False), (4, True)])
+def test_map_recovery_config_allows_more_corrective_map_attempts(tmp_path, attempts, map_ok):
+    inputs, _ = freeze(tmp_path)
+    config = {**CONFIG, **({"map_validation_attempts": attempts} if attempts else {})}
+    client = LateMap(valid_from=4)
+    coordinator = runner.Coordinator(inputs, tmp_path / "output", config)
+    asyncio.run(coordinator.execute(client))
+    report = coordinator.report()
+    coordinator.close()
+    assert client.map_calls == (4 if map_ok else 2)
+    assert (report["counts"]["cells_complete"] == 1) is map_ok

@@ -67,11 +67,15 @@ def load_config(path):
     if not required <= config.keys():
         raise ValueError(f"execution configuration missing {sorted(required - config.keys())}")
     allowed = required | {"runtime_versions", "eager", "gpu_memory_utilization", "temperature", "seed_policy",
-                          "structured_outputs_config", "source_importance_only"}
+                          "structured_outputs_config", "source_importance_only", "map_validation_attempts"}
     if config.keys() - allowed:
         raise ValueError(f"unsupported execution configuration fields: {sorted(config.keys() - allowed)}")
     if "source_importance_only" in config and type(config["source_importance_only"]) is not bool:
         raise ValueError("source_importance_only must be a boolean")
+    # A labelled map-recovery run may allow more corrective map attempts (new seed and error feedback each time).
+    if "map_validation_attempts" in config and (type(config["map_validation_attempts"]) is not int
+                                                or not 2 <= config["map_validation_attempts"] <= 6):
+        raise ValueError("map_validation_attempts must be an integer from 2 to 6")
     if "structured_outputs_config" in config:
         structured = config["structured_outputs_config"]
         if (structured != {"backend": "xgrammar", "disable_any_whitespace": True}
@@ -408,6 +412,8 @@ class Coordinator:
                 item = v4.item_from_record(record)
             else:
                 item = v3.item_from_record(record)
+            if item["base"]["task"] == "answer_map" and "map_validation_attempts" in self.config:
+                item["maximum_validation_attempts"] = self.config["map_validation_attempts"]
             item["logical_id"] = tid
             self.db.execute("UPDATE tasks SET state='running',writer_id=?,job_id=? WHERE id=?",
                             (self.writer_id, os.environ.get("SLURM_JOB_ID"), tid))

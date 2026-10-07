@@ -194,3 +194,18 @@ bouts therefore go out only after the Qwen Gemma sender ends. Its freeze re-read
 llama answers (about 2–3 h on dev_cpuonly); whether new llama answers exist is
 unknown until then. The 1,835 failed llama maps are not retried (protocol decision).
 Tests: 62 Gemma v4/sender/prequeue pass, including the new wait test; stand-in shell test.
+
+## Update: labelled map recovery (2026-10-07, Valerian's decision)
+
+Valerian asked to retry the failed Gemma maps. Added a labelled recovery path; the
+original run is never changed. `select_gemma_v4_failed_maps.py` lists the cells whose
+answer map has ok = false (llama: 1,835 maps). `start` accepts `--cells` (exact
+freeze selection), `--map-validation-attempts N` (2–6, judge config
+`map_validation_attempts`, recorded in the plan and the execution hash) and
+`--recovery-of PLAN_ID` (the HF reservation may re-claim only that plan's maps).
+Attempts beyond two use new seeds with corrective feedback (existing loop). A recovery
+with at most 10 shards uses its own sender lock, so it runs beside the main Gemma
+sender (193 + at most 10 jobs, within the 200 authorization). Launcher:
+`analysis/docs/horeka-gemma-v4-map-recovery.sh`. Report recovered maps separately as
+"recovered with up to N corrective attempts". 119 tests pass across the Gemma v4,
+sender, prequeue, SI-v4, publish and selector suites. Not yet run on HoreKa.

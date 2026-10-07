@@ -70,9 +70,22 @@ class SenderBusy(ValueError):
     """Another finite Gemma sender in this workspace holds the lock."""
 
 
+RECOVERY_MAX_SHARDS = 10
+
+
+def lock_name(plan) -> str:
+    """One main Gemma sender per workspace; a small labelled map recovery has its own lock, so at most
+    RECOVERY_MAX_SHARDS extra jobs run next to the main sender's 200."""
+    if plan.get("recovery_of"):
+        if len(plan["shards"]) > RECOVERY_MAX_SHARDS:
+            raise ValueError(f"a map recovery may have at most {RECOVERY_MAX_SHARDS} shards to run beside the main sender")
+        return "gemma-v4-recovery-sender.lock"
+    return "gemma-v4-sender.lock"
+
+
 @contextmanager
-def sender_lock(workspace):
-    path = Path(workspace) / "control/gemma-v4-sender.lock"
+def sender_lock(workspace, name="gemma-v4-sender.lock"):
+    path = Path(workspace) / "control" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as stream:
         try:
@@ -424,7 +437,7 @@ def send(root):
         raise ValueError("run the sender on a login host outside an allocation")
     plan = runtime.checked_plan(root)
     validate(plan)
-    with sender_lock(plan["workspace"]):
+    with sender_lock(plan["workspace"], lock_name(plan)):
         state = state_file(root, plan)
         since = datetime.fromtimestamp(state["created_at_epoch"] - 86400).strftime("%Y-%m-%d")
         value = {**input_scope(plan), "shards": [], "allocations_attempted": None}
