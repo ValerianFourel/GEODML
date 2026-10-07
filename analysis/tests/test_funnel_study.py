@@ -196,8 +196,10 @@ def test_cached_fits_without_replicate_columns_get_the_design_order_or_fail():
 def test_generator_keep_and_order_decisions_run_on_the_assembled_tables(pipeline):
     from analysis.scripts import funnel_importance as imp
     out = pipeline["tmp"] / "decisions"
-    assert imp.main(["--assembled", str(pipeline["assembled"]), "--split", "all", "--bootstrap", "3", "--permutations", "3",
-                     "--min-units", "3", "--output", str(out)]) == 0
+    args = ["--assembled", str(pipeline["assembled"]), "--split", "all", "--bootstrap", "3", "--permutations", "3", "--min-units", "3"]
+    assert imp.main([*args, "--stop-after-minutes", "-1", "--output", str(out)]) == 4  # deadline checkpoint: nothing fitted
+    assert not out.exists()
+    assert imp.main([*args, "--output", str(out)]) == 0
     result = json.loads((out / "decisions.json").read_text())
     assert result["strata"] and any("pseudo_r2" in e.get("order", {}) for e in result["strata"].values())
     for entry in result["strata"].values():

@@ -26,15 +26,18 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 
 import argparse  # noqa: E402
 import csv  # noqa: E402
+import hashlib  # noqa: E402
 import json  # noqa: E402
 from pathlib import Path  # noqa: E402
 import sys  # noqa: E402
+import time  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np  # noqa: E402
 
 from analysis.scripts import funnel_study as study  # noqa: E402
+from analysis.scripts.intent_stages_study import ResultCache  # noqa: E402
 from analysis.scripts import page_readiness_ordering as readiness  # noqa: E402
 
 SLOT_CAP = 10
@@ -182,8 +185,12 @@ def build(args) -> int:
     prompt_x[ans.prompt], prompt_keyword[ans.prompt] = ans.x, ans.keyword
     shuffles = [s_[ans.prompt] for s_ in stages.shuffle_draws(prompt_x, prompt_keyword, args.permutations, args.seed + 1)]
     out = {"split": args.split, "condition": "natural", "bootstrap": args.bootstrap, "permutations": args.permutations, "seed": args.seed,
-           "git_commit": readiness.git_commit(), "exploratory": True, "strata": {}}
+           "git_commit": readiness.git_commit(), "exploratory": args.split != "confirmation", "strata": {}}
     rows = []
+    # finished decisions and checkpointed fits live in <output>.cache; a rerun continues from there (exit 4 = deadline)
+    cache = ResultCache(Path(args.output), {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
+                                            "settings": [args.bootstrap, args.permutations, args.seed, args.min_units], "split": args.split})
+    deadline = time.monotonic() + 60 * args.stop_after_minutes
     for stratum in study.strata(ans):
         if not (study.strata(ans)[stratum] & ans.split).any():
             continue
@@ -194,13 +201,27 @@ def build(args) -> int:
             if units < args.min_units:
                 entry[name] = {"skipped": f"{units} informative answers or choice sets (minimum {args.min_units})"}
                 continue
-            result = fm.estimate_blocks(stage, answer_x=ans.x, answer_keyword=ans.keyword, draws=draws, shuffles=shuffles,
-                                        workers=args.workers)
-            fit = explained(stage, result, ans.x[stage.row_answer])
-            entry[name] = {**fit, "features": result["features"], "failed_replicates": result["failed_replicates"],
-                           "position_effects": result.get("position_effects")}
+            task = f"{stratum}|{name}"
+            digest = hashlib.sha256(task.encode()).hexdigest()[:16]
+            if not (cache.directory / f"{digest}.json").exists() and time.monotonic() > deadline:
+                print(json.dumps({"stopped_before": task, "reason": "deadline checkpoint"}), flush=True)
+                return 4
+
+            def compute(stage=stage, digest=digest):
+                result = fm.estimate_blocks(stage, answer_x=ans.x, answer_keyword=ans.keyword, draws=draws, shuffles=shuffles,
+                                            workers=args.workers, parts=cache.directory / f"{digest}.parts.jsonl", deadline=deadline)
+                fit = explained(stage, result, ans.x[stage.row_answer])
+                return {**fit, "features": result["features"], "failed_replicates": result["failed_replicates"],
+                        "position_effects": result.get("position_effects")}
+
+            try:
+                entry[name] = cache.get(task, compute)
+            except fm.DeadlineReached:
+                print(json.dumps({"stopped_in": task, "reason": "deadline checkpoint"}), flush=True)
+                return 4
+            fit = entry[name]
             for f, share in fit["shares"].items():
-                e = result["features"].get(f, {})
+                e = fit["features"].get(f, {})
                 rows.append({"stratum": stratum, "decision": name, "feature": f, "block": e.get("block", "slot"), "share": share,
                              "odds_ratio_per_sd": e.get("odds_ratio_per_sd"), "beta_ci95_lo": (e.get("ci95") or [None, None])[0],
                              "beta_ci95_hi": (e.get("ci95") or [None, None])[1], "permutation_p": e.get("permutation_p"),
@@ -229,6 +250,8 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", type=int, default=20261007)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--min-units", type=int, default=30, help="fit a decision only with at least this many answers or sets")
+    parser.add_argument("--stop-after-minutes", type=float, default=1e9,
+                        help="after this many minutes start no new fit; finished fits are checkpointed and the command exits 4")
     parser.add_argument("--output", type=Path, required=True)
     return build(parser.parse_args(argv))
 
