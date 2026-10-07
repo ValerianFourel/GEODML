@@ -184,3 +184,5 @@ supersede them with a new dated document that links back.
 - 2026-10-06 — [ACL figures and the Gemma answer-support stage](2026-10-06_acl-figures-gemma-stage_handoff.md)
 
 - 2026-10-07 — [Funnel study: exploratory results on the Mac, HoreKa confirmation prepared](2026-10-07_funnel-study_handoff.md)
+
+- 2026-10-07 — [Steelman of the shortlist claim from existing data](2026-10-07_steelman-shortlist-claim_handoff.md)

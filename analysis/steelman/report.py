@@ -42,7 +42,7 @@ def deck_shares(explore: dict, method: str) -> dict:
             "generator_vs_random": (s["K"] - s["P"]) / k, "admission_P": s["P"] / k}
 
 
-def paper_text(ch, gen, fu, v1, v2) -> list:
+def paper_text(ch, gen, fu, v1, v2, lex=None) -> list:
     """Draft paper text with the numbers of this run (wording follows the verdicts)."""
     R, P = METHODS
     cr, cp = ch["strata"][R]["chain"]["common"], ch["strata"][P]["chain"]["common"]
@@ -65,6 +65,14 @@ def paper_text(ch, gen, fu, v1, v2) -> list:
                  f"{s(cp, 'prompt_words_R0')}, {s(cp, 'query_rewriting')}, {s(cp, 'reranker')}, {s(cp, 'shown_order')}, {s(cp, 'generator')}. "
                  "Do not write \"chiefly through the queries\": the reranker step is at least as large in both methods, and the query "
                  "share depends on whether the prompt names its keyword (follow-up section).\n")
+    if lex:
+        lr = lex["strata"][R]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
+        lp = lex["strata"][P]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
+        lines.append(f"Plain word matching yields an increment as large as the reranker's: a BM25 selector scored against the same "
+                     f"text reaches {ci_pct(lr)} of the reranker's increment under the Reactive Loop (the agent's own queries) and "
+                     f"{ci_pct(lp)} under Parallel Expansion (the user prompt). Under the Reactive Loop the reranker never sees the "
+                     "prompt, so the intent it adds travels through the agent's queries. Word-overlap controls in the shortlisting model "
+                     "leave the reranker's intent coefficients unchanged, so the reranker is not simply counting shared words.\n")
     lines.append("**Limitations paragraph.**\n")
     lines.append("> These results are exploratory and observational: the prompt's position on the intent axis is a measured "
                  "property of its text, and the stage decomposition attributes an association, not an effect. The generator analysis "
@@ -167,7 +175,7 @@ def build(out_dir: Path) -> int:
             for f in ("intent_x_prompt", "intent_alignment"):
                 if f in sm["base"]:
                     parts.append(f"{f} {sm['base'][f]['beta_per_sd']:+.3f} → {sm['lexical'][f]['beta_per_sd']:+.3f} per SD "
-                                 f"(change {chg[f]['difference']:+.3f} [{chg[f]['ci95'][0]:+.3f}, {chg[f]['ci95'][1]:+.3f}])")
+                                 f"(change {chg[f]['estimate']:+.3f} [{chg[f]['ci95'][0]:+.3f}, {chg[f]['ci95'][1]:+.3f}])")
             w(f"- **{m}, shortlisting model with word-overlap controls ({lex.get('selection_model_draws', '?')} keyword draws).** " + "; ".join(parts) +
               f". Overlap block share of fit {pct(e['selection_model_lexical_block_fit_share'])}.")
         w(f"\nAction-word lexicon ({len(lex['lexicon'])} words, from the confirmation-keyword prompts only): "
@@ -277,7 +285,7 @@ def build(out_dir: Path) -> int:
               f"{num(fu['strata'][m]['control_on_x']['keyword_in_prompt'])} from x = 0 to 1.")
         w("")
     if gen:
-        L.extend(paper_text(ch, gen, fu, v1, v2))
+        L.extend(paper_text(ch, gen, fu, v1, v2, lex))
     text = "\n".join(L) + "\n"
     extra = Path(__file__).with_name("paper_text.md")
     if extra.exists():
