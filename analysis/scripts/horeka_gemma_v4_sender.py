@@ -377,6 +377,18 @@ def inspect(plan, observed, *, runtime=None, persist=False):
             "allocation_ceiling_gpu_hours": total_attempts * 20}
 
 
+def excluded_nodes(plan) -> str:
+    """Nodes to keep bouts off (e.g. one that cannot resolve the user), read fresh at every submission from
+    <workspace>/control/gemma-exclude-nodes: one Slurm node list such as hkn0515 or hkn[0515,0601]."""
+    path = Path(plan["workspace"]) / "control/gemma-exclude-nodes"
+    if not path.is_file():
+        return ""
+    value = path.read_text().strip()
+    if value and not re.fullmatch(r"[A-Za-z0-9\[\],-]+", value):
+        raise ValueError(f"invalid node list in {path}")
+    return value
+
+
 def submit(root, plan, state, shard, item):
     if hashlib.sha256((Path(shard["directory"]) / "config.json").read_bytes()).hexdigest() != shard["config_sha256"]:
         raise ValueError("frozen shard configuration changed")
@@ -387,7 +399,9 @@ def submit(root, plan, state, shard, item):
     token = hashlib.sha256((str(root) + state["plan_sha256"] + shard["id"] + str(number)).encode()).hexdigest()[:32]
     comment = "geodml-gemma-v4:" + token
     (directory / "logs").mkdir(exist_ok=True)
+    exclude = excluded_nodes(plan)
     command = ["sbatch", "--parsable", f"--account={plan['account']}", "--partition=accelerated",
+               *([f"--exclude={exclude}"] if exclude else []),
                "--nodes=1", "--ntasks=1", "--cpus-per-task=32", "--gres=gpu:4", "--mem=0",
                "--exclusive", "--time=05:00:00", "--no-requeue", "--job-name=geodml-gemma-v4-bout",
                f"--comment={comment}", f"--chdir={plan['repository']}", "--open-mode=append",

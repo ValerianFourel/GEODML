@@ -219,3 +219,13 @@ had marked 24 shards blocked. Sender change: a terminal allocation that FAILED (
 NODE_FAIL/BOOT_FAIL) within 300 s with no results database is eligible again, within the
 shard's existing allocation budget (never beyond it). Restart only the login-side sender
 from the new commit; bouts keep their pinned code 469b786.
+
+## Correction: one broken node, not a transient outage (pasted, 2026-10-07)
+
+All 98 startup failures since 12:30 ran on hkn0515 (mmlsquota "no such user"): a node
+that cannot resolve the user. It frees within ~35 s, so pending bouts keep landing on
+it. Sender now adds `--exclude=<list>` from `$W/control/gemma-exclude-nodes` at every
+submission. Pending bouts get `scontrol update ExcNodeList=hkn0515`. The pinned bout
+code (469b786) refuses a shard's third submission (bind_submission budget), so shards
+whose two attempts both died on hkn0515 need a labelled re-run of their cells.
+Report hkn0515 to HoreKa support.

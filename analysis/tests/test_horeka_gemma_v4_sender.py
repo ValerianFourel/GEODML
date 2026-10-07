@@ -52,6 +52,7 @@ class Cluster:
         markers = list((Path(shard['directory']) / 'submissions').glob('*/intent.json'))
         intent = next(json.loads(p.read_text()) for p in markers if json.loads(p.read_text())['comment'] == comment)
         assert intent['command'] == command  # durable intent must precede the wire request
+        self.excludes = getattr(self, 'excludes', []) + [a for a in command if a.startswith('--exclude=')]
         assert {'--parsable', '--nodes=1', '--ntasks=1', '--cpus-per-task=32', '--gres=gpu:4', '--mem=0', '--exclusive', '--time=05:00:00', '--no-requeue', '--partition=accelerated'} <= set(command)
         job = str(1000 + len(self.submissions))
         self.submissions.append({'job': job, 'shard': shard, 'comment': comment, 'at': self.now})
@@ -400,3 +401,16 @@ def test_startup_failure_is_retried_once_within_budget(cluster, elapsed, results
     c.end_action = end
     run(c)
     assert len(c.submissions) == expected_submissions
+
+
+
+def test_excluded_nodes_file_keeps_new_bouts_off_a_broken_node(cluster):
+    c = cluster()
+    ctl = Path(c.plan['workspace']) / 'control'
+    ctl.mkdir(parents=True, exist_ok=True)
+    (ctl / 'gemma-exclude-nodes').write_text('hkn0515\n')
+    run(c)
+    assert c.excludes == ['--exclude=hkn0515']
+    (ctl / 'gemma-exclude-nodes').write_text('hkn0515; rm -rf /\n')
+    with pytest.raises(ValueError, match="invalid node list"):
+        sender.excluded_nodes(c.plan)
