@@ -273,3 +273,27 @@ def run(t: Tables, *, bootstrap: int, permutations: int, seed: int, shuffle_seed
         from analysis.scripts.funnel_study import exploration_keyword
         out["published_rows"] = published_rows(review_parquet, seed, bootstrap, exploration_keyword)
     return out
+
+
+def followup(t: Tables, *, bootstrap: int, seed: int) -> dict:
+    """Exploratory, added after the first run (not pre-registered): which prompt control absorbs the query-rewriting
+    share? One control at a time, plus the slope of each control on x."""
+    draws = stages.keyword_draws(int(t.keyword.max()) + 1, bootstrap, seed)
+    common = t.common()
+    out = {"exploratory_after_first_run": True, "strata": {}}
+    for name, m in strata(t).items():
+        if not m.any():
+            continue
+        c = m & common
+        vals = {n: t.values[n][c] for n in CHAIN}
+        x, k, p = t.x[c], t.keyword[c], t.prompt[c]
+        slot = t.meta["candidate_slot"][c].astype(int)
+        controls = {"keyword_in_prompt": t.meta["keyword_in_prompt"][c][:, None], "log_prompt_words": np.log(t.meta["words"][c])[:, None],
+                    "candidate_slot": np.column_stack([(slot == s).astype(float) for s in sorted(set(slot.tolist()))[1:]])}
+        entry = {"control_on_x": {n: simple_slope(v[:, 0], x, k, draws) for n, v in controls.items() if v.shape[1] == 1}}
+        entry["single_control"] = {n: chain(vals, x, k, p, draws=draws, shuffles=[], controls=v)["shares"] for n, v in controls.items()}
+        kip = t.meta["keyword_in_prompt"][c] > 0
+        entry["within_keyword_named"] = {lab: chain({n: v[mm] for n, v in vals.items()}, x[mm], k[mm], p[mm], draws=draws, shuffles=[])["shares"]
+                                         for lab, mm in (("prompt_names_keyword", kip), ("prompt_omits_keyword", ~kip))}
+        out["strata"][name] = entry
+    return out

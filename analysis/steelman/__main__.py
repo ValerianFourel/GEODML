@@ -24,7 +24,7 @@ from analysis.scripts import page_readiness_ordering as readiness  # noqa: E402
 from analysis.steelman import tables as T  # noqa: E402
 
 PREREG = Path(__file__).with_name("PREREG.md")
-PARTS = ("chain", "generator", "fe", "lexical", "pairs", "report")
+PARTS = ("chain", "generator", "fe", "lexical", "pairs", "followup", "report")
 
 
 def prereg_sha() -> str:
@@ -74,6 +74,9 @@ def main(argv=None) -> int:
         body = generator.run(t, a, cache_root=out_dir / "generator.cache", deadline=deadline)
         if body is None:
             return 4
+    elif a.part == "followup":
+        from analysis.steelman import chain
+        body = chain.followup(t, bootstrap=a.bootstrap, seed=a.seed)
     elif a.part == "fe":
         from analysis.steelman import generator
         body = generator.fe_run(t, a)
