@@ -191,3 +191,23 @@ def test_cached_fits_without_replicate_columns_get_the_design_order_or_fail():
     with pytest.raises(ValueError, match="replicate column order"):
         study.with_columns(broken, "main", "K|P")
     assert study.with_columns({"empty": True}, "main", "K|P") == {"empty": True}
+
+
+def test_generator_keep_and_order_decisions_run_on_the_assembled_tables(pipeline):
+    from analysis.scripts import funnel_importance as imp
+    out = pipeline["tmp"] / "decisions"
+    assert imp.main(["--assembled", str(pipeline["assembled"]), "--split", "all", "--bootstrap", "3", "--permutations", "3",
+                     "--min-units", "3", "--output", str(out)]) == 0
+    result = json.loads((out / "decisions.json").read_text())
+    assert result["strata"] and any("pseudo_r2" in e.get("order", {}) for e in result["strata"].values())
+    for entry in result["strata"].values():
+        c = entry["counts"]
+        assert 0 <= c["kept"] <= c["shown"] and c["answers_keeping_all"] + c["answers_keeping_none"] <= c["answers"]
+        for decision in ("keep", "order"):
+            fit = entry[decision]
+            if "skipped" in fit:
+                continue
+            assert sum(fit["shares"].values()) == pytest.approx(1.0) and fit["pseudo_r2"] < 1
+            assert fit["nll_model"] <= fit["nll_uniform"] + 1e-9  # the fitted model is never worse than uniform choice
+    with pytest.raises(ValueError, match="overwrite"):
+        imp.main(["--assembled", str(pipeline["assembled"]), "--split", "all", "--output", str(out)])
