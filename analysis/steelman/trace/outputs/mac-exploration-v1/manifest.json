@@ -58,21 +58,30 @@
       }
     },
     "lexical": {
-      "git_commit": "bb1dd2992ffb040c0c06300743de624f04aeb240",
-      "prereg_sha256": "ff9e04839a294eb5a8869d6d02defc5343adcda201d32fada23caa930e4851ef",
-      "seconds": 1368.5,
+      "git_commit": "eb2f2a205e6bd30e21c52f0ee5e980d838c5ed75",
+      "prereg_sha256": "acc76ae9775570af8b9efec2bf23503bed69ad9ebfdc6b0a26a0dea8245a1ce6",
+      "seconds": 76.2,
       "settings": {
+        "assembled": null,
         "bootstrap": 200,
+        "extract": null,
+        "features": null,
         "input_root": "/Users/valerianfourel/Hamburg/geodml-inputs",
+        "lexicon": null,
         "mc": 200,
         "model_draws": 100,
         "output": "/Users/valerianfourel/Hamburg/geodml-inputs/steelman-v1",
         "part": "lexical",
         "permutations": 200,
         "prompts": "/Users/valerianfourel/Hamburg/GEODML_Unified/ARR_ACL_CycleOct2026/hf-min/snapshots/recovery-5ad9bf081e45d0d0a3131b51/data/prompts.jsonl.gz",
+        "replay": null,
+        "review": null,
         "seed": 20261007,
+        "selection_draws": 30,
         "shuffle_seed": 20261008,
+        "split": "exploration",
         "stop_after_minutes": 1000000000.0,
+        "trace_extract": null,
         "workers": 7
       }
     },
@@ -101,7 +110,8 @@
     "fe.json": "25847f0b80ec25f445f7236f12867d5d3a8aea330e3bb28cc0a6145013cbf3cc",
     "followup.json": "0de7c14a68b46d9675d7c17a57de9208ae15c731e526a3f3985b7c44ef2ec0bc",
     "generator.json": "2e4ce0505649052421e39fb1d43d9cab50c03439e15135810429bece8da6134e",
-    "lexical.json": "3628926a338ae866caaa0d28057d88957393f525d9c8dce45eade6b44fb4a77d",
+    "lexical-bm25-prereg.json": "3628926a338ae866caaa0d28057d88957393f525d9c8dce45eade6b44fb4a77d",
+    "lexical.json": "e979e614b42f9401c95d2d47b06e71af3618eb5d705c4e5a90750f6e02f57a0f",
     "pairs.json": "70428160c7552b3a481589f6d7ac877028b79b04a5d138592bc40d78697f89d0"
   },
   "verdicts": {
@@ -138,17 +148,19 @@
       }
     },
     "C2": {
-      "verdict": "supported",
-      "checks": {
-        "qwen38 \u00b7 Reactive": {
-          "tost_inside": true,
-          "abs_upper95": 0.0022087555885034775,
-          "abs_lower95": 0.0
-        },
-        "qwen38 \u00b7 Parallel": {
-          "tost_inside": true,
-          "abs_upper95": 0.0027769022838816863,
-          "abs_lower95": 0.00029150384356393575
+      "qwen38": {
+        "verdict": "supported",
+        "checks": {
+          "qwen38 \u00b7 Reactive": {
+            "tost_inside": true,
+            "abs_upper95": 0.0022087555885034775,
+            "abs_lower95": 0.0
+          },
+          "qwen38 \u00b7 Parallel": {
+            "tost_inside": true,
+            "abs_upper95": 0.0027769022838816863,
+            "abs_lower95": 0.00029150384356393575
+          }
         }
       }
     }

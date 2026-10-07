@@ -89,7 +89,7 @@ Existing pipeline and analysis code was not modified.
 Commits, in order: `5458494` PREREG · `8f3ef31` loader + chain · `daad5ab` generator · `c3c5004` integer fix ·
 `e46850b` lexical, pairs, fixed effects as a parallel part · `e45260d` verdicts + report · `e8b0075` follow-up ·
 `bb1dd29` paper text, lexical draws capped · `7d6e1f5` results + handoff · `8977cd2` HoreKa inputs + addendum B1 ·
-this trace commit.
+`eb2f2a2` frozen-search selector + addendum B2 · this trace commit.
 
 ## 5. Runs on the Mac
 
@@ -113,6 +113,8 @@ first 100 draws with 200 Monte-Carlo draws per answer; output `~/Hamburg/geodml-
 | followup | `… followup` | `e8b0075` | 23:49:25 → 23:50:18 | 53 s | 0 | exploratory, added after the first run |
 | lexical | `… lexical --workers 7` | `bb1dd29` | 23:52:10 → 00:14:58 | 1,368 s | 0 | 30 draws for the shortlisting refits (reported only); BM25 selector with all 200 draws |
 | report | `… report` | `7d6e1f5` | 00:17:09 | seconds | 0 | writes RESULTS.md here and in the output folder |
+| lexical, rerun | `… lexical --workers 7` | `eb2f2a2` | 2026-10-08 ~00:50, 76 s | 76 s | 0 | Valerian pointed out that V2 and the paper do not use BM25; the selector now applies the frozen search's own word-overlap rule (addendum B2). The BM25 output was renamed `lexical-bm25-prereg.json` (kept). Shortlisting refits reused from the cache |
+| report, rebuild | `… report` | `eb2f2a2` + report reorder | 2026-10-08 | seconds | 0 | RESULTS.md with both selectors, BM25 labelled as record only |
 
 Bugs found while running and fixed in code (each covered by a test or by the end-to-end test): float index in the
 credit outcome; contrast key name in the report; NaN-safe ratios and formatters; empty subsets in the follow-up.
@@ -129,8 +131,12 @@ Full numbers with intervals: `outputs/mac-exploration-v1/RESULTS.md`.
 * Two-way fixed effects (the same snippet under different prompts): intent terms' intervals include 0 for Reactive
   keep and for rank credit in both methods; topic strongly positive.
 * Score-matched adjacent shown links: the earlier slot wins the order 88% (Reactive) and 63% (Parallel).
-* Lexical: BM25 against the reranker's own text reaches 92% [72, 113] of the Reactive reranker's intent increment
-  and 119% [101, 142] of the Parallel one; overlap controls leave the reranker's intent coefficients unchanged.
+* Lexical, with the frozen search's own word-overlap rule applied to the reranker's candidates (addendum B2): it
+  reproduces 52% [33, 72] of the Reactive reranker's intent increment (against the agent's queries) and −27%
+  [−57, −2] of the Parallel one (against the prompt: word overlap with the prompt would lower intent). So the
+  cross-encoder's intent sensitivity goes beyond word overlap, fully under Parallel and about half under Reactive.
+  Overlap controls leave the reranker's intent coefficients unchanged. The pre-registered BM25 version gave 92% and
+  119% (record only: BM25's rare-word weighting favours action words, which the pipeline's rule does not).
 * Caveats: with prompt controls the query-rewriting share falls (Reactive 6% [−3, 18]); the exploratory follow-up
   traces this to whether the prompt names its keyword (falls ~0.74 across x); Reactive keeps 15% [7, 26] with that
   control alone. The cited count falls with x under Reactive (−0.73 links). Parallel model check: fitted slope
@@ -145,11 +151,14 @@ Full numbers with intervals: `outputs/mac-exploration-v1/RESULTS.md`.
 * A13/A15 were folded into the chain part; A11 was replaced by the cited-count slopes plus a droppers-only chain,
   as the plan stated.
 * The keyword-mention follow-up was added after the first run and is labelled exploratory everywhere.
+* The lexical selector was switched from BM25 to the frozen search's own rule after the BM25 result was seen
+  (addendum B2), because V2 and the paper do not use BM25. Both are reported; the paper text uses only the
+  pipeline's rule.
 
 ## 8. Verification
 
-* Tests: `python3 -m pytest -q analysis/tests/test_steelman_*.py` → 20 passed (planted-math checks of the loader,
-  chain identity with and without controls, subset sampler against exact inclusion probabilities, Monte Carlo
+* Tests: `python3 -m pytest -q analysis/tests/test_steelman_*.py` → 21 passed (planted-math checks of the loader,
+  chain identity with and without controls, the word-overlap selector against `funnel_rows.LexicalIndex`, subset sampler against exact inclusion probabilities, Monte Carlo
   against exact enumeration, two-way FE against dummy OLS, verdict boundaries, BM25 ties, pair extraction, and an
   end-to-end run of every part on HoreKa-shaped inputs with two models). With the existing funnel, intent-stages
   and geo-drivers suites: 64 passed before the HoreKa changes.

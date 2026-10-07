@@ -33,9 +33,10 @@ the same RESULTS.md is committed at `analysis/steelman/RESULTS.md`. Nothing ran 
   keeps 15% [7, 26]. Do not write "chiefly through the queries". (2) The cited count falls with x under Reactive
   (−0.73 links), a channel the counterfactual conditions away. (3) Parallel model check: fitted E[K] slope 0.0033
   below observed.
-- Lexical: a BM25 selector against the reranker's own text reaches 92% [72, 113] (Reactive, agent query) and 119%
-  [101, 142] (Parallel, prompt) of the reranker's intent increment; overlap controls leave the reranker's intent
-  coefficients unchanged (30 draws, reported only).
+- Lexical (addendum B2; V2 and the paper do not use BM25): the frozen search's own word-overlap rule applied to the
+  reranker's candidates reproduces 52% [33, 72] of the Reactive reranker's intent increment and −27% [−57, −2] of
+  the Parallel one; the cross-encoder adds intent beyond word overlap. The pre-registered BM25 version (92% / 119%)
+  is kept as a record only.
 - Llama: R0 and K from published rows only (R0/K 15–22%); its traces (51 GB) are still not on the Mac.
 
 ## Next
@@ -43,3 +44,20 @@ the same RESULTS.md is committed at `analysis/steelman/RESULTS.md`. Nothing ran 
 Push the branch. Llama keep/order needs the HoreKa CPU trace extract (job 5185751 rerun with 40 workers, prepared
 earlier); then rerun `generator`/`fe` with Llama strata. Confirmation keywords: apply PREREG.md unchanged.
 Out of scope, decisive: the fixed-set test (same shortlist, prompts at different x; ≈ 11k generations).
+
+## Addendum (2026-10-08): HoreKa-ready code, full trace
+
+Commits `8977cd2` (HoreKa inputs, keep-model rule, checkpointed fixed effects, `analysis/docs/horeka-steelman.sbatch`,
+PREREG addendum B1), `eb2f2a2` (frozen-search selector, addendum B2), then the trace commit. Full record of the work:
+`analysis/steelman/trace/` (TRACE.md, approved plan, every output with checksums, checkpoint caches, logs).
+Tests: 21 steelman tests (incl. an end-to-end run of every part on HoreKa-shaped inputs with two models); 66 with
+the funnel, intent-stages and geo-drivers suites. The Mac chain reproduces exactly with the new code.
+
+HoreKa run (not submitted; Valerian runs it). One job at a time, each 1 node, 32 CPUs, 128 GB, 01:00:00, cpuonly.
+Estimates [H, scaled from the Mac run by answer count ×7.4 and two models]: prerequisites if missing: funnel
+extract + replay + assemble 25–70 min, intent trace-extract 15–35 min; steelman: chain/followup/pairs 10–20 min,
+generator ~40 CPU-h (16 workers: ~2.5–3 h wall), fixed effects ~14 CPU-h (32 workers: ~30 min), lexical 10–20 min.
+Expected 4–7 allocations (128–224 allocated CPU-hours); declared budget 8 allocations (256 CPU-hours). Cheaper
+fallback: `GEN_WORKERS=24` if memory allows (check MaxRSS of the first generator job), or skip `fe`.
+Exit 4 = deadline checkpoint: resubmit the same command after checking the queue; 0 = done; the job prints
+`STEELMAN DONE` and the tarball path. Bring back `$W/reviews/steelman-confirmation-<sha7>-*.tar.gz`.

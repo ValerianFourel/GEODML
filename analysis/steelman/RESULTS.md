@@ -1,15 +1,15 @@
 # Steelman results: does prompt intent reach the cited sources at the shortlist?
 
-Exploratory (funnel study addendum A1): Qwen, natural condition, the 237 exploration keywords with traces on the Mac. Observational: x is a measured property of the prompt text. Rules fixed in `PREREG.md` (sha256 `ff9e04839a29…`) before any part ran. Code commits: chain `8f3ef31`, generator `e46850b`, fe `e45260d`, lexical `bb1dd29`, pairs `e45260d`. Rebuild: `python -m analysis.steelman report`.
+Exploratory (funnel study addendum A1). Models: qwen38; natural condition; 237 keywords of the exploration split. Observational: x is a measured property of the prompt text. Rules fixed in `PREREG.md` (sha256 `ff9e04839a29…`) before any part ran. Code commits: chain `8f3ef31`, generator `e46850b`, fe `e45260d`, lexical `eb2f2a2`, pairs `e45260d`. Rebuild: `python -m analysis.steelman report`.
 
 Intervals are 95% keyword-bootstrap percentile intervals (200 draws; refitted generator models use the first 100); p values are within-keyword shuffles of x (200). Page intent is the page's percentile on the prompt scale (u).
 
 ## Verdicts
 
-| Claim | Qwen · Reactive (primary) | Qwen · Parallel |
+| Stratum | C1 admission | C2 selection (per model, both methods jointly) |
 |---|---|---|
-| C1 admission | **supported** | **supported** |
-| C2 selection (both methods jointly) | **supported** | |
+| qwen38 · Reactive | **supported** | **supported** |
+| qwen38 · Parallel | **supported** | **supported** |
 
 
 ## Table 1. Share of the cited-intent slope added at each step
@@ -51,18 +51,20 @@ Dropping answers: 1% of the common sample dropped at least one shown link.
 - **qwen38 · Reactive.** Query rewriting adds +0.022 [+0.016, +0.028] (p = 0.005); the reranker adds +0.024 [+0.017, +0.031] (p = 0.005); the prompt-text replay R0 +0.012 [+0.005, +0.018].
 - **qwen38 · Parallel.** Query rewriting adds +0.011 [+0.006, +0.015] (p = 0.005); the reranker adds +0.028 [+0.022, +0.034] (p = 0.005); the prompt-text replay R0 +0.012 [+0.005, +0.018].
 
-
-- **qwen38 · Reactive, BM25 selector against the reranker text.** Shortlist increment +0.022 [+0.016, +0.028] versus the reranker's +0.024 [+0.017, +0.031]; lexical share of the reranker step 92% [72%, 113%].
-- **qwen38 · Reactive, BM25 selector against the user prompt.** Shortlist increment +0.032 [+0.026, +0.039] versus the reranker's +0.024 [+0.017, +0.031]; lexical share of the reranker step 135% [115%, 168%].
+- **qwen38 · Reactive, frozen-search word-overlap selector against the reranker text.** Shortlist increment +0.012 [+0.007, +0.018] versus the reranker's +0.024 [+0.017, +0.031]; share of the reranker step 52% [33%, 72%].
+- **qwen38 · Reactive, frozen-search word-overlap selector against the user prompt.** Shortlist increment +0.001 [-0.006, +0.007] versus the reranker's +0.024 [+0.017, +0.031]; share of the reranker step 4% [-28%, 29%].
+- **qwen38 · Reactive, pre-registered BM25 selector (record only; not used in V2 or the paper) against the reranker text.** Shortlist increment +0.022 [+0.016, +0.028] versus the reranker's +0.024 [+0.017, +0.031]; share of the reranker step 92% [72%, 113%].
+- **qwen38 · Reactive, pre-registered BM25 selector (record only; not used in V2 or the paper) against the user prompt.** Shortlist increment +0.032 [+0.026, +0.039] versus the reranker's +0.024 [+0.017, +0.031]; share of the reranker step 135% [115%, 168%].
 - **qwen38 · Reactive, shortlisting model with word-overlap controls (30 keyword draws).** intent_x_prompt -0.364 → -0.376 per SD (change -0.012 [-0.028, +0.009]); intent_alignment +0.126 → +0.119 per SD (change -0.006 [-0.018, +0.004]). Overlap block share of fit 9%.
-- **qwen38 · Parallel, BM25 selector against the reranker text.** Shortlist increment +0.033 [+0.027, +0.040] versus the reranker's +0.028 [+0.022, +0.034]; lexical share of the reranker step 119% [101%, 142%].
+- **qwen38 · Parallel, frozen-search word-overlap selector against the reranker text.** Shortlist increment -0.007 [-0.014, -0.001] versus the reranker's +0.028 [+0.022, +0.034]; share of the reranker step -27% [-57%, -2%].
+- **qwen38 · Parallel, pre-registered BM25 selector (record only; not used in V2 or the paper) against the reranker text.** Shortlist increment +0.033 [+0.027, +0.040] versus the reranker's +0.028 [+0.022, +0.034]; share of the reranker step 119% [101%, 142%].
 - **qwen38 · Parallel, shortlisting model with word-overlap controls (30 keyword draws).** intent_x_prompt -0.269 → -0.284 per SD (change -0.015 [-0.020, -0.007]); intent_alignment +0.062 → +0.063 per SD (change +0.002 [-0.002, +0.004]). Overlap block share of fit 0%.
 
 Action-word lexicon (50 words, from the confirmation-keyword prompts only): access, account, activate, active, and, api, app, automated, by, check, command, configuration, configure, confirm, confirmation, connection, deploy, error, exact, execute, ….
 
 ## O2. Shown order absorbs intent; C2 equivalence
 
-| Quantity | Qwen · Reactive | Qwen · Parallel |
+| Quantity | qwen38 · Reactive | qwen38 · Parallel |
 |---|---|---|
 | Δ_gen, drop-intent refit (primary) | -0.0001 [-0.0022, +0.0017] | -0.0017 [-0.0028, -0.0003] |
 | Δ_gen, intent coefficients zeroed | -0.0000 [-0.0022, +0.0020] | -0.0017 [-0.0028, -0.0003] |
@@ -71,7 +73,7 @@ Action-word lexicon (50 words, from the confirmation-keyword prompts only): acce
 | Model check: β_x(E[K]) − β_K | -0.0010 [-0.0021, +0.0000] | -0.0033 [-0.0042, -0.0024] |
 | Δ_gen, 90% interval (TOST against ±0.015) | [-0.0021, +0.0015] | [-0.0026, -0.0004] |
 | Δ_gen as share of β_K | -0% [-3%, 2%] | -3% [-5%, -0%] |
-| Keep-informative answers | 4,057 | keep fixed (99% kept) |
+| Keep decision | modelled (4,057 informative answers) | fixed at the observed set (— informative) |
 
 Keep and order coefficients (per SD, main variant):
 
@@ -119,7 +121,7 @@ Score-matched adjacent shown links (|Δ logit score| < ε; pair logit of the lat
 
 ## O5. Qwen only
 
-Llama traces are not on the Mac; its R0 and K come from the published answers (natural condition):
+Llama traces are not in this run; R0 and K for both models from the published answers (natural condition):
 
 | Stratum | R0 slope | K slope | R0 / K | Cited count on x | Answers keeping every shown link |
 |---|---|---|---|---|---|
@@ -170,13 +172,15 @@ qwen38 · Parallel: within keyword, the share of prompts naming their keyword ch
 
 ## Draft paper text
 
+### qwen38
+
 **Claim sentence (as the evidence supports it).**
 
 > In agentic LLM search, the prompt's intent reaches the cited sources by changing which documents are shortlisted, through the queries the agent writes and the reranker that filters their results, while the generator's choice among shortlisted documents follows topical match and presentation order; removing the generator's sensitivity to intent changes the cited-intent slope by -0.1% [-3.4%, 2.3%] (Reactive Loop) and -2.8% [-4.8%, -0.5%] (Parallel Expansion).
 
 Supporting numbers (Qwen, exploration keywords). Reactive Loop: of the cited-intent slope, the prompt-text replay accounts for 17%, query rewriting 32%, the reranker 35%, shown-order weighting 5% and the generator's own choices 10%. Parallel Expansion: 20%, 18%, 47%, 7%, 8%. Do not write "chiefly through the queries": the reranker step is at least as large in both methods, and the query share depends on whether the prompt names its keyword (follow-up section).
 
-Plain word matching yields an increment as large as the reranker's: a BM25 selector scored against the same text reaches 92% [72%, 113%] of the reranker's increment under the Reactive Loop (the agent's own queries) and 119% [101%, 142%] under Parallel Expansion (the user prompt). Under the Reactive Loop the reranker never sees the prompt, so the intent it adds travels through the agent's queries. Word-overlap controls in the shortlisting model leave the reranker's intent coefficients unchanged, so the reranker is not simply counting shared words.
+Applying the frozen search's own word-overlap rule to the reranker's candidates, against the same text the reranker scored, reproduces 52% [33%, 72%] of the reranker's intent increment under the Reactive Loop (the agent's own queries: word overlap accounts for part of it) and -27% [-57%, -2%] under Parallel Expansion (the user prompt: most of it goes beyond word overlap). Under the Reactive Loop the reranker never sees the prompt, so the intent it adds travels through the agent's queries.
 
 **Limitations paragraph.**
 

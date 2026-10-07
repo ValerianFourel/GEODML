@@ -1,9 +1,7 @@
 {
-  "agent_queries": "/Users/valerianfourel/Hamburg/geodml-inputs/funnel-extract-exploration-v1/queries.jsonl.gz",
   "exploratory": true,
-  "git_commit": "eb2f2a205e6bd30e21c52f0ee5e980d838c5ed75",
+  "git_commit": "bb1dd2992ffb040c0c06300743de624f04aeb240",
   "inputs": {
-    "answers": 59846,
     "assembled": "2026-10-06T20:02:01.363735+00:00",
     "assembled_counts": {
       "answers": 59846,
@@ -19,23 +17,7 @@
       "items": 2258200,
       "searches:searches_from_raw_rows": 148608
     },
-    "models": [
-      "qwen38"
-    ],
-    "paths": {
-      "assembled": "/Users/valerianfourel/Hamburg/geodml-inputs/funnel-assembled-exploration-v1",
-      "extract": "/Users/valerianfourel/Hamburg/geodml-inputs/funnel-extract-exploration-v1",
-      "replay": "/Users/valerianfourel/Hamburg/geodml-inputs/funnel-replay-v1"
-    },
-    "prompt_fields_missing_share": {
-      "candidate_slot": 0.0,
-      "keyword_in_prompt": 0.0,
-      "target": 0.0,
-      "target_index": 0.0,
-      "words": 0.0
-    },
     "prompts": "/Users/valerianfourel/Hamburg/GEODML_Unified/ARR_ACL_CycleOct2026/hf-min/snapshots/recovery-5ad9bf081e45d0d0a3131b51/data/prompts.jsonl.gz",
-    "queries": "/Users/valerianfourel/Hamburg/geodml-inputs/funnel-extract-exploration-v1/queries.jsonl.gz",
     "replay": {
       "created_at": "2026-10-06T16:30:08.388209+00:00",
       "engines": [
@@ -47,8 +29,7 @@
       "prompts": 26008,
       "row_table_digest": "c3b90828a9812c5c89d92bfc3080020e3c161b3dac258b0b1a86849777a9e053",
       "stage": "replay"
-    },
-    "split": "exploration"
+    }
   },
   "lexicon": [
     "access",
@@ -102,40 +83,31 @@
     "verify",
     "with"
   ],
-  "lexicon_source": "frozen list lexicon.json (confirmation-keyword prompt texts, top 50 by within-keyword correlation with x)",
+  "lexicon_source": "confirmation-keyword prompt texts, top 50 by within-keyword correlation with x",
   "observational": true,
   "part": "lexical",
-  "prereg_sha256": "acc76ae9775570af8b9efec2bf23503bed69ad9ebfdc6b0a26a0dea8245a1ce6",
+  "prereg_sha256": "ff9e04839a294eb5a8869d6d02defc5343adcda201d32fada23caa930e4851ef",
   "scientific_result": true,
-  "seconds": 76.2,
+  "seconds": 1368.5,
   "selection_model_draws": 30,
   "settings": {
-    "assembled": null,
     "bootstrap": 200,
-    "extract": null,
-    "features": null,
     "input_root": "/Users/valerianfourel/Hamburg/geodml-inputs",
-    "lexicon": null,
     "mc": 200,
     "model_draws": 100,
     "output": "/Users/valerianfourel/Hamburg/geodml-inputs/steelman-v1",
     "part": "lexical",
     "permutations": 200,
     "prompts": "/Users/valerianfourel/Hamburg/GEODML_Unified/ARR_ACL_CycleOct2026/hf-min/snapshots/recovery-5ad9bf081e45d0d0a3131b51/data/prompts.jsonl.gz",
-    "replay": null,
-    "review": null,
     "seed": 20261007,
-    "selection_draws": 30,
     "shuffle_seed": 20261008,
-    "split": "exploration",
     "stop_after_minutes": 1000000000.0,
-    "trace_extract": null,
     "workers": 7
   },
   "strata": {
     "qwen38 · Parallel": {
       "lexical_selector": {
-        "bm25_preregistered|reranker_text": {
+        "reranker_text": {
           "answers": 9950,
           "lexical_increment": {
             "ci90": [
@@ -191,64 +163,6 @@
               -0.0003090734524147124
             ],
             "estimate": -0.005340685830841255
-          }
-        },
-        "reranker_text": {
-          "answers": 9950,
-          "lexical_increment": {
-            "ci90": [
-              -0.012498544882264892,
-              -0.0019975876021784337
-            ],
-            "ci95": [
-              -0.01365273359110163,
-              -0.0005786031626828825
-            ],
-            "estimate": -0.007462605876092886
-          },
-          "lexical_share_of_K": {
-            "ci90": [
-              -0.21916332166170946,
-              -0.031659840511759775
-            ],
-            "ci95": [
-              -0.24566497590352995,
-              -0.009675658219754016
-            ],
-            "estimate": -0.12510157199075647
-          },
-          "lexical_share_of_reranker": {
-            "ci90": [
-              -0.48899366916194836,
-              -0.06321468187237211
-            ],
-            "ci95": [
-              -0.5663950346207185,
-              -0.022140487204838237
-            ],
-            "estimate": -0.2685465565436034
-          },
-          "reranker_increment": {
-            "ci90": [
-              0.022715932800588905,
-              0.03291209241545408
-            ],
-            "ci95": [
-              0.02164256711219763,
-              0.03432476879758171
-            ],
-            "estimate": 0.027788871963737867
-          },
-          "reranker_minus_lexical": {
-            "ci90": [
-              0.028994085056952223,
-              0.042174753089804125
-            ],
-            "ci95": [
-              0.02798762408616401,
-              0.04361278720630579
-            ],
-            "estimate": 0.03525147783983075
           }
         }
       },
@@ -369,7 +283,7 @@
     },
     "qwen38 · Reactive": {
       "lexical_selector": {
-        "bm25_preregistered|reranker_text": {
+        "reranker_text": {
           "answers": 9757,
           "lexical_increment": {
             "ci90": [
@@ -427,7 +341,7 @@
             "estimate": 0.0019937656743976365
           }
         },
-        "bm25_preregistered|user_prompt": {
+        "user_prompt": {
           "answers": 9757,
           "lexical_increment": {
             "ci90": [
@@ -483,122 +397,6 @@
               -0.004168758850767409
             ],
             "estimate": -0.008440946215323646
-          }
-        },
-        "reranker_text": {
-          "answers": 9757,
-          "lexical_increment": {
-            "ci90": [
-              0.0076095482015447686,
-              0.01732426283848119
-            ],
-            "ci95": [
-              0.0070718250901366485,
-              0.018245540061008196
-            ],
-            "estimate": 0.01245867976816549
-          },
-          "lexical_share_of_K": {
-            "ci90": [
-              0.11621110829798245,
-              0.2490825495597003
-            ],
-            "ci95": [
-              0.10881179978713792,
-              0.25416504754602864
-            ],
-            "estimate": 0.1829955159590073
-          },
-          "lexical_share_of_reranker": {
-            "ci90": [
-              0.3360609872464848,
-              0.6910722857212717
-            ],
-            "ci95": [
-              0.32778397984434,
-              0.7157700409310559
-            ],
-            "estimate": 0.523332823545415
-          },
-          "reranker_increment": {
-            "ci90": [
-              0.01803684688972916,
-              0.02958545125289597
-            ],
-            "ci95": [
-              0.01729672396863502,
-              0.03054850998336695
-            ],
-            "estimate": 0.02380641765169985
-          },
-          "reranker_minus_lexical": {
-            "ci90": [
-              0.006525688653540225,
-              0.017085724572702833
-            ],
-            "ci95": [
-              0.0058096779664910635,
-              0.018113199261947578
-            ],
-            "estimate": 0.01134773788353436
-          }
-        },
-        "user_prompt": {
-          "answers": 9757,
-          "lexical_increment": {
-            "ci90": [
-              -0.0050433803649682285,
-              0.005682022761557502
-            ],
-            "ci95": [
-              -0.005820388079537098,
-              0.006585078356427059
-            ],
-            "estimate": 0.001060529388738407
-          },
-          "lexical_share_of_K": {
-            "ci90": [
-              -0.07638664448191895,
-              0.08580230414423837
-            ],
-            "ci95": [
-              -0.08736877354750414,
-              0.10016713307368301
-            ],
-            "estimate": 0.015577262301722364
-          },
-          "lexical_share_of_reranker": {
-            "ci90": [
-              -0.23878381607950966,
-              0.2396942391011634
-            ],
-            "ci95": [
-              -0.27823815963151294,
-              0.28575250801683644
-            ],
-            "estimate": 0.04454804600400187
-          },
-          "reranker_increment": {
-            "ci90": [
-              0.01803684688972916,
-              0.02958545125289597
-            ],
-            "ci95": [
-              0.01729672396863502,
-              0.03054850998336695
-            ],
-            "estimate": 0.02380641765169985
-          },
-          "reranker_minus_lexical": {
-            "ci90": [
-              0.016531091985525468,
-              0.029195110616803178
-            ],
-            "ci95": [
-              0.014770868073917838,
-              0.030170577225783386
-            ],
-            "estimate": 0.022745888262961443
           }
         }
       },

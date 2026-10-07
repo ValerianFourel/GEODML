@@ -85,11 +85,18 @@ def _paper_text_model(ch, gen, fu, v1, v2, lex, R, P) -> list:
     if lex and R in lex["strata"] and P in lex["strata"] and "reranker_text" in lex["strata"][R]["lexical_selector"]:
         lr = lex["strata"][R]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
         lp = lex["strata"][P]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
-        lines.append(f"Plain word matching yields an increment as large as the reranker's: applying the frozen search's own "
-                     f"word-overlap rule to the reranker's candidates, against the same text, reaches {ci_pct(lr)} of the reranker's increment under the Reactive Loop (the agent's own queries) and "
-                     f"{ci_pct(lp)} under Parallel Expansion (the user prompt). Under the Reactive Loop the reranker never sees the "
-                     "prompt, so the intent it adds travels through the agent's queries. Word-overlap controls in the shortlisting model "
-                     "leave the reranker's intent coefficients unchanged, so the reranker is not simply counting shared words.\n")
+        def reading(e):
+            lo, hi = e["ci95"]
+            if lo is not None and lo > 0.8:
+                return "word overlap alone accounts for it"
+            if hi is not None and hi < 0.5:
+                return "most of it goes beyond word overlap"
+            return "word overlap accounts for part of it"
+        lines.append(f"Applying the frozen search's own word-overlap rule to the reranker's candidates, against the same text the "
+                     f"reranker scored, reproduces {ci_pct(lr)} of the reranker's intent increment under the Reactive Loop (the "
+                     f"agent's own queries: {reading(lr)}) and {ci_pct(lp)} under Parallel Expansion (the user prompt: {reading(lp)}). "
+                     "Under the Reactive Loop the reranker never sees the prompt, so the intent it adds travels through the agent's "
+                     "queries.\n")
     lines.append("**Limitations paragraph.**\n")
     confirmatory = ch["inputs"].get("split") == "confirmation"
     both = all(f"{m} · Reactive" in gen["strata"] for m in ("qwen38", "llama4"))
@@ -195,10 +202,9 @@ def build(out_dir: Path) -> int:
           f"(p = {c['increments']['reranker']['permutation_p']:.3f}); the prompt-text replay R0 {num(c['increments']['prompt_words_R0'])}.")
     w("")
     if lex:
-        w("")
         for m in METHODS:
             e = lex["strata"][m]
-            for label, sl in e["lexical_selector"].items():
+            for label, sl in sorted(e["lexical_selector"].items(), key=lambda kv: "|" in kv[0]):
                 scorer, _, target = label.rpartition("|")
                 name_ = ("pre-registered BM25 selector (record only; not used in V2 or the paper)" if scorer
                          else "frozen-search word-overlap selector")
