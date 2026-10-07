@@ -356,7 +356,7 @@ def fe_analysis(t: Tables, mask: np.ndarray, draws: list) -> dict:
     x = t.x[s.answer]
     align = -np.abs(rf["u"][s.row] - x)
     inter = rf["page_intent_z"][s.row] * (x - 0.5)
-    L = np.bincount(s.answer, s.kept, minlength=len(t.x))[s.answer]
+    L = np.bincount(s.answer, s.kept, minlength=len(t.x)).astype(np.int64)[s.answer]
     n = np.bincount(s.answer, minlength=len(t.x))[s.answer]
     W = np.array([rank_weights(int(l)).sum() if l > 0 else np.nan for l in range(SLOT_CAP + 2)])
     credit = np.where(s.kept, 1.0 / np.log2(np.maximum(s.rank, 0) + 2.0), 0.0) / W[np.minimum(L, SLOT_CAP + 1)]
