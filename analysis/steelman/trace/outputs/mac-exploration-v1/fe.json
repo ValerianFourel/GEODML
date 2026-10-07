@@ -1,0 +1,247 @@
+{
+  "exploratory": true,
+  "git_commit": "e45260d4ead4d759787c7389b7ebe5eeb6f75cb4",
+  "inputs": {
+    "assembled": "2026-10-06T20:02:01.363735+00:00",
+    "assembled_counts": {
+      "answers": 59846,
+      "answers_without_keyword_rows": 114,
+      "candidates": 2559901,
+      "presented": 332502,
+      "u_items": 707508,
+      "unique_prompt_page_pairs": 567894
+    },
+    "extract": {
+      "answers": 59846,
+      "events": 88756,
+      "items": 2258200,
+      "searches:searches_from_raw_rows": 148608
+    },
+    "prompts": "/Users/valerianfourel/Hamburg/GEODML_Unified/ARR_ACL_CycleOct2026/hf-min/snapshots/recovery-5ad9bf081e45d0d0a3131b51/data/prompts.jsonl.gz",
+    "replay": {
+      "created_at": "2026-10-06T16:30:08.388209+00:00",
+      "engines": [
+        "duckduckgo",
+        "searxng"
+      ],
+      "format_version": "funnel-study-v1",
+      "git_commit": "7702e15dc21fef7d0023cb54f90bf8b24fa989c3",
+      "prompts": 26008,
+      "row_table_digest": "c3b90828a9812c5c89d92bfc3080020e3c161b3dac258b0b1a86849777a9e053",
+      "stage": "replay"
+    }
+  },
+  "observational": true,
+  "part": "fe",
+  "prereg_sha256": "ff9e04839a294eb5a8869d6d02defc5343adcda201d32fada23caa930e4851ef",
+  "scientific_result": true,
+  "seconds": 992.7,
+  "settings": {
+    "bootstrap": 200,
+    "input_root": "/Users/valerianfourel/Hamburg/geodml-inputs",
+    "mc": 200,
+    "model_draws": 100,
+    "output": "/Users/valerianfourel/Hamburg/geodml-inputs/steelman-v1",
+    "part": "fe",
+    "permutations": 200,
+    "prompts": "/Users/valerianfourel/Hamburg/GEODML_Unified/ARR_ACL_CycleOct2026/hf-min/snapshots/recovery-5ad9bf081e45d0d0a3131b51/data/prompts.jsonl.gz",
+    "seed": 20261007,
+    "shuffle_seed": 20261008,
+    "stop_after_minutes": 1000000000.0,
+    "workers": 7
+  },
+  "strata": {
+    "qwen38 · Parallel": {
+      "credit": {
+        "answers": 9947,
+        "coefficients_per_sd": {
+          "intent_alignment": {
+            "ci90": [
+              -9.028559012937536e-05,
+              0.003751611948235221
+            ],
+            "ci95": [
+              -0.000782573282698984,
+              0.0039047355521562065
+            ],
+            "estimate": 0.001772182992391004
+          },
+          "intent_x_prompt": {
+            "ci90": [
+              -0.004813728306130027,
+              0.0012612991597011412
+            ],
+            "ci95": [
+              -0.005026629533047547,
+              0.0018370378020781265
+            ],
+            "estimate": -0.0018729576927052842
+          },
+          "topic_similarity": {
+            "ci90": [
+              0.03928640750095832,
+              0.04386374436795946
+            ],
+            "ci95": [
+              0.03875476100029875,
+              0.044066459370069595
+            ],
+            "estimate": 0.0423776051046062
+          }
+        },
+        "distinct_snapshot_rows": 6746,
+        "outcome_mean": 0.1433286682772597,
+        "regressor_sd": {
+          "intent_alignment": 0.1755926754543929,
+          "intent_x_prompt": 0.23043715173324225,
+          "topic_similarity": 0.11614353089154981
+        },
+        "rows_used": 67091,
+        "within_row_sd_of_x": 0.2554644408794515
+      },
+      "keep": {
+        "answers": 132,
+        "coefficients_per_sd": {
+          "intent_alignment": {
+            "ci90": [
+              -0.01771725116389099,
+              0.1640611533226471
+            ],
+            "ci95": [
+              -0.019779696796208838,
+              0.18252160184439872
+            ],
+            "estimate": 0.048614417473591756
+          },
+          "intent_x_prompt": {
+            "ci90": [
+              -0.34502210167850006,
+              -0.06343390779742414
+            ],
+            "ci95": [
+              -0.3712278795380386,
+              -0.04756429688998349
+            ],
+            "estimate": -0.14559997749100057
+          },
+          "topic_similarity": {
+            "ci90": [
+              0.10192684338398673,
+              0.297628819743344
+            ],
+            "ci95": [
+              0.08449702172491026,
+              0.30458619256334934
+            ],
+            "estimate": 0.2400741853072913
+          }
+        },
+        "distinct_snapshot_rows": 147,
+        "outcome_mean": 0.41366223908918404,
+        "regressor_sd": {
+          "intent_alignment": 0.19794659598042233,
+          "intent_x_prompt": 0.22633166091817764,
+          "topic_similarity": 0.14986299252360802
+        },
+        "rows_used": 527,
+        "within_row_sd_of_x": 0.20622326962027696
+      }
+    },
+    "qwen38 · Reactive": {
+      "credit": {
+        "answers": 9751,
+        "coefficients_per_sd": {
+          "intent_alignment": {
+            "ci90": [
+              -0.0038626016625795704,
+              0.012160650610776466
+            ],
+            "ci95": [
+              -0.004966314389649853,
+              0.014428094178891985
+            ],
+            "estimate": 0.0028554467730770995
+          },
+          "intent_x_prompt": {
+            "ci90": [
+              -0.02508468251516195,
+              0.005843805469148986
+            ],
+            "ci95": [
+              -0.027524008754373015,
+              0.008955319118359775
+            ],
+            "estimate": -0.00986099706491278
+          },
+          "topic_similarity": {
+            "ci90": [
+              0.11825077305832846,
+              0.13574006074568343
+            ],
+            "ci95": [
+              0.11655423351618674,
+              0.1376035529687506
+            ],
+            "estimate": 0.13364390840865764
+          }
+        },
+        "distinct_snapshot_rows": 5144,
+        "outcome_mean": 0.24893668321492593,
+        "regressor_sd": {
+          "intent_alignment": 0.17220006023302017,
+          "intent_x_prompt": 0.22027118670265713,
+          "topic_similarity": 0.11530008027469807
+        },
+        "rows_used": 37440,
+        "within_row_sd_of_x": 0.2432252602181814
+      },
+      "keep": {
+        "answers": 4044,
+        "coefficients_per_sd": {
+          "intent_alignment": {
+            "ci90": [
+              -0.005461868116846949,
+              0.04747619392039684
+            ],
+            "ci95": [
+              -0.010800593362563123,
+              0.05082320102135779
+            ],
+            "estimate": 0.017130029135933807
+          },
+          "intent_x_prompt": {
+            "ci90": [
+              -0.07367733126308144,
+              0.010439198659084915
+            ],
+            "ci95": [
+              -0.0786407140291675,
+              0.020178758593570555
+            ],
+            "estimate": -0.03462913971598743
+          },
+          "topic_similarity": {
+            "ci90": [
+              0.3070070219890433,
+              0.35989072703268365
+            ],
+            "ci95": [
+              0.30191554150382377,
+              0.3634291724452361
+            ],
+            "estimate": 0.3532777998636414
+          }
+        },
+        "distinct_snapshot_rows": 3336,
+        "outcome_mean": 0.5755461722048835,
+        "regressor_sd": {
+          "intent_alignment": 0.17840437910475632,
+          "intent_x_prompt": 0.214618355577187,
+          "topic_similarity": 0.12143499953181681
+        },
+        "rows_used": 16341,
+        "within_row_sd_of_x": 0.22182764410352013
+      }
+    }
+  }
+}

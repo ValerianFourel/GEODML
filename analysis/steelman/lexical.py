@@ -5,9 +5,12 @@
     keyword words, with the prompt's action words (a lexicon fixed from the confirmation-keyword prompt
     texts only), and, for the Reactive Loop, with the agent's own query of that event. Overlap is a mediator
     of prompt intent, not a confounder: the change in the intent coefficients is the lexical part.
-(ii) A lexical selector: in every reranker event keep the top k candidates by BM25 against the text the
-    reranker scored against (Parallel: the user prompt; Reactive: the agent's query), and compare its
-    shortlist slope increment β_Plex − β_C with the reranker's β_P − β_C under shared keyword draws.
+(ii) A lexical selector: in every reranker event keep the top k candidates by the frozen search's own word-overlap
+    rule (exact keyword match, then 4 × shared keyword words + shared title/snippet words, then stored position,
+    then a hash; ``funnel_rows.LexicalIndex``) against the text the reranker scored against (Parallel: the user
+    prompt; Reactive: the agent's query), and compare its shortlist slope increment β_Plex − β_C with the
+    reranker's β_P − β_C under shared keyword draws. The pre-registered BM25 version of the same selector is kept
+    as a record (``bm25_preregistered``); V2 and the paper do not use BM25 (PREREG addendum B2).
 """
 
 from __future__ import annotations
@@ -78,6 +81,32 @@ def lexical_selector(event, answer, row, query_of_event: list[set], k_of_event: 
     return keep
 
 
+def frozen_search_selector(event, row, query_text_of_event: list[str], k_of_event: np.ndarray, row_keyword, row_url,
+                           position, kw_tokens, ev_tokens) -> np.ndarray:
+    """Boolean per candidate: kept by the frozen search's rule applied to the event's candidates, sort key
+    (−exact keyword, −(4·|q ∩ keyword words| + |q ∩ title/snippet words|), stored position, sha256(query\\0url), order)."""
+    from analysis.scripts.run_agentic_search_integration_smoke import _tokens
+    q_tok = {}
+    exact, overlap = np.zeros(len(event)), np.zeros(len(event))
+    digest = []
+    for i, (e, r) in enumerate(zip(event, row)):
+        q = query_text_of_event[e]
+        if e not in q_tok:
+            q_tok[e] = _tokens(q)
+        t = q_tok[e]
+        exact[i] = float(q.casefold() == row_keyword[r].casefold()) if q else 0.0
+        overlap[i] = 4 * len(t & kw_tokens[r]) + len(t & ev_tokens[r])
+        digest.append(hashlib.sha256(f"{q}\0{row_url[r]}".encode()).hexdigest())
+    rank_hash = np.unique(np.asarray(digest), return_inverse=True)[1]
+    order = np.lexsort((np.arange(len(event)), rank_hash, position[row], -overlap, -exact, event))
+    ev_sorted = event[order]
+    start = np.r_[0, np.flatnonzero(np.diff(ev_sorted)) + 1]
+    rank = np.arange(len(order)) - np.repeat(start, np.diff(np.r_[start, len(order)]))
+    keep = np.zeros(len(event), bool)
+    keep[order] = rank < k_of_event[ev_sorted]
+    return keep
+
+
 def shortlist_value(answer, row, keep, u, n_answers) -> np.ndarray:
     """Mean u of the distinct rows kept across an answer's events."""
     key = np.unique(answer[keep].astype(np.int64) * (1 << 32) + row[keep])
@@ -113,7 +142,7 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     from analysis.scripts import funnel_study as study
     root = Path(args.input_root)
     c = t.data.cand
-    rows = pd.read_parquet(Path(args.features or root / "funnel-features-v1") / "rows.parquet", columns=["row_id", "title", "snippet", "position"])
+    rows = pd.read_parquet(Path(args.features or root / "funnel-features-v1") / "rows.parquet", columns=["row_id", "title", "snippet", "position", "keyword", "url"])
     doc_tok = [TOK(f"{a} {b}") for a, b in zip(rows["title"], rows["snippet"])]
     doc_tf = [Counter(d) for d in doc_tok]
     doc_len = np.asarray([len(d) for d in doc_tok])
@@ -123,6 +152,10 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     idf = {w: log((N - n + 0.5) / (n + 0.5) + 1.0) for w, n in df.items()}
     avgdl = float(doc_len.mean())
     position = rows["position"].to_numpy(np.int64)
+    from analysis.scripts.run_agentic_search_integration_smoke import _tokens as pipeline_tokens
+    row_keyword, row_url = rows["keyword"].tolist(), rows["url"].tolist()
+    kw_tokens = [pipeline_tokens(k) for k in row_keyword]
+    ev_tokens = [pipeline_tokens(f"{a} {b}") for a, b in zip(rows["title"], rows["snippet"])]
 
     lexicon_path = Path(args.lexicon) if args.lexicon else FROZEN_LEXICON
     if lexicon_path.exists():
@@ -156,12 +189,16 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     ov_query = np.zeros(len(c["answer"]))
     query_of_event = [set() for _ in range(len(ev_answer))]
     prompt_of_event = [set() for _ in range(len(ev_answer))]
+    query_text_of_event = [""] * len(ev_answer)
+    prompt_text_of_event = [""] * len(ev_answer)
     for e in np.unique(c["event"][cand_idx]):
         a = int(ev_answer[e])
         qs = queries.get(a, [])
         s = int(ev_search[e])
         query_of_event[e] = tokens(qs[s]) if 0 <= s < len(qs) else set()
+        query_text_of_event[e] = qs[s] if 0 <= s < len(qs) else ""
         prompt_of_event[e] = prompt_tok[a]
+        prompt_text_of_event[e] = pm[t.prompt_id[a]]["question"]
     for i in cand_idx:
         a, r, e = int(c["answer"][i]), int(c["row"][i]), int(c["event"][i])
         d = doc_set[r]
@@ -214,11 +251,16 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
         idx = np.flatnonzero(cm)
         k_ev = np.where(parallel, 7, 3) * np.ones(len(ev_answer), np.int64)
         P_lex = {}
-        for label, qe in (("reranker_text", prompt_of_event if parallel else query_of_event), ("user_prompt", prompt_of_event)):
+        for label, qe, qtext in (("reranker_text", prompt_of_event if parallel else query_of_event,
+                                  prompt_text_of_event if parallel else query_text_of_event),
+                                 ("user_prompt", prompt_of_event, prompt_text_of_event)):
             if (parallel and label == "user_prompt") or (not parallel and label == "reranker_text" and t.queries is None):
                 continue
-            kept = lexical_selector(c["event"][idx], c["answer"][idx], c["row"][idx], qe, k_ev, doc_tf, doc_len, idf, avgdl, position)
+            kept = frozen_search_selector(c["event"][idx], c["row"][idx], qtext, k_ev, row_keyword, row_url, position,
+                                          kw_tokens, ev_tokens)
             P_lex[label] = shortlist_value(c["answer"][idx], c["row"][idx], kept, t.data.rf["u"], len(t.x))
+            kept = lexical_selector(c["event"][idx], c["answer"][idx], c["row"][idx], qe, k_ev, doc_tf, doc_len, idf, avgdl, position)
+            P_lex[f"bm25_preregistered|{label}"] = shortlist_value(c["answer"][idx], c["row"][idx], kept, t.data.rf["u"], len(t.x))
         sel = {}
         x, k = t.x[mask], t.keyword[mask]
         Cv, Pv, Kv = t.values["C"][mask], t.values["P"][mask], t.values["K"][mask]

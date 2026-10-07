@@ -85,8 +85,8 @@ def _paper_text_model(ch, gen, fu, v1, v2, lex, R, P) -> list:
     if lex and R in lex["strata"] and P in lex["strata"] and "reranker_text" in lex["strata"][R]["lexical_selector"]:
         lr = lex["strata"][R]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
         lp = lex["strata"][P]["lexical_selector"]["reranker_text"]["lexical_share_of_reranker"]
-        lines.append(f"Plain word matching yields an increment as large as the reranker's: a BM25 selector scored against the same "
-                     f"text reaches {ci_pct(lr)} of the reranker's increment under the Reactive Loop (the agent's own queries) and "
+        lines.append(f"Plain word matching yields an increment as large as the reranker's: applying the frozen search's own "
+                     f"word-overlap rule to the reranker's candidates, against the same text, reaches {ci_pct(lr)} of the reranker's increment under the Reactive Loop (the agent's own queries) and "
                      f"{ci_pct(lp)} under Parallel Expansion (the user prompt). Under the Reactive Loop the reranker never sees the "
                      "prompt, so the intent it adds travels through the agent's queries. Word-overlap controls in the shortlisting model "
                      "leave the reranker's intent coefficients unchanged, so the reranker is not simply counting shared words.\n")
@@ -198,10 +198,15 @@ def build(out_dir: Path) -> int:
         w("")
         for m in METHODS:
             e = lex["strata"][m]
-            for label, s in e["lexical_selector"].items():
-                w(f"- **{m}, BM25 selector against the {label.replace('_', ' ')}.** Shortlist increment {num(s['lexical_increment'])} "
-                  f"versus the reranker's {num(s['reranker_increment'])}; lexical share of the reranker step "
-                  f"{ci_pct(s['lexical_share_of_reranker'])}.")
+            for label, sl in e["lexical_selector"].items():
+                scorer, _, target = label.rpartition("|")
+                name_ = ("pre-registered BM25 selector (record only; not used in V2 or the paper)" if scorer
+                         else "frozen-search word-overlap selector")
+                w(f"- **{m}, {name_} against the {target.replace('_', ' ')}.** Shortlist increment {num(sl['lexical_increment'])} "
+                  f"versus the reranker's {num(sl['reranker_increment'])}; share of the reranker step "
+                  f"{ci_pct(sl['lexical_share_of_reranker'])}.")
+            if "selection_model_intent_change" not in e:
+                continue
             chg = e["selection_model_intent_change"]
             sm = e["selection_model"]
             parts = []

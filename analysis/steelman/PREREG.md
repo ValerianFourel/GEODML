@@ -95,3 +95,13 @@ The HoreKa run applies the rules above unchanged to both models and to the held-
 * **Prompt fields.** Read from the registration's `population-prompts.jsonl`. A control a file lacks is left out
   and recorded (`controls_used`); the lattice-target variant and the noise floor are skipped if the target is absent.
 * **Published-answer rows.** Not used on HoreKa: both models are analysed from their own traces.
+
+## Addendum B2 (2026-10-08, after the Mac lexical result; before any HoreKa result)
+
+The lexical selector was pre-registered with BM25. V2 does not use BM25 and the paper does not mention it: the
+retriever that produced the logged results is the frozen search's own word-overlap rule (exact keyword match;
+then 4 × shared keyword words + shared title/snippet words; then stored position; then a hash). The selector is
+therefore switched to that rule, applied to each reranker event's candidates against the text the reranker scored
+against. This change was made after the BM25 result was seen (92% / 119% of the reranker's increment). Both
+versions are reported; the BM25 one is labelled as the pre-registered record and is not used in the paper text.
+Neither is decisional for C1 or C2.

@@ -49,3 +49,26 @@ def test_adjacent_pairs_respect_ties_blocks_and_gaps():
     X = rng.normal(size=(4000, 1))
     y = (rng.random(4000) < 1 / (1 + np.exp(-(0.3 + 1.0 * X[:, 0])))).astype(float)
     assert np.allclose(logit_fit(y, X), [0.3, 1.0], atol=0.12)
+
+
+def test_frozen_search_selector_reproduces_the_frozen_search_order():
+    from analysis.interpretability.pipeline import funnel_rows as fr
+    from analysis.scripts.run_agentic_search_integration_smoke import _tokens
+    rng = np.random.default_rng(1)
+    words = ["buy", "cheap", "shoes", "history", "guide", "running", "price", "review"]
+    keywords = ["running shoes", "shoe history", "buy shoes"]
+    n = 30
+    kw = [keywords[i % 3] for i in range(n)]
+    title = [" ".join(rng.choice(words, 3)) for _ in range(n)]
+    snippet = [" ".join(rng.choice(words, 5)) for _ in range(n)]
+    pos = np.asarray([i // 3 + 1 for i in range(n)])
+    url = [f"https://site{i}.example/p" for i in range(n)]
+    rows = fr.SnapshotRows(engine=["e"] * n, keyword=kw, position=pos, url=url, title=title, snippet=snippet,
+                           doc_id=[str(i) for i in range(n)], engine_offset={"e": 0}, snapshot_sha256={"e": "x"}, exclusions={})
+    index = fr.LexicalIndex(rows, "e")
+    for query in ("buy cheap running shoes", "shoe history", "price review guide"):
+        k = 7
+        want = index.select(query, limit=k)
+        kept = lx.frozen_search_selector(np.zeros(n, np.int64), np.arange(n), [query], np.array([k]), kw, url, pos,
+                                         [_tokens(x) for x in kw], [_tokens(f"{a} {b}") for a, b in zip(title, snippet)])
+        assert sorted(np.flatnonzero(kept).tolist()) == sorted(want)
