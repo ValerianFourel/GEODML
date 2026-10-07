@@ -105,3 +105,43 @@ therefore switched to that rule, applied to each reranker event's candidates aga
 against. This change was made after the BM25 result was seen (92% / 119% of the reranker's increment). Both
 versions are reported; the BM25 one is labelled as the pre-registered record and is not used in the paper text.
 Neither is decisional for C1 or C2.
+
+## Addendum B3 (2026-10-08, before any full-run result; plan in `analysis/docs/handoff/2026-10-08_full-run-plan_handoff.md`)
+
+The full run covers both models, all 1,011 keywords and all three conditions from the existing traces. Every part is
+computed separately on the exploration keywords and on the held-out confirmation keywords (`funnel_study.exploration_keyword`).
+**The confirmatory verdicts are those of the confirmation keywords.** Already seen: the Qwen exploration results of this
+study; Llama's prompt-text replay and cited-intent slopes from the published answers; the quick supply look below. Not
+seen: anything from Llama traces, anything on the confirmation keywords, and every interval and test of the parts below.
+
+**Census (descriptive).** Cells per model × method × engine × condition × split: planned (26,000 prompts × 12 cells per
+model), completed on the Hub, present in the traces, passing the extraction checks, and in the analysis sample; failures
+by reason; duplicates dropped; keyword coverage.
+
+**Supply of action-ready pages (claim: "bounded by how few action-ready pages exist").** Page intent u is the page's
+prompt-scale percentile. Per keyword × engine: number of usable rows, share with u ≥ .6, .7 and .8, maximum u and SD of u.
+Oracle K for answer i over a pool S: the L_i rows of S closest to x_i on u (ties by row id), rank-weighted as K. Pools:
+the keyword's own usable rows (U), the retrieved rows (R), the reranker's candidates (C), the shortlist (P) and the whole
+engine snapshot. Reported: oracle slopes β_oracle(S); utilisation β_K / β_oracle(S); mean x, mean K and mean oracle(U) by
+x decile; β_K within terciles of keyword supply (share of the keyword's rows with u ≥ .6, both engines pooled; tercile
+cut points from the keyword table, fixed before results) and the top − bottom tercile contrast.
+* *Supported as "the shift is bounded by scarcity"* only if, in every model × method stratum, (a) the ceiling gap
+  mean(x) − mean(oracle(U)) over answers with x ≥ .9 has a 95% interval above 0, (b) the top − bottom tercile contrast of
+  β_K has a 95% interval above 0, and (c) utilisation β_K / β_oracle(U) has a 95% lower bound of at least 0.5.
+* *Narrowed to "few action-ready pages exist, which caps how close cited sources can come to the most action-ready
+  prompts"* if (a) holds in every stratum but (b) or (c) does not.
+* *Failed* if (a) does not hold: the paper drops the scarcity sentence.
+Quick look already seen (Mac, Qwen exploration and published answers, no intervals): 0.76% of rows with u ≥ .8; 7.6% of
+keywords with any such row; own-row oracle slopes .23–.37 against observed .06–.09; utilisation of the shortlist oracle
+about 60% and of the retrieved-pool oracle about 20–25%.
+
+**Ablated condition (reported, not decisional).** Pairs of natural and ablated cells with the same model, prompt, engine
+and method (the target URL is removed before the rerank). Per pair ΔP and ΔK (ablated − natural); reported: their means,
+the within-keyword slope of ΔK on ΔP (pass-through) and the slope of ΔK on x, with keyword-bootstrap intervals, by model ×
+method. The shuffled condition acts before the rerank and leaves the shown order unchanged; it is not used as a slot test.
+
+**Keyword share of queries among prompts that name their keyword (reported).** The share of the agent's queries containing
+every keyword token, at x < .2 and x ≥ .8 and its within-keyword slope, restricted to prompts containing every keyword token.
+
+**Rules carried over unchanged:** C1 and C2 as above (C2 per model, Reactive primary for C1), addenda B1 and B2, seeds,
+draws, SESOI, and the exploratory label for the keyword-mention follow-up.
