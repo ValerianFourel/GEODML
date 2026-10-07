@@ -70,19 +70,19 @@ class SenderBusy(ValueError):
     """Another finite Gemma sender in this workspace holds the lock."""
 
 
-RECOVERY_MAX_SHARDS = 10
+GLOBAL_MAX_GEMMA_BOUTS = 200  # Valerian's ceiling for Gemma bouts queued or running, across all runs
 STARTUP_FAILURE_SECONDS = 300
 STARTUP_FAILURE_STATES = frozenset({"FAILED", "NODE_FAIL", "BOOT_FAIL"})
 
 
 def lock_name(plan) -> str:
-    """One main Gemma sender per workspace; a small labelled map recovery has its own lock, so at most
-    RECOVERY_MAX_SHARDS extra jobs run next to the main sender's 200."""
-    if plan.get("recovery_of"):
-        if len(plan["shards"]) > RECOVERY_MAX_SHARDS:
-            raise ValueError(f"a map recovery may have at most {RECOVERY_MAX_SHARDS} shards to run beside the main sender")
-        return "gemma-v4-recovery-sender.lock"
-    return "gemma-v4-sender.lock"
+    """One sender per run; runs share the global bout ceiling through submission_lock."""
+    plan_id = plan.get("plan_id")
+    if plan_id is None:
+        return "gemma-v4-sender.lock"  # plans written before per-run locks
+    if not re.fullmatch(r"gemma-v4-[0-9a-f]{24}", str(plan_id)):
+        raise ValueError("invalid plan_id for the sender lock")
+    return f"gemma-v4-sender-{plan_id}.lock"
 
 
 @contextmanager
@@ -95,6 +95,22 @@ def sender_lock(workspace, name="gemma-v4-sender.lock"):
         except BlockingIOError as error:
             raise SenderBusy(f"another Gemma sender holds {path}; preserve it") from error
         yield
+
+
+@contextmanager
+def submission_lock(workspace):
+    """Held only while counting the queue and submitting, so two runs never overshoot the ceiling."""
+    path = Path(workspace) / "control/gemma-v4-submit.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield
+
+
+def gemma_bouts_in_queue() -> int:
+    """Gemma bouts of every run, queued or running, from a fresh squeue."""
+    rows = query(["squeue", "--noheader", "--me", "--array", "--format=%i|%T|%k|%j"]).splitlines()
+    return sum(1 for row in rows if row.strip() and row.rsplit("|", 1)[-1].strip() == "geodml-gemma-v4-bout")
 
 
 def validate(plan):
@@ -480,39 +496,46 @@ def send(root):
                 budget = plan["maximum_allocations"] - value["allocations_attempted"]
                 capacity = plan["max_inflight"] - value["capacity_reserved"]
                 if eligible and budget > 0 and capacity > 0:
-                    runtime.storage(plan, audit)
-                    checked_at = time.time()
-                    if not reserved:
-                        runtime.reserve(plan, root)
-                        reserved = True
-                    by_id = {s["id"]: s for s in plan["shards"]}
-                    submitted = []
-                    for item in eligible[:min(budget, capacity)]:
-                        if time.time() >= plan["deadline_epoch"]:
-                            break
-                        if time.time() - checked_at >= 120:
-                            runtime.storage(plan, audit / f"refresh-{time.time_ns()}")
+                    with submission_lock(plan["workspace"]):
+                        room = GLOBAL_MAX_GEMMA_BOUTS - gemma_bouts_in_queue()
+                        value["global_room"] = room
+                        if room <= 0:
+                            value["waiting_for_global_room"] = (
+                                f"{GLOBAL_MAX_GEMMA_BOUTS} Gemma bouts already queued or running; next check in 600s")
+                        else:
+                            runtime.storage(plan, audit)
                             checked_at = time.time()
-                        if time.time() >= plan["deadline_epoch"]:
-                            break
-                        receipt = submit(root, plan, state, by_id[item["id"]], item)
-                        submitted.append({"shard": item["id"], "job_id": receipt.get("job_id"),
-                                          "disposition": receipt.get("disposition", "submitted_or_ambiguous")})
-                        item["submission_attempts"] += 1
-                        if receipt.get("disposition") == "policy_refused":
-                            return finish(root, value, "blocked", receipt["stderr"])
-                        if receipt.get("disposition") == "capacity_refused":
-                            item.update(state="capacity_wait", reason="scheduler submit limit rejected this request; next check in 600s")
-                            break
-                        item["allocations"] += 1
-                        item.update(state="awaiting_accounting", last_job_id=receipt.get("job_id"),
-                                    reason="submission recorded; awaiting the next scheduler snapshot")
-                    value["submitted_this_pass"] = submitted
-                    spent = sum(s["disposition"] != "capacity_refused" for s in submitted)
-                    value["allocations_attempted"] += spent
-                    value["capacity_reserved"] += spent
-                    value["allocation_ceiling_node_hours"] = value["allocations_attempted"] * 5
-                    value["allocation_ceiling_gpu_hours"] = value["allocations_attempted"] * 20
+                            if not reserved:
+                                runtime.reserve(plan, root)
+                                reserved = True
+                            by_id = {s["id"]: s for s in plan["shards"]}
+                            submitted = []
+                            for item in eligible[:max(0, min(budget, capacity, room))]:
+                                if time.time() >= plan["deadline_epoch"]:
+                                    break
+                                if time.time() - checked_at >= 120:
+                                    runtime.storage(plan, audit / f"refresh-{time.time_ns()}")
+                                    checked_at = time.time()
+                                if time.time() >= plan["deadline_epoch"]:
+                                    break
+                                receipt = submit(root, plan, state, by_id[item["id"]], item)
+                                submitted.append({"shard": item["id"], "job_id": receipt.get("job_id"),
+                                                  "disposition": receipt.get("disposition", "submitted_or_ambiguous")})
+                                item["submission_attempts"] += 1
+                                if receipt.get("disposition") == "policy_refused":
+                                    return finish(root, value, "blocked", receipt["stderr"])
+                                if receipt.get("disposition") == "capacity_refused":
+                                    item.update(state="capacity_wait", reason="scheduler submit limit rejected this request; next check in 600s")
+                                    break
+                                item["allocations"] += 1
+                                item.update(state="awaiting_accounting", last_job_id=receipt.get("job_id"),
+                                            reason="submission recorded; awaiting the next scheduler snapshot")
+                            value["submitted_this_pass"] = submitted
+                            spent = sum(s["disposition"] != "capacity_refused" for s in submitted)
+                            value["allocations_attempted"] += spent
+                            value["capacity_reserved"] += spent
+                            value["allocation_ceiling_node_hours"] = value["allocations_attempted"] * 5
+                            value["allocation_ceiling_gpu_hours"] = value["allocations_attempted"] * 20
                 if time.time() >= plan["deadline_epoch"]:
                     return finish(root, value, "expired", "finite sender deadline reached; live jobs preserved")
                 pending_live = any(s["state"] in {"live", "awaiting_accounting"} for s in value["shards"])

@@ -229,3 +229,14 @@ submission. Pending bouts get `scontrol update ExcNodeList=hkn0515`. The pinned 
 code (469b786) refuses a shard's third submission (bind_submission budget), so shards
 whose two attempts both died on hkn0515 need a labelled re-run of their cells.
 Report hkn0515 to HoreKa support.
+
+## Update: per-run senders under one global ceiling (2026-10-08)
+
+Valerian wants the JUPITER Qwen answers judged without waiting days for the main Qwen
+Gemma sender. Each run now has its own sender lock (`gemma-v4-sender-<plan_id>.lock`;
+plans without plan_id keep the old shared lock). Before every submission a sender takes
+`control/gemma-v4-submit.lock`, counts all `geodml-gemma-v4-bout` jobs in squeue and
+submits at most 200 minus that count. So the Qwen top-up and the llama map recovery fill
+slots as main-run bouts finish, never exceeding Valerian's 200. The small-recovery lock
+exception is removed. 123 tests pass (Gemma v4, sender, prequeue, SI-v4, selector,
+publish).

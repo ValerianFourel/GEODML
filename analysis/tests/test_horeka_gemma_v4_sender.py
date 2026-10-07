@@ -367,20 +367,28 @@ def test_known_job_with_a_different_comment_still_stops(cluster, where):
 
 
 
-def test_small_map_recovery_uses_its_own_lock_and_a_large_one_is_refused(cluster):
-    c = cluster()
-    main = Path(c.plan['workspace']) / 'control/gemma-v4-sender.lock'
-    main.parent.mkdir(parents=True)
+def test_runs_send_side_by_side_but_never_exceed_the_global_ceiling(cluster):
+    c = cluster(count=3)
     plan = json.loads((c.root / 'plan.json').read_text())
-    plan['recovery_of'] = 'gemma-v4-main'
+    plan['plan_id'] = 'gemma-v4-' + 'a' * 24
     write(c.root / 'plan.json', plan)
-    with main.open('a') as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)  # the main sender is running
-        assert run(c) == 0  # the recovery still sends and finishes
-    assert c.submissions
-    plan['shards'] = [dict(plan['shards'][0], id=str(i)) for i in range(sender.RECOVERY_MAX_SHARDS + 1)]
-    with pytest.raises(ValueError, match="at most"):
-        sender.lock_name(plan)
+    other = Path(c.plan['workspace']) / 'control' / ('gemma-v4-sender-gemma-v4-' + 'b' * 24 + '.lock')
+    other.parent.mkdir(parents=True, exist_ok=True)
+    for i in range(sender.GLOBAL_MAX_GEMMA_BOUTS - 1):  # another run already has 199 bouts queued
+        c.queue_row(str(90000 + i), 'geodml-gemma-v4:' + 'f' * 32, 'geodml-gemma-v4-bout')
+    peaks = []
+    def count(c, s):
+        peaks.append(sum(r['name'] == 'geodml-gemma-v4-bout' for r in c.jobs.values()))
+    c.submit_action = count
+    with other.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)  # the other run's sender is running
+        assert run(c) == 0
+    assert len(c.submissions) == 3
+    assert max(peaks) < sender.GLOBAL_MAX_GEMMA_BOUTS  # at most one of ours beside the other run's 199
+    assert sender.lock_name(plan) == 'gemma-v4-sender-gemma-v4-' + 'a' * 24 + '.lock'
+    with pytest.raises(ValueError, match='invalid plan_id'):
+        sender.lock_name({'plan_id': '../x'})
+
 
 
 
