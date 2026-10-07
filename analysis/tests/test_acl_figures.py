@@ -111,3 +111,26 @@ def test_funnel_figures_render_from_their_results_and_refuse_empty_input(tmp_pat
     (tmp_path / "empty.json").write_text(json.dumps({"models": {"main": {}}, "decomposition": {}}))
     with pytest.raises(ValueError, match="no fitted strata"):
         figs.main(["render", "--funnel-results", str(tmp_path / "empty.json"), "--output-dir", str(tmp_path / "out2")])
+
+
+def test_fig9_search_methods_renders_pdf_png_and_a_compiling_tikz_twin(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+    assert figs.main(["render", "--output-dir", str(tmp_path)]) == 0
+    assert (tmp_path / "fig9-search-methods.pdf").stat().st_size > 1000
+    assert (tmp_path / "fig9-search-methods.png").stat().st_size > 1000
+    tex = (tmp_path / "fig9-search-methods-tikz.tex").read_text(encoding="utf-8")
+    for needed in ("(a) Parallel Expansion", "(b) Reactive Loop", "against the PROMPT", "against THIS QUERY",
+                   "BGE cross-encoder", "23,893 snippet rows", r"\end{tikzpicture}"):
+        assert needed in tex
+    layout = figs.fig9_layout()
+    assert min(b["size"] for b in layout["boxes"]) >= figs.FIG9_MIN_FONT
+    assert min(s["size"] for s in layout["texts"]) >= figs.FIG9_MIN_FONT
+    # The renderer itself refuses text below the readability floor.
+    monkeypatch.setattr(figs, "FIG9_MIN_FONT", 9.0)
+    with pytest.raises(ValueError, match="below"):
+        figs.fig9_search_methods(figs._setup(), tmp_path / "small")
+    if shutil.which("pdflatex"):
+        done = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "fig9-search-methods-tikz.tex"],
+                              cwd=tmp_path, capture_output=True, text=True, timeout=180)
+        assert done.returncode == 0, done.stdout[-2000:]

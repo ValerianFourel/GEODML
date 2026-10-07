@@ -8,6 +8,8 @@
                    fig1-prompt-axis       the axis and the example prompts       (needs --axis-examples)
                    fig2-mini-internet     the closed corpus and its search        (constants below)
                    fig3-pipeline          every step from prompt to analysis      (constants below)
+                   fig9-search-methods    Parallel Expansion and Reactive Loop, step by step (constants;
+                                          also writes a standalone TikZ .tex of the same layout)
                    fig4-cited-vs-prompt   prompt position vs the position of the cited sources
                                           (needs --results: results.json of intent_stages_study.py analyze)
 
@@ -56,6 +58,9 @@ COLUMN, DOUBLE = 3.15, 6.3  # ACL single- and double-column widths in inches
 
 INK, MUTED, LINE = "#1f2a30", "#5b6770", "#c9d1d6"
 INFO, ACTION = "#2f6f9f", "#c0632b"  # information seeking (blue) -> action ready (orange)
+# Rows the frozen search actually uses after its usability rule (DuckDuckGo 10,227 + SearXNG 13,540), as counted by
+# the funnel row bookkeeping; TESTBED["rows"] is the captured snapshot total the paper reports.
+SEARCHABLE_ROWS = 10227 + 13540
 MODEL = {"llama4": "#2f6f9f", "qwen38": "#c0632b"}
 MODEL_LABEL = {"llama4": "Llama-4-Scout", "qwen38": "Qwen3.8"}
 ENGINE_STYLE = {"duckduckgo": "-", "searxng": "--"}
@@ -381,6 +386,220 @@ def fig3(plt, out_dir: Path) -> list[str]:
     _arrow(ax, (0.8925, 0.46), (0.8925, 0.42))
     ax.text(0.53, 0.20, "Q, R, C, P, K, A: the stages measured on the axis (Section 5).", fontsize=6, color=MUTED, va="top")
     return _save(fig, out_dir, "fig3-pipeline")
+
+
+# ---------------------------------------------------------------- figure 9: the two search methods
+
+FIG9_HEIGHT = 4.7  # inches; DOUBLE wide
+FIG9_MIN_FONT = 6.5
+SEARCH_BOX = {"face": "#f3f1ec", "edge": LINE}
+TOOL_BOX = {"face": "#eceff1", "edge": MUTED}
+GEN_BOX = {"face": "#ffffff", "edge": INK}
+
+
+def fig9_layout() -> dict:
+    """Boxes, arrows and labels of fig9 in axes units; drawn by matplotlib and written as TikZ.
+
+    Only facts checked in agentic_search.py and run_agentic_search_integration_smoke.py appear: 3 queries
+    or up to 3 searches, 20 rows per search, URL merge, the evidence condition before the cross-encoder,
+    top 7 against the prompt (Parallel) or top 3 against each query (Reactive), URL-merged shown snippets.
+    """
+    t = TESTBED
+    boxes, arrows, lines, texts = [], [], [], []
+    w, size = 0.30, FIG9_MIN_FONT
+    rows = {"prompt": (0.905, 0.055), "gen": (0.745, 0.08), "search": (0.615, 0.065), "merge": (0.535, 0.05),
+            "condition": (0.45, 0.06), "rerank": (0.355, 0.07), "shown": (0.265, 0.065), "answer": (0.115, 0.115)}
+
+    def box(ox, row, text, style, **kw):
+        y, h = rows[row]
+        boxes.append({"x": ox + 0.1, "y": y, "w": w, "h": h, "text": text, "size": kw.get("size", size),
+                      "weight": kw.get("weight", "normal"), **style})
+
+    def down(ox, a, b, label=None):
+        top = rows[a][0]
+        bottom = rows[b][0] + rows[b][1]
+        arrows.append({"a": (ox + 0.25, top), "b": (ox + 0.25, bottom), "color": MUTED})
+        if label:
+            texts.append({"x": ox + 0.255, "y": (top + bottom) / 2, "s": label, "size": size, "color": MUTED,
+                          "ha": "left", "va": "center"})
+
+    def stage(ox, row, letter):
+        y, h = rows[row]
+        texts.append({"x": ox + 0.09, "y": y + h / 2 + (0.012 if row == "search" else 0), "s": letter, "size": 7.5, "color": MUTED, "ha": "right",
+                      "va": "center", "weight": "bold"})
+
+    for ox, title in ((0.0, "(a) Parallel Expansion"), (0.5, "(b) Reactive Loop")):
+        texts.append({"x": ox + 0.25, "y": 1.03, "s": title, "size": 8.5, "color": INK, "ha": "center", "va": "top",
+                      "weight": "bold"})
+        box(ox, "prompt", "user prompt with its axis position $x$", {"face": "#ffffff", "edge": LINE})
+        lines.append({"kind": "gradient", "x0": ox + 0.1, "x1": ox + 0.4, "y": 0.888, "h": 0.011})
+        texts.append({"x": ox + 0.1, "y": 0.884, "s": "0 information seeking", "size": size, "color": INFO, "ha": "left",
+                      "va": "top"})
+        texts.append({"x": ox + 0.4, "y": 0.884, "s": "1 action ready", "size": size, "color": ACTION, "ha": "right",
+                      "va": "top"})
+        # the frozen search reaches the shared mini internet at the bottom
+        sy = rows["search"][0] + 0.014
+        lines.append({"kind": "path", "points": [(ox + 0.1, sy), (ox + 0.035, sy), (ox + 0.035, 0.095)], "color": LINE,
+                      "dashed": True, "arrow_end": True})
+        texts.append({"x": ox + 0.03, "y": 0.34, "s": "lookup in the frozen corpus", "size": size, "color": MUTED,
+                      "ha": "center", "va": "center", "rotation": 90})
+        stage(ox, "search", "R")
+        stage(ox, "rerank", "C")
+        stage(ox, "shown", "P")
+        stage(ox, "answer", "K")
+        box(ox, "answer", "generator LLM writes the answer\nand ranks its sources\n"
+            "keep: which shown snippets are cited at all\norder: which cited source comes first", GEN_BOX)
+        down(ox, "shown", "answer", "answer" if ox else None)
+        down(ox, "rerank", "shown")
+        down(ox, "condition", "rerank")
+        arrows.append({"a": (ox + 0.25, 0.852), "b": (ox + 0.25, rows["gen"][0] + rows["gen"][1]), "color": MUTED})
+
+    # (a) Parallel Expansion
+    ox = 0.0
+    box(ox, "gen", "generator LLM (Llama-4-Scout or Qwen3.8)\nwrites 3 search queries at once,\nbefore seeing any result",
+        GEN_BOX)
+    gy, sy = rows["gen"][0], rows["search"][0] + rows["search"][1]
+    for k, x in enumerate((0.16, 0.25, 0.34)):
+        arrows.append({"a": (ox + x, gy), "b": (ox + x, sy), "color": ACTION})
+        texts.append({"x": ox + x + 0.006, "y": (gy + sy) / 2, "s": f"q{k + 1}", "size": size, "color": ACTION,
+                      "ha": "left", "va": "center"})
+    box(ox, "search", f"frozen search, 3 queries in parallel\n3 × top {t['results_per_search']} rows", SEARCH_BOX)
+    down(ox, "search", "merge")
+    box(ox, "merge", "merge and drop duplicate URLs", {"face": "#ffffff", "edge": LINE})
+    down(ox, "merge", "condition")
+    box(ox, "condition", "evidence condition: natural · target URL\nremoved (ablated) · order shuffled",
+        {"face": "#ffffff", "edge": LINE})
+    box(ox, "rerank", "BGE cross-encoder (fixed tool)\nscores every snippet against the PROMPT\nkeeps the top "
+        f"{t['parallel_top_k']}", TOOL_BOX)
+    box(ox, "shown", f"{t['parallel_top_k']} shown snippets, slots 1–{t['parallel_top_k']}\nin cross-encoder score order",
+        {"face": "#ffffff", "edge": INFO})
+
+    # (b) Reactive Loop
+    ox = 0.5
+    box(ox, "gen", "generator LLM (Llama-4-Scout or Qwen3.8)\nwrites one search query\n(the first step must search)",
+        GEN_BOX)
+    down(ox, "gen", "search", "one query")
+    arrows[-1]["color"] = ACTION
+    texts[-1]["color"] = ACTION
+    box(ox, "search", f"frozen search\ntop {t['results_per_search']} rows for this query", SEARCH_BOX)
+    lines.append({"kind": "path", "points": [(ox + 0.25, rows["search"][0]), (ox + 0.25, rows["condition"][0] + rows["condition"][1])],
+                  "color": MUTED, "dashed": False, "arrow_end": True})
+    box(ox, "condition", "evidence condition: natural · target URL\nremoved (ablated) · order shuffled",
+        {"face": "#ffffff", "edge": LINE})
+    box(ox, "rerank", "BGE cross-encoder (fixed tool)\nscores the rows against THIS QUERY\nkeeps the top "
+        f"{t['reactive_top_k']}", TOOL_BOX)
+    box(ox, "shown", f"{t['reactive_top_k']} new shown snippets per search;\nup to 9 in all, duplicate URLs merged",
+        {"face": "#ffffff", "edge": INFO})
+    ys, yg = rows["shown"][0] + rows["shown"][1] / 2, rows["gen"][0] + rows["gen"][1] / 2
+    lines.append({"kind": "path", "points": [(ox + 0.4, ys), (ox + 0.455, ys), (ox + 0.455, yg), (ox + 0.4, yg)],
+                  "color": ACTION, "dashed": False, "arrow_end": True})
+    texts.append({"x": ox + 0.468, "y": (ys + yg) / 2, "s": "generator reads them: search again (up to 3 searches)",
+                  "size": size, "color": ACTION, "ha": "center", "va": "center", "rotation": 90})
+
+    # shared mini internet and notes
+    boxes.append({"x": 0.02, "y": 0.02, "w": 0.96, "h": 0.075, "size": size + 0.5, "weight": "normal",
+                  "text": f"frozen mini internet: top-{t['results_per_search']} DuckDuckGo or SearXNG results captured "
+                          f"in experiment 1\n{t['keywords']:,} keywords · {t['rows']:,} snippet rows "
+                          f"({SEARCHABLE_ROWS:,} searchable) · one engine per run", **SEARCH_BOX})
+    texts.append({"x": 0.98, "y": 0.012, "s": "U: the keyword’s own snapshot rows", "size": size, "color": MUTED,
+                  "ha": "right", "va": "top", "weight": "bold"})
+    notes = ("R: rows retrieved by the AI’s searches · C: rows scored by the cross-encoder · P: shown snippets · "
+             "K: ranked, cited sources;  $K \\subseteq P \\subseteq C \\subseteq R$.",
+             "Frozen search: exact keyword match first, then 4 × words shared with the row’s keyword + words shared "
+             "with its title and snippet,",
+             "then the stored engine position; it scores every row of every keyword.  R0 = the same frozen search "
+             "run on the prompt’s literal text, for comparison only.",
+             "Mechanism only; frozen corpus; associations in the paper are observational.")
+    for k, note in enumerate(notes):
+        texts.append({"x": 0.02, "y": -0.03 - 0.03 * k, "s": note, "size": size, "color": MUTED, "ha": "left",
+                      "va": "top"})
+    return {"boxes": boxes, "arrows": arrows, "lines": lines, "texts": texts, "ylim": (-0.16, 1.035)}
+
+
+def fig9_search_methods(plt, out_dir: Path) -> list[str]:
+    layout = fig9_layout()
+    fig = plt.figure(figsize=(DOUBLE, FIG9_HEIGHT))
+    ax = fig.add_axes((0, 0, 1, 1))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(*layout["ylim"])
+    ax.axis("off")
+    for b in layout["boxes"]:
+        _box(ax, b["x"], b["y"], b["w"], b["h"], b["text"], face=b["face"], edge=b["edge"], size=b["size"],
+             weight=b["weight"])
+    for a in layout["arrows"]:
+        _arrow(ax, a["a"], a["b"], color=a["color"])
+    for line in layout["lines"]:
+        if line["kind"] == "gradient":
+            _gradient(ax, line["x0"], line["x1"], line["y"], line["h"])
+            continue
+        xs, ys = zip(*line["points"])
+        ax.plot(xs[:-1] + (xs[-1],), ys, color=line["color"], lw=0.8, ls="--" if line["dashed"] else "-", zorder=1)
+        if line["arrow_end"]:
+            _arrow(ax, line["points"][-2], line["points"][-1], color=line["color"])
+    for s in layout["texts"]:
+        ax.text(s["x"], s["y"], s["s"], fontsize=s["size"], color=s["color"], ha=s["ha"], va=s["va"],
+                rotation=s.get("rotation", 0), fontweight=s.get("weight", "normal"), zorder=3)
+    small = [t.get_fontsize() for t in fig.findobj(lambda o: hasattr(o, "get_fontsize") and hasattr(o, "get_text"))
+             if t.get_text().strip()]
+    if min(small) < FIG9_MIN_FONT:
+        raise ValueError(f"fig9 has text below {FIG9_MIN_FONT} pt")
+    paths = _save(fig, out_dir, "fig9-search-methods")
+    tex = out_dir / "fig9-search-methods-tikz.tex"
+    tex.write_text(fig9_tikz(layout), encoding="utf-8")
+    return paths + [str(tex)]
+
+
+TIKZ_TEXT = (("$x$", r"$x$"), ("×", r"$\times$"), ("⊆", r"$\subseteq$"), ("–", "--"), ("’", "'"), ("·", r"$\cdot$"))
+
+
+def _tex(text: str) -> str:
+    for old, new in TIKZ_TEXT:
+        text = text.replace(old, new)
+    return text.replace("\n", r"\\ ")
+
+
+def fig9_tikz(layout: dict) -> str:
+    """Standalone TikZ of the same layout: 1 axes unit = DOUBLE inches across, FIG9_HEIGHT inches up."""
+    y0, y1 = layout["ylim"]
+    sx, sy = DOUBLE * 2.54, FIG9_HEIGHT * 2.54 / (y1 - y0)
+
+    def p(x, y):
+        return f"({x * sx:.3f},{(y - y0) * sy:.3f})"
+
+    colors = {INK: "ink", MUTED: "muted", LINE: "line", INFO: "info", ACTION: "action", "#ffffff": "white",
+              "#f3f1ec": "corpus", "#eceff1": "tool"}
+    out = [r"% fig9-search-methods-tikz: generated by analysis/scripts/acl_figures.py (render); edit the layout there.",
+           r"\documentclass[tikz,border=2pt]{standalone}", r"\usepackage[T1]{fontenc}", r"\usepackage{newtxtext,newtxmath}",
+           r"\usetikzlibrary{arrows.meta}"]
+    out += [r"\definecolor{%s}{HTML}{%s}" % (name, hexa[1:].upper()) for hexa, name in colors.items() if name != "white"]
+    out += [r"\begin{document}", r"\begin{tikzpicture}[>={Stealth[length=4pt]}, every node/.style={inner sep=1pt}]",
+            r"\useasboundingbox %s rectangle %s;" % (p(0, y0), p(1, y1))]
+    for line in layout["lines"]:
+        if line["kind"] == "gradient":
+            out.append(r"\shade[left color=info, right color=action, middle color=corpus] %s rectangle %s;"
+                       % (p(line["x0"], line["y"]), p(line["x1"], line["y"] + line["h"])))
+            continue
+        style = [colors[line["color"]], "line width=0.6pt"] + (["dashed"] if line["dashed"] else []) + \
+            (["->"] if line["arrow_end"] else [])
+        out.append(r"\draw[%s] %s;" % (", ".join(style), " -- ".join(p(*q) for q in line["points"])))
+    for b in layout["boxes"]:
+        weight = r"\bfseries" if b["weight"] == "bold" else ""
+        out.append(r"\draw[rounded corners=2pt, fill=%s, draw=%s, line width=0.5pt] %s rectangle %s;"
+                   % (colors[b["face"]], colors[b["edge"]], p(b["x"], b["y"]), p(b["x"] + b["w"], b["y"] + b["h"])))
+        out.append(r"\node[align=center, font=\fontsize{%.1f}{%.1f}\selectfont%s] at %s {%s};"
+                   % (b["size"], b["size"] * 1.15, weight, p(b["x"] + b["w"] / 2, b["y"] + b["h"] / 2), _tex(b["text"])))
+    for a in layout["arrows"]:
+        out.append(r"\draw[->, %s, line width=0.6pt] %s -- %s;" % (colors[a["color"]], p(*a["a"]), p(*a["b"])))
+    anchor = {("left", "center"): "west", ("right", "center"): "east", ("center", "center"): "center",
+              ("center", "top"): "north", ("left", "top"): "north west", ("right", "top"): "north east"}
+    for s in layout["texts"]:
+        weight = r"\bfseries" if s.get("weight") == "bold" else ""
+        rotate = s.get("rotation", 0)
+        out.append(r"\node[anchor=%s, rotate=%d, text=%s, font=\fontsize{%.1f}{%.1f}\selectfont%s] at %s {%s};"
+                   % (anchor[(s["ha"], s["va"])], rotate, colors[s["color"]], s["size"], s["size"] * 1.15, weight,
+                      p(s["x"], s["y"]), _tex(s["s"])))
+    out += [r"\end{tikzpicture}", r"\end{document}", ""]
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- figure 4
@@ -712,7 +931,8 @@ def main(argv=None) -> int:
         return 0
     plt = _setup()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    written = {"fig2": fig2(plt, args.output_dir), "fig3": fig3(plt, args.output_dir)}
+    written = {"fig2": fig2(plt, args.output_dir), "fig3": fig3(plt, args.output_dir),
+               "fig9": fig9_search_methods(plt, args.output_dir)}
     if args.axis_examples:
         written["fig1"] = fig1(plt, json.loads(args.axis_examples.read_text(encoding="utf-8")), args.output_dir)
     if args.results:
