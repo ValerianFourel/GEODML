@@ -365,8 +365,9 @@ def fe_run(t: Tables, args, *, cache_root: Path, deadline: float):
     common = t.common()
     cache_root.mkdir(parents=True, exist_ok=True)
     out = {"strata": {}}
+    only = getattr(args, "stratum", None)
     for name, m in strata(t).items():
-        if not m.any():
+        if not m.any() or (only and name != only):
             continue
         path = cache_root / f"{hashlib.sha256(name.encode()).hexdigest()[:12]}.json"
         if not path.exists():
@@ -465,8 +466,9 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     common = t.common()
     cache_root.mkdir(parents=True, exist_ok=True)
     out = {"sesoi": SESOI, "mc_draws_per_answer": args.mc, "model_draws": len(draws), "strata": {}}
+    only = getattr(args, "stratum", None)
     for name, m in strata(t).items():
-        if not m.any():
+        if not m.any() or (only and name != only):
             continue
         method = PARALLEL if "Parallel" in name else "Reactive"
         mask = m & common

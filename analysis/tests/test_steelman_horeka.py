@@ -86,3 +86,16 @@ def test_oracle_picks_the_closest_rows_by_hand():
     assert got[1] == pytest.approx(0.9)
     snap = oracle_k_snapshot(x, L, np.sort(u))
     assert snap[0] == pytest.approx(got[0]) and snap[1] == pytest.approx(0.9)
+
+
+def test_generator_and_fe_split_by_stratum_then_assemble(horeka):
+    out = horeka["out"]
+    for part in ("generator", "fe"):
+        for stratum in ("llama4 · Parallel", "llama4 · Reactive", "qwen38 · Parallel", "qwen38 · Reactive"):
+            assert cli.main([part, *horeka["common"], "--stratum", stratum]) == 0
+        assert not (out / f"{part}.json").exists()
+        assert cli.main([part, *horeka["common"]]) == 0      # assembles from the per-stratum cache
+        body = json.loads((out / f"{part}.json").read_text())
+        assert set(body["strata"]) == {"llama4 · Parallel", "llama4 · Reactive", "qwen38 · Parallel", "qwen38 · Reactive"}
+    caches = list((out / "generator.cache").iterdir())
+    assert len(caches) == 1 and (caches[0] / "key.json").exists()
