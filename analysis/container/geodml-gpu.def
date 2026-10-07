@@ -1,0 +1,15 @@
+# Apptainer recipe of the GPU-statistics image (HoreKa; run with `apptainer exec --nv`). Same lock and PyTorch pin as
+# Dockerfile.gpu.   apptainer build --fakeroot geodml-gpu.sif geodml-gpu.def   (run from analysis/container)
+Bootstrap: docker
+# the official python image through the public ECR mirror (docker.io may be unreachable)
+From: public.ecr.aws/docker/library/python:3.12-slim
+
+%files
+    requirements-cpu.lock /tmp/requirements-cpu.lock
+
+%post
+    pip install --no-cache-dir -r /tmp/requirements-cpu.lock
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 "torch==2.5.1"
+
+%environment
+    export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1

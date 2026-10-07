@@ -1,0 +1,16 @@
+# GPU-statistics image for the full run (analysis/interpretability/pipeline/torch_fits.py): the CPU lock plus a pinned
+# PyTorch. TORCH_INDEX picks the build of the SAME version: CUDA 12.1 for HoreKa (default), CPU for tests on the Mac.
+#   docker build -f analysis/container/Dockerfile.gpu -t geodml-gpu:1 analysis/container                       (CUDA)
+#   docker build -f analysis/container/Dockerfile.gpu --build-arg TORCH_INDEX=https://download.pytorch.org/whl/cpu \
+#       -t geodml-torch-cpu:1 analysis/container                                                                (Mac tests)
+# Code is not baked in: mount the pinned checkout at /code, set GEODML_GIT_COMMIT. HoreKa: apptainer exec --nv.
+FROM public.ecr.aws/docker/library/python:3.12-slim
+ARG TORCH_VERSION=2.5.1
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cu121
+COPY requirements-cpu.lock /tmp/requirements-cpu.lock
+RUN pip install --no-cache-dir -r /tmp/requirements-cpu.lock \
+ && pip install --no-cache-dir --index-url "$TORCH_INDEX" "torch==${TORCH_VERSION}"
+ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/code
+WORKDIR /code
+LABEL org.opencontainers.image.title="geodml-gpu" org.opencontainers.image.description="GPU statistics of the GEODML full run"
