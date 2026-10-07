@@ -142,3 +142,29 @@ def test_slope_contrast_uses_shared_draws_and_recovers_the_difference():
     assert abs(c["difference"] - 0.10) < 0.02 and c["ci95"][0] > 0.05 and c["ci95"][1] < 0.15
     same = fc.slope_contrast(xx, np.r_[y_a, y_a], kk, in_a, ~in_a, draws)
     assert same["difference"] == 0 and same["ci95"] == [0.0, 0.0]  # identical strata: shared draws cancel exactly
+
+
+def test_importance_measures_on_a_planted_choice_model():
+    from types import SimpleNamespace
+    from analysis.interpretability.pipeline.page_readiness_ordering import fit_choice_model
+    from analysis.scripts import funnel_importance as imp
+    rng = np.random.default_rng(4)
+    sets, size = 3000, 6
+    choice_set = np.repeat(np.arange(sets), size)
+    X = rng.normal(size=(sets * size, 3))
+    X[:, 2] = 0.0 * X[:, 2] + rng.normal(size=sets * size)          # a feature the choice ignores
+    utility = 1.2 * X[:, 0] + 0.4 * X[:, 1]
+    gumbel = utility + rng.gumbel(size=len(utility))
+    chosen = np.zeros(len(utility), bool)
+    chosen[np.arange(sets) * size + np.argmax(gumbel.reshape(sets, size), axis=1)] = True
+    data = SimpleNamespace(z=np.zeros(len(utility)), set=choice_set, chosen=chosen, position=np.zeros(len(utility), np.int64),
+                           sets=sets, levels=1)
+    fit = fit_choice_model(X, data)
+    assert imp.choice_nll(fit.x @ X.T, choice_set, chosen, sets) == pytest.approx(fit.fun, abs=1e-3)
+    assert imp.choice_nll(np.zeros(len(utility)), choice_set, chosen, sets) == pytest.approx(imp.null_nll(choice_set, sets))
+    shares, rest, _ = imp.pratt_shares(X, fit.x, choice_set, sets)
+    assert rest is None and shares.sum() == pytest.approx(1.0)
+    assert shares[0] > 0.8 and 0.04 < shares[1] < 0.2 and abs(shares[2]) < 0.01  # ≈ β² ratio 1.44 : 0.16 : 0
+    slot = np.tile(np.linspace(0.5, 0.0, size), sets)
+    shares, rest, _ = imp.pratt_shares(X, fit.x, choice_set, sets, slot)
+    assert shares.sum() + rest == pytest.approx(1.0) and rest > 0
