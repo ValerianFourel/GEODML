@@ -152,3 +152,23 @@ tercile empty. Terciles are therefore cut on the rank of (share of rows with u �
 keywords. Seen in that smoke run (Qwen, exploration, exploratory): supply verdict "narrowed" (own-row oracle utilisation
 0.19–0.26); ablation pass-through 0.69–0.86; among prompts that name their keyword, the keyword share of queries does not
 fall with x (Reactive 0.62 → 0.55, Parallel 0.27 → 0.31).
+
+## Computational note C1 (2026-10-08, before any GPU result on HoreKa data): an optional PyTorch backend
+
+A computational change only: estimands, features, standardisation, ridge (1e-4), seeds (20261007, 20261008), draw counts,
+SESOI, Monte-Carlo random numbers and every decision rule are unchanged. The heavy fits (the funnel stage models, the
+generator decisions, the steelman generator refits and Monte Carlo, the two-way fixed effects) may run on
+`analysis/interpretability/pipeline/torch_fits.py` (float64; damped Newton with exact gradients and Hessians on the same
+objectives) with `--backend cuda` on HoreKa `accelerated` nodes. The numpy/scipy path stays the default and the reference.
+The Monte Carlo uses the same numpy random numbers on both backends; caches carry the backend so CPU and GPU units of a
+task are never mixed.
+
+An estimator is routed to the GPU only if it passes these gates, recorded in `analysis/fullrun/validation/REPORT.md`:
+* synthetic problems (`analysis/tests/test_torch_fits.py`): coefficients within 1e-7 and objective within 1e-10 of a
+  tight-tolerance CPU optimum; inclusion probabilities within 1e-12; Monte-Carlo twins identical to the numpy code; batched
+  fixed effects within 1e-8 of the CPU fits; unit ranges assemble identically;
+* real data (Mac exploration tables): funnel coefficients within 1e-4 of the cached CPU fits with an objective no worse
+  than the CPU optimum; steelman Δ_gen within 1e-4 and its interval endpoints within 2e-4 with the same TOST verdict;
+  fixed-effects coefficients and interval endpoints within 1e-6.
+Near-separable fits are not gated (float noise of 1e-16 moves their optimum by about 1e-3 even on the CPU). If a gate
+fails, that estimator stays on the CPU path and the task list routes it there.
