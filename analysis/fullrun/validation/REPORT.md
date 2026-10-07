@@ -316,3 +316,46 @@ no failed replicates) the gate **passes** for Qwen · Reactive: largest Δ_gen d
 difference 1.53e-4 (main ci90 upper), TOST verdict True on both backends, 0 failed replicates. The keep/order coefficients
 differ by up to 9.1e-4 (main|order intent_x_prompt), the same early stopping of the CPU L-BFGS-B fits diagnosed for the
 funnel. Timing on this Mac (torch-cpu, 5 threads, one stratum, 101 refits + Monte Carlo): 3,247 s.
+## steelman two-way fixed effects (all strata) — PASS (2026-10-07 21:44)
+
+torch file /s/fe-torch-v2.json; seconds 6147.1.
+
+| quantity | CPU | torch | abs diff | threshold | ok |
+|---|---|---|---|---|---|
+| qwen38 · Parallel credit intent_alignment | 0.001772182992 | 0.001772182992 | 4.79e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit intent_alignment ci95 lo | -0.0007825732827 | -0.0007825732827 | 1.95e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit intent_alignment ci95 hi | 0.003904735552 | 0.003904735552 | 3.01e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit intent_x_prompt | -0.001872957693 | -0.001872957693 | 8.13e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit intent_x_prompt ci95 lo | -0.005026629533 | -0.005026629533 | 3.69e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit intent_x_prompt ci95 hi | 0.001837037802 | 0.001837037802 | 1.12e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit topic_similarity | 0.0423776051 | 0.0423776051 | 1.94e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit topic_similarity ci95 lo | 0.038754761 | 0.038754761 | 3.05e-16 | 1e-06 | yes |
+| qwen38 · Parallel credit topic_similarity ci95 hi | 0.04406645937 | 0.04406645937 | 7.29e-16 | 1e-06 | yes |
+| qwen38 · Parallel keep intent_alignment | 0.04861441747 | 0.04861441747 | 3.19e-16 | 1e-06 | yes |
+| qwen38 · Parallel keep intent_alignment ci95 lo | -0.0197796968 | -0.0197796968 | 1.04e-17 | 1e-06 | yes |
+| qwen38 · Parallel keep intent_alignment ci95 hi | 0.1825216018 | 0.1825216018 | 6.38e-16 | 1e-06 | yes |
+| qwen38 · Parallel keep intent_x_prompt | -0.1455999775 | -0.1455999775 | 6.66e-16 | 1e-06 | yes |
+| qwen38 · Parallel keep intent_x_prompt ci95 lo | -0.3712278795 | -0.3712278795 | 5e-16 | 1e-06 | yes |
+| qwen38 · Parallel keep intent_x_prompt ci95 hi | -0.04756429689 | -0.04756429689 | 1.11e-16 | 1e-06 | yes |
+| qwen38 · Parallel keep topic_similarity | 0.2400741853 | 0.2400741853 | 4.72e-16 | 1e-06 | yes |
+| qwen38 · Parallel keep topic_similarity ci95 lo | 0.08449702172 | 0.08449702172 | 4.16e-17 | 1e-06 | yes |
+| qwen38 · Parallel keep topic_similarity ci95 hi | 0.3045861926 | 0.3045861926 | 4.44e-16 | 1e-06 | yes |
+| qwen38 · Reactive credit intent_alignment | 0.002855446773 | 0.002855446773 | 6.64e-17 | 1e-06 | yes |
+| qwen38 · Reactive credit intent_alignment ci95 lo | -0.00496631439 | -0.00496631439 | 2.62e-16 | 1e-06 | yes |
+| qwen38 · Reactive credit intent_alignment ci95 hi | 0.01442809418 | 0.01442809418 | 3.47e-17 | 1e-06 | yes |
+| qwen38 · Reactive credit intent_x_prompt | -0.009860997065 | -0.009860997065 | 2.2e-16 | 1e-06 | yes |
+| qwen38 · Reactive credit intent_x_prompt ci95 lo | -0.02752400875 | -0.02752400875 | 1.39e-16 | 1e-06 | yes |
+| qwen38 · Reactive credit intent_x_prompt ci95 hi | 0.008955319118 | 0.008955319118 | 1.31e-15 | 1e-06 | yes |
+| qwen38 · Reactive credit topic_similarity | 0.1336439084 | 0.1336439084 | 6.11e-16 | 1e-06 | yes |
+| qwen38 · Reactive credit topic_similarity ci95 lo | 0.1165542335 | 0.1165542335 | 4.44e-16 | 1e-06 | yes |
+| qwen38 · Reactive credit topic_similarity ci95 hi | 0.137603553 | 0.137603553 | 5.83e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep intent_alignment | 0.01713002914 | 0.01713002914 | 1.87e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep intent_alignment ci95 lo | -0.01080059336 | -0.01080059336 | 1.82e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep intent_alignment ci95 hi | 0.05082320102 | 0.05082320102 | 3.19e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep intent_x_prompt | -0.03462913972 | -0.03462913972 | 5e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep intent_x_prompt ci95 lo | -0.07864071403 | -0.07864071403 | 6.94e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep intent_x_prompt ci95 hi | 0.02017875859 | 0.02017875859 | 1.38e-15 | 1e-06 | yes |
+| qwen38 · Reactive keep topic_similarity | 0.3532777999 | 0.3532777999 | 5.55e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep topic_similarity ci95 lo | 0.3019155415 | 0.3019155415 | 8.33e-16 | 1e-06 | yes |
+| qwen38 · Reactive keep topic_similarity ci95 hi | 0.3634291724 | 0.3634291724 | 5.55e-16 | 1e-06 | yes |
+

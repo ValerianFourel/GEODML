@@ -121,7 +121,9 @@ Contribution 3 as it stands today: "as prompts become action-ready they stop nam
 <li>☑ <code>analysis/fullrun/</code>: task ledger (296 tasks), worker with atomic claims, status, reconcile, Hub import; sharded extraction with exact merge; bootstrap unit ranges</li>
 <li>☑ New parts census, supply, ablation, queries; generator and fixed effects split by stratum; answer export fixes</li>
 <li>☑ Tests: 101 on the Mac, 34 in the container; the container reproduces the published Mac chain with 0 differences</li>
-<li>☐ Runbook: <code>analysis/docs/horeka-fullrun.md</code> (blocks 0–7)</li>
+<li>☑ Runbook: <code>analysis/docs/horeka-fullrun.md</code> (blocks 0–7, GPU statistics in 5b)</li>
+<li>☑ GPU backend (PyTorch, float64 Newton): generator and fixed-effects gates passed; funnel and decision fits stay on CPU until the gate reference is settled (see <code>analysis/fullrun/validation/REPORT.md</code>); relocation check now gates every embedding</li>
+<li>☐ Valerian: decide the funnel gate reference (cached CPU fits, which stop early, or a tightly converged CPU optimum) and approve GPU-statistics allocations</li>
 <li>☐ Valerian: push the branch; approve 6-hour CPU allocations (cap 8 node-allocations, at most 4 at once, 10-minute start gaps) and up to 3 GPU allocations of 2 hours; check <code>apptainer --version</code>, workspace quota, Hub token on the login node</li>
 <li>☐ HoreKa: reconcile local cells against the Hub; fetch the missing bundles (about 21–24k Qwen cells, 1,716 Llama cells); plan; CPU wave (extraction); GPU allocation (embeddings); CPU waves (analysis)</li>
 <li>☐ Bring back the tarball; final RESULTS, this page updated, abstract and contributions with final numbers</li>
