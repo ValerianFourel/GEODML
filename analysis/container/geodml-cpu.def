@@ -1,0 +1,15 @@
+# Apptainer recipe for HoreKa when Docker is not available: builds the same image from the same lock file.
+#   apptainer build --fakeroot geodml-cpu.sif geodml-cpu.def        (run from analysis/container)
+# Preferred instead: build with Docker on the Mac, `docker save`, copy, `apptainer build geodml-cpu.sif docker-archive://geodml-cpu.tar`.
+Bootstrap: docker
+# the official python image through the public ECR mirror (docker.io may be unreachable)
+From: public.ecr.aws/docker/library/python:3.12-slim
+
+%files
+    requirements-cpu.lock /tmp/requirements-cpu.lock
+
+%post
+    pip install --no-cache-dir -r /tmp/requirements-cpu.lock
+
+%environment
+    export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1

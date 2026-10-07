@@ -1,0 +1,8 @@
+# CPU stages of the full run (analysis/fullrun). Pinned to the versions the Mac steelman run used (2026-10-08).
+numpy==2.4.2
+scipy==1.17.0
+pandas==3.0.1
+pyarrow==24.0.0
+scikit-learn==1.8.0
+huggingface_hub==1.4.1
+pytest==9.0.2
