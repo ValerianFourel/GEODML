@@ -68,3 +68,17 @@ def verdict_c2(deltas: dict) -> dict:
     else:
         verdict = "undetermined"
     return {"verdict": verdict, "checks": rows}
+
+
+def verdict_supply(strata: dict) -> dict:
+    """PREREG addendum B3: (a) ceiling gap above 0, (b) top − bottom supply-tercile contrast above 0, (c) utilisation of
+    the own-row oracle at least 0.5, each by its 95% interval, in every stratum."""
+    rows = {}
+    for name, e in strata.items():
+        rows[name] = {"a_ceiling_gap": _lower(e["ceiling_gap_top_x"]["ci95"]) > 0,
+                      "b_tercile_contrast": _lower(e["tercile_contrast_top_minus_bottom"]["ci95"]) > 0,
+                      "c_utilisation": _lower(e["utilisation"]["U"]["ci95"]) >= 0.5}
+    a = all(r["a_ceiling_gap"] for r in rows.values())
+    full = a and all(r["b_tercile_contrast"] and r["c_utilisation"] for r in rows.values())
+    verdict = "supported" if full else ("narrowed" if a else "failed")
+    return {"verdict": verdict, "checks": rows}

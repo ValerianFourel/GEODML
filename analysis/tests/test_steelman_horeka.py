@@ -54,3 +54,35 @@ def test_every_part_runs_and_reports(horeka):
     assert "joined on fingerprint" in lex["agent_queries"] and lex["lexicon_source"].startswith("frozen")
     manifest = json.loads((horeka["out"] / "manifest.json").read_text())
     assert set(manifest["verdicts"]["C2"]) == {"llama4", "qwen38"}
+
+
+def test_full_run_parts_on_two_models(horeka):
+    from analysis.steelman import decide
+    for part in ("census", "supply", "ablation", "queries"):
+        assert cli.main([part, *horeka["common"]]) == 0, part
+    census = json.loads((horeka["out"] / "census.json").read_text())
+    assert {r["model"] for r in census["table"]} == {"llama4", "qwen38"}
+    conditions = {json.loads(line)["condition"] for line in gzip.open(horeka["extract"] / "answers.jsonl.gz", "rt")}
+    assert {r["condition"] for r in census["table"]} == conditions and "natural" in conditions
+    supply = json.loads((horeka["out"] / "supply.json").read_text())
+    for e in supply["strata"].values():
+        assert set(e["slopes"]) >= {"K", "oracle_U", "oracle_R", "oracle_C", "oracle_P", "oracle_snapshot"}
+        assert len(e["deciles"]) == 10
+    assert decide.verdict_supply(supply["strata"])["verdict"] in ("supported", "narrowed", "failed")
+    ablation = json.loads((horeka["out"] / "ablation.json").read_text())
+    assert ablation["strata"]
+    queries = json.loads((horeka["out"] / "queries.json").read_text())
+    assert queries["strata"]
+
+
+def test_oracle_picks_the_closest_rows_by_hand():
+    from analysis.steelman.fullparts import oracle_k, oracle_k_snapshot
+    u = np.array([0.1, 0.5, 0.9, 0.45])
+    x = np.array([0.5, 0.95])
+    L = np.array([2, 1])
+    got = oracle_k(np.array([0, 0, 0, 0, 1, 1]), np.array([0, 1, 2, 3, 0, 2]), x, u, L, 2)
+    w = 1 / np.log2(np.arange(2) + 2)
+    assert got[0] == pytest.approx((w[0] * 0.5 + w[1] * 0.45) / w.sum())
+    assert got[1] == pytest.approx(0.9)
+    snap = oracle_k_snapshot(x, L, np.sort(u))
+    assert snap[0] == pytest.approx(got[0]) and snap[1] == pytest.approx(0.9)

@@ -63,6 +63,10 @@ def identity(path: Path) -> dict:
 
 
 def git_commit() -> str:
+    """The checkout's commit; ``GEODML_GIT_COMMIT`` wins (containers that mount a pinned checkout without git)."""
+    pinned = os.environ.get("GEODML_GIT_COMMIT", "").strip()
+    if pinned:
+        return pinned
     try:
         return subprocess.check_output(["git", "-C", str(REPOSITORY), "rev-parse", "HEAD"], text=True).strip()
     except (OSError, subprocess.CalledProcessError):

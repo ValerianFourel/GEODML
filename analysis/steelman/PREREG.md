@@ -145,3 +145,10 @@ every keyword token, at x < .2 and x ≥ .8 and its within-keyword slope, restri
 
 **Rules carried over unchanged:** C1 and C2 as above (C2 per model, Reactive primary for C1), addenda B1 and B2, seeds,
 draws, SESOI, and the exploratory label for the keyword-mention follow-up.
+
+*Note to B3 (2026-10-08, after a 30-draw smoke run of the new parts on the Mac exploration data, before any HoreKa
+result).* About 40% of keywords have no row with u ≥ .6, so tercile cut points on that share alone leave the lowest
+tercile empty. Terciles are therefore cut on the rank of (share of rows with u ≥ .6, then mean u) over all 1,011
+keywords. Seen in that smoke run (Qwen, exploration, exploratory): supply verdict "narrowed" (own-row oracle utilisation
+0.19–0.26); ablation pass-through 0.69–0.86; among prompts that name their keyword, the keyword share of queries does not
+fall with x (Reactive 0.62 → 0.55, Parallel 0.27 → 0.31).
