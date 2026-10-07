@@ -209,3 +209,13 @@ sender (193 + at most 10 jobs, within the 200 authorization). Launcher:
 `analysis/docs/horeka-gemma-v4-map-recovery.sh`. Report recovered maps separately as
 "recovered with up to N corrective attempts". 119 tests pass across the Gemma v4,
 sender, prequeue, SI-v4, publish and selector suites. Not yet run on HoreKa.
+
+## Update: 27 Qwen Gemma bouts failed at startup (pasted, 2026-10-07 16:52–17:17 UTC)
+
+All failed in about 35 s, exit 1, in the startup quota check: `mmlsquota -u uhh_bbf7367`
+returned "no such user" (status 22) on those compute nodes; a transient user-lookup
+outage, no judging done. Later bouts run normally (24 running at 15:17 UTC). The sender
+had marked 24 shards blocked. Sender change: a terminal allocation that FAILED (or
+NODE_FAIL/BOOT_FAIL) within 300 s with no results database is eligible again, within the
+shard's existing allocation budget (never beyond it). Restart only the login-side sender
+from the new commit; bouts keep their pinned code 469b786.

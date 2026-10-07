@@ -45,7 +45,7 @@ class Cluster:
         if command[0] == 'sacct':
             # --parsable2 has no trailing separator. Both live and terminal
             # allocation records can be present in accounting.
-            return SimpleNamespace(returncode=0, stdout='\n'.join('|'.join([job, r['state'], r['comment'], r['name'], '600', '32', '1', 'cpu=32,gres/gpu=4,node=1', '2027-01-15T08:00:00', '2027-01-15T08:10:00', '0:0']) for job, r in self.accounting.items()), stderr='')
+            return SimpleNamespace(returncode=0, stdout='\n'.join('|'.join([job, r['state'], r['comment'], r['name'], str(r.get('elapsed', 600)), '32', '1', 'cpu=32,gres/gpu=4,node=1', '2027-01-15T08:00:00', '2027-01-15T08:10:00', '0:0']) for job, r in self.accounting.items()), stderr='')
         assert command[0] == 'sbatch'
         shard = next(s for s in self.plan['shards'] if str(Path(s['directory']) / 'run.sh') == command[-1])
         comment = next(a.split('=', 1)[1] for a in command if a.startswith('--comment='))
@@ -380,3 +380,23 @@ def test_small_map_recovery_uses_its_own_lock_and_a_large_one_is_refused(cluster
     plan['shards'] = [dict(plan['shards'][0], id=str(i)) for i in range(sender.RECOVERY_MAX_SHARDS + 1)]
     with pytest.raises(ValueError, match="at most"):
         sender.lock_name(plan)
+
+
+
+@pytest.mark.parametrize('elapsed,results,expected_submissions', [(35, False, 2), (3600, False, 1), (35, True, 1)])
+def test_startup_failure_is_retried_once_within_budget(cluster, elapsed, results, expected_submissions):
+    c = cluster(maximum=2)
+    def end(c):
+        s = c.submissions[-1]
+        if len(c.submissions) == 1:
+            if results:
+                (Path(s['shard']['directory']) / 'results/control').mkdir(parents=True)
+                (Path(s['shard']['directory']) / 'results/control/index.sqlite').write_text('')
+            row = c.jobs.pop(s['job'])
+            c.accounting[s['job']] = {**row, 'state': 'FAILED', 'elapsed': elapsed}
+        else:
+            c.result(s['shard'])
+            c.end(s['job'])
+    c.end_action = end
+    run(c)
+    assert len(c.submissions) == expected_submissions

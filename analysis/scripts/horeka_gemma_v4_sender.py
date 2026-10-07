@@ -71,6 +71,8 @@ class SenderBusy(ValueError):
 
 
 RECOVERY_MAX_SHARDS = 10
+STARTUP_FAILURE_SECONDS = 300
+STARTUP_FAILURE_STATES = frozenset({"FAILED", "NODE_FAIL", "BOOT_FAIL"})
 
 
 def lock_name(plan) -> str:
@@ -319,6 +321,13 @@ def inspect(plan, observed, *, runtime=None, persist=False):
             if "state" not in item:
                 if progress.get("status") in EXHAUSTED:
                     item.update(state="exhausted", reason=progress["status"])
+                elif (progress.get("status") == "not_started" and row.get("state") in STARTUP_FAILURE_STATES
+                      and (row.get("elapsed_seconds") or STARTUP_FAILURE_SECONDS + 1) <= STARTUP_FAILURE_SECONDS
+                      and not (Path(shard["directory"]) / "results/control/index.sqlite").exists()
+                      and allocated < shard["max_allocations"]):
+                    # Died during startup checks, before any judging (e.g. a node could not look up the user for
+                    # the quota check). Retry within the shard's existing allocation budget; never beyond it.
+                    item.update(state="eligible", reason="previous allocation failed at startup before any judging; retry within budget")
                 elif progress.get("status") == "not_started" or completed(progress) <= last_intent["completed_before"]:
                     item.update(state="blocked", reason="terminal allocation saved no new outcomes; inspect model startup/runtime logs")
                 elif progress.get("states", {}).get("running", 0):
