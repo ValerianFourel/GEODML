@@ -6,7 +6,7 @@ Approved by Valerian on 2026-10-08: CPU allocations of 6 hours on `cpuonly` (who
 validated LLM2Vec profile), cap 3. Every block below is for an already-open HoreKa login shell.
 
 Estimate [H, from the Mac steelman run, the funnel handoff and the planner's per-task estimates]: about 630 CPU-hours of
-tasks in total (both keyword splits run every part); one 76-core node delivers about 400 core-hours in 6 hours, so
+tasks in total on the CPU path; with `"gpu_stats": true` (section 5b) about 60 CPU-hours plus 1–2 four-GPU allocations (both keyword splits run every part); one 76-core node delivers about 400 core-hours in 6 hours, so
 3 to 5 CPU allocations; 1 GPU allocation of about 1.5 hours. New disk: 20–40 GB plus the Hub import (5–15 GB).
 
 ## 0. Variables and status
@@ -102,6 +102,33 @@ ls $LEDGER/failed
 
 `reconcile` releases only claims of allocations that Slurm reports ended. A task that failed twice stays failed: read its
 log, fix the code on the Mac, commit, and plan a new ledger for what remains (never edit a running checkout).
+
+## 5b. GPU statistics (optional; needs Valerian's explicit approval of the allocations)
+
+The heavy fits (funnel stage models, generator decisions, steelman generator and fixed effects; about 570 of the
+630 CPU-hours) can run on the PyTorch backend (`analysis/interpretability/pipeline/torch_fits.py`, PREREG computational
+note C1). Plan the ledger with `"gpu_stats": true` in `config.json`; each heavy task then takes one A100, and a
+4-GPU node runs four at a time. The CPU tasks (extraction, merges, cheap parts, assembly, reports) stay on `cpuonly`.
+Only estimators that passed `analysis/fullrun/validation/REPORT.md` may be routed here.
+
+Proposed (to approve): up to 3 allocations of `horeka-fullrun-gpu-stats.sbatch` (accelerated, 4 A100, 152 CPUs,
+4 hours) = at most 48 GPU-hours; one 15-minute `dev_accelerated` check first. Estimate [H, to be replaced after the
+first allocation by measured task times]: 1–2 allocations.
+
+```bash
+mkdir -p $W/containers
+(cd "$CODE/analysis/container" && apptainer build --fakeroot $W/containers/geodml-gpu.sif geodml-gpu.def)
+srun -p dev_accelerated --gres=gpu:1 -n1 -c 8 -t 00:15:00 apptainer exec --nv --no-home --bind $W \
+  --env GEODML_GIT_COMMIT=$PIN,PYTHONPATH=$CODE $W/containers/geodml-gpu.sif \
+  python -c "import torch,time; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0)); a=torch.randn(8000,8000,dtype=torch.float64,device='cuda'); torch.cuda.synchronize(); t=time.time(); (a@a).sum().item(); print('fp64 8000^3 s', round(time.time()-t,3))"
+srun -p dev_accelerated --gres=gpu:1 -n1 -c 8 -t 00:15:00 apptainer exec --nv --no-home --bind $W \
+  --env GEODML_GIT_COMMIT=$PIN,PYTHONPATH=$CODE $W/containers/geodml-gpu.sif \
+  python -m pytest -q -p no:cacheprovider $CODE/analysis/tests/test_torch_fits.py
+sbatch --export=ALL,CODE=$CODE,LEDGER=$LEDGER --output=$FR/slurm/gpustats-%j.out $CODE/analysis/docs/horeka-fullrun-gpu-stats.sbatch
+```
+
+The embedding tasks start with the relocation check: 512 archived prompts are re-embedded and must reproduce the
+archived axis (`relocation-fresh.json`); if it fails, no query or answer is embedded and intent analysis waits.
 
 ## 7. Results to bring back
 
