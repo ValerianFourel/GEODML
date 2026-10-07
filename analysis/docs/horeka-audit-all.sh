@@ -52,9 +52,17 @@ for model in ("llama4", "qwen38"):
     print(f"  {model}: completed {m['completed']} | terminal_failed {m['terminal_failed']} | conflicts {m['conflicts']} | sources {m['sources']}")
     done_here = local[model].get("completed", 0) + local[model].get("terminal_failed", 0)
     done_hub = (m["completed"] or 0) + (m["terminal_failed"] or 0)
-    gap = done_here - done_hub
-    verdict.append(f"{model} generation on the Hub: " + ("UP TO DATE" if gap <= 0 else
-                   f"{gap:,} cells done on HoreKa but not published (page step 4 publishes Qwen)"))
+    if model == "qwen38":
+        # Exact: verified finished Qwen cells on HoreKa that the Hub's results index does not list.
+        from analysis.scripts.publish_qwen_results import publish as qwen_publish_plan
+        new = qwen_publish_plan(Exchange(store, Path(".")), DATA[model], apply=False)["new_cells"]
+        print(f"  qwen38: finished on HoreKa but not on the Hub: {new:,}")
+        verdict.append("qwen38 generation on the Hub: " + ("UP TO DATE" if new == 0 else
+                       f"{new:,} finished HoreKa cells not published (page step 4)"))
+    else:
+        # Counts only: the Hub figure covers registered-hour bundles, so a gap is a lead, not proof.
+        verdict.append(f"{model} generation on the Hub: HoreKa {done_here:,} vs Hub registered hours {done_hub:,}"
+                       + ("" if done_here <= done_hub else f" ({done_here - done_hub:,} not counted on the Hub; needs a check)"))
 if hub["issues"]:
     print("  hub issues:", hub["issues"][:5])
 
