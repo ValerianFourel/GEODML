@@ -72,15 +72,15 @@ analysis behind it yet. Status of each claim below.</p>
 <tr><td>The size of the shift is bounded by how few action-ready pages exist</td>
 <td>No saved analysis. Quick look (no intervals): 0.76% of snapshot rows have u ≥ .8; only 7.6% of keywords have any; an intent-matching oracle on the keyword's own rows reaches a slope of .23–.37 while the observed slope is .06–.09</td>
 <td><span class="tag bad">not supported as written</span></td>
-<td>Scarcity caps the level at the action end, not the slope: "few action-ready pages exist, which caps how close cited sources can come to the most action-ready prompts". Close: the supply analysis (pre-registered rule in PREREG addendum B3).</td></tr>
+<td>Scarcity caps the level at the action end, not the slope: "few action-ready pages exist, which caps how close cited sources can come to the most action-ready prompts". Smoke run (exploratory): pre-registered verdict <b>narrowed</b>; the pipeline uses 19–26% of what an oracle on the keyword's own pages could reach, and the cited-intent slope does not differ between keywords with few and many action-ready pages. Final verdict: the <code>supply</code> part of the full run.</td></tr>
 <tr><td>Stage shares: prompt words 18–20%, query rewriting 18–34%, reranker 35–47%, generator 13–15%</td>
 <td>Old hand ratios of point estimates, no intervals, mixed samples</td>
 <td><span class="tag warn">replace</span></td>
 <td>Current steelman (Qwen, common sample, 95% intervals): Reactive 17 / 32 / 35 / 5 (shown order) + 10 (generator); Parallel 20 / 18 / 47 / 7 + 8. Final numbers from the full run.</td></tr>
 <tr><td>The agent drops the user's keyword from its queries (61% → 21%, Reactive)</td>
-<td>Qwen, 237 keywords. Prompts themselves stop naming their keyword along x (−0.73 to −0.75)</td>
-<td><span class="tag warn">partly prompt-driven</span></td>
-<td>Report it also among prompts that name their keyword. Close: added to the follow-up part.</td></tr>
+<td>Qwen, 237 keywords. Prompts themselves stop naming their keyword along x (−0.73 to −0.75). <b>Smoke run (2026-10-08, exploratory, no intervals): among prompts that name their keyword, the keyword share of queries does not fall</b> (Reactive 62% → 55%, Parallel 27% → 31%); prompts that omit it give 0% at both ends</td>
+<td><span class="tag bad">reversed: the drop is the prompt's</span></td>
+<td>"Action-ready prompts stop naming the topic keyword, and the agent's queries follow the prompt". Do not credit the agent with dropping the keyword. Final numbers: the <code>queries</code> part of the full run.</td></tr>
 </tbody></table></div>
 <p class="note">Also before submission: the manuscript still mentions glued-title rows (<code>manuscript_draft/sections/methods.tex:60</code>, <code>introduction.tex:6</code>), which the paper rules forbid. "Tannenbaum (2026)" and "Martinez (2026)" have no source anywhere in the repo: find them or drop the sentence. BM25 stays out of the paper.</p>
 </section>
@@ -93,7 +93,8 @@ documents are placed on the same scale. Applying it to a frozen, fully logged LL
 results stage by stage. Intent shifts what gets cited mainly by changing which sources reach the shortlist, through the queries
 the agent writes and the reranker that filters their results, while the generator's choice among shortlisted sources adds almost
 nothing to the shift. Few action-ready pages exist, which caps how close the cited sources can come to the most action-ready prompts.</p></blockquote>
-<p class="note">The last sentence waits on the supply analysis; the generator sentence waits on Llama; every number waits on the held-out keywords.</p>
+<p class="note">The last sentence waits on the supply analysis; the generator sentence waits on Llama; every number waits on the held-out keywords.
+Contribution 3 as it stands today: "as prompts become action-ready they stop naming the topic keyword and the agent's queries follow"; "the generator's choice among shown sources adds almost nothing to the shift (Qwen)"; "few action-ready pages exist (under 1% of pages sit above the 80th prompt percentile)".</p>
 </section>
 
 <section>
@@ -105,7 +106,7 @@ nothing to the shift. Few action-ready pages exist, which caps how close the cit
 <tr><td>Stage chain, both models, both keyword splits</td><td>contribution 2; claim 3</td><td>rerun</td></tr>
 <tr><td>Generator keep and order, intent-blind counterfactual, fixed effects, score-matched pairs (both models)</td><td>claim 4</td><td>rerun, Llama added</td></tr>
 <tr><td>Supply: action-ready pages per keyword, oracle slopes over own rows, retrieved pool, shortlist and whole snapshot, ceiling by x decile, slope by supply tercile</td><td>claim 5</td><td>new</td></tr>
-<tr><td>Ablated condition: a forced change of the shortlist for the same prompt, how much of it reaches the cited sources</td><td>the only manipulated contrast</td><td>new</td></tr>
+<tr><td>Ablated condition: a forced change of the shortlist for the same prompt, how much of it reaches the cited sources</td><td>the only manipulated contrast (smoke run: 69–86% of a forced change in shortlist intent reaches the cited sources)</td><td>new</td></tr>
 <tr><td>Keyword share of queries among prompts that name their keyword</td><td>contribution 3a</td><td>new</td></tr>
 <tr><td>Funnel confirmatory family P1–P4, stage models, decomposition; generator decisions</td><td>held-out confirmation</td><td>run</td></tr>
 <tr><td>Intent stages with query (Q) and answer (A) embeddings and Gemma support (Llama)</td><td>query and answer intent</td><td>run, GPU for embeddings</td></tr>
@@ -115,12 +116,13 @@ nothing to the shift. Few action-ready pages exist, which caps how close the cit
 <section>
 <h2>4. Checklist</h2>
 <ul class="check">
-<li>☐ PREREG addendum B3 committed (supply rule, ablation, census, keyword-naming queries, reporting by split)</li>
-<li>☐ Container (CPU) and its Apptainer recipe; the GPU embeddings keep the validated HoreKa environments</li>
-<li>☐ <code>analysis/fullrun/</code>: task ledger, worker with atomic claims, status, reconcile; sharded extraction; bootstrap ranges</li>
-<li>☐ New parts: census, supply, ablation; follow-up extension; bug fixes found in exploration</li>
-<li>☐ Tests on the Mac and in the container; reproduction gate (Mac exploration numbers reproduce exactly)</li>
-<li>☐ Valerian: push; approve 6-hour CPU allocations (cap 8 node-allocations, at most 4 at once, 10-minute start gaps) and up to 3 GPU allocations of 2 hours; check <code>apptainer --version</code>, workspace quota, Hub token on the login node</li>
+<li>☑ PREREG addendum B3 committed (supply rule, ablation, census, keyword-naming queries, reporting by split), with a dated note on the supply terciles</li>
+<li>☑ Container (CPU) built and tested; Apptainer recipe; the GPU embeddings keep the validated HoreKa environments</li>
+<li>☑ <code>analysis/fullrun/</code>: task ledger (296 tasks), worker with atomic claims, status, reconcile, Hub import; sharded extraction with exact merge; bootstrap unit ranges</li>
+<li>☑ New parts census, supply, ablation, queries; generator and fixed effects split by stratum; answer export fixes</li>
+<li>☑ Tests: 101 on the Mac, 34 in the container; the container reproduces the published Mac chain with 0 differences</li>
+<li>☐ Runbook: <code>analysis/docs/horeka-fullrun.md</code> (blocks 0–7)</li>
+<li>☐ Valerian: push the branch; approve 6-hour CPU allocations (cap 8 node-allocations, at most 4 at once, 10-minute start gaps) and up to 3 GPU allocations of 2 hours; check <code>apptainer --version</code>, workspace quota, Hub token on the login node</li>
 <li>☐ HoreKa: reconcile local cells against the Hub; fetch the missing bundles (about 21–24k Qwen cells, 1,716 Llama cells); plan; CPU wave (extraction); GPU allocation (embeddings); CPU waves (analysis)</li>
 <li>☐ Bring back the tarball; final RESULTS, this page updated, abstract and contributions with final numbers</li>
 </ul>

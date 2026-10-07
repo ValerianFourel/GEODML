@@ -11,6 +11,39 @@ held-out keywords separately. No new text generation.
 State at writing: branch `codex/acl-figures-20261006`, 13 commits ahead of origin (Valerian pushes). Nothing of the
 full run exists yet; this handoff is updated as each step lands.
 
+## State after the preparation session (2026-10-08)
+
+Done on the Mac, all committed on `codex/acl-figures-20261006` (not pushed; Valerian pushes). Nothing ran on a cluster.
+- `analysis/steelman/IMPORTANT.html`: claim-by-claim status, provisional abstract, checklist (updated with the findings below).
+- `PREREG.md` addendum B3 (census, supply rule, ablation, keyword-naming queries, reporting by split) and a dated note on
+  the supply terciles (rank-based; about 40% of keywords have no page with u >= .6).
+- New parts in `analysis/steelman/fullparts.py`: census, supply (oracles over U/R/C/P/snapshot, ceiling, supply terciles),
+  ablation (natural vs ablated pairs), queries (keyword share among prompts that name the keyword); `decide.verdict_supply`.
+- Splitting: `--prompt-shard K/N` on both extract commands + exact merge (`analysis/fullrun/merge.py`); funnel analyze
+  `--task` / `--units` (unit files merged on assembly); steelman generator and fe `--stratum`; caches keyed by commit,
+  PREREG and settings; `GEODML_GIT_COMMIT` overrides git for containers.
+- `analysis/fullrun/`: ledger (O_EXCL claims, exit-4 checkpoints, two failures max, reconcile via sacct), worker, status,
+  planner (296 tasks, about 630 CPU-hours estimated: both splits run every part), Hub inventory/missing/fetch.
+- Fixes: answer export reads several roots per model, drops duplicate cells, writes through `.partial`; the results
+  bundle includes the steelman outputs.
+- Container: `analysis/container/` (Dockerfile from the public ECR mirror of python:3.12-slim, docker.io and Debian mirrors
+  were unreachable from Docker Desktop; pinned lock); Apptainer recipe. 34 tests pass inside it; the container reproduces
+  the published Mac chain with 0 differences above 1e-10.
+- HoreKa: runbook `analysis/docs/horeka-fullrun.md` (blocks 0–7), `horeka-fullrun-cpu.sbatch` (6 h, cpuonly, exclusive),
+  `horeka-fullrun-gpu.sbatch` (2 h, 4 A100, validated profile through `horeka-fullrun-embed.sh`), `horeka-fullrun-wave.sh`
+  (finite, observed-start admission, at most 4).
+- Tests: 101 pass on the Mac (full-run, steelman, funnel, intent-stages, geo-drivers, answers, bundle, page-readiness).
+
+Findings of a 30-draw smoke run of the new parts on the Mac exploration data (Qwen; exploratory; no final intervals):
+- Among prompts that name their keyword, the keyword share of the agent's queries does not fall with x (Reactive
+  0.62 → 0.55, Parallel 0.27 → 0.31); the "61% → 21%" drop is the prompts no longer naming the keyword.
+- Supply verdict "narrowed": utilisation of the own-row oracle 0.19–0.26; no slope difference across supply terciles.
+- Ablation pass-through of shortlist intent to cited intent 0.69–0.86.
+
+Next: Valerian pushes; HoreKa blocks 0–3 (checkout, container, Hub import, plan), then the CPU wave and the GPU
+allocation. Bring back the tarball of block 7. Also open: find or drop the Tannenbaum/Martinez references; remove the
+glued-title mentions from `manuscript_draft/sections/methods.tex:60` and `introduction.tex:6`.
+
 ## The approved plan (verbatim copy)
 
 ### Full run: every trace, both models, all keywords — finishing the math behind the abstract
