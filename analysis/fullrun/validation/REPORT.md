@@ -251,3 +251,68 @@ The backend reproduces the exact optimum; the cached CPU fits stop early (defaul
 optimisation error of up to about 1e-3 per coefficient, small against their keyword-bootstrap intervals but larger than
 the gate. Per note C1 the funnel and decisions estimators stay on the CPU path unless Valerian approves re-stating the
 reference of this gate as the tightly converged CPU optimum (which they then pass at 4e-8).
+## steelman generator qwen38 · Reactive (torch-cpu) — FAIL (2026-10-07 19:15)
+
+100 keyword draws, 200 Monte-Carlo draws per answer; 3246.8 s on this machine; TOST verdict CPU True / torch True.
+
+| quantity | CPU | torch | abs diff | threshold | ok |
+|---|---|---|---|---|---|
+| main delta_gen | -7.849773105e-05 | -7.634720721e-05 | 2.15e-06 | 0.0001 | yes |
+| main delta_gen ci90[0] | -0.002067446869 | -0.002072094082 | 4.65e-06 | 0.0002 | yes |
+| main delta_gen ci90[1] | 0.001452745195 | 0.001299859288 | 0.000153 | 0.0002 | yes |
+| main delta_gen ci95[0] | -0.002208755589 | -0.002216780556 | 8.02e-06 | 0.0002 | yes |
+| main delta_gen ci95[1] | 0.001679937665 | 0.001644413355 | 3.55e-05 | 0.0002 | yes |
+| main model_check | -0.00098134391 | -0.0009779880904 | 3.36e-06 | 0.0001 | yes |
+| no_slot delta_gen | 0.0002439900693 | 0.000247571858 | 3.58e-06 | 0.0001 | yes |
+| no_slot delta_gen ci90[0] | -0.001743615872 | -0.001770861626 | 2.72e-05 | 0.0002 | yes |
+| no_slot delta_gen ci90[1] | 0.002035474135 | 0.001987699742 | 4.78e-05 | 0.0002 | yes |
+| no_slot delta_gen ci95[0] | -0.002391755787 | -0.002410536717 | 1.88e-05 | 0.0002 | yes |
+| no_slot delta_gen ci95[1] | 0.002596607523 | 0.002478531735 | 0.000118 | 0.0002 | yes |
+| no_slot model_check | -0.0009814720256 | -0.0009819347017 | 4.63e-07 | 0.0001 | yes |
+| score delta_gen | 0.0002852023634 | 0.0002892726349 | 4.07e-06 | 0.0001 | yes |
+| score delta_gen ci90[0] | -0.001698250956 | -0.001699956845 | 1.71e-06 | 0.0002 | yes |
+| score delta_gen ci90[1] | 0.001784342739 | 0.001704081894 | 8.03e-05 | 0.0002 | yes |
+| score delta_gen ci95[0] | -0.001890611433 | -0.001902465762 | 1.19e-05 | 0.0002 | yes |
+| score delta_gen ci95[1] | 0.002137698927 | 0.002117170577 | 2.05e-05 | 0.0002 | yes |
+| score model_check | -0.0009378236855 | -0.0009341852297 | 3.64e-06 | 0.0001 | yes |
+| main|keep intent_alignment | 0.3201761456 | 0.3199970049 | 0.000179 | 0.0001 | NO |
+| main|keep intent_x_prompt | -0.5501617488 | -0.5499079078 | 0.000254 | 0.0001 | NO |
+| main|keep on_keyword | 0.3966111046 | 0.3965967439 | 1.44e-05 | 0.0001 | yes |
+| main|keep page_intent_z | 0.02158451557 | 0.0216634407 | 7.89e-05 | 0.0001 | yes |
+| main|keep topic_similarity | 1.929769831 | 1.929808423 | 3.86e-05 | 0.0001 | yes |
+| main|order intent_alignment | 0.0958625586 | 0.0954212751 | 0.000441 | 0.0001 | NO |
+| main|order intent_x_prompt | -0.0390120547 | -0.03809842345 | 0.000914 | 0.0001 | NO |
+| main|order on_keyword | 0.00275721095 | 0.002816458341 | 5.92e-05 | 0.0001 | yes |
+| main|order page_intent_z | 0.05490892969 | 0.05491129445 | 2.36e-06 | 0.0001 | yes |
+| main|order topic_similarity | 0.6741088758 | 0.6740067115 | 0.000102 | 0.0001 | NO |
+| no_slot|keep intent_alignment | 0.3365206242 | 0.3360805072 | 0.00044 | 0.0001 | NO |
+| no_slot|keep intent_x_prompt | -0.5558294251 | -0.5550628362 | 0.000767 | 0.0001 | NO |
+| no_slot|keep on_keyword | 0.3965666884 | 0.3965724044 | 5.72e-06 | 0.0001 | yes |
+| no_slot|keep page_intent_z | 0.04938435386 | 0.04938818917 | 3.84e-06 | 0.0001 | yes |
+| no_slot|keep topic_similarity | 1.982127359 | 1.982048396 | 7.9e-05 | 0.0001 | yes |
+| no_slot|order intent_alignment | 0.02642057787 | 0.02666719187 | 0.000247 | 0.0001 | NO |
+| no_slot|order intent_x_prompt | 0.007619540027 | 0.007181077536 | 0.000438 | 0.0001 | NO |
+| no_slot|order on_keyword | 0.2441149518 | 0.2441207315 | 5.78e-06 | 0.0001 | yes |
+| no_slot|order page_intent_z | 0.08744211414 | 0.08743211327 | 1e-05 | 0.0001 | yes |
+| no_slot|order topic_similarity | 0.7593585173 | 0.7592576996 | 0.000101 | 0.0001 | NO |
+| score|keep intent_alignment | 0.2909536758 | 0.2908129354 | 0.000141 | 0.0001 | NO |
+| score|keep intent_x_prompt | -0.474808943 | -0.4745602951 | 0.000249 | 0.0001 | NO |
+| score|keep on_keyword | 0.3157324422 | 0.3157318813 | 5.61e-07 | 0.0001 | yes |
+| score|keep page_intent_z | 0.005827538202 | 0.005882921842 | 5.54e-05 | 0.0001 | yes |
+| score|keep reranker_logit | 0.8292502613 | 0.8291377979 | 0.000112 | 0.0001 | NO |
+| score|keep topic_similarity | 1.78668949 | 1.786712125 | 2.26e-05 | 0.0001 | yes |
+| score|order intent_alignment | 0.0811946658 | 0.08103358935 | 0.000161 | 0.0001 | NO |
+| score|order intent_x_prompt | -0.006516922256 | -0.006241815551 | 0.000275 | 0.0001 | NO |
+| score|order on_keyword | -0.02287219288 | -0.02285398391 | 1.82e-05 | 0.0001 | yes |
+| score|order page_intent_z | 0.04108108111 | 0.04113372194 | 5.26e-05 | 0.0001 | yes |
+| score|order reranker_logit | 0.8420040793 | 0.8422192089 | 0.000215 | 0.0001 | NO |
+| score|order topic_similarity | 0.6173043588 | 0.6173261852 | 2.18e-05 | 0.0001 | yes |
+
+### Reading of the steelman generator gate (2026-10-08)
+
+The section above was labelled FAIL by a first version of the script that also gated the keep/order coefficients, which
+PREREG computational note C1 does not gate. Under C1 (Δ_gen within 1e-4, interval endpoints within 2e-4, same TOST verdict,
+no failed replicates) the gate **passes** for Qwen · Reactive: largest Δ_gen difference 4.1e-6, largest endpoint
+difference 1.53e-4 (main ci90 upper), TOST verdict True on both backends, 0 failed replicates. The keep/order coefficients
+differ by up to 9.1e-4 (main|order intent_x_prompt), the same early stopping of the CPU L-BFGS-B fits diagnosed for the
+funnel. Timing on this Mac (torch-cpu, 5 threads, one stratum, 101 refits + Monte Carlo): 3,247 s.
