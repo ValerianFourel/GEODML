@@ -175,6 +175,7 @@ def explained(stage, result, x_row: np.ndarray) -> dict:
 def build(args) -> int:
     from analysis.interpretability.pipeline import funnel_models as fm
     from analysis.interpretability.pipeline import intent_stages as stages
+    fm.set_backend(args.backend)
     data = study.load_assembled(args.assembled)
     ans = study.answer_arrays(data)
     ans.split = study.split_mask(data, args.split)
@@ -184,12 +185,15 @@ def build(args) -> int:
     prompt_x, prompt_keyword = np.full(ans.prompt.max() + 1, np.nan), np.zeros(ans.prompt.max() + 1, np.int64)
     prompt_x[ans.prompt], prompt_keyword[ans.prompt] = ans.x, ans.keyword
     shuffles = [s_[ans.prompt] for s_ in stages.shuffle_draws(prompt_x, prompt_keyword, args.permutations, args.seed + 1)]
-    out = {"split": args.split, "condition": "natural", "bootstrap": args.bootstrap, "permutations": args.permutations, "seed": args.seed,
+    out = {"split": args.split, "condition": "natural", "backend": args.backend, "bootstrap": args.bootstrap, "permutations": args.permutations, "seed": args.seed,
            "git_commit": readiness.git_commit(), "exploratory": args.split != "confirmation", "strata": {}}
     rows = []
     # finished decisions and checkpointed fits live in <output>.cache; a rerun continues from there (exit 4 = deadline)
-    cache = ResultCache(Path(args.output), {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
-                                            "settings": [args.bootstrap, args.permutations, args.seed, args.min_units], "split": args.split})
+    key = {"git_commit": readiness.git_commit(), "assembled": data.manifest.get("created_at"),
+           "settings": [args.bootstrap, args.permutations, args.seed, args.min_units], "split": args.split}
+    if args.backend != "cpu":
+        key["backend"] = args.backend
+    cache = ResultCache(Path(args.output), key)
     deadline = time.monotonic() + 60 * args.stop_after_minutes
     for stratum in study.strata(ans):
         if not (study.strata(ans)[stratum] & ans.split).any():
@@ -249,6 +253,8 @@ def main(argv=None) -> int:
     parser.add_argument("--permutations", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20261007)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--backend", choices=("cpu", "torch-cpu", "cuda"), default="cpu",
+                        help="fits on numpy/scipy (cpu, the reference) or the PyTorch Newton backend")
     parser.add_argument("--min-units", type=int, default=30, help="fit a decision only with at least this many answers or sets")
     parser.add_argument("--stop-after-minutes", type=float, default=1e9,
                         help="after this many minutes start no new fit; finished fits are checkpointed and the command exits 4")

@@ -147,3 +147,62 @@ def test_two_way_fe_batch_matches_the_cpu_fits():
     got = tf.two_way_fe_batch(y, X, a, r, weights, CPU)
     for b in range(len(weights)):
         assert np.max(np.abs(got[b] - gen.two_way_fe(y, X, a, r, weights[b]))) < 1e-8
+
+
+def _toy_admission_stage():
+    from analysis.interpretability.pipeline import intent_stages as stages
+    rng = np.random.default_rng(11)
+    keywords, per, items = 30, 8, 10
+    answers = keywords * per
+    answer_keyword = np.repeat(np.arange(keywords), per)
+    answer_x = rng.uniform(0, 1, answers)
+    answer = np.repeat(np.arange(answers), items)
+    u = rng.uniform(0, 1, len(answer))
+    text = rng.normal(size=len(answer))
+    eta = 1.2 * text + 2.0 * (-np.abs(u - answer_x[answer])) + rng.normal(0, 1.5, answers)[answer]
+    admitted = (rng.random(len(answer)) < 1 / (1 + np.exp(-eta))).astype(int)
+    data, keep = fm.admission_data(answer, admitted)
+    design = fm.Design([fm.Feature("text", "A3"), fm.Feature("alignment", "A1", "alignment", "u")], {"text": text[keep], "u": u[keep]})
+    row_answer = answer[keep]
+    design.fit_stats(answer_x[row_answer])
+    stage = fm.Stage("admission", design, data, row_answer)
+    return stage, answer_x, answer_keyword, stages.keyword_draws(keywords, 10, 7), stages.shuffle_draws(answer_x, answer_keyword, 9, 8)
+
+
+@pytest.mark.parametrize("which", ["choice", "admission"])
+def test_estimate_blocks_torch_branch_matches_cpu(which, tmp_path):
+    from analysis.tests.test_funnel_models import _toy_choice_stage
+    stage, x, kw, draws, shuffles = _toy_choice_stage() if which == "choice" else _toy_admission_stage()
+    cpu = fm.estimate_blocks(stage, answer_x=x, answer_keyword=kw, draws=draws, shuffles=shuffles)
+    fm.set_backend("torch-cpu")
+    try:
+        got = fm.estimate_blocks(stage, answer_x=x, answer_keyword=kw, draws=draws, shuffles=shuffles, parts=tmp_path / "t.parts.jsonl")
+    finally:
+        fm.set_backend("cpu")
+    assert got["failed_replicates"] == cpu["failed_replicates"] == 0
+    for name, f in cpu["features"].items():
+        g = got["features"][name]
+        assert abs(g["beta_per_sd"] - f["beta_per_sd"]) < 1e-4
+        assert max(abs(a - b) for a, b in zip(g["ci95"], f["ci95"])) < 1e-4
+        if f["permutation_p"] is not None:
+            assert abs(g["permutation_p"] - f["permutation_p"]) <= 1 / (len(shuffles) + 1) + 1e-12
+    for b, v in cpu["blocks"].items():
+        assert abs(got["blocks"][b]["fit_share"] - v["fit_share"]) < 1e-3
+    assert np.max(np.abs(np.asarray(got["replicates"]) - np.asarray(cpu["replicates"]))) < 1e-4
+
+
+def test_torch_unit_ranges_assemble_like_cpu_ranges(tmp_path):
+    from analysis.tests.test_funnel_models import _toy_choice_stage
+    stage, x, kw, draws, shuffles = _toy_choice_stage()
+    fm.set_backend("torch-cpu")
+    try:
+        parts = tmp_path / "r.parts.jsonl"
+        common = dict(answer_x=x, answer_keyword=kw, draws=draws, shuffles=shuffles, parts=parts)
+        for units in (("full", 0, 1), ("drop", 0, 10 ** 9), ("bootstrap", 0, 6), ("bootstrap", 6, 12), ("permutation", 0, 19)):
+            with pytest.raises(fm.UnitsDone):
+                fm.estimate_blocks(stage, **common, units=units)
+        assembled = fm.estimate_blocks(stage, **common)
+        whole = fm.estimate_blocks(stage, **{**common, "parts": tmp_path / "w.parts.jsonl"})
+    finally:
+        fm.set_backend("cpu")
+    assert assembled["features"] == whole["features"]   # the torch path is deterministic: identical

@@ -255,7 +255,22 @@ def parse_units(spec: str | None):
     return kind, lo, hi
 
 
+BACKEND = "cpu"
+BACKENDS = ("cpu", "torch-cpu", "cuda")
+
+
+def set_backend(name: str) -> None:
+    """cpu (numpy/scipy, the reference) or a PyTorch backend (torch_fits: float64 Newton; cuda on HoreKa)."""
+    global BACKEND
+    if name not in BACKENDS:
+        raise ValueError(f"unknown backend {name}; one of {BACKENDS}")
+    BACKEND = name
+
+
 def _fit(stage: Stage, X: np.ndarray, weight=None, start=None):
+    if BACKEND != "cpu":
+        from . import torch_fits
+        return torch_fits.fit(stage.kind, X, stage.data, BACKEND, weight=weight, start=start)
     if stage.kind == "admission":
         return fit_admission(X, stage.data, weight=weight, start=start)
     return fit_choice_model(X, stage.data, set_weight=weight, start=start)
@@ -346,6 +361,54 @@ def _run(jobs, workers, parts: Path | None = None, deadline: float | None = None
     return [done[f"{job[0]}-{job[1]}"] for job in jobs]
 
 
+def _problem_fit(problem, stage: Stage, weight=None, start=None, free=None):
+    if stage.kind == "admission":
+        return problem.fit(weight=weight, start=start, free=free)
+    return problem.fit(set_weight=weight, start=start, free=free)
+
+
+def _run_torch(jobs, problem, stage: Stage, answer_x, answer_keyword, start, parts, deadline, done):
+    """The units of ``jobs`` on the resident torch problem, sequentially, with the CPU path's semantics (``_replicate``):
+    drop = refit without a block (no start, no weight; here: its coefficients fixed at 0); bootstrap = observed x,
+    keyword weights, warm start; permutation = shuffled x in the x-dependent columns, warm start. Same keys and values."""
+    design = stage.design
+    k = len(design.features)
+    xdep = [j for j, f in enumerate(design.features) if f.kind != "static"]
+    loaded = {"x": None}
+
+    def use_x(x_answers, tag):
+        if not xdep or loaded["x"] == tag:
+            return
+        rows = x_answers[stage.row_answer]
+        problem.set_columns(xdep, np.column_stack([design._column(design.features[j], rows) for j in xdep]))
+        loaded["x"] = tag
+
+    for job in jobs:
+        key = f"{job[0]}-{job[1]}"
+        if key in done:
+            continue
+        if deadline is not None and time.monotonic() > deadline:
+            raise DeadlineReached
+        kind, index, value = job
+        if kind == "drop":
+            use_x(answer_x, "observed")
+            free = np.asarray([f.block != value for f in design.features], bool)
+            result = [float(_problem_fit(problem, stage, free=free).fun)]   # a failing drop fit is an error, as on CPU
+        else:
+            if kind == "bootstrap":
+                use_x(answer_x, "observed")
+                weight = value[_group_keyword(stage, answer_keyword)]
+            else:
+                use_x(value, f"shuffle-{index}")
+                weight = None
+            try:
+                result = [float(v) for v in _problem_fit(problem, stage, weight=weight, start=start).x[:k]]
+            except RuntimeError:
+                result = [float("nan")] * k   # counted as a failed replicate, never dropped silently
+        _keep(parts, done, key, result)
+    return [done[f"{j[0]}-{j[1]}"] for j in jobs]
+
+
 def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.ndarray, draws: list,
                     shuffles: list, workers: int = 1, parts: Path | None = None, deadline: float | None = None,
                     units: tuple | None = None) -> dict:
@@ -359,10 +422,14 @@ def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.nd
     done = _load_parts(parts)
     if units is not None and units[0] != "full" and "full-0" not in done:
         raise ValueError("unit ranges need the full fit first (units=full)")
+    problem = None
+    if BACKEND != "cpu":  # the design is uploaded once and every unit of the task reuses it
+        from . import torch_fits
+        problem = torch_fits.problem_for(stage.kind, X, stage.data, BACKEND)
     if "full-0" not in done:
         if deadline is not None and time.monotonic() > deadline:
             raise DeadlineReached
-        fitted = _fit(stage, X)
+        fitted = _problem_fit(problem, stage) if problem is not None else _fit(stage, X)
         _keep(parts, done, "full-0", {"x": [float(v) for v in fitted.x], "fun": float(fitted.fun)})
     if units is not None and units[0] == "full":
         raise UnitsDone
@@ -372,17 +439,19 @@ def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.nd
     blocks = list(design.blocks)
     jobs = ([("drop", i, b) for i, b in enumerate(blocks)] + [("bootstrap", i, d) for i, d in enumerate(draws)]
             + [("permutation", i, s) for i, s in enumerate(shuffles)])
+    run = _run if problem is None else (lambda jobs_, workers_, parts_, deadline_, done_:
+                                        _run_torch(jobs_, problem, stage, answer_x, answer_keyword, full.x, parts_, deadline_, done_))
     if units is not None:
         kind, lo, hi = units
         subset = [j for j in jobs if j[0] == kind and lo <= j[1] < hi]
         target = Path(parts).with_name(f"{Path(parts).name}.{kind}-{lo}-{hi}") if parts is not None else None
         try:
-            _run(subset, workers, target, deadline, done)
+            run(subset, workers, target, deadline, done)
         finally:
             _STATE.clear()
         raise UnitsDone
     try:
-        done = _run(jobs, workers, parts, deadline, done)
+        done = run(jobs, workers, parts, deadline, done)
     finally:
         _STATE.clear()
     gains = {b: max(0.0, done[i][0] - float(full.fun)) for i, b in enumerate(blocks)}

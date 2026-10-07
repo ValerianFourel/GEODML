@@ -497,9 +497,13 @@ def draws_for(spec: str, args) -> tuple[int, int]:
 
 def cache_key(data, args) -> dict:
     commit = getattr(args, "analysis_commit", None) or readiness.git_commit()
-    return {"git_commit": commit, "assembled": data.manifest.get("created_at"),
-            "settings": [args.bootstrap, args.permutations, args.secondary_bootstrap, args.secondary_permutations, args.seed],
-            "split": args.split}
+    key = {"git_commit": commit, "assembled": data.manifest.get("created_at"),
+           "settings": [args.bootstrap, args.permutations, args.secondary_bootstrap, args.secondary_permutations, args.seed],
+           "split": args.split}
+    backend = getattr(args, "backend", "cpu") or "cpu"
+    if backend != "cpu":  # CPU keys stay as they were, so existing CPU caches remain valid; backends never share a task
+        key["backend"] = backend
+    return key
 
 
 def tasks(data, ans, specs) -> list:
@@ -507,6 +511,7 @@ def tasks(data, ans, specs) -> list:
 
 
 def analyze(args) -> int:
+    fm.set_backend(getattr(args, "backend", "cpu") or "cpu")
     data = load_assembled(args.assembled)
     ans = answer_arrays(data)
     ans.split = split_mask(data, args.split)
@@ -770,6 +775,8 @@ def main(argv=None) -> int:
         p.add_argument("--secondary-bootstrap", type=int, default=100)
         p.add_argument("--secondary-permutations", type=int, default=0)
         p.add_argument("--seed", type=int, default=20261007)
+        p.add_argument("--backend", choices=fm.BACKENDS, default="cpu",
+                       help="fits on numpy/scipy (cpu, the reference) or the PyTorch Newton backend (torch-cpu, cuda)")
         if name == "analyze":
             p.add_argument("--shard", default="1/1")
             p.add_argument("--task", help="full run: only this task, named stratum|stage|spec")
