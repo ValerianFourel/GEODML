@@ -107,3 +107,17 @@ shown-slot effects; McFadden pseudo-R² and Pratt shares; 100 draws / 100 shuffl
 - [F] Order: pseudo-R² 0.19 Parallel, 0.35 Reactive; shown slot 40% / 88%, topic 53% / 9%, every other block
   ≤ 3.4%, intent ≈ 0%.
 Llama's keep decision (it keeps far fewer of the 7) needs its traces: HoreKa.
+
+## Addendum (same day): one interactive runner for everything the paper still needs
+
+`analysis/docs/horeka-paper-interactive.sh SLURM_JOB_ID` (commit below; branch also carries the
+other session's fig9 commit 26a7c5a and the cherry-picked answer-text export 9f66a4f). Run it from a
+second login shell against a four-A100 `salloc`; rerun the same command in each later allocation until
+it prints `BUNDLE`. Stages: funnel confirmation (extract → replay → assemble → analyze main, then
+secondary → report), generator keep/order decisions (both models, 733 confirmation keywords),
+intent-stages (trace extract, replay, Gemma extract when `$W/reviews/gemma-si-v4-llama-reuse-5h-20261004`
+exists), query and answer embeddings on the GPUs, answers on the axis, intent-stages analysis, and
+`paper_results.py` → `$R/paper-results-<commit>/report.md` + `$W/reviews/paper-results-<commit>-<time>.tar.gz`.
+Exit 4 = deadline checkpoint (fits saved). Estimate [H]: 6–10 one-hour allocations in total; the
+confirmation analysis is the long part (120–190 CPU-hours on 32 cores, less with the GPU node's cores).
+Bring back the tarball; `paper_results.py` also runs on the Mac to merge in the exploratory folders.
