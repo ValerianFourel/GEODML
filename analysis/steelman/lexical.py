@@ -29,6 +29,7 @@ from .chain import summarise, within_keyword_ols
 from .tables import PARALLEL, Tables, prompt_metadata, strata, tokens
 
 LEXICON_SIZE, LEXICON_MIN_PROMPTS = 50, 200
+SELECTION_DRAWS = 30  # reported-only refits of the ~70-feature shortlisting model take ~5 min each
 
 
 def action_lexicon(prompt_rows: list[dict], keep_keyword) -> list[str]:
@@ -166,10 +167,10 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
     extra_all = {"overlap_prompt": np.log1p(ov_prompt), "overlap_action_words": np.log1p(ov_action),
                  "overlap_agent_query": np.log1p(ov_query)}
 
-    draws = stages.keyword_draws(int(t.keyword.max()) + 1, args.bootstrap, args.seed)[:args.model_draws]
+    draws = stages.keyword_draws(int(t.keyword.max()) + 1, args.bootstrap, args.seed)[:SELECTION_DRAWS]
     cache_root.mkdir(parents=True, exist_ok=True)
     common = t.common()
-    out = {"lexicon": sorted(lexicon), "lexicon_source": "confirmation-keyword prompt texts, top 50 by within-keyword correlation with x",
+    out = {"selection_model_draws": SELECTION_DRAWS, "lexicon": sorted(lexicon), "lexicon_source": "confirmation-keyword prompt texts, top 50 by within-keyword correlation with x",
            "strata": {}}
     for name, m in strata(t).items():
         if not m.any():

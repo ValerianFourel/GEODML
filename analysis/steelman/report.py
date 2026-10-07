@@ -42,10 +42,52 @@ def deck_shares(explore: dict, method: str) -> dict:
             "generator_vs_random": (s["K"] - s["P"]) / k, "admission_P": s["P"] / k}
 
 
+def paper_text(ch, gen, fu, v1, v2) -> list:
+    """Draft paper text with the numbers of this run (wording follows the verdicts)."""
+    R, P = METHODS
+    cr, cp = ch["strata"][R]["chain"]["common"], ch["strata"][P]["chain"]["common"]
+    dr, dp = gen["strata"][R]["delta"]["main"], gen["strata"][P]["delta"]["main"]
+    s = lambda c, t: pct(c["shares"][t]["estimate"])
+    lines = ["## Draft paper text\n", "**Claim sentence (as the evidence supports it).**\n"]
+    if v2["verdict"] == "supported":
+        lines.append("> In agentic LLM search, the prompt's intent reaches the cited sources by changing which documents are "
+                     "shortlisted, through the queries the agent writes and the reranker that filters their results, while the "
+                     "generator's choice among shortlisted documents follows topical match and presentation order; removing the "
+                     f"generator's sensitivity to intent changes the cited-intent slope by {pct(dr['delta_gen_share_of_K']['estimate'], 1)} "
+                     f"[{pct(dr['delta_gen_share_of_K']['ci95'][0], 1)}, {pct(dr['delta_gen_share_of_K']['ci95'][1], 1)}] (Reactive Loop) and "
+                     f"{pct(dp['delta_gen_share_of_K']['estimate'], 1)} [{pct(dp['delta_gen_share_of_K']['ci95'][0], 1)}, "
+                     f"{pct(dp['delta_gen_share_of_K']['ci95'][1], 1)}] (Parallel Expansion).\n")
+    else:
+        lines.append(f"> C2 verdict: {v2['verdict']}; the claim sentence is restricted to admission (C1).\n")
+    lines.append(f"Supporting numbers (Qwen, exploration keywords). Reactive Loop: of the cited-intent slope, the prompt-text replay "
+                 f"accounts for {s(cr, 'prompt_words_R0')}, query rewriting {s(cr, 'query_rewriting')}, the reranker {s(cr, 'reranker')}, "
+                 f"shown-order weighting {s(cr, 'shown_order')} and the generator's own choices {s(cr, 'generator')}. Parallel Expansion: "
+                 f"{s(cp, 'prompt_words_R0')}, {s(cp, 'query_rewriting')}, {s(cp, 'reranker')}, {s(cp, 'shown_order')}, {s(cp, 'generator')}. "
+                 "Do not write \"chiefly through the queries\": the reranker step is at least as large in both methods, and the query "
+                 "share depends on whether the prompt names its keyword (follow-up section).\n")
+    lines.append("**Limitations paragraph.**\n")
+    lines.append("> These results are exploratory and observational: the prompt's position on the intent axis is a measured "
+                 "property of its text, and the stage decomposition attributes an association, not an effect. The generator analysis "
+                 "rests on one model (Qwen); Llama, which drops most shown links, could not be analysed at the trace level here. "
+                 "The decisive test, which we did not run, holds the shortlist fixed: showing the same documents in the same order "
+                 "under prompts of the same keyword at different intent positions would measure the generator's intent sensitivity by "
+                 "design rather than through a fitted choice model. Our counterfactual also conditions on how many sources an answer "
+                 f"cites, and that count itself falls with intent under the Reactive Loop "
+                 f"({num(ch['strata'][R]['cited_count'], 2)} links from x = 0 to 1). Finally, part of what we call query rewriting "
+                 "travels with whether the prompt names its keyword, so it reflects the prompt's wording as much as the agent's "
+                 "reformulation.\n")
+    lines.append("**Positioning.**\n")
+    lines.append("> Tannenbaum (2026) and the survey of Martinez (2026) infer from live engines that exposure matters more than "
+                 "selection; in a closed testbed where every stage is observed, we decompose a prompt-intent effect stage by stage "
+                 "and find that the generator's own intent sensitivity leaves the cited-intent slope unchanged within a margin fixed "
+                 "before the analysis once the shortlist is fixed.\n")
+    return lines
+
+
 def build(out_dir: Path) -> int:
     out_dir = Path(out_dir)
     load = lambda name: json.loads((out_dir / f"{name}.json").read_text()) if (out_dir / f"{name}.json").exists() else None
-    ch, gen, fe, lex, pairs = (load(n) for n in ("chain", "generator", "fe", "lexical", "pairs"))
+    ch, gen, fe, lex, pairs, fu = (load(n) for n in ("chain", "generator", "fe", "lexical", "pairs", "followup"))
     explore = json.loads((DEFAULT_INPUTS / "funnel-explore-v1/explore.json").read_text())
     L = []
     w = L.append
@@ -110,6 +152,7 @@ def build(out_dir: Path) -> int:
         w(f"- **{m}.** Query rewriting adds {num(c['increments']['query_rewriting'])} "
           f"(p = {c['increments']['query_rewriting']['permutation_p']:.3f}); the reranker adds {num(c['increments']['reranker'])} "
           f"(p = {c['increments']['reranker']['permutation_p']:.3f}); the prompt-text replay R0 {num(c['increments']['prompt_words_R0'])}.")
+    w("")
     if lex:
         w("")
         for m in METHODS:
@@ -125,7 +168,7 @@ def build(out_dir: Path) -> int:
                 if f in sm["base"]:
                     parts.append(f"{f} {sm['base'][f]['beta_per_sd']:+.3f} → {sm['lexical'][f]['beta_per_sd']:+.3f} per SD "
                                  f"(change {chg[f]['difference']:+.3f} [{chg[f]['ci95'][0]:+.3f}, {chg[f]['ci95'][1]:+.3f}])")
-            w(f"- **{m}, shortlisting model with word-overlap controls.** " + "; ".join(parts) +
+            w(f"- **{m}, shortlisting model with word-overlap controls ({lex.get('selection_model_draws', '?')} keyword draws).** " + "; ".join(parts) +
               f". Overlap block share of fit {pct(e['selection_model_lexical_block_fit_share'])}.")
         w(f"\nAction-word lexicon ({len(lex['lexicon'])} words, from the confirmation-keyword prompts only): "
           + ", ".join(lex["lexicon"][:20]) + ", ….\n")
@@ -221,6 +264,20 @@ def build(out_dir: Path) -> int:
           f"query rewriting {pct(lo['query_rewriting']['min'], 1)}–{pct(lo['query_rewriting']['max'], 1)}, reranker "
           f"{pct(lo['reranker']['min'], 1)}–{pct(lo['reranker']['max'], 1)}.")
     w("")
+    if fu:
+        w("## Exploratory follow-up (added after the first run, not pre-registered): whether the prompt names its keyword\n")
+        w("Adding the prompt controls moved the query-rewriting share. One control at a time, shares of β_K:\n")
+        w("| Stratum | Control | Prompt words R0 | Query rewriting | Reranker | Generator K − I |\n|---|---|---|---|---|---|")
+        for m in METHODS:
+            e = fu["strata"][m]
+            for lab, sh in list(e["single_control"].items()) + [(f"subset: {k}", v) for k, v in e["within_keyword_named"].items()]:
+                w(f"| {m} | {lab} | {ci_pct(sh['prompt_words_R0'])} | {ci_pct(sh['query_rewriting'])} | {ci_pct(sh['reranker'])} | {ci_pct(sh['generator'])} |")
+        for m in METHODS:
+            w(f"\n{m}: within keyword, the share of prompts naming their keyword changes by "
+              f"{num(fu['strata'][m]['control_on_x']['keyword_in_prompt'])} from x = 0 to 1.")
+        w("")
+    if gen:
+        L.extend(paper_text(ch, gen, fu, v1, v2))
     text = "\n".join(L) + "\n"
     extra = Path(__file__).with_name("paper_text.md")
     if extra.exists():
