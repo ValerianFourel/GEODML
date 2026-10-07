@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMPORTANT: finish the paper's math</title>
+<style>
+:root { --bg:#f7f6f2; --surface:#ffffff; --fg:#1c2321; --muted:#5b6662; --line:#d9ddd8; --accent:#0f6b63;
+  --ok:#2f6f3a; --warn:#9a5b00; --bad:#a3302a; --todo:#2f5f9f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#131816; --surface:#1b2220; --fg:#e4e9e6;
+  --muted:#9aa7a2; --line:#2e3835; --accent:#5cc3b5; --ok:#86c98f; --warn:#e2b25c; --bad:#ec8a83; --todo:#8db6e8; } }
+:root[data-theme="dark"] { --bg:#131816; --surface:#1b2220; --fg:#e4e9e6; --muted:#9aa7a2; --line:#2e3835;
+  --accent:#5cc3b5; --ok:#86c98f; --warn:#e2b25c; --bad:#ec8a83; --todo:#8db6e8; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { max-width:1020px; margin:0 auto; padding:24px 16px 64px; display:grid; gap:28px; }
+h1 { font-size:clamp(26px,4vw,36px); line-height:1.15; margin:0; }
+h2 { font-size:21px; margin:0 0 6px; }
+p, li { max-width:76ch; margin:0; }
+section { display:grid; gap:12px; }
+.banner { border:2px solid var(--bad); border-radius:6px; padding:14px 16px; background:var(--surface); display:grid; gap:8px; }
+.lede { color:var(--muted); }
+.frame { overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface); }
+table { border-collapse:collapse; width:100%; font-size:13.5px; }
+th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+th { color:var(--muted); font-weight:600; background:var(--bg); }
+tr:last-child td { border-bottom:0; }
+.tag { display:inline-block; font:600 12px/1 ui-monospace,monospace; padding:4px 7px; border-radius:3px; border:1px solid currentColor; white-space:nowrap; }
+.ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); } .todo { color:var(--todo); }
+blockquote { margin:0; padding:12px 16px; border-left:3px solid var(--accent); background:var(--surface); border-radius:0 6px 6px 0; }
+ol, ul { margin:0; padding-left:22px; display:grid; gap:6px; }
+code { font:12.5px ui-monospace,monospace; background:var(--surface); border:1px solid var(--line); border-radius:3px; padding:1px 4px; overflow-wrap:anywhere; }
+.note { font-size:13px; color:var(--muted); }
+.check li { list-style:none; margin-left:-22px; }
+</style>
+</head>
+<body>
+<main>
+
+<header style="display:grid;gap:8px">
+<h1>IMPORTANT: finish the paper's math</h1>
+<p class="lede">Written 2026-10-08. What must still be computed, and why, before the abstract and the contribution list can be final.
+Approved plan: one sharded, resumable full run on HoreKa (longer jobs), both models, all 1,011 keywords, all three conditions,
+exploration and held-out keywords reported separately, GPU encoder embeddings included, no new text generation.</p>
+</header>
+
+<div class="banner">
+<p><b>The steelman so far covers Qwen on 237 exploration keywords only.</b> Every number in the abstract must come from the full
+run (both models, held-out keywords confirmatory). Two abstract sentences overstate the evidence as written, and one has no
+analysis behind it yet. Status of each claim below.</p>
+</div>
+
+<section>
+<h2>1. Claim by claim</h2>
+<div class="frame"><table>
+<thead><tr><th>Draft abstract / contribution</th><th>Evidence today</th><th>Status</th><th>Write instead, and what closes it</th></tr></thead>
+<tbody>
+<tr><td>Continuous, validated intent measure; topic held fixed; prompts and documents on one scale</td>
+<td>Robustness battery 11 of 11; the two encoders agree (axis-1 ρ .866); fresh re-embedding ρ .99997; 98.3% of x's variance lies within keyword; pages placed with the prompt percentile scale</td>
+<td><span class="tag ok">supported</span></td>
+<td>"compared within the same topic (keyword), with an intent-free topic control" rather than "topic held fixed". Disclose: labels are a consensus of LLM judges; intervals are row-bootstrap; page positions are out of the prompts' domain. Close: battery bootstrap clustered by source (existing data).</td></tr>
+<tr><td>"known pipeline"</td><td>Every stage is logged; the prompt-text search (R0) is an analysis-time replay</td>
+<td><span class="tag warn">reword</span></td><td>"a frozen, fully logged LLM search pipeline".</td></tr>
+<tr><td>Intent shifts what gets cited mainly through the queries the agent writes and the shortlist it is shown</td>
+<td>Qwen: 84% (Reactive) and 85% (Parallel) of the cited-intent slope is in place before the generator. Query rewriting 32% / 18%, reranker 35% / 47%</td>
+<td><span class="tag ok">supported, Qwen</span></td>
+<td>Never "chiefly through the queries": the reranker step is as large or larger. Close: both models, held-out keywords.</td></tr>
+<tr><td>The generator's selection among shortlisted sources does not respond to intent</td>
+<td>Removing the generator's intent sensitivity changes the slope by −0.0001 (Reactive) and −0.0017 (Parallel), inside the pre-registered ±0.015. But its intent coefficients are non-zero and offset; the cited count falls with intent under Reactive (−0.73 links); Qwen only</td>
+<td><span class="tag bad">overstated</span></td>
+<td>"the generator's choice among shown sources adds almost nothing to the shift". Close: Llama's keep and order decisions (Llama drops most shown links, so its decision has room).</td></tr>
+<tr><td>The size of the shift is bounded by how few action-ready pages exist</td>
+<td>No saved analysis. Quick look (no intervals): 0.76% of snapshot rows have u ≥ .8; only 7.6% of keywords have any; an intent-matching oracle on the keyword's own rows reaches a slope of .23–.37 while the observed slope is .06–.09</td>
+<td><span class="tag bad">not supported as written</span></td>
+<td>Scarcity caps the level at the action end, not the slope: "few action-ready pages exist, which caps how close cited sources can come to the most action-ready prompts". Close: the supply analysis (pre-registered rule in PREREG addendum B3).</td></tr>
+<tr><td>Stage shares: prompt words 18–20%, query rewriting 18–34%, reranker 35–47%, generator 13–15%</td>
+<td>Old hand ratios of point estimates, no intervals, mixed samples</td>
+<td><span class="tag warn">replace</span></td>
+<td>Current steelman (Qwen, common sample, 95% intervals): Reactive 17 / 32 / 35 / 5 (shown order) + 10 (generator); Parallel 20 / 18 / 47 / 7 + 8. Final numbers from the full run.</td></tr>
+<tr><td>The agent drops the user's keyword from its queries (61% → 21%, Reactive)</td>
+<td>Qwen, 237 keywords. Prompts themselves stop naming their keyword along x (−0.73 to −0.75)</td>
+<td><span class="tag warn">partly prompt-driven</span></td>
+<td>Report it also among prompts that name their keyword. Close: added to the follow-up part.</td></tr>
+</tbody></table></div>
+<p class="note">Also before submission: the manuscript still mentions glued-title rows (<code>manuscript_draft/sections/methods.tex:60</code>, <code>introduction.tex:6</code>), which the paper rules forbid. "Tannenbaum (2026)" and "Martinez (2026)" have no source anywhere in the repo: find them or drop the sentence. BM25 stays out of the paper.</p>
+</section>
+
+<section>
+<h2>2. Abstract as the evidence supports it today (provisional)</h2>
+<blockquote><p>We introduce a method for isolating user intent in generative engine optimization: each prompt's intent is measured as a
+continuous position between information-seeking and action-ready in embedding space, compared within a topic, and prompts and
+documents are placed on the same scale. Applying it to a frozen, fully logged LLM search pipeline, we trace how intent moves the
+results stage by stage. Intent shifts what gets cited mainly by changing which sources reach the shortlist, through the queries
+the agent writes and the reranker that filters their results, while the generator's choice among shortlisted sources adds almost
+nothing to the shift. Few action-ready pages exist, which caps how close the cited sources can come to the most action-ready prompts.</p></blockquote>
+<p class="note">The last sentence waits on the supply analysis; the generator sentence waits on Llama; every number waits on the held-out keywords.</p>
+</section>
+
+<section>
+<h2>3. What the full run computes</h2>
+<div class="frame"><table>
+<thead><tr><th>Part</th><th>Answers</th><th>New?</th></tr></thead>
+<tbody>
+<tr><td>Census of every cell (planned, completed, valid trace, passed checks, failures by reason, duplicates)</td><td>"full count"; data appendix</td><td>new</td></tr>
+<tr><td>Stage chain, both models, both keyword splits</td><td>contribution 2; claim 3</td><td>rerun</td></tr>
+<tr><td>Generator keep and order, intent-blind counterfactual, fixed effects, score-matched pairs (both models)</td><td>claim 4</td><td>rerun, Llama added</td></tr>
+<tr><td>Supply: action-ready pages per keyword, oracle slopes over own rows, retrieved pool, shortlist and whole snapshot, ceiling by x decile, slope by supply tercile</td><td>claim 5</td><td>new</td></tr>
+<tr><td>Ablated condition: a forced change of the shortlist for the same prompt, how much of it reaches the cited sources</td><td>the only manipulated contrast</td><td>new</td></tr>
+<tr><td>Keyword share of queries among prompts that name their keyword</td><td>contribution 3a</td><td>new</td></tr>
+<tr><td>Funnel confirmatory family P1–P4, stage models, decomposition; generator decisions</td><td>held-out confirmation</td><td>run</td></tr>
+<tr><td>Intent stages with query (Q) and answer (A) embeddings and Gemma support (Llama)</td><td>query and answer intent</td><td>run, GPU for embeddings</td></tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>4. Checklist</h2>
+<ul class="check">
+<li>☐ PREREG addendum B3 committed (supply rule, ablation, census, keyword-naming queries, reporting by split)</li>
+<li>☐ Container (CPU) and its Apptainer recipe; the GPU embeddings keep the validated HoreKa environments</li>
+<li>☐ <code>analysis/fullrun/</code>: task ledger, worker with atomic claims, status, reconcile; sharded extraction; bootstrap ranges</li>
+<li>☐ New parts: census, supply, ablation; follow-up extension; bug fixes found in exploration</li>
+<li>☐ Tests on the Mac and in the container; reproduction gate (Mac exploration numbers reproduce exactly)</li>
+<li>☐ Valerian: push; approve 6-hour CPU allocations (cap 8 node-allocations, at most 4 at once, 10-minute start gaps) and up to 3 GPU allocations of 2 hours; check <code>apptainer --version</code>, workspace quota, Hub token on the login node</li>
+<li>☐ HoreKa: reconcile local cells against the Hub; fetch the missing bundles (about 21–24k Qwen cells, 1,716 Llama cells); plan; CPU wave (extraction); GPU allocation (embeddings); CPU waves (analysis)</li>
+<li>☐ Bring back the tarball; final RESULTS, this page updated, abstract and contributions with final numbers</li>
+</ul>
+</section>
+
+<section>
+<h2>5. Where things are</h2>
+<ul>
+<li>Approved plan: <code>~/.claude/plans/pasted-content-id-29cb-plan-mode-fancy-pebble.md</code> (copy in the handoff)</li>
+<li>Handoff: <code>analysis/docs/handoff/2026-10-08_full-run-plan_handoff.md</code></li>
+<li>Current steelman results (Qwen, exploration): <code>analysis/steelman/RESULTS.md</code>; full record: <code>analysis/steelman/trace/TRACE.md</code></li>
+<li>Pre-registration: <code>analysis/steelman/PREREG.md</code> (addenda B1, B2; B3 next)</li>
+</ul>
+</section>
+
+</main>
+</body>
+</html>
