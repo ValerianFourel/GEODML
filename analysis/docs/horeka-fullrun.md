@@ -63,7 +63,7 @@ SX=$(find $W/shared-hours/dataset/artifacts $W/llama-hf/dataset/artifacts -name 
 $RT/bin/python - $FR/config.json "$CODE" "$DDG" "$SX" <<'PY'
 import json, sys
 p, code, ddg, sx = sys.argv[1:]
-c = json.load(open(p)); c["code"] = code; c["snapshots"] = {"duckduckgo": ddg, "searxng": sx}; c.pop("_comment", None)
+c = json.load(open(p)); c["code"] = code; c["snapshots"] = {"duckduckgo": ddg, "searxng": sx}; c.pop("_comment", None); c.pop("_gpu_stats_comment", None)
 json.dump(c, open(p, "w"), indent=1); print(json.dumps(c, indent=1))
 PY
 (cd "$CODE" && $RT/bin/python -m analysis.fullrun plan --config $FR/config.json --ledger $LEDGER)

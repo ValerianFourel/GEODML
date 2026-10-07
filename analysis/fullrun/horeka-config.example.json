@@ -8,8 +8,10 @@
     "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/hub-import/dataset:llama4",
     "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/hub-import/dataset:qwen38"
   ],
-  "snapshots": {"duckduckgo": "SET: phase0_top20_ddg.parquet (find $W/shared-hours/dataset/artifacts -name phase0_top20_ddg.parquet)",
-                "searxng": "SET: phase0_top20_searxng.parquet"},
+  "snapshots": {
+    "duckduckgo": "SET: phase0_top20_ddg.parquet (find $W/shared-hours/dataset/artifacts -name phase0_top20_ddg.parquet)",
+    "searxng": "SET: phase0_top20_searxng.parquet"
+  },
   "axis_map": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geoaxis-archive/final-audit/final-axis-map.jsonl",
   "population": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geoaxis-archive/registration/population-registration-v1/population-prompts.jsonl",
   "corpus": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/page-readiness-20261004/snippet-embeddings-corpus-v1",
@@ -17,5 +19,10 @@
   "archive": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/geoaxis-archive",
   "search_root": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen",
   "gemma_run": "/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen/reviews/gemma-si-v4-llama-reuse-5h-20261004",
-  "shards": 32
+  "shards": 32,
+  "gpu_stats": [
+    "generator",
+    "fe"
+  ],
+  "_gpu_stats_comment": "Estimators on the PyTorch backend (one A100 each; allocations need Valerian's approval). Passed their gates: generator, fe. funnel/decisions stay on CPU unless the gate reference is restated (analysis/fullrun/validation/REPORT.md). Set false for CPU only."
 }
