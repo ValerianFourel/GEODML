@@ -17,6 +17,7 @@ STAGES = ("R|U", "R0|U", "P|C", "K|P")
 SPECS = ("main", "visible", "complete")
 SPLITS = ("exploration", "confirmation")
 UNIT_BLOCK = 50          # bootstrap and permutation units per range task of a heavy funnel fit
+GPU_ESTIMATORS = ("funnel", "decisions", "generator", "fe")
 STEELMAN_SINGLE = ("chain", "followup", "pairs", "census", "supply", "ablation", "queries")
 
 
@@ -32,10 +33,17 @@ def build(cfg: dict) -> list[Task]:
     snaps = [a for e, p in cfg["snapshots"].items() for a in ("--snapshot", f"{e}={p}")]
     archive = cfg["archive"]
     n = int(cfg.get("shards", 32))
-    gpu_stats = bool(cfg.get("gpu_stats", False))   # heavy fits on one GPU each with the PyTorch backend (torch_fits)
-    backend = ["--backend", "cuda"] if gpu_stats else []
-    heavy = dict(gpu=True, gpus=1, cores=8) if gpu_stats else {}
-    unit_block = 200 if gpu_stats else UNIT_BLOCK
+    # heavy fits on one GPU each with the PyTorch backend (torch_fits), per estimator: true = all, or a list of
+    # "funnel", "decisions", "generator", "fe" (only estimators that passed analysis/fullrun/validation/REPORT.md)
+    chosen = cfg.get("gpu_stats", False)
+    gpu_on = set(GPU_ESTIMATORS) if chosen is True else set(chosen or [])
+    unknown = gpu_on - set(GPU_ESTIMATORS)
+    if unknown:
+        raise ValueError(f"unknown gpu_stats estimators {sorted(unknown)}; known {GPU_ESTIMATORS}")
+    backend_for = lambda est: ["--backend", "cuda"] if est in gpu_on else []  # noqa: E731
+    heavy_for = lambda est: dict(gpu=True, gpus=1, cores=8) if est in gpu_on else {}  # noqa: E731
+    backend, heavy = backend_for("funnel"), heavy_for("funnel")
+    unit_block = 200 if "funnel" in gpu_on else UNIT_BLOCK
     draws = {"bootstrap": 200, "permutations": 200, "secondary_bootstrap": 100, "decision_draws": 100, "model_draws": 100, "mc": 200,
              **cfg.get("draws", {})}  # production values are the defaults; tests shrink them
     tasks: list[Task] = []
@@ -157,15 +165,14 @@ def build(cfg: dict) -> list[Task]:
         add(f"decisions-{split}", "analysis",
             [py, "-u", script("funnel_importance.py"), "--assembled", f"{out}/funnel-assembled", "--split", split, "--bootstrap", str(draws["decision_draws"]),
              "--permutations", str(draws["decision_draws"]), "--workers", "{WORKERS}", "--stop-after-minutes", "{MINUTES}", "--output", f"{out}/decisions-{split}",
-             *backend], ["funnel-assemble"], **({"cores": 16} | heavy), est_cpu_h=10.0)
+             *backend_for("decisions")], ["funnel-assemble"], **({"cores": 16} | heavy_for("decisions")), est_cpu_h=10.0)
 
         sdir = f"{out}/steelman-{split}"
         steel = [py, "-u", "-m", "analysis.steelman", "PART", "--assembled", f"{out}/funnel-assembled", "--extract", f"{out}/funnel-extract",
                  "--replay", f"{out}/funnel-replay", "--trace-extract", f"{out}/trace-extract", "--features", cfg["features"],
                  "--prompts", cfg["population"], "--split", split, "--input-root", out, "--output", sdir,
                  "--workers", "{WORKERS}", "--stop-after-minutes", "{MINUTES}", "--bootstrap", str(draws["bootstrap"]),
-                 "--permutations", str(draws["permutations"]), "--model-draws", str(draws["model_draws"]), "--mc", str(draws["mc"]),
-                 *backend]
+                 "--permutations", str(draws["permutations"]), "--model-draws", str(draws["model_draws"]), "--mc", str(draws["mc"])]
         part = lambda name, *extra: [a if a != "PART" else name for a in steel] + list(extra)  # noqa: E731
         prep = ["funnel-assemble", "merge-trace"]
         steel_ids = []
@@ -178,9 +185,10 @@ def build(cfg: dict) -> list[Task]:
             ids = []
             for stratum in STRATA:
                 sid = f"steelman-{split}-{name}-{slug(stratum)}"
-                add(sid, "steelman", part(name, "--stratum", stratum), prep, **({"cores": 16} | heavy), est_cpu_h=est)
+                add(sid, "steelman", part(name, "--stratum", stratum, *backend_for(name)), prep,
+                    **({"cores": 16} | heavy_for(name)), est_cpu_h=est)
                 ids.append(sid)
-            add(f"steelman-{split}-{name}", "steelman", part(name), ids, cores=4, est_cpu_h=0.3)
+            add(f"steelman-{split}-{name}", "steelman", part(name, *backend_for(name)), ids, cores=4, est_cpu_h=0.3)
             steel_ids.append(f"steelman-{split}-{name}")
         add(f"steelman-{split}-report", "report", [py, "-u", "-m", "analysis.steelman", "report", "--output", sdir], steel_ids, est_cpu_h=0.1)
         if not cfg.get("include_funnel", True):  # tests: drop the funnel and decisions tasks of this split

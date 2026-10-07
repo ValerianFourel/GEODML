@@ -151,3 +151,16 @@ def test_gpu_stats_routes_the_heavy_fits_to_one_gpu_each():
         assert not tasks[tid].gpu and "cuda" in tasks[tid].argv
     assert not tasks["steelman-confirmation-supply"].gpu
     L.Ledger.__init__  # noqa: B018
+
+
+def test_gpu_stats_per_estimator():
+    cfg = {"code": "/c", "output": "/o", "sources": ["/d/l:llama4", "/d/q:qwen38"], "snapshots": {"duckduckgo": "/s/d", "searxng": "/s/s"},
+           "axis_map": "/a.jsonl", "population": "/p.jsonl", "corpus": "/corpus", "features": "/f", "archive": "/A", "search_root": "/W",
+           "shards": 4, "gpu_stats": ["generator", "fe"]}
+    tasks = {t.id: t for t in plan.build(cfg)}
+    assert tasks["steelman-exploration-generator-qwen38-reactive"].gpus == 1
+    assert tasks["steelman-exploration-fe-llama4-parallel"].gpus == 1
+    assert not tasks["funnel-exploration-qwen38-reactive-p-c-main-full"].gpu and "--backend" not in tasks["decisions-exploration"].argv
+    assert "--backend" not in tasks["steelman-exploration-chain"].argv
+    with pytest.raises(ValueError):
+        plan.build({**cfg, "gpu_stats": ["chain"]})
