@@ -183,7 +183,8 @@ def fill(argv: list, values: dict) -> list:
 
 
 def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minutes: float, stages: set | None,
-         gpu: bool, min_start_minutes: float = 10.0, poll_seconds: float = 5.0, devices: int = 4) -> int:
+         gpu: bool, min_start_minutes: float = 10.0, poll_seconds: float = 5.0, devices: int = 4,
+         python: str | None = None) -> int:
     """Run ready tasks until none is ready or the deadline nears. Exit 0: nothing left that this worker may run;
     4: stopped at the deadline with ready tasks left (resubmit after reconciling). A GPU worker hands each task its
     own devices (CUDA_VISIBLE_DEVICES) from ``devices`` slots: 1-GPU statistics tasks run side by side, the embedding
@@ -233,7 +234,7 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
                 if not ledger.claim(task, job):
                     continue
                 free_slots = [d for d in free_slots if d not in slots]
-                values = {"PY": sys.executable, "WORKERS": need, "MINUTES": max(1, int(minutes_left())), "JOB": job}
+                values = {"PY": python or sys.executable, "WORKERS": need, "MINUTES": max(1, int(minutes_left())), "JOB": job}
                 log = open(ledger.root / "logs" / f"{task.id}.{job}.log", "a")
                 log.write(f"# {time.strftime('%Y-%m-%dT%H:%M:%S')} job {job} commit {commit}\n# {' '.join(fill(task.argv, values))}\n")
                 log.flush()
