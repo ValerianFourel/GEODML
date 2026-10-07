@@ -347,7 +347,20 @@ def two_way_fe(y, X, a, r, w=None) -> np.ndarray:
         return np.full(X.shape[1], np.nan)
 
 
-def fe_analysis(t: Tables, mask: np.ndarray, draws: list) -> dict:
+_FE: dict = {}
+
+
+def _fe_job(i):
+    return two_way_fe(_FE["y"], _FE["X"], _FE["a"], _FE["r"], _FE["draws"][i][_FE["kw"]])
+
+
+def fe_run(t: Tables, args) -> dict:
+    draws = stages.keyword_draws(int(t.keyword.max()) + 1, args.bootstrap, args.seed)
+    common = t.common()
+    return {"strata": {name: fe_analysis(t, m & common, draws, args.workers) for name, m in strata(t).items() if m.any()}}
+
+
+def fe_analysis(t: Tables, mask: np.ndarray, draws: list, workers: int = 1) -> dict:
     """Keep (informative answers) and rank credit (all answers citing ≥ 1) on intent alignment, page intent ×
     (x − ½), topic and slot dummies, with answer and snapshot-row fixed effects; rows shown at least twice.
     Coefficients per SD of each regressor in the estimation sample."""
@@ -374,7 +387,12 @@ def fe_analysis(t: Tables, mask: np.ndarray, draws: list) -> dict:
         y = (s.kept[m].astype(float) if outcome == "keep" else credit[m])
         kw = t.keyword[s.answer[m]]
         est = two_way_fe(y, X, s.answer[m], s.row[m])
-        boot = np.asarray([two_way_fe(y, X, s.answer[m], s.row[m], d[kw]) for d in draws])
+        _FE.update(y=y, X=X, a=s.answer[m], r=s.row[m], kw=kw, draws=draws)
+        try:
+            with multiprocessing.get_context("fork").Pool(workers) as pool:
+                boot = np.asarray(pool.map(_fe_job, range(len(draws))))
+        finally:
+            _FE.clear()
         # identifying variation of x within rows
         rows = np.unique(s.row[m], return_inverse=True)[1]
         xr = x[m] - (np.bincount(rows, x[m]) / np.bincount(rows))[rows]
@@ -430,7 +448,7 @@ def run(t: Tables, args, *, cache_root: Path, deadline: float):
             continue
         method = PARALLEL if "Parallel" in name else "Reactive"
         mask = m & common
-        entry = {"slot_correlations": slot_correlations(t, mask, draws_all), "fixed_effects": fe_analysis(t, mask, draws_all)}
+        entry = {"slot_correlations": slot_correlations(t, mask, draws_all)}
         st = Stratum(t, mask, stats, method, args.mc, args.seed)
         entry["answers"] = int(st.use.sum())
         entry["keep_informative_answers"] = int(st.parts[("main", False)]["keep"][0].data.groups) if st.keep_model else 0

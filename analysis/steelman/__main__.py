@@ -1,4 +1,4 @@
-"""python -m analysis.steelman <part> --output DIR  (parts: chain, generator, lexical, pairs, report).
+"""python -m analysis.steelman <part> --output DIR  (parts: chain, generator, fe, lexical, pairs, report).
 
 Each part writes DIR/<part>.json once (refuses to overwrite) with the git commit, the PREREG.md sha256,
 the settings and the input manifest. Exit 4: deadline checkpoint (finished fits are cached; rerun).
@@ -24,7 +24,7 @@ from analysis.scripts import page_readiness_ordering as readiness  # noqa: E402
 from analysis.steelman import tables as T  # noqa: E402
 
 PREREG = Path(__file__).with_name("PREREG.md")
-PARTS = ("chain", "generator", "lexical", "pairs", "report")
+PARTS = ("chain", "generator", "fe", "lexical", "pairs", "report")
 
 
 def prereg_sha() -> str:
@@ -74,6 +74,9 @@ def main(argv=None) -> int:
         body = generator.run(t, a, cache_root=out_dir / "generator.cache", deadline=deadline)
         if body is None:
             return 4
+    elif a.part == "fe":
+        from analysis.steelman import generator
+        body = generator.fe_run(t, a)
     elif a.part == "lexical":
         from analysis.steelman import lexical
         body = lexical.run(t, a, cache_root=out_dir / "lexical.cache", deadline=deadline)
