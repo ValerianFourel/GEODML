@@ -240,6 +240,21 @@ class DeadlineReached(Exception):
     """The deadline passed with work units of a task still unstarted; finished units are checkpointed."""
 
 
+class UnitsDone(Exception):
+    """A unit range of a task (``estimate_blocks(units=...)``) is finished; the task itself is not assembled yet."""
+
+
+def parse_units(spec: str | None):
+    """"full", "drop", "bootstrap:LO-HI" or "permutation:LO-HI" (HI exclusive) -> (kind, lo, hi); None passes through."""
+    if not spec:
+        return None
+    kind, _, rng = spec.partition(":")
+    if kind not in ("full", "drop", "bootstrap", "permutation"):
+        raise ValueError(f"unknown unit kind: {kind}")
+    lo, hi = (int(v) for v in rng.split("-")) if rng else (0, 10 ** 9)
+    return kind, lo, hi
+
+
 def _fit(stage: Stage, X: np.ndarray, weight=None, start=None):
     if stage.kind == "admission":
         return fit_admission(X, stage.data, weight=weight, start=start)
@@ -273,15 +288,20 @@ def _replicate(job):
 
 
 def _load_parts(parts: Path | None) -> dict:
-    """Finished units of an interrupted task (a torn last line from a killed writer is ignored)."""
+    """Finished units of an interrupted task (a torn last line from a killed writer is ignored), including the
+    unit-range files ``<parts>.<kind>-<lo>-<hi>`` written by other processes or nodes."""
     done = {}
-    if parts is not None and Path(parts).exists():
-        for line in Path(parts).read_text().splitlines():
+    if parts is None:
+        return done
+    parts = Path(parts)
+    files = ([parts] if parts.exists() else []) + sorted(parts.parent.glob(parts.name + ".*"))
+    for path in files:
+        for line in path.read_text().splitlines():
             try:
                 unit = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            done[unit["key"]] = unit["value"]
+            done.setdefault(unit["key"], unit["value"])
     return done
 
 
@@ -327,24 +347,40 @@ def _run(jobs, workers, parts: Path | None = None, deadline: float | None = None
 
 
 def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.ndarray, draws: list,
-                    shuffles: list, workers: int = 1, parts: Path | None = None, deadline: float | None = None) -> dict:
+                    shuffles: list, workers: int = 1, parts: Path | None = None, deadline: float | None = None,
+                    units: tuple | None = None) -> dict:
     """Coefficients per SD (odds ratio per SD), 95% keyword-bootstrap intervals, within-keyword
     permutation p for x-dependent features, drop-one-block fit shares and the replicate matrix.
-    ``draws``: keyword resample counts (indexed by keyword code); ``shuffles``: answer-level x arrays."""
+    ``draws``: keyword resample counts (indexed by keyword code); ``shuffles``: answer-level x arrays.
+    ``units`` = (kind, lo, hi) computes only that range of work units into ``<parts>.<kind>-<lo>-<hi>`` and raises
+    UnitsDone; a later call without ``units`` assembles the task from every unit file (ranges need ``full-0`` first)."""
     design = stage.design
     X = design.matrix(answer_x[stage.row_answer])
     done = _load_parts(parts)
+    if units is not None and units[0] != "full" and "full-0" not in done:
+        raise ValueError("unit ranges need the full fit first (units=full)")
     if "full-0" not in done:
         if deadline is not None and time.monotonic() > deadline:
             raise DeadlineReached
         fitted = _fit(stage, X)
         _keep(parts, done, "full-0", {"x": [float(v) for v in fitted.x], "fun": float(fitted.fun)})
+    if units is not None and units[0] == "full":
+        raise UnitsDone
     full = SimpleNamespace(x=np.asarray(done["full-0"]["x"], float), fun=done["full-0"]["fun"])
     k = len(design.features)
     _STATE.update(stage=stage, x=answer_x, keyword=answer_keyword, start=full.x, X=X)
     blocks = list(design.blocks)
     jobs = ([("drop", i, b) for i, b in enumerate(blocks)] + [("bootstrap", i, d) for i, d in enumerate(draws)]
             + [("permutation", i, s) for i, s in enumerate(shuffles)])
+    if units is not None:
+        kind, lo, hi = units
+        subset = [j for j in jobs if j[0] == kind and lo <= j[1] < hi]
+        target = Path(parts).with_name(f"{Path(parts).name}.{kind}-{lo}-{hi}") if parts is not None else None
+        try:
+            _run(subset, workers, target, deadline, done)
+        finally:
+            _STATE.clear()
+        raise UnitsDone
     try:
         done = _run(jobs, workers, parts, deadline, done)
     finally:

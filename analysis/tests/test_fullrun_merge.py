@@ -4,6 +4,7 @@ import gzip
 import json
 
 import numpy as np
+import pytest
 
 from analysis.fullrun import merge
 from analysis.scripts import funnel_study as study
@@ -78,3 +79,32 @@ def test_trace_extract_shards_merge_to_the_unsharded_trace_extract(pipeline, tmp
     full = json.loads((tmp_path / "full" / "manifest.json").read_text())["counts"]
     merged = json.loads((tmp_path / "merged" / "manifest.json").read_text())["counts"]
     assert merged["answers"] == full["answers"] and merged["unique_queries"] == full["unique_queries"]
+
+
+def test_funnel_task_split_into_unit_ranges_assembles_exactly_from_its_units(pipeline, tmp_path):  # noqa: F811
+    """Unit ranges are run as separate invocations (as on separate nodes); the assembled task uses exactly the stored
+    units and has the same units as an unsplit run. (Values are not compared with the unsplit run: the fixture's
+    shortlisting fit is nearly separable, so float noise of order 1e-16 moves its optimum by about 1e-3.)"""
+    import hashlib
+    from analysis.interpretability.pipeline import funnel_models as fm
+    task = "qwen38 · Reactive|P|C|main"
+    base = ["analyze", "--assembled", str(pipeline["assembled"]), "--specs", "main", "--bootstrap", "4", "--permutations", "3",
+            "--split", "all", "--workers", "1", "--task", task]
+    assert study.main([*base, "--output", str(tmp_path / "whole")]) == 0
+    split = [*base, "--output", str(tmp_path / "split")]
+    with pytest.raises(ValueError):
+        study.main([*split, "--units", "bootstrap:0-2"])          # ranges need the full fit first
+    for units in ("full", "drop", "bootstrap:0-2", "bootstrap:2-4", "permutation:0-3"):
+        assert study.main([*split, "--units", units]) == 0
+    digest = hashlib.sha256(task.encode()).hexdigest()[:16]
+    folder = next((tmp_path / "split.cache").iterdir())
+    assert not (folder / f"{digest}.json").exists()                # units alone never assemble the task
+    assert len(list(folder.glob(f"{digest}.parts.jsonl.*"))) == 4
+    units = fm._load_parts(folder / f"{digest}.parts.jsonl")
+    whole_units = fm._load_parts(next((tmp_path / "whole.cache").iterdir()) / f"{digest}.parts.jsonl")
+    assert sorted(units) == sorted(whole_units)
+    assert study.main(split) == 0                                  # assemble
+    result = json.loads((folder / f"{digest}.json").read_text())["value"]
+    names = result["replicate_columns"]
+    assert [result["features"][n]["beta_per_sd"] for n in names] == units["full-0"]["x"][:len(names)]
+    assert result["replicates"] == [units[f"bootstrap-{i}"] for i in range(4)]

@@ -515,6 +515,11 @@ def analyze(args) -> int:
     every = tasks(data, ans, specs)
     shard, of = (int(v) for v in args.shard.split("/"))
     mine = [t for n, t in enumerate(every) if n % of == shard - 1]
+    if getattr(args, "task", None):  # full run: one named task (stratum|stage|spec), optionally one unit range of it
+        mine = [t for t in every if "|".join(t) == args.task]
+        if not mine:
+            raise ValueError(f"unknown task {args.task}; known: {['|'.join(t) for t in every]}")
+    units = fm.parse_units(getattr(args, "units", None))
     workers = max(1, args.workers or int(os.environ.get("SLURM_CPUS_PER_TASK", "1")))
     # the same seeds for every specification: the first draws of a secondary specification equal the main ones
     draws = stages.keyword_draws(ans.keywords, max(args.bootstrap, args.secondary_bootstrap), args.seed)
@@ -541,10 +546,13 @@ def analyze(args) -> int:
             task.design.stats = dict(stats)
             return fm.estimate_blocks(task, answer_x=ans.x, answer_keyword=ans.keyword, draws=draws[:n_boot],
                                       shuffles=shuffles[:n_perm], workers=workers,
-                                      parts=cache.directory / f"{digest}.parts.jsonl", deadline=deadline)
+                                      parts=cache.directory / f"{digest}.parts.jsonl", deadline=deadline, units=units)
 
         try:
             result = cache.get(name, compute)
+        except fm.UnitsDone:
+            print(json.dumps({"task": name, "units": args.units, "status": "units done", "time": readiness.now()}), flush=True)
+            continue
         except fm.DeadlineReached:
             print(json.dumps({"stopped_in": name, "reason": "deadline checkpoint", "time": readiness.now()}), flush=True)
             return 4
@@ -764,6 +772,9 @@ def main(argv=None) -> int:
         p.add_argument("--seed", type=int, default=20261007)
         if name == "analyze":
             p.add_argument("--shard", default="1/1")
+            p.add_argument("--task", help="full run: only this task, named stratum|stage|spec")
+            p.add_argument("--units", help="with --task: only these work units (full | drop | bootstrap:LO-HI | permutation:LO-HI); "
+                                           "rerun without --units to assemble the task")
             p.add_argument("--workers", type=int)
             p.add_argument("--stop-after-minutes", type=float, default=50.0,
                            help="after this many minutes start no new task or fit; finished fits are checkpointed "
