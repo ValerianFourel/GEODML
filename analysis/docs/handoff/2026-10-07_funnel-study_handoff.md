@@ -87,3 +87,23 @@ Then on the Mac: `funnel_keywords.py --gemma <extract> --output funnel-keywords-
 
 Note: AGENTS.md still names `.worktrees/threehour-relaunch-fix` as the active checkout; this line of work
 continues on `codex/acl-figures-20261006` (branched from its last commit, a7fc602).
+
+## Addendum (same day): the generator's own decisions
+
+Valerian set the priority (now in the root AGENTS.md, not under git): study the LLM's behaviour first,
+i.e. which shown sources an answer keeps (0/1) and how it orders the kept ones; the reranker and the
+frozen search come second. Engine position reaches V2 only through the frozen search's tie-break
+(`funnel_rows.LexicalIndex`: exact keyword, overlap, stored position, hash).
+
+`funnel_importance.py` (commits c0a36b6, 228a3c2): keep = conditional logit within each answer given how
+many shown snippets it kept (shown-slot dummies); order = Plackett–Luce over the kept snippets with
+shown-slot effects; McFadden pseudo-R² and Pratt shares; 100 draws / 100 shuffles. Output
+`~/Hamburg/geodml-inputs/funnel-generator-decisions-v1/` (Qwen, exploration keywords, natural):
+- [F] Qwen · Parallel keeps 99.1% of shown links (98.3% of answers keep all 7): no keep decision to model
+  (148 informative answers; the fit separates). Qwen · Reactive keeps 77.4% (4,057 informative answers).
+- [F] Keep, Reactive: pseudo-R² 0.46; topic block 80% (topic similarity OR 6.89 [6.26, 8.02] per SD),
+  shown slot 14%, URL 2.7%, off-page 1.5%, page body 1.0%, snippet 0.3%, intent 0.0% (alignment and the
+  interaction offset each other).
+- [F] Order: pseudo-R² 0.19 Parallel, 0.35 Reactive; shown slot 40% / 88%, topic 53% / 9%, every other block
+  ≤ 3.4%, intent ≈ 0%.
+Llama's keep decision (it keeps far fewer of the 7) needs its traces: HoreKa.
