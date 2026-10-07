@@ -89,7 +89,11 @@ def test_planned_task_list_is_consistent(tmp_path):
     led = L.Ledger(tmp_path / "ledger")
     led.write_tasks(tasks)                                        # unique ids, known dependencies
     ids = {t.id for t in tasks}
-    assert sum(t.id.startswith("extract-funnel-") for t in tasks) == 32 and sum(t.gpu for t in tasks) == 4
+    assert sum(t.id.startswith("extract-funnel-") for t in tasks) == 32 and sum(t.gpu for t in tasks) == 6
+    by = {t.id: t for t in tasks}
+    # the relocation check gates every new embedding and is passed to the intent analysis
+    assert all("relocation" in by[f"embed-{w}-{v}"].deps for w in ("queries", "answers") for v in ("qwen", "mistral"))
+    assert "relocation" in by["intent-analyze"].deps and "--relocation" in by["intent-analyze"].argv[2]
     heavy = [t for t in tasks if t.id.startswith("funnel-confirmation-qwen38-reactive-p-c-main-bootstrap")]
     assert len(heavy) == 4 and all("--units" in t.argv for t in heavy)
     assert {"steelman-confirmation-supply", "steelman-exploration-census", "bundle"} <= ids
@@ -131,3 +135,19 @@ def test_worker_runs_the_real_pipeline_end_to_end(pipeline, tmp_path):  # noqa: 
     assert status["states"] == {"done": len(tasks)}, (status, failed)
     results = (tmp_path / "fr" / "steelman-all" / "RESULTS.md").read_text()
     assert "llama4" in results and "qwen38" in results
+
+
+def test_gpu_stats_routes_the_heavy_fits_to_one_gpu_each():
+    cfg = {"code": "/c", "output": "/o", "sources": ["/d/l:llama4", "/d/q:qwen38"], "snapshots": {"duckduckgo": "/s/d", "searxng": "/s/s"},
+           "axis_map": "/a.jsonl", "population": "/p.jsonl", "corpus": "/corpus", "features": "/f", "archive": "/A", "search_root": "/W",
+           "shards": 8, "gpu_stats": True}
+    tasks = {t.id: t for t in plan.build(cfg)}
+    unit = tasks["funnel-confirmation-qwen38-reactive-p-c-main-bootstrap-000"]
+    assert unit.gpu and unit.gpus == 1 and unit.argv[unit.argv.index("--backend") + 1] == "cuda" and "bootstrap:0-200" in unit.argv
+    assert tasks["steelman-confirmation-generator-llama4-parallel"].gpus == 1
+    assert tasks["decisions-exploration"].gpus == 1
+    # assembly, reports and the cheap parts stay on CPU workers but carry the backend for the cache key
+    for tid in ("funnel-confirmation-qwen38-reactive-p-c-main", "steelman-confirmation-generator", "funnel-report-confirmation"):
+        assert not tasks[tid].gpu and "cuda" in tasks[tid].argv
+    assert not tasks["steelman-confirmation-supply"].gpu
+    L.Ledger.__init__  # noqa: B018

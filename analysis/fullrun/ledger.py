@@ -40,6 +40,7 @@ class Task:
     cores: int = 1          # 0 = every core the worker has
     est_cpu_h: float = 0.1
     gpu: bool = False
+    gpus: int = 0           # GPU tasks: devices the task needs (0 with gpu=True means all four: the embedding tasks)
 
 
 class Ledger:
@@ -182,12 +183,15 @@ def fill(argv: list, values: dict) -> list:
 
 
 def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minutes: float, stages: set | None,
-         gpu: bool, min_start_minutes: float = 10.0, poll_seconds: float = 5.0) -> int:
+         gpu: bool, min_start_minutes: float = 10.0, poll_seconds: float = 5.0, devices: int = 4) -> int:
     """Run ready tasks until none is ready or the deadline nears. Exit 0: nothing left that this worker may run;
-    4: stopped at the deadline with ready tasks left (resubmit after reconciling)."""
+    4: stopped at the deadline with ready tasks left (resubmit after reconciling). A GPU worker hands each task its
+    own devices (CUDA_VISIBLE_DEVICES) from ``devices`` slots: 1-GPU statistics tasks run side by side, the embedding
+    tasks (gpus 0 = all) take every slot."""
     commit = git_commit()
-    running: dict = {}  # tid -> (process, task, cores, started, log)
+    running: dict = {}  # tid -> (process, task, cores, started, log, slots)
     used = 0
+    free_slots = list(range(devices)) if gpu else []
 
     def minutes_left():
         return (end_epoch - time.time()) / 60 - margin_minutes
@@ -199,7 +203,7 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
     while True:
         # collect finished tasks
         for tid in list(running):
-            proc, task, n, started, log = running[tid]
+            proc, task, n, started, log, slots = running[tid]
             rc = proc.poll()
             if rc is None:
                 continue
@@ -207,6 +211,7 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
             outcome = ledger.finish(task, job, rc, time.time() - started, commit)
             print(json.dumps({"task": tid, "exit": rc, "outcome": outcome, "minutes": round((time.time() - started) / 60, 1)}), flush=True)
             used -= n
+            free_slots = sorted(free_slots + slots)
             del running[tid]
         # admit new tasks
         admitted = False
@@ -218,23 +223,30 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
                     continue
                 need = cores if task.cores == 0 else min(task.cores, cores)
                 if used + need > cores:
-                    if task.cores == 0 and used == 0:
-                        pass
-                    else:
+                    continue
+                slots = []
+                if gpu:
+                    want = devices if task.gpus in (0, None) else min(task.gpus, devices)
+                    if len(free_slots) < want:
                         continue
+                    slots = free_slots[:want]
                 if not ledger.claim(task, job):
                     continue
+                free_slots = [d for d in free_slots if d not in slots]
                 values = {"PY": sys.executable, "WORKERS": need, "MINUTES": max(1, int(minutes_left())), "JOB": job}
                 log = open(ledger.root / "logs" / f"{task.id}.{job}.log", "a")
                 log.write(f"# {time.strftime('%Y-%m-%dT%H:%M:%S')} job {job} commit {commit}\n# {' '.join(fill(task.argv, values))}\n")
                 log.flush()
                 env = {**os.environ, "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
                        "VECLIB_MAXIMUM_THREADS": "1", "SLURM_CPUS_PER_TASK": str(need)}
+                if gpu:
+                    env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, slots))
                 proc = subprocess.Popen(fill(task.argv, values), stdout=log, stderr=subprocess.STDOUT, env=env)
-                running[task.id] = (proc, task, need, time.time(), log)
+                running[task.id] = (proc, task, need, time.time(), log, slots)
                 used += need
                 admitted = True
-                print(json.dumps({"task": task.id, "started": True, "cores": need, "minutes_left": round(minutes_left())}), flush=True)
+                print(json.dumps({"task": task.id, "started": True, "cores": need, "devices": slots,
+                                  "minutes_left": round(minutes_left())}), flush=True)
                 if used >= cores:
                     break
         if not running and not admitted:

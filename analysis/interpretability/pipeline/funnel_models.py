@@ -375,6 +375,9 @@ def _run_torch(jobs, problem, stage: Stage, answer_x, answer_keyword, start, par
     k = len(design.features)
     xdep = [j for j, f in enumerate(design.features) if f.kind != "static"]
     loaded = {"x": None}
+    if all(f"{j[0]}-{j[1]}" in done for j in jobs):
+        return [done[f"{j[0]}-{j[1]}"] for j in jobs]
+    problem = problem()
 
     def use_x(x_answers, tag):
         if not xdep or loaded["x"] == tag:
@@ -422,14 +425,18 @@ def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.nd
     done = _load_parts(parts)
     if units is not None and units[0] != "full" and "full-0" not in done:
         raise ValueError("unit ranges need the full fit first (units=full)")
-    problem = None
-    if BACKEND != "cpu":  # the design is uploaded once and every unit of the task reuses it
-        from . import torch_fits
-        problem = torch_fits.problem_for(stage.kind, X, stage.data, BACKEND)
+    resident = {}
+
+    def problem():  # the design is uploaded once, and only when a unit actually needs a fit (assembly needs none)
+        if "p" not in resident:
+            from . import torch_fits
+            resident["p"] = torch_fits.problem_for(stage.kind, X, stage.data, BACKEND)
+        return resident["p"]
+
     if "full-0" not in done:
         if deadline is not None and time.monotonic() > deadline:
             raise DeadlineReached
-        fitted = _problem_fit(problem, stage) if problem is not None else _fit(stage, X)
+        fitted = _problem_fit(problem(), stage) if BACKEND != "cpu" else _fit(stage, X)
         _keep(parts, done, "full-0", {"x": [float(v) for v in fitted.x], "fun": float(fitted.fun)})
     if units is not None and units[0] == "full":
         raise UnitsDone
@@ -439,8 +446,8 @@ def estimate_blocks(stage: Stage, *, answer_x: np.ndarray, answer_keyword: np.nd
     blocks = list(design.blocks)
     jobs = ([("drop", i, b) for i, b in enumerate(blocks)] + [("bootstrap", i, d) for i, d in enumerate(draws)]
             + [("permutation", i, s) for i, s in enumerate(shuffles)])
-    run = _run if problem is None else (lambda jobs_, workers_, parts_, deadline_, done_:
-                                        _run_torch(jobs_, problem, stage, answer_x, answer_keyword, full.x, parts_, deadline_, done_))
+    run = _run if BACKEND == "cpu" else (lambda jobs_, workers_, parts_, deadline_, done_:
+                                         _run_torch(jobs_, problem, stage, answer_x, answer_keyword, full.x, parts_, deadline_, done_))
     if units is not None:
         kind, lo, hi = units
         subset = [j for j in jobs if j[0] == kind and lo <= j[1] < hi]

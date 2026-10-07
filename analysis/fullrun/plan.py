@@ -32,6 +32,10 @@ def build(cfg: dict) -> list[Task]:
     snaps = [a for e, p in cfg["snapshots"].items() for a in ("--snapshot", f"{e}={p}")]
     archive = cfg["archive"]
     n = int(cfg.get("shards", 32))
+    gpu_stats = bool(cfg.get("gpu_stats", False))   # heavy fits on one GPU each with the PyTorch backend (torch_fits)
+    backend = ["--backend", "cuda"] if gpu_stats else []
+    heavy = dict(gpu=True, gpus=1, cores=8) if gpu_stats else {}
+    unit_block = 200 if gpu_stats else UNIT_BLOCK
     draws = {"bootstrap": 200, "permutations": 200, "secondary_bootstrap": 100, "decision_draws": 100, "model_draws": 100, "mc": 200,
              **cfg.get("draws", {})}  # production values are the defaults; tests shrink them
     tasks: list[Task] = []
@@ -77,17 +81,30 @@ def build(cfg: dict) -> list[Task]:
 
     # ---------------------------------------------------------------- GPU: both LLM2Vec views of queries and answers
     embed = f"{code}/analysis/docs/horeka-fullrun-embed.sh"
+    # relocation check first (as horeka-page-readiness-lib.sh:ensure_relocation): a fresh re-embedding of 512 archived
+    # prompts must reproduce the archived axis before any new text is embedded
+    add("relocation-sample", "prepare", [py, "-u", script("page_readiness_ordering.py"), "sample-prompts", "--prompts",
+                                         f"{archive}/final-audit/compliant-candidates.jsonl", "--count", "512",
+                                         "--output", f"{out}/prompt-sample"], [], est_cpu_h=0.05)
+    for view in ("qwen", "mistral"):
+        add(f"embed-sample-{view}", "gpu", ["bash", embed, view, f"{out}/prompt-sample/pages.jsonl.gz", f"{out}/embed-sample-{view}"],
+            ["relocation-sample"], cores=0, est_cpu_h=0.1, gpu=True)
+    add("relocation", "prepare", [py, "-u", script("page_readiness_ordering.py"), "relocate", "--final-axis-map", cfg["axis_map"],
+                                  "--qwen-projections", f"{archive}/final-audit/merged/qwen",
+                                  "--mistral-projections", f"{archive}/final-audit/merged/mistral", "--battery", f"{archive}/battery",
+                                  "--fresh-qwen", f"{out}/embed-sample-qwen.merged", "--fresh-mistral", f"{out}/embed-sample-mistral.merged",
+                                  "--output", f"{out}/relocation-fresh.json"], ["embed-sample-qwen", "embed-sample-mistral"], est_cpu_h=0.05)
     for view in ("qwen", "mistral"):
         add(f"embed-queries-{view}", "gpu", ["bash", embed, view, f"{out}/trace-extract/queries.jsonl.gz", f"{out}/embed-queries-{view}"],
-            ["merge-trace"], cores=0, est_cpu_h=0.5, gpu=True)
+            ["merge-trace", "relocation"], cores=0, est_cpu_h=0.5, gpu=True)
         add(f"embed-answers-{view}", "gpu", ["bash", embed, view, f"{out}/answers-export/answers.jsonl.gz", f"{out}/embed-answers-{view}"],
-            ["answers-export"], cores=0, est_cpu_h=1.0, gpu=True)
+            ["answers-export", "relocation"], cores=0, est_cpu_h=1.0, gpu=True)
     add("answers-analyze", "analysis",
         [py, "-u", script("answer_readiness.py"), "analyze", "--export", f"{out}/answers-export", "--qwen", f"{out}/embed-answers-qwen.merged",
          "--mistral", f"{out}/embed-answers-mistral.merged", "--battery", f"{archive}/battery", "--axis-map", cfg["axis_map"],
          "--output", f"{out}/answers-analysis"], ["embed-answers-qwen", "embed-answers-mistral"], est_cpu_h=0.3)
     intent_deps = ["merge-trace", "intent-replay", "embed-queries-qwen", "embed-queries-mistral", "embed-answers-qwen",
-                   "embed-answers-mistral", "answers-export"] + (["gemma-extract"] if cfg.get("gemma_run") else [])
+                   "embed-answers-mistral", "answers-export", "relocation"] + (["gemma-extract"] if cfg.get("gemma_run") else [])
     add("intent-analyze", "analysis",
         ["bash", "-c", f'R=; [ -f {out}/intent-replay/manifest.json ] && R="--replay {out}/intent-replay"; '
          f'G=; [ -f {out}/gemma-extract/manifest.json ] && G="--gemma {out}/gemma-extract"; '
@@ -97,7 +114,7 @@ def build(cfg: dict) -> list[Task]:
          f'--final-axis-map {cfg["axis_map"]} --queries-qwen {out}/embed-queries-qwen.merged '
          f'--queries-mistral {out}/embed-queries-mistral.merged --answers-index {out}/answers-export/observations.jsonl.gz '
          f'--answers-id-field answer_id --answers-qwen {out}/embed-answers-qwen.merged '
-         f'--answers-mistral {out}/embed-answers-mistral.merged $G --bootstrap {draws["bootstrap"]} --permutations {draws["permutations"]} --workers "$1" '
+         f'--answers-mistral {out}/embed-answers-mistral.merged $G --relocation {out}/relocation-fresh.json --bootstrap {draws["bootstrap"]} --permutations {draws["permutations"]} --workers "$1" '
          f'--output {out}/intent-stages', py, "{WORKERS}"], intent_deps, cores=0, est_cpu_h=8.0)
 
     # ---------------------------------------------------------------- per keyword split
@@ -107,7 +124,7 @@ def build(cfg: dict) -> list[Task]:
         base = [py, "-u", script("funnel_study.py"), "analyze", "--assembled", f"{out}/funnel-assembled", "--output", fdir,
                 "--specs", ",".join(SPECS), "--split", split, "--workers", "{WORKERS}", "--stop-after-minutes", "{MINUTES}",
                 "--bootstrap", str(draws["bootstrap"]), "--permutations", str(draws["permutations"]),
-                "--secondary-bootstrap", str(draws["secondary_bootstrap"])]
+                "--secondary-bootstrap", str(draws["secondary_bootstrap"]), *backend]
         funnel_ids = []
         for stratum in STRATA:
             for stage in STAGES:
@@ -116,37 +133,39 @@ def build(cfg: dict) -> list[Task]:
                     tid = f"funnel-{split}-{slug(stratum)}-{slug(stage)}-{spec}"
                     if stage == "P|C" and spec == "main":
                         unit_ids = []
-                        add(f"{tid}-full", "funnel", [*base, "--task", name, "--units", "full"], ["funnel-assemble"], cores=4, est_cpu_h=0.2)
+                        add(f"{tid}-full", "funnel", [*base, "--task", name, "--units", "full"], ["funnel-assemble"],
+                            **({"cores": 4} | heavy), est_cpu_h=0.2)
                         unit_ids.append(f"{tid}-full")
                         for kind, count in (("drop", 0), ("bootstrap", draws["bootstrap"]), ("permutation", draws["permutations"])):
-                            ranges = [("drop", None)] if kind == "drop" else [(f"{kind}:{lo}-{min(lo + UNIT_BLOCK, count)}", lo)
-                                                                              for lo in range(0, count, UNIT_BLOCK)]
+                            ranges = [("drop", None)] if kind == "drop" else [(f"{kind}:{lo}-{min(lo + unit_block, count)}", lo)
+                                                                              for lo in range(0, count, unit_block)]
                             for spec_units, lo in ranges:
                                 uid = f"{tid}-{kind}" + ("" if lo is None else f"-{lo:03d}")
-                                add(uid, "funnel", [*base, "--task", name, "--units", spec_units], [f"{tid}-full"], cores=16,
-                                    est_cpu_h=3.5 if kind != "drop" else 0.6)
+                                add(uid, "funnel", [*base, "--task", name, "--units", spec_units], [f"{tid}-full"],
+                                    **({"cores": 16} | heavy), est_cpu_h=3.5 if kind != "drop" else 0.6)
                                 unit_ids.append(uid)
                         add(tid, "funnel", [*base, "--task", name], unit_ids, cores=4, est_cpu_h=0.2)
                     else:
-                        add(tid, "funnel", [*base, "--task", name], ["funnel-assemble"], cores=16,
+                        add(tid, "funnel", [*base, "--task", name], ["funnel-assemble"], **({"cores": 16} | heavy),
                             est_cpu_h=6.0 if stage == "P|C" else 2.0 if spec == "main" else 1.0)
                     funnel_ids.append(tid)
         add(f"funnel-report-{split}", "report",
             [py, "-u", script("funnel_study.py"), "report", "--assembled", f"{out}/funnel-assembled", "--output", fdir,
              "--specs", ",".join(SPECS), "--split", split, "--bootstrap", str(draws["bootstrap"]),
              "--permutations", str(draws["permutations"]), "--secondary-bootstrap", str(draws["secondary_bootstrap"]),
-             "--report", f"{out}/funnel-report-{split}"], funnel_ids, est_cpu_h=0.2)
+             "--report", f"{out}/funnel-report-{split}", *backend], funnel_ids, est_cpu_h=0.2)
         add(f"decisions-{split}", "analysis",
             [py, "-u", script("funnel_importance.py"), "--assembled", f"{out}/funnel-assembled", "--split", split, "--bootstrap", str(draws["decision_draws"]),
-             "--permutations", str(draws["decision_draws"]), "--workers", "{WORKERS}", "--stop-after-minutes", "{MINUTES}", "--output", f"{out}/decisions-{split}"],
-            ["funnel-assemble"], cores=16, est_cpu_h=10.0)
+             "--permutations", str(draws["decision_draws"]), "--workers", "{WORKERS}", "--stop-after-minutes", "{MINUTES}", "--output", f"{out}/decisions-{split}",
+             *backend], ["funnel-assemble"], **({"cores": 16} | heavy), est_cpu_h=10.0)
 
         sdir = f"{out}/steelman-{split}"
         steel = [py, "-u", "-m", "analysis.steelman", "PART", "--assembled", f"{out}/funnel-assembled", "--extract", f"{out}/funnel-extract",
                  "--replay", f"{out}/funnel-replay", "--trace-extract", f"{out}/trace-extract", "--features", cfg["features"],
                  "--prompts", cfg["population"], "--split", split, "--input-root", out, "--output", sdir,
                  "--workers", "{WORKERS}", "--stop-after-minutes", "{MINUTES}", "--bootstrap", str(draws["bootstrap"]),
-                 "--permutations", str(draws["permutations"]), "--model-draws", str(draws["model_draws"]), "--mc", str(draws["mc"])]
+                 "--permutations", str(draws["permutations"]), "--model-draws", str(draws["model_draws"]), "--mc", str(draws["mc"]),
+                 *backend]
         part = lambda name, *extra: [a if a != "PART" else name for a in steel] + list(extra)  # noqa: E731
         prep = ["funnel-assemble", "merge-trace"]
         steel_ids = []
@@ -159,7 +178,7 @@ def build(cfg: dict) -> list[Task]:
             ids = []
             for stratum in STRATA:
                 sid = f"steelman-{split}-{name}-{slug(stratum)}"
-                add(sid, "steelman", part(name, "--stratum", stratum), prep, cores=16, est_cpu_h=est)
+                add(sid, "steelman", part(name, "--stratum", stratum), prep, **({"cores": 16} | heavy), est_cpu_h=est)
                 ids.append(sid)
             add(f"steelman-{split}-{name}", "steelman", part(name), ids, cores=4, est_cpu_h=0.3)
             steel_ids.append(f"steelman-{split}-{name}")

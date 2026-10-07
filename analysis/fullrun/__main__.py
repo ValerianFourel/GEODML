@@ -44,6 +44,7 @@ def main(argv=None) -> int:
     q.add_argument("--margin-minutes", type=float, default=10.0)
     q.add_argument("--min-start-minutes", type=float, default=10.0, help="start no task with less time left")
     q.add_argument("--job", default=os.environ.get("SLURM_JOB_ID", f"local-{os.getpid()}"))
+    q.add_argument("--devices", type=int, default=4, help="GPU worker: device slots (CUDA_VISIBLE_DEVICES 0..N-1)")
     for name in ("status", "reconcile"):
         q = sub.add_parser(name)
         q.add_argument("--ledger", type=Path, required=True)
@@ -73,7 +74,8 @@ def main(argv=None) -> int:
     if a.command == "worker":
         end = a.end_epoch or time.time() + 3600 * a.hours
         return L.work(L.Ledger(a.ledger), job=a.job, cores=a.cores, end_epoch=end, margin_minutes=a.margin_minutes,
-                      stages=set(a.stage) if a.stage else None, gpu=a.gpu, min_start_minutes=a.min_start_minutes)
+                      stages=set(a.stage) if a.stage else None, gpu=a.gpu, min_start_minutes=a.min_start_minutes,
+                      devices=a.devices)
     if a.command == "status":
         print(json.dumps(L.Ledger(a.ledger).status(), indent=1))
         return 0
