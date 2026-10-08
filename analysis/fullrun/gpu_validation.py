@@ -103,7 +103,7 @@ def generator(args) -> bool:
                 continue   # coefficients: reported, not gated (the CPU fits stop at L-BFGS-B's default tolerance)
             rows.append((f"[info] {key} {name}", v["estimate"], torch_entry["coefficients"][key][name]["estimate"], 1e-3))
     same_verdict = (cpu_entry["delta"]["main"]["tost_inside_sesoi"] == torch_entry["delta"]["main"]["tost_inside_sesoi"])
-    passed = all(abs(a - b) < thr for _, a, b, thr in gated) and same_verdict and torch_entry["delta"]["main"]["failed_replicates"] == 0
+    passed = all(abs(a - b) < thr for _, a, b, thr in gated) and same_verdict and torch_entry["delta"]["failed_replicates"] == 0
     write(f"steelman generator {args.stratum} ({args.backend})", rows, passed, args.report,
           f"100 keyword draws, 200 Monte-Carlo draws per answer; {seconds} s on this machine; TOST verdict CPU "
           f"{cpu_entry['delta']['main']['tost_inside_sesoi']} / torch {torch_entry['delta']['main']['tost_inside_sesoi']}.")

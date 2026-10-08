@@ -175,3 +175,26 @@ def test_smoke_lists_are_valid(tmp_path):
         L.Ledger(tmp_path / f"l{gpu}").write_tasks(tasks)
         assert all(t.gpu == gpu for t in tasks)
     assert any(t.gpus == 0 for t in smoke.build(cfg, True))       # the 4-GPU embedding
+
+
+def test_chain_smoke_runs_end_to_end_on_the_fixture(pipeline, tmp_path):  # noqa: F811
+    from analysis.fullrun import smoke
+    from analysis.tests.test_funnel_study import snapshot_args
+    inputs = pipeline["inputs"]
+    repo = __import__("pathlib").Path(__file__).resolve().parents[2]
+    cfg = {"code": str(repo), "output": str(tmp_path / "fr"), "sources": [f"{inputs['root']}:llama4", f"{inputs['root']}:qwen38"],
+           "snapshots": dict(s.split("=", 1) for s in snapshot_args(pipeline["tmp"])[1::2]), "axis_map": str(inputs["final"]),
+           "population": str(inputs["population"]), "corpus": str(inputs["corpus"]), "features": str(pipeline["features"]),
+           "archive": str(pipeline["tmp"])}
+    tasks = smoke.chain(cfg, shard="1/1")
+    for t in tasks:   # the fixture keeps its prompt projections and maps in the test folder layout
+        t.argv = [a.replace(f"{pipeline['tmp']}/final-audit/projections/qwen", str(pipeline["tmp"] / "prompts-qwen"))
+                   .replace(f"{pipeline['tmp']}/final-audit/projections/mistral", str(pipeline["tmp"] / "prompts-mistral"))
+                   .replace(f"{pipeline['tmp']}/maps/qwen", str(inputs["maps"]["qwen"]))
+                   .replace(f"{pipeline['tmp']}/maps/mistral", str(inputs["maps"]["mistral"])) for a in t.argv]
+    led = L.Ledger(tmp_path / "ledger")
+    led.write_tasks(tasks)
+    assert run(led, cores=8, hours=1) == 0
+    failed = {p.name: p.read_text()[-1500:] for p in (led.root / "logs").glob("*.log") if not led.done(p.name.split(".")[0])}
+    assert led.status()["states"] == {"done": len(tasks)}, failed
+    assert (tmp_path / "fr/smoke-chain/steelman/RESULTS.md").exists()

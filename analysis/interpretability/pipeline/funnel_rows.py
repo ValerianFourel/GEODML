@@ -130,20 +130,41 @@ class LexicalIndex:
         return hashlib.sha256(f"{query}\0{self.url[local]}".encode()).hexdigest()
 
     def select(self, query: str, limit: int = SEARCH_RESULT_LIMIT) -> list[int]:
+        """Exactly the adapter's order: (-exact, -overlap, position, sha256(query\\0url), index), first ``limit``.
+        Overlap counts are vectorised and the hash is computed only for rows tied with the ``limit``-th row on the
+        first three keys (it orders nothing else), so the result is identical to the full sort and much faster."""
         terms = self._tokens(query)
-        overlap = defaultdict(int)
+        overlap = np.zeros(len(self.ids), np.int64)
         for token in terms:
-            for local in self.keyword_postings.get(token, ()):
-                overlap[int(local)] += 4
-            for local in self.evidence_postings.get(token, ()):
-                overlap[int(local)] += 1
-        exact = set(self.by_keyword.get(query.casefold(), ()))
-        hits = set(overlap) | exact
-        key = lambda local: (-int(local in exact), -overlap.get(local, 0), int(self.position[local]), self._hash(query, local), local)
-        chosen = sorted(hits, key=key)[:limit]
+            hits_k = self.keyword_postings.get(token)
+            if hits_k is not None:
+                overlap[hits_k] += 4
+            hits_e = self.evidence_postings.get(token)
+            if hits_e is not None:
+                overlap[hits_e] += 1
+        exact = np.zeros(len(self.ids), bool)
+        exact_rows = self.by_keyword.get(query.casefold(), ())
+        if len(exact_rows):
+            exact[np.asarray(exact_rows, np.int64)] = True
+        hits = np.flatnonzero((overlap > 0) | exact)
+        if len(hits):
+            neg_exact, neg_overlap, pos = -exact[hits].astype(np.int64), -overlap[hits], self.position[hits].astype(np.int64)
+            order = np.lexsort((hits, pos, neg_overlap, neg_exact))
+            hits, neg_exact, neg_overlap, pos = hits[order], neg_exact[order], neg_overlap[order], pos[order]
+            if len(hits) > limit:
+                b = limit - 1
+                # every row whose first three keys do not exceed the limit-th row's can still reach the top
+                keep = ((neg_exact < neg_exact[b]) | ((neg_exact == neg_exact[b]) & ((neg_overlap < neg_overlap[b]) | (
+                        (neg_overlap == neg_overlap[b]) & (pos <= pos[b])))))
+                hits = hits[keep]
+            key = lambda local: (-int(exact[local]), -int(overlap[local]), int(self.position[local]), self._hash(query, local), int(local))  # noqa: E731
+            chosen = sorted(map(int, hits), key=key)[:limit]
+        else:
+            chosen = []
         if len(chosen) < limit:
+            taken = set(np.flatnonzero((overlap > 0) | exact).tolist())
             for p in self.positions:
-                pool = sorted((local for local in self.by_position[p] if local not in hits),
+                pool = sorted((local for local in self.by_position[p] if local not in taken),
                               key=lambda local: (self._hash(query, local), local))
                 chosen += pool[:limit - len(chosen)]
                 if len(chosen) >= limit:
