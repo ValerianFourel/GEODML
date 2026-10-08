@@ -246,3 +246,6 @@ inference); Qwen Gemma judgments (none exist).
 - Earlier estimates: accelerated about 2026-10-11 19:42, cpuonly about 2026-10-12 14:27. The deadline is the 12th.
 - Next: monitor with `fullrun status`. On failures run `horeka-fullrun-relaunch.sh`. When `"done": 300`, bring back
   `run2/paper-results.tar.gz` via block 7 of the runbook, then update the final RESULTS, IMPORTANT.html and this handoff.
+- Correction: Valerian's instruction was no cpuonly jobs at all. The 8 cpuonly jobs, 5187103–5187110, are cancelled.
+  They are replaced by 8 more mixed accelerated jobs, giving 20 GPU-node jobs in total; each runs the CPU tasks on its
+  CPU cores.
