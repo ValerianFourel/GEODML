@@ -40,3 +40,18 @@ def test_pools_complete_cells_once_and_audits(tmp_path):
     assert r["audit"]["llama"]["cells"] == {"complete": 2, "incomplete": 1, "input_missing_request_or_answer": 1}
     assert r["audit"]["qwen"]["duplicates_skipped"] == 1 and r["audit"]["pending"]["shards"] == {"running": 1}
     assert r["scientific_result"] is False and (out / "agreement.md").exists()
+
+
+def test_reads_a_downloaded_hub_export(tmp_path):
+    root = tmp_path / "reviews/gemma-si-v4/plan-a"
+    (root / "shards/s1").mkdir(parents=True)
+    with gzip.open(root / "shards/s1/cells.jsonl.gz", "wt") as f:
+        f.write(json.dumps(cell("f1", "qwen38", True)) + "\n")
+    (root / "export-manifest.json").write_text(json.dumps({"shards": [{"shard": "s1", "status": "finished"},
+                                                                      {"shard": "s2", "status": "finished"},
+                                                                      {"shard": "s3", "status": "not_started"}]}))
+    out = tmp_path / "out"
+    assert g.main(["--run", str(root), "--output", str(out), "--draws", "10"]) == 0
+    r = json.loads((out / "agreement.json").read_text())
+    assert r["groups"]["model"]["qwen38"]["answers"] == 1
+    assert r["audit"]["plan-a"]["shards"] == {"finished": 1, "missing_on_hub": 1, "not_started": 1}

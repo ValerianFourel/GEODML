@@ -16,6 +16,7 @@ bootstrap over prompts (200 draws, seed 20261008). Writes agreement.json and agr
 judge is not established: these are diagnostic numbers, not scientific results.
 
     python -m analysis.scripts.gemma_ranking_agreement --run ROOT [--run ROOT ...] --output DIR
+ROOT is a HoreKa run root or a downloaded Hub export folder reviews/gemma-si-v4/<plan_id>.
 """
 from __future__ import annotations
 
@@ -37,6 +38,14 @@ GROUPS = (("model",), ("model", "method"), ("model", "engine"), ("model", "condi
 
 
 def finished_reports(root: Path):
+    """(shard, report folder or None, status). A HoreKa run root (plan.json + shard folders) or a downloaded Hub export
+    (reviews/gemma-si-v4/<plan_id>/ with export-manifest.json and shards/<id>/{cells.jsonl.gz,summary.json})."""
+    if (root / "export-manifest.json").is_file():
+        for row in json.loads((root / "export-manifest.json").read_text())["shards"]:
+            folder = root / "shards" / row["shard"]
+            ok = row.get("status") in DONE and (folder / "cells.jsonl.gz").is_file()
+            yield row["shard"], folder if ok else None, row.get("status") if ok or row.get("status") not in DONE else "missing_on_hub"
+        return
     plan = json.loads((root / "plan.json").read_text())
     for shard in plan["shards"]:
         reports = Path(shard["directory"]) / "results/reports"
