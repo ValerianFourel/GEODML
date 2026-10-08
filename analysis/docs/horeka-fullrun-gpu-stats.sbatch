@@ -24,7 +24,7 @@ CODE=${CODE:?CODE must point to the pinned checkout}
 LEDGER=${LEDGER:?LEDGER must point to the planned ledger}
 test -z "$(git -C "$CODE" status --porcelain --untracked-files=all)" || { echo "dirty checkout: $CODE" >&2; exit 2; }
 COMMIT=$(git -C "$CODE" rev-parse HEAD)
-GPU_SIF=${GPU_SIF:-$W/containers/geodml-gpu.sif}; MARGIN_MIN=${MARGIN_MIN:-15}; CPU_STEPS=${CPU_STEPS:-0}
+GPU_SIF=${GPU_SIF:-$W/containers/geodml-gpu.sif}; MARGIN_MIN=${MARGIN_MIN:-15}; MIN_START_MIN=${MIN_START_MIN:-20}; CPU_STEPS=${CPU_STEPS:-0}
 if [ "$CPU_STEPS" = 1 ]; then GPU_CORES=${GPU_CORES:-32}; CPU_CORES=${CPU_CORES:-72}; IDLE_MIN=${IDLE_MIN:-60}; else GPU_CORES=${GPU_CORES:-64}; fi
 export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CODE" OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 END=$(date -d "$(squeue -h -j "$SLURM_JOB_ID" -o %e)" +%s)
@@ -48,16 +48,16 @@ if [ "$CPU_STEPS" = 1 ]; then
   # minutes without a task of this job running (or when nothing is open). Workers themselves give up after 2 idle minutes.
   CLOG="$(dirname "$LEDGER")/slurm/gpustats-cpu-$SLURM_JOB_ID.out"; mkdir -p "$(dirname "$CLOG")"
   D=$(dirname "$WRAP")
-  printf '#!/bin/bash\ncd %q && exec %s python -u -m analysis.fullrun worker --ledger %q --cores %s --end-epoch %s --margin-minutes %s --idle-minutes 2 --job %s >> %q 2>&1\n' \
-    "$CODE" "${RUN[*]}" "$LEDGER" "$CPU_CORES" "$END" "$MARGIN_MIN" "$SLURM_JOB_ID" "$CLOG" > "$D/cpu-worker.sh"
-  printf '#!/bin/bash\ncd %q && exec %q -u -m analysis.fullrun worker --ledger %q --gpu --devices 4 --cores %s --python %q --end-epoch %s --margin-minutes %s --min-start-minutes 20 --idle-minutes 2 --job %s\n' \
-    "$CODE" "$RT/bin/python" "$LEDGER" "$GPU_CORES" "$WRAP" "$END" "$MARGIN_MIN" "$SLURM_JOB_ID" > "$D/gpu-worker.sh"
+  printf '#!/bin/bash\ncd %q && exec %s python -u -m analysis.fullrun worker --ledger %q --cores %s --end-epoch %s --margin-minutes %s --min-start-minutes %s --idle-minutes 2 --job %s >> %q 2>&1\n' \
+    "$CODE" "${RUN[*]}" "$LEDGER" "$CPU_CORES" "$END" "$MARGIN_MIN" "$MIN_START_MIN" "$SLURM_JOB_ID" "$CLOG" > "$D/cpu-worker.sh"
+  printf '#!/bin/bash\ncd %q && exec %q -u -m analysis.fullrun worker --ledger %q --gpu --devices 4 --cores %s --python %q --end-epoch %s --margin-minutes %s --min-start-minutes %s --idle-minutes 2 --job %s\n' \
+    "$CODE" "$RT/bin/python" "$LEDGER" "$GPU_CORES" "$WRAP" "$END" "$MARGIN_MIN" "$MIN_START_MIN" "$SLURM_JOB_ID" > "$D/gpu-worker.sh"
   echo "mixed node: CPU worker $CPU_CORES cores (log $CLOG), GPU worker 4 GPUs / $GPU_CORES cores, idle limit $IDLE_MIN min"
   (cd "$CODE" && "$RT/bin/python" -u -m analysis.fullrun mixed --ledger "$LEDGER" --job "$SLURM_JOB_ID" --end-epoch "$END" \
-    --margin-minutes "$MARGIN_MIN" --min-start-minutes 20 --idle-minutes "$IDLE_MIN" --poll-seconds "${POLL_SECONDS:-60}" --cpu-cmd "$D/cpu-worker.sh" --gpu-cmd "$D/gpu-worker.sh") || rc=$?
+    --margin-minutes "$MARGIN_MIN" --min-start-minutes "$MIN_START_MIN" --idle-minutes "$IDLE_MIN" --poll-seconds "${POLL_SECONDS:-60}" --cpu-cmd "$D/cpu-worker.sh" --gpu-cmd "$D/gpu-worker.sh") || rc=$?
 else
   (cd "$CODE" && "$RT/bin/python" -u -m analysis.fullrun worker --ledger "$LEDGER" --gpu --devices 4 --cores "$GPU_CORES" --python "$WRAP" \
-    --end-epoch "$END" --margin-minutes "$MARGIN_MIN" --min-start-minutes 20 --idle-minutes "${IDLE_MIN:-20}" --job "$SLURM_JOB_ID") || rc=$?
+    --end-epoch "$END" --margin-minutes "$MARGIN_MIN" --min-start-minutes "$MIN_START_MIN" --idle-minutes "${IDLE_MIN:-20}" --job "$SLURM_JOB_ID") || rc=$?
 fi
 (cd "$CODE" && "$RT/bin/python" -m analysis.fullrun status --ledger "$LEDGER") || true
 echo "fullrun gpu-stats: exit $rc end $(date -u +%FT%TZ)"

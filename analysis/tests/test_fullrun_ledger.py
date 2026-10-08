@@ -279,3 +279,19 @@ def test_mixed_supervisor_releases_an_idle_node(tmp_path):
     rc = L.supervise(led, job="node1", end_epoch=time.time() + 3600, margin_minutes=0, min_start_minutes=0, idle_minutes=0.02,
                      commands={"cpu": [sys.executable, "-c", "pass"]}, poll_seconds=0.1, log=lambda m: None)
     assert rc == 0 and time.time() - t0 < 10 and not led.done("after")
+
+
+def test_mixed_smoke_routes_like_the_full_run(tmp_path):
+    from analysis.fullrun import smoke
+    cfg = json.loads((Path(plan.__file__).parent / "horeka-config.example.json").read_text())
+    tasks = smoke.mixed(cfg)
+    L.Ledger(tmp_path / "ledger").write_tasks(tasks)                      # dependencies valid
+    by = {t.id: t for t in tasks}
+    strata = [t for t in tasks if "--stratum" in t.argv]
+    assert len(strata) == 8 and all(t.gpu and t.gpus == 1 and t.argv[-2:] == ["--backend", "cuda"] for t in strata)
+    for name in ("generator", "fe"):                                      # aggregation: CPU, same cache key (cuda)
+        agg = by[f"chain-steelman-{name}"]
+        assert not agg.gpu and agg.argv[-2:] == ["--backend", "cuda"]
+    assert not by["chain-steelman-report"].gpu and not by["smoke-relocation-sample"].gpu
+    assert by["smoke-embed-sample-qwen"].gpu and by["smoke-embed-sample-qwen"].gpus == 0
+    assert all("/smoke-mixed" in a for a in by["smoke-embed-sample-qwen"].argv[2:])

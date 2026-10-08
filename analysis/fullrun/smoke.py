@@ -26,12 +26,12 @@ FILTER = ("import json, sys; from analysis.scripts.page_readiness_ordering impor
           "open(sys.argv[2], 'w').write(''.join(json.dumps(r) + chr(10) for r in keep)); print('prompts in shard', len(keep))")
 
 
-def chain(cfg: dict, shard: str = "1/500") -> list[Task]:
+def chain(cfg: dict, shard: str = "1/500", folder: str = "smoke-chain") -> list[Task]:
     """The CPU chain of the full run on real data, one keyword-hash shard (1 of 500, both models): extraction, merges,
     replay, assembly, one funnel stage model (unit ranges and assembly), the generator decisions, every steelman part
     and its report, all with tiny draw counts. Not covered here: the answer export (reads every cell), the intent-stages
     analysis and Gemma extract (need the full embeddings), the Hub import (login node)."""
-    code, out = cfg["code"], cfg["output"] + "/smoke-chain"
+    code, out = cfg["code"], f'{cfg["output"]}/{folder}'
     py, script = "{PY}", (lambda name: f"{code}/analysis/scripts/{name}")
     sources = [a for s in cfg["sources"] for a in ("--source", s)]
     snaps = [a for e, p in cfg["snapshots"].items() for a in ("--snapshot", f"{e}={p}")]
@@ -85,6 +85,28 @@ def chain(cfg: dict, shard: str = "1/500") -> list[Task]:
         t.append(Task(f"chain-steelman-{name}", "smoke", part(name), sids, cores=2)); ids.append(f"chain-steelman-{name}")
     t.append(Task("chain-steelman-report", "smoke", [py, "-u", "-m", "analysis.steelman", "report", "--output", f"{out}/steelman"], ids, cores=1))
     return t
+
+
+def mixed(cfg: dict, shard: str = "1/500") -> list[Task]:
+    """The full run's structure on one GPU node (``horeka-fullrun-gpu-stats.sbatch`` with CPU_STEPS=1): the real-data CPU
+    chain of ``chain`` whose generator and fixed-effects strata are 1-GPU tasks with ``--backend cuda`` (as with
+    ``"gpu_stats": ["generator", "fe"]``) between CPU tasks before and after them, four device-slot checks, and the
+    relocation sample (CPU) feeding one real 4-GPU embedding."""
+    out = cfg["output"] + "/smoke-mixed"
+    t = chain(cfg, shard, folder="smoke-mixed")
+    for task in t:
+        if any(task.id.startswith(f"chain-steelman-{n}") for n in ("generator", "fe")):
+            task.argv = [*task.argv, "--backend", "cuda"]
+            if "--stratum" in task.argv:
+                task.gpu, task.gpus, task.cores = True, 1, 4
+    gpu = {x.id: x for x in build(cfg, True)}
+    slots = [gpu[f"smoke-gpu-slot-{i}"] for i in range(4)]
+    sample, embed = gpu["smoke-relocation-sample"], gpu["smoke-embed-sample-qwen"]
+    sample.gpu, sample.gpus = False, 0
+    sample.argv = [a.replace(cfg["output"] + "/smoke/", out + "/") for a in sample.argv]
+    embed.argv = [a.replace(cfg["output"] + "/smoke/", out + "/") for a in embed.argv]
+    embed.deps = ["smoke-relocation-sample"]
+    return [*t, *slots, sample, embed]
 
 
 def build(cfg: dict, gpu: bool) -> list[Task]:

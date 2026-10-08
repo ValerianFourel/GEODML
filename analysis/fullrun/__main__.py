@@ -43,6 +43,7 @@ def main(argv=None) -> int:
     q.add_argument("--ledger", type=Path, required=True)
     q.add_argument("--gpu", action="store_true")
     q.add_argument("--chain", action="store_true", help="the CPU chain on one real keyword shard (1 of 500)")
+    q.add_argument("--mixed", action="store_true", help="the full run's CPU/GPU structure on one GPU node (1 of 500)")
     q = sub.add_parser("worker")
     q.add_argument("--ledger", type=Path, required=True)
     q.add_argument("--gpu", action="store_true", help="run only GPU tasks (else only CPU tasks)")
@@ -102,7 +103,7 @@ def main(argv=None) -> int:
     if a.command == "smoke":
         from analysis.fullrun import plan, smoke
         cfg = plan.load_config(a.config)
-        tasks = smoke.chain(cfg) if a.chain else smoke.build(cfg, a.gpu)
+        tasks = smoke.mixed(cfg) if a.mixed else smoke.chain(cfg) if a.chain else smoke.build(cfg, a.gpu)
         L.Ledger(a.ledger).write_tasks(tasks)
         print(json.dumps({"smoke_tasks": [t.id for t in tasks]}))
         return 0
