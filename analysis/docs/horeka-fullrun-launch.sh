@@ -12,6 +12,9 @@
 # FILL=1 (Valerian, 2026-10-08: "send it all 10 mins and fill the queue"): instead of the first and third checks, submit
 # whenever GAP_MIN minutes have passed since the previous submission, while running allocations of $USER (all kinds) plus
 # pending full-run jobs stay below MAX_ALLOC. Starts are then no longer observed one at a time (an explicit override).
+# CPU_TIME (default: the script's 06:00:00) and CPU_PARTITION (default cpuonly) reshape the CPU jobs: short jobs backfill
+# sooner; every CPU task checkpoints or fits in 25 minutes, so 02:00:00 loses no work. Keep CPU_CAP x hours within the
+# approved 48 node-hours (8 x 6 h), e.g. CPU_TIME=02:00:00 CPU_CAP=24.
 # Caps count every submission in $FR/launch/submissions.tsv, across relaunches (raising them needs Valerian's approval).
 # Never cancels, extends or requeues anything. Stops with
 #   0 every task done | 3 blocked: failed tasks hold the rest (see horeka-fullrun-relaunch.sh) | 5 caps used with work left
@@ -25,7 +28,7 @@ FR=$(dirname "$LEDGER"); LAUNCH=$FR/launch; mkdir -p "$LAUNCH" "$FR/slurm"
 SUBS=$LAUNCH/submissions.tsv; SEEN=$LAUNCH/reported-failures.txt; touch "$SUBS" "$SEEN"
 CPU_CAP=${CPU_CAP:-8}; CPU_MAX=${CPU_MAX:-4}; GPU_CAP=${GPU_CAP:-3}; GPU_MAX=${GPU_MAX:-1}; GPU_TIME=${GPU_TIME:-03:00:00}
 MAX_ALLOC=${MAX_ALLOC:-5}; GAP_MIN=${GAP_MIN:-10}; POLL=${POLL:-300}; MIN_READY_CORES=${MIN_READY_CORES:-16}
-FILL=${FILL:-0}; GAP_SEC=${GAP_SEC:-$((60 * GAP_MIN))}
+CPU_TIME=${CPU_TIME:-}; CPU_PARTITION=${CPU_PARTITION:-cpuonly}; FILL=${FILL:-0}; GAP_SEC=${GAP_SEC:-$((60 * GAP_MIN))}
 MIN_FREE_GB=${MIN_FREE_GB:-100}; MIN_FREE_INODES=${MIN_FREE_INODES:-2000000}
 [ "$CPU_MAX" -le 4 ] && [ "$GPU_MAX" -le 1 ] && [ "$MAX_ALLOC" -le 5 ] || { echo "concurrency above the approved limits" >&2; exit 2; }
 test -z "$(git -C "$CODE" status --porcelain --untracked-files=all)" || { echo "dirty checkout: $CODE" >&2; exit 2; }
@@ -34,7 +37,7 @@ CPU_NAME=geodml-fullrun-cpu; GPU_NAME=geodml-fullrun-gpustats
 fr() { (cd "$CODE" && "$RT/bin/python" -m analysis.fullrun "$@"); }
 field() { "$RT/bin/python" -c "import json,sys; s=json.load(open(sys.argv[1])); print(eval(sys.argv[2], {}, s))" "$LAUNCH/status.json" "$1"; }
 log() { echo "$(date -u +%FT%TZ) $*"; }
-log "launcher: fill $FILL gap ${GAP_SEC}s; code $CODE commit $(git -C "$CODE" rev-parse HEAD) ledger $LEDGER caps cpu $CPU_CAP gpu $GPU_CAP gpu-time $GPU_TIME"
+log "launcher: fill $FILL gap ${GAP_SEC}s; cpu ${CPU_TIME:-06:00:00} on $CPU_PARTITION; code $CODE commit $(git -C "$CODE" rev-parse HEAD) ledger $LEDGER caps cpu $CPU_CAP gpu $GPU_CAP gpu-time $GPU_TIME"
 while true; do
   fr reconcile --ledger "$LEDGER" > /dev/null
   fr status --ledger "$LEDGER" > "$LAUNCH/status.json.tmp" && mv "$LAUNCH/status.json.tmp" "$LAUNCH/status.json"
@@ -78,7 +81,7 @@ while true; do
           "$CODE/analysis/docs/horeka-fullrun-gpu-stats.sbatch") && printf '%s\tgpu\t%s\t%s\n' "$JOB" "$(date -u +%FT%TZ)" "$CODE" >> "$SUBS" \
       && log "submitted GPU job $JOB ($((gpu_subs + 1))/$GPU_CAP, $GPU_TIME)"
   elif [ "$want" = cpu ]; then
-    JOB=$(sbatch --parsable --export=ALL,CODE="$CODE",LEDGER="$LEDGER" --output="$FR/slurm/cpu-%j.out" \
+    JOB=$(sbatch --parsable ${CPU_TIME:+--time=$CPU_TIME} --partition="$CPU_PARTITION" --export=ALL,CODE="$CODE",LEDGER="$LEDGER" --output="$FR/slurm/cpu-%j.out" \
           "$CODE/analysis/docs/horeka-fullrun-cpu.sbatch") && printf '%s\tcpu\t%s\t%s\n' "$JOB" "$(date -u +%FT%TZ)" "$CODE" >> "$SUBS" \
       && log "submitted CPU job $JOB ($((cpu_subs + 1))/$CPU_CAP)"
   fi
