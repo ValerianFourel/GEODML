@@ -1,6 +1,7 @@
 """python -m analysis.fullrun <command>
 
   plan      --config CONFIG.json --ledger DIR        write the finite task list (once)
+  smoke     --config CONFIG.json --ledger DIR [--gpu] a short smoke task list for testing the batch scripts
   worker    --ledger DIR [--gpu] [--stage S ...]     run ready tasks in this allocation until none is ready or the deadline
   status    --ledger DIR                             counts by state and stage, remaining estimate, disk and inodes
   reconcile --ledger DIR                             release claims of allocations Slurm reports terminal
@@ -34,6 +35,10 @@ def main(argv=None) -> int:
     q = sub.add_parser("plan")
     q.add_argument("--config", type=Path, required=True)
     q.add_argument("--ledger", type=Path, required=True)
+    q = sub.add_parser("smoke")
+    q.add_argument("--config", type=Path, required=True)
+    q.add_argument("--ledger", type=Path, required=True)
+    q.add_argument("--gpu", action="store_true")
     q = sub.add_parser("worker")
     q.add_argument("--ledger", type=Path, required=True)
     q.add_argument("--gpu", action="store_true", help="run only GPU tasks (else only CPU tasks)")
@@ -71,6 +76,12 @@ def main(argv=None) -> int:
         (ledger.root / "config.json").write_text(a.config.read_text())
         print(json.dumps({"tasks": len(tasks), "cpu_hours_estimate": round(sum(t.est_cpu_h for t in tasks), 1),
                           "gpu_tasks": sum(t.gpu for t in tasks)}))
+        return 0
+    if a.command == "smoke":
+        from analysis.fullrun import plan, smoke
+        tasks = smoke.build(plan.load_config(a.config), a.gpu)
+        L.Ledger(a.ledger).write_tasks(tasks)
+        print(json.dumps({"smoke_tasks": [t.id for t in tasks]}))
         return 0
     if a.command == "worker":
         end = a.end_epoch or time.time() + 3600 * a.hours

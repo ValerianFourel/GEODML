@@ -164,3 +164,14 @@ def test_gpu_stats_per_estimator():
     assert "--backend" not in tasks["steelman-exploration-chain"].argv
     with pytest.raises(ValueError):
         plan.build({**cfg, "gpu_stats": ["chain"]})
+
+
+def test_smoke_lists_are_valid(tmp_path):
+    from analysis.fullrun import smoke
+    cfg = {"code": "/c", "output": "/o", "sources": ["/d/l:llama4"], "snapshots": {"duckduckgo": "/s/d"}, "axis_map": "/a",
+           "population": "/p", "corpus": "/c2", "archive": "/A"}
+    for gpu in (False, True):
+        tasks = smoke.build(cfg, gpu)
+        L.Ledger(tmp_path / f"l{gpu}").write_tasks(tasks)
+        assert all(t.gpu == gpu for t in tasks)
+    assert any(t.gpus == 0 for t in smoke.build(cfg, True))       # the 4-GPU embedding

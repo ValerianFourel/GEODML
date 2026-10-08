@@ -111,6 +111,46 @@ def generator(args) -> bool:
     return passed
 
 
+def cuda_smoke(args) -> bool:
+    """The PyTorch fits on the GPU agree with torch-cpu and with the CPU reference on random well-conditioned problems."""
+    import torch
+    from types import SimpleNamespace as NS
+    from analysis.interpretability.pipeline import funnel_models as fm
+    from analysis.interpretability.pipeline import page_readiness_ordering as pro
+    from analysis.interpretability.pipeline import torch_fits as tf
+    print("torch", torch.__version__, "cuda", torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else "")
+    rng = np.random.default_rng(0)
+    sizes = rng.integers(2, 9, 20000)
+    sets = np.repeat(np.arange(len(sizes)), sizes)
+    X = rng.normal(size=(len(sets), 40))
+    pos = np.concatenate([np.minimum(np.arange(s), 5) for s in sizes])
+    u = X @ rng.normal(scale=0.3, size=40) - 0.3 * pos + rng.gumbel(size=len(sets))
+    chosen = np.zeros(len(sets), bool)
+    starts = np.r_[0, np.cumsum(sizes)[:-1]]
+    for a, n in zip(starts, sizes):
+        chosen[a + int(np.argmax(u[a:a + n]))] = True
+    data = NS(z=np.zeros(len(sets)), set=sets, chosen=chosen, position=pos, sets=len(sizes), levels=6)
+    rows = []
+    t0 = time.time(); ref = pro.fit_choice_model(X, data); t_cpu = time.time() - t0
+    t0 = time.time(); gpu = tf.ChoiceProblem(X, data, tf.device_of("cuda")).fit(); t_gpu = time.time() - t0
+    cpu_t = tf.ChoiceProblem(X, data, tf.device_of("torch-cpu")).fit()
+    rows.append(("choice: cuda vs torch-cpu max coef", 0.0, float(np.max(np.abs(gpu.x - cpu_t.x))), 1e-8))
+    rows.append(("choice: cuda vs scipy max coef", 0.0, float(np.max(np.abs(gpu.x - ref.x))), 1e-4))
+    rows.append(("choice: objective cuda <= scipy", 0.0, max(0.0, gpu.fun - ref.fun), 1e-12))
+    answer = np.repeat(np.arange(5000), 12)
+    Xa = rng.normal(size=(len(answer), 20))
+    adm = (rng.random(len(answer)) < 1 / (1 + np.exp(-(Xa @ rng.normal(scale=0.4, size=20))))).astype(int)
+    adata, keep = fm.admission_data(answer, adm)
+    a_ref = fm.fit_admission(Xa[keep], adata)
+    a_gpu = tf.AdmissionProblem(Xa[keep], adata, tf.device_of("cuda")).fit()
+    rows.append(("admission: cuda vs scipy max coef", 0.0, float(np.max(np.abs(a_gpu.x - a_ref.x))), 1e-4))
+    rows.append(("admission: objective cuda <= scipy", 0.0, max(0.0, a_gpu.fun - a_ref.fun), 1e-12))
+    passed = all(b < thr for _, _, b, thr in rows)
+    write("cuda smoke (random problems)", rows, passed, args.report,
+          f"choice: {len(sets):,} rows × 40 features, scipy {t_cpu:.1f} s, cuda {t_gpu:.1f} s (incl. upload)")
+    return passed
+
+
 def fe(args) -> bool:
     """Run the two-way fixed effects of every stratum on the backend and compare (writes args.torch_fe)."""
     from analysis.interpretability.pipeline import funnel_models as fm
@@ -151,7 +191,7 @@ def fe_compare(args) -> bool:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("mode", choices=("funnel", "generator", "fe-compare", "fe"))
+    p.add_argument("mode", choices=("funnel", "generator", "fe-compare", "fe", "cuda-smoke"))
     p.add_argument("--backend", default="torch-cpu")
     p.add_argument("--task", default="qwen38 · Reactive|P|C|main")
     p.add_argument("--units", type=int, default=3)
@@ -160,7 +200,7 @@ def main(argv=None) -> int:
     p.add_argument("--torch-fe")
     p.add_argument("--report", type=Path, default=REPORT)
     a = p.parse_args(argv)
-    ok = {"funnel": funnel, "generator": generator, "fe-compare": fe_compare, "fe": fe}[a.mode](a)
+    ok = {"funnel": funnel, "generator": generator, "fe-compare": fe_compare, "fe": fe, "cuda-smoke": cuda_smoke}[a.mode](a)
     return 0 if ok else 1
 
 
