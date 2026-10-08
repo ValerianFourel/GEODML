@@ -5,6 +5,7 @@
   worker    --ledger DIR [--gpu] [--stage S ...]     run ready tasks in this allocation until none is ready or the deadline
   status    --ledger DIR                             counts by state and stage, remaining estimate, disk and inodes
   reconcile --ledger DIR                             release claims of allocations Slurm reports terminal
+  mixed     --ledger DIR --job J --end-epoch E --cpu-cmd A --gpu-cmd B   one GPU node running both kinds of task
   retry     --ledger DIR [--task ID ...]             make failed tasks ready again (after a fix or a transient error)
   repin     --ledger DIR --old-code A --new-code B   point unfinished tasks at a fixed checkout (no task may be claimed)
   merge     funnel|trace --output DIR SHARD...       merge keyword-hash extraction shards
@@ -55,6 +56,16 @@ def main(argv=None) -> int:
     q.add_argument("--devices", type=int, default=4, help="GPU worker: device slots (CUDA_VISIBLE_DEVICES 0..N-1)")
     q.add_argument("--python", help="interpreter for {PY} in task commands (default: this worker's own), e.g. a container wrapper")
     q.add_argument("--idle-minutes", type=float, default=0.0, help="wait up to this long for dependencies another allocation runs")
+    q = sub.add_parser("mixed", help="supervise a CPU and a GPU worker on one GPU node")
+    q.add_argument("--ledger", type=Path, required=True)
+    q.add_argument("--job", required=True)
+    q.add_argument("--end-epoch", type=float, required=True)
+    q.add_argument("--margin-minutes", type=float, default=15.0)
+    q.add_argument("--min-start-minutes", type=float, default=20.0)
+    q.add_argument("--idle-minutes", type=float, default=30.0)
+    q.add_argument("--poll-seconds", type=float, default=60.0)
+    q.add_argument("--cpu-cmd", required=True, help="script that runs the CPU worker (run with bash)")
+    q.add_argument("--gpu-cmd", required=True, help="script that runs the GPU worker (run with bash)")
     q = sub.add_parser("retry")
     q.add_argument("--ledger", type=Path, required=True)
     q.add_argument("--task", action="append", help="only these task ids (default: every failed task)")
@@ -103,6 +114,10 @@ def main(argv=None) -> int:
     if a.command == "status":
         print(json.dumps(L.Ledger(a.ledger).status(), indent=1))
         return 0
+    if a.command == "mixed":
+        return L.supervise(L.Ledger(a.ledger), job=a.job, end_epoch=a.end_epoch, margin_minutes=a.margin_minutes,
+                           min_start_minutes=a.min_start_minutes, idle_minutes=a.idle_minutes, poll_seconds=a.poll_seconds,
+                           commands={"cpu": ["bash", a.cpu_cmd], "gpu": ["bash", a.gpu_cmd]}, log=lambda m: print(m, flush=True))
     if a.command == "retry":
         print(json.dumps({"reset": L.Ledger(a.ledger).retry(a.task)}))
         return 0

@@ -1,6 +1,7 @@
 """The task ledger: dependencies, atomic claims, deadline checkpoints, finite failures, reconcile; the planned task list."""
 
 import json
+from pathlib import Path
 import sys
 import threading
 import time
@@ -248,3 +249,33 @@ def test_repin_points_unfinished_tasks_at_the_new_checkout(tmp_path):
     a, b = led.tasks()
     assert a.argv == ["py", "/c/old/x.py"] and b.argv == ["py", "/c/new/y.py", "--out", "/o"]
     assert (led.root / "tasks.jsonl.before-repin-0").exists() and (led.root / "repins.jsonl").exists()
+
+
+def test_mixed_node_supervisor_runs_cpu_then_gpu_then_cpu(tmp_path):
+    """Workers that exit as soon as they are idle (the failure the supervisor exists for): the GPU task becomes ready
+    only after a CPU task, and the last CPU task only after the GPU task; one node must still finish all three."""
+    led = L.Ledger(tmp_path / "ledger")
+    out = tmp_path / "out"
+    out.mkdir()
+    led.write_tasks([task("a", "import time; time.sleep(0.5); " + touch(out / "a")),
+                     L.Task("g", "test", [sys.executable, "-c", touch(out / "g")], ["a"], gpu=True, gpus=1),
+                     task("b", touch(out / "b"), ["g"])])
+    root = str(Path(L.__file__).resolve().parents[2])
+    end = time.time() + 3600
+    def worker(*extra):
+        return [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); from analysis.fullrun.__main__ import main; "
+                "raise SystemExit(main(sys.argv[2:]))", root, "worker", "--ledger", str(led.root), "--job", "node1",
+                "--end-epoch", str(end), "--margin-minutes", "0", "--min-start-minutes", "0", "--cores", "2", *extra]
+    rc = L.supervise(led, job="node1", end_epoch=end, margin_minutes=0, min_start_minutes=0, idle_minutes=0.05,
+                     commands={"cpu": worker(), "gpu": worker("--gpu", "--devices", "1")}, poll_seconds=0.1, log=lambda m: None)
+    assert rc == 0 and all(led.done(t) for t in ("a", "g", "b"))
+
+
+def test_mixed_supervisor_releases_an_idle_node(tmp_path):
+    led = L.Ledger(tmp_path / "ledger")
+    led.write_tasks([task("dep", "pass"), task("after", "pass", ["dep"])])
+    led.claim(led.tasks()[0], "another-node")                      # runs elsewhere and never finishes here
+    t0 = time.time()
+    rc = L.supervise(led, job="node1", end_epoch=time.time() + 3600, margin_minutes=0, min_start_minutes=0, idle_minutes=0.02,
+                     commands={"cpu": [sys.executable, "-c", "pass"]}, poll_seconds=0.1, log=lambda m: None)
+    assert rc == 0 and time.time() - t0 < 10 and not led.done("after")

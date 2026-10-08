@@ -321,3 +321,53 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
                   flush=True)
             return 0
         time.sleep(poll_seconds)
+
+
+def supervise(ledger: Ledger, *, job: str, end_epoch: float, margin_minutes: float, min_start_minutes: float,
+              idle_minutes: float, commands: dict, poll_seconds: float = 60.0, log=print) -> int:
+    """One node, two kinds of worker (``commands``: {"cpu": argv, "gpu": argv}). A worker of a kind is (re)started
+    whenever a task of that kind is ready and time is left, so neither kind is lost because the other kind's
+    dependencies took long. The node is released when nothing is running here and either no task is ready or claimed
+    anywhere, or for ``idle_minutes`` no task of this job has been running. Exit 4 if a worker stopped at the deadline
+    with work left, else the first nonzero worker exit, else 0."""
+    procs, codes, stopped = {}, [], set()
+    last_busy = time.time()
+    while True:
+        for kind, proc in list(procs.items()):
+            rc = proc.poll()
+            if rc is None:
+                continue
+            del procs[kind]
+            codes.append(rc)
+            if rc == 4:
+                stopped.add(kind)
+            log(json.dumps({"worker": kind, "exit": rc, "at": time.strftime("%H:%M:%S")}))
+        tasks = ledger.tasks()
+        claims = list((ledger.root / "claims").glob("*.json"))
+        ours = 0
+        for path in claims:
+            try:
+                ours += json.loads(path.read_text()).get("job") == job
+            except (OSError, ValueError):
+                continue
+        if ours:
+            last_busy = time.time()
+        minutes_left = (end_epoch - time.time()) / 60 - margin_minutes
+        states = {t.id: ledger.state(t) for t in tasks}
+        ready = {k: any(states[t.id] == "ready" and t.gpu == (k == "gpu") for t in tasks) for k in commands}
+        for kind, argv in commands.items():
+            if kind in procs or kind in stopped or minutes_left < min_start_minutes or not ready[kind]:
+                continue
+            procs[kind] = subprocess.Popen(argv)
+            log(json.dumps({"worker": kind, "started": True, "minutes_left": round(minutes_left), "at": time.strftime("%H:%M:%S")}))
+        if not procs:
+            open_tasks = any(s in ("ready", "waiting") for s in states.values())
+            waiting_on_others = open_tasks and claims and minutes_left >= min_start_minutes
+            if not waiting_on_others or time.time() - last_busy > 60 * idle_minutes:
+                reason = ("deadline" if minutes_left < min_start_minutes else "nothing open" if not open_tasks
+                          else "idle" if waiting_on_others else "nothing ready or claimed")
+                log(json.dumps({"supervisor": "stop", "reason": reason, "open": open_tasks}))
+                if stopped or (open_tasks and minutes_left < min_start_minutes):
+                    return 4
+                return next((c for c in codes if c not in (0, 4)), 0)
+        time.sleep(poll_seconds)
