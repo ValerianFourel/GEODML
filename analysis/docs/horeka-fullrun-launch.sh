@@ -2,7 +2,8 @@
 # Finite launcher of the whole full run (login node; it computes nothing itself). Every POLL seconds it reconciles the
 # ledger, reports new failures with the tail of their logs, and admits at most one allocation when all checks pass:
 #   - no full-run job of ours is still PENDING (so starts can be observed one at a time);
-#   - fewer than MAX_ALLOC (5) jobs of $USER queued or running, all kinds counted (Gemma bouts and sallocs too);
+#   - fewer than MAX_ALLOC (5) RUNNING allocations of $USER, all kinds counted (Gemma bouts and sallocs too); pending jobs
+#     hold no resources and are not counted (a queue of pending Gemma bouts would otherwise block the run forever);
 #   - the latest observed start of any running job of $USER is at least GAP_MIN (10) minutes ago;
 #   - storage: at least MIN_FREE_GB free and MIN_FREE_INODES inodes;
 #   - GPU first: ready GPU tasks, fewer than GPU_MAX (1) GPU jobs of ours, fewer than GPU_CAP (3) GPU submissions so far,
@@ -43,12 +44,12 @@ while true; do
   done
   cpu_jobs=$(squeue -h -u "$USER" -n "$CPU_NAME" -o %i | wc -l); gpu_jobs=$(squeue -h -u "$USER" -n "$GPU_NAME" -o %i | wc -l)
   ours_pending=$(squeue -h -u "$USER" -n "$CPU_NAME,$GPU_NAME" -t PD -o %i | wc -l)
-  all_jobs=$(squeue -h -u "$USER" -o %i | wc -l)
+  all_jobs=$(squeue -h -u "$USER" -t R -o %i | wc -l)
   cpu_subs=$(grep -c $'\tcpu\t' "$SUBS"); gpu_subs=$(grep -c $'\tgpu\t' "$SUBS")
   last=$(squeue -h -u "$USER" -t R -o %S | sort | tail -n 1); gap_ok=1
   if [ -n "$last" ]; then [ $(( $(date +%s) - $(date -d "$last" +%s) )) -ge $(( 60 * GAP_MIN )) ] || gap_ok=0; fi
   log "tasks $done_n/$total done, running $running_n, ready cpu $ready_cpu ($ready_cores cores) gpu $ready_gpu, open $open_n |" \
-      "jobs: ours cpu $cpu_jobs gpu $gpu_jobs pending $ours_pending, all $all_jobs | submitted cpu $cpu_subs/$CPU_CAP gpu $gpu_subs/$GPU_CAP |" \
+      "jobs: ours cpu $cpu_jobs gpu $gpu_jobs pending $ours_pending, running allocations (all kinds) $all_jobs | submitted cpu $cpu_subs/$CPU_CAP gpu $gpu_subs/$GPU_CAP |" \
       "disk ${free_gb} GB, inodes $inodes"
   [ "$done_n" -eq "$total" ] && { log "every task done: run block 7 of horeka-fullrun.md"; exit 0; }
   [ "$free_gb" -ge "$MIN_FREE_GB" ] && [ "$inodes" -ge "$MIN_FREE_INODES" ] || { log "STOP: storage below the threshold"; exit 2; }

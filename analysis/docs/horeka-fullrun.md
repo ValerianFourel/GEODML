@@ -21,7 +21,7 @@ published funnel numbers at the 1e-3 level and needs a separate decision.
 minutes it reconciles the ledger and reports new failures with their log tails. It then admits at most one allocation,
 GPU first, when all of these hold:
 - no full-run job is pending;
-- fewer than 5 jobs of yours exist, counting the Gemma bouts and open sallocs;
+- fewer than 5 of your allocations are running, counting Gemma bouts and open sallocs (pending jobs do not count);
 - the latest observed start of any of your jobs is at least 10 minutes old;
 - storage is above its thresholds;
 - the caps allow it.
