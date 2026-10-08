@@ -15,6 +15,9 @@
 # CPU_TIME (default: the script's 06:00:00) and CPU_PARTITION (default cpuonly) reshape the CPU jobs: short jobs backfill
 # sooner; every CPU task checkpoints or fits in 25 minutes, so 02:00:00 loses no work. Keep CPU_CAP x hours within the
 # approved 48 node-hours (8 x 6 h), e.g. CPU_TIME=02:00:00 CPU_CAP=24.
+# MIXED=1 (Valerian, 2026-10-08, cpuonly estimated to start only on 2026-10-12): no cpuonly jobs; GPU-node jobs run the
+# CPU tasks too (CPU_STEPS=1), admitted while any task is ready (a second node only with substantial ready work).
+# TOP=1: `scontrol top` each new job, i.e. ahead of $USER's other pending jobs (the Gemma bouts); ignored if not allowed.
 # Caps count every submission in $FR/launch/submissions.tsv, across relaunches (raising them needs Valerian's approval).
 # Never cancels, extends or requeues anything. Stops with
 #   0 every task done | 3 blocked: failed tasks hold the rest (see horeka-fullrun-relaunch.sh) | 5 caps used with work left
@@ -28,16 +31,16 @@ FR=$(dirname "$LEDGER"); LAUNCH=$FR/launch; mkdir -p "$LAUNCH" "$FR/slurm"
 SUBS=$LAUNCH/submissions.tsv; SEEN=$LAUNCH/reported-failures.txt; touch "$SUBS" "$SEEN"
 CPU_CAP=${CPU_CAP:-8}; CPU_MAX=${CPU_MAX:-4}; GPU_CAP=${GPU_CAP:-3}; GPU_MAX=${GPU_MAX:-1}; GPU_TIME=${GPU_TIME:-03:00:00}
 MAX_ALLOC=${MAX_ALLOC:-5}; GAP_MIN=${GAP_MIN:-10}; POLL=${POLL:-300}; MIN_READY_CORES=${MIN_READY_CORES:-16}
-CPU_TIME=${CPU_TIME:-}; CPU_PARTITION=${CPU_PARTITION:-cpuonly}; FILL=${FILL:-0}; GAP_SEC=${GAP_SEC:-$((60 * GAP_MIN))}
+MIXED=${MIXED:-0}; TOP=${TOP:-0}; CPU_TIME=${CPU_TIME:-}; CPU_PARTITION=${CPU_PARTITION:-cpuonly}; FILL=${FILL:-0}; GAP_SEC=${GAP_SEC:-$((60 * GAP_MIN))}
 MIN_FREE_GB=${MIN_FREE_GB:-100}; MIN_FREE_INODES=${MIN_FREE_INODES:-2000000}
-[ "$CPU_MAX" -le 4 ] && [ "$GPU_MAX" -le 1 ] && [ "$MAX_ALLOC" -le 5 ] || { echo "concurrency above the approved limits" >&2; exit 2; }
+[ "$CPU_MAX" -le 4 ] && [ "$GPU_MAX" -le 4 ] && [ "$MAX_ALLOC" -le 5 ] || { echo "concurrency above the approved limits" >&2; exit 2; }
 test -z "$(git -C "$CODE" status --porcelain --untracked-files=all)" || { echo "dirty checkout: $CODE" >&2; exit 2; }
 grep -q -- "$CODE" "$LEDGER/tasks.jsonl" || { echo "the ledger's tasks do not use $CODE (repin first: horeka-fullrun-relaunch.sh)" >&2; exit 2; }
 CPU_NAME=geodml-fullrun-cpu; GPU_NAME=geodml-fullrun-gpustats
 fr() { (cd "$CODE" && "$RT/bin/python" -m analysis.fullrun "$@"); }
 field() { "$RT/bin/python" -c "import json,sys; s=json.load(open(sys.argv[1])); print(eval(sys.argv[2], {}, s))" "$LAUNCH/status.json" "$1"; }
 log() { echo "$(date -u +%FT%TZ) $*"; }
-log "launcher: fill $FILL gap ${GAP_SEC}s; cpu ${CPU_TIME:-06:00:00} on $CPU_PARTITION; code $CODE commit $(git -C "$CODE" rev-parse HEAD) ledger $LEDGER caps cpu $CPU_CAP gpu $GPU_CAP gpu-time $GPU_TIME"
+log "launcher: mixed $MIXED top $TOP gpu-max $GPU_MAX fill $FILL gap ${GAP_SEC}s; cpu ${CPU_TIME:-06:00:00} on $CPU_PARTITION; code $CODE commit $(git -C "$CODE" rev-parse HEAD) ledger $LEDGER caps cpu $CPU_CAP gpu $GPU_CAP gpu-time $GPU_TIME"
 while true; do
   fr reconcile --ledger "$LEDGER" > /dev/null
   fr status --ledger "$LEDGER" > "$LAUNCH/status.json.tmp" && mv "$LAUNCH/status.json.tmp" "$LAUNCH/status.json"
@@ -71,22 +74,28 @@ while true; do
     [ $((all_jobs + ours_pending)) -lt "$MAX_ALLOC" ] && [ "$since" -ge "$GAP_SEC" ] && admit=1
   elif [ "$ours_pending" -eq 0 ] && [ "$all_jobs" -lt "$MAX_ALLOC" ] && [ "$gap_ok" -eq 1 ]; then admit=1; fi
   if [ "$admit" -eq 1 ]; then
-    if [ "$ready_gpu" -gt 0 ] && [ "$gpu_jobs" -lt "$GPU_MAX" ] && [ "$gpu_subs" -lt "$GPU_CAP" ]; then want=gpu
-    elif [ "$ready_cpu" -gt 0 ] && [ "$cpu_jobs" -lt "$CPU_MAX" ] && [ "$cpu_subs" -lt "$CPU_CAP" ] \
+    if [ "$MIXED" = 1 ]; then
+      if [ $((ready_gpu + ready_cpu)) -gt 0 ] && [ "$gpu_jobs" -lt "$GPU_MAX" ] && [ "$gpu_subs" -lt "$GPU_CAP" ] \
+         && { [ "$gpu_jobs" -eq 0 ] || [ "$ready_gpu" -ge 2 ] || [ "$ready_cores" -ge "$MIN_READY_CORES" ]; }; then want=gpu; fi
+    elif [ "$ready_gpu" -gt 0 ] && [ "$gpu_jobs" -lt "$GPU_MAX" ] && [ "$gpu_subs" -lt "$GPU_CAP" ]; then want=gpu
+    elif [ "$MIXED" != 1 ] && [ "$ready_cpu" -gt 0 ] && [ "$cpu_jobs" -lt "$CPU_MAX" ] && [ "$cpu_subs" -lt "$CPU_CAP" ] \
          && { [ "$cpu_jobs" -eq 0 ] || [ "$ready_cores" -ge "$MIN_READY_CORES" ]; }; then want=cpu; fi
   fi
   [ -n "$want" ] && date +%s > "$LAUNCH/last-submit.epoch"
   if [ "$want" = gpu ]; then
-    JOB=$(sbatch --parsable --time="$GPU_TIME" --export=ALL,CODE="$CODE",LEDGER="$LEDGER" --output="$FR/slurm/gpustats-%j.out" \
+    JOB=$(sbatch --parsable --time="$GPU_TIME" --export=ALL,CODE="$CODE",LEDGER="$LEDGER",CPU_STEPS="$MIXED" --output="$FR/slurm/gpustats-%j.out" \
           "$CODE/analysis/docs/horeka-fullrun-gpu-stats.sbatch") && printf '%s\tgpu\t%s\t%s\n' "$JOB" "$(date -u +%FT%TZ)" "$CODE" >> "$SUBS" \
-      && log "submitted GPU job $JOB ($((gpu_subs + 1))/$GPU_CAP, $GPU_TIME)"
+      && log "submitted GPU job $JOB ($((gpu_subs + 1))/$GPU_CAP, $GPU_TIME, cpu steps $MIXED)"
+    [ "$TOP" = 1 ] && [ -n "${JOB:-}" ] && { scontrol top "$JOB" && log "scontrol top $JOB" || log "scontrol top $JOB refused"; }
   elif [ "$want" = cpu ]; then
     JOB=$(sbatch --parsable ${CPU_TIME:+--time=$CPU_TIME} --partition="$CPU_PARTITION" --export=ALL,CODE="$CODE",LEDGER="$LEDGER" --output="$FR/slurm/cpu-%j.out" \
           "$CODE/analysis/docs/horeka-fullrun-cpu.sbatch") && printf '%s\tcpu\t%s\t%s\n' "$JOB" "$(date -u +%FT%TZ)" "$CODE" >> "$SUBS" \
       && log "submitted CPU job $JOB ($((cpu_subs + 1))/$CPU_CAP)"
+    [ "$TOP" = 1 ] && [ -n "${JOB:-}" ] && { scontrol top "$JOB" && log "scontrol top $JOB" || log "scontrol top $JOB refused"; }
   fi
   if [ -z "$want" ] && [ $((cpu_jobs + gpu_jobs)) -eq 0 ] && [ "$running_n" -eq 0 ] \
-     && { { [ "$ready_cpu" -gt 0 ] && [ "$cpu_subs" -ge "$CPU_CAP" ]; } || { [ "$ready_gpu" -gt 0 ] && [ "$gpu_subs" -ge "$GPU_CAP" ]; }; }; then
+     && { { [ "$MIXED" != 1 ] && [ "$ready_cpu" -gt 0 ] && [ "$cpu_subs" -ge "$CPU_CAP" ]; } \
+          || { [ $((ready_gpu + MIXED * ready_cpu)) -gt 0 ] && [ "$gpu_subs" -ge "$GPU_CAP" ]; }; }; then
     log "STOP: caps used with ready work left (ask Valerian before raising CPU_CAP/GPU_CAP)"; exit 5
   fi
   sleep "$POLL"
