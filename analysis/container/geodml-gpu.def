@@ -5,10 +5,11 @@ Bootstrap: docker
 From: public.ecr.aws/docker/library/python:3.12-slim
 
 %files
-    requirements-cpu.lock /tmp/requirements-cpu.lock
+    # not /tmp: apptainer mounts the host's /tmp over it while %post runs
+    requirements-cpu.lock /opt/geodml/requirements-cpu.lock
 
 %post
-    pip install --no-cache-dir -r /tmp/requirements-cpu.lock
+    pip install --no-cache-dir -r /opt/geodml/requirements-cpu.lock
     pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 "torch==2.5.1"
 
 %environment
