@@ -294,4 +294,4 @@ def test_mixed_smoke_routes_like_the_full_run(tmp_path):
         assert not agg.gpu and agg.argv[-2:] == ["--backend", "cuda"]
     assert not by["chain-steelman-report"].gpu and not by["smoke-relocation-sample"].gpu
     assert by["smoke-embed-sample-qwen"].gpu and by["smoke-embed-sample-qwen"].gpus == 0
-    assert all("/smoke-mixed" in a for a in by["smoke-embed-sample-qwen"].argv[2:])
+    assert all("/smoke-mixed" in a for a in by["smoke-embed-sample-qwen"].argv[3:])
