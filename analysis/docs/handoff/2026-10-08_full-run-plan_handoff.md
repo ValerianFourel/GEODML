@@ -207,3 +207,21 @@ run the commands and bring back logs and the final tarball. Also: find or drop t
 
 Fixed-shortlist test (needs new generations, ≈ 11k answers); human or judge validation of page positions (new judge
 inference); Qwen Gemma judgments (none exist).
+
+## Update 2026-10-08 (late): launch of the whole run (commit e9a8742)
+
+- Valerian: "we need to get all of the computation asap now, lets launch them all, and prepare script to be able to
+  relaunch what would be faulty". This is taken as approval of the GPU-statistics allocations: at most 1 at once,
+  3 hours each, cap 3, so 36 GPU-hours. CPU limits are unchanged: 6-hour cpuonly allocations, at most 4 at once, cap 8.
+- Routing: `"gpu_stats": ["generator", "fe"]`. Only these estimators passed their gates. The funnel and decisions
+  estimators stay on CPU, because their gate compared against early-stopped CPU fits. Moving them is a separate decision.
+- New: `analysis/docs/horeka-fullrun-launch.sh` is the one finite launcher. It admits CPU and GPU allocations under
+  every rule in AGENTS.md and keeps the caps in `launch/submissions.tsv`.
+- New: `analysis/docs/horeka-fullrun-relaunch.sh` reports failures with their log tails. Options `--repin` (fixed
+  checkout), `--retry-all`/`--retry`, and `--launch`.
+- New ledger commands: `fullrun retry` and `fullrun repin`.
+- Workers now wait up to 20 minutes for dependencies that another allocation is running. A race in which a worker
+  could exit while work had just become ready is fixed.
+- Run layout on HoreKa: output `$FR/run1`, ledger `$FR/run1/ledger`, launcher logs `$FR/run1/launch`, Slurm logs
+  `$FR/run1/slurm`. The smoke outputs in `$FR` stay separate.
+- Not verified yet: no allocation of the real run has started. Results come back via block 7 of `horeka-fullrun.md`.
