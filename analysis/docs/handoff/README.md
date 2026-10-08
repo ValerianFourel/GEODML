@@ -190,3 +190,5 @@ supersede them with a new dated document that links back.
 - 2026-10-08 — [START HERE: full run to finish the paper math (see analysis/steelman/IMPORTANT.html)](2026-10-08_full-run-plan_handoff.md)
 
 - 2026-10-08 — [GPU backend for the heavy statistics of the full run](2026-10-08_gpu-stats_handoff.md)
+
+- 2026-10-08 — [START HERE IN 48 H: full run submitted (run2) and how to analyse its results](2026-10-08_fullrun-results-analysis_handoff.md)
