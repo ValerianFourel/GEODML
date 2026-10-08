@@ -142,8 +142,11 @@ def build(out_dir: Path) -> int:
       "Observational: x is a measured property of the prompt text. Rules fixed in `PREREG.md` "
       f"(sha256 `{ch['prereg_sha256'][:12]}…`) before any part ran. Code commits: "
       + ", ".join(f"{k} `{v[:7]}`" for k, v in commits.items()) + ". Rebuild: `python -m analysis.steelman report`.\n")
-    w("Intervals are 95% keyword-bootstrap percentile intervals (200 draws; refitted generator models use the first 100); "
-      "p values are within-keyword shuffles of x (200). Page intent is the page's percentile on the prompt scale (u).\n")
+    st = ch.get("settings", {})
+    gst = (gen or {}).get("settings", {})
+    w(f"Intervals are 95% keyword-bootstrap percentile intervals ({st.get('bootstrap', '?')} draws; refitted generator models use "
+      f"the first {gst.get('model_draws', '?')}); p values are within-keyword shuffles of x ({st.get('permutations', '?')}). "
+      "Page intent is the page's percentile on the prompt scale (u).\n")
 
     # verdicts
     v1 = {m: decide.verdict_c1(ch["strata"][m], {e: c for e, c in ch["engine_strata"].items() if e.startswith(m)}) for m in METHODS}

@@ -143,6 +143,48 @@ class Ledger:
                 released.append(path.stem)
         return released
 
+    def retry(self, ids: list[str] | None = None) -> list[str]:
+        """Make failed tasks ready again (all failed ones, or ``ids``): their failure records move to failed-archive/,
+        so each gets MAX_FAILURES fresh attempts. Running and done tasks are never touched."""
+        archive = self.root / "failed-archive"
+        archive.mkdir(exist_ok=True)
+        reset = []
+        for task in self.tasks():
+            if ids is not None and task.id not in ids:
+                continue
+            path = self.root / "failed" / f"{task.id}.jsonl"
+            if not path.exists() or self.done(task.id) or self.claimed(task.id):
+                continue
+            n = len(list(archive.glob(f"{task.id}.*.jsonl")))
+            path.rename(archive / f"{task.id}.{n}.jsonl")
+            reset.append(task.id)
+        return reset
+
+    def repin(self, old_code: str, new_code: str) -> list[str]:
+        """Point every unfinished task at a new checkout (after a fix; done tasks keep their records and commits).
+        Refused while any task is claimed: a running worker records its own checkout's commit."""
+        if any((self.root / "claims").glob("*.json")):
+            raise SystemExit("repin refused: tasks are claimed (wait for the allocations to end, then reconcile)")
+        if not old_code or old_code == new_code:
+            raise SystemExit("repin needs two different checkout paths")
+        tasks, changed = self.tasks(), []
+        for t in tasks:
+            if self.done(t.id):
+                continue
+            argv = [a.replace(old_code, new_code) for a in t.argv]
+            if argv != t.argv:
+                t.argv = argv
+                changed.append(t.id)
+        path = self.root / "tasks.jsonl"
+        n = len(list(self.root.glob("tasks.jsonl.before-repin-*")))
+        (self.root / f"tasks.jsonl.before-repin-{n}").write_text(path.read_text())
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("".join(json.dumps(t.__dict__) + "\n" for t in tasks))
+        tmp.replace(path)
+        with open(self.root / "repins.jsonl", "a") as f:
+            f.write(json.dumps({"at": time.time(), "old": old_code, "new": new_code, "tasks": len(changed)}) + "\n")
+        return changed
+
     def status(self) -> dict:
         tasks = self.tasks()
         states = {t.id: self.state(t) for t in tasks}
@@ -159,6 +201,11 @@ class Ledger:
                 "wall_hours_done": round(seconds / 3600, 2), "estimated_cpu_hours_remaining": round(remaining, 1),
                 "checkpoints": len(list((self.root / "checkpoint").glob("*.jsonl"))),
                 "failed_tasks": sorted(t for t, s in states.items() if s == "failed"),
+                "ready_cpu": sum(1 for t in tasks if states[t.id] == "ready" and not t.gpu),
+                "ready_gpu": sum(1 for t in tasks if states[t.id] == "ready" and t.gpu),
+                "ready_cpu_cores": sum(t.cores or 76 for t in tasks if states[t.id] == "ready" and not t.gpu),
+                "open_cpu": sum(1 for t in tasks if states[t.id] in ("ready", "waiting") and not t.gpu),
+                "open_gpu": sum(1 for t in tasks if states[t.id] in ("ready", "waiting") and t.gpu),
                 "running": sorted(t for t, s in states.items() if s == "running"),
                 "disk_free_gb": round(usage.free / 1e9, 1), "inodes_free": vfs.f_favail}
 
@@ -184,11 +231,12 @@ def fill(argv: list, values: dict) -> list:
 
 def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minutes: float, stages: set | None,
          gpu: bool, min_start_minutes: float = 10.0, poll_seconds: float = 5.0, devices: int = 4,
-         python: str | None = None) -> int:
+         python: str | None = None, idle_minutes: float = 0.0) -> int:
     """Run ready tasks until none is ready or the deadline nears. Exit 0: nothing left that this worker may run;
     4: stopped at the deadline with ready tasks left (resubmit after reconciling). A GPU worker hands each task its
     own devices (CUDA_VISIBLE_DEVICES) from ``devices`` slots: 1-GPU statistics tasks run side by side, the embedding
-    tasks (gpus 0 = all) take every slot."""
+    tasks (gpus 0 = all) take every slot. With ``idle_minutes`` > 0 a worker with nothing to start keeps polling for up
+    to that long while another allocation runs a task its waiting tasks depend on (bounded: then it exits 0)."""
     commit = git_commit()
     running: dict = {}  # tid -> (process, task, cores, started, log, slots)
     used = 0
@@ -201,6 +249,7 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
         return t.gpu == gpu and (stages is None or t.stage in stages)
 
     deadline_hit = False
+    idle_since = None
     while True:
         # collect finished tasks
         for tid in list(running):
@@ -250,12 +299,24 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
                                   "minutes_left": round(minutes_left())}), flush=True)
                 if used >= cores:
                     break
+        if running or admitted:
+            idle_since = None
         if not running and not admitted:
+            # claims first, readiness second: finish() writes "done" before it removes the claim, so a dependency that
+            # finishes between the two reads shows up as ready instead of letting this worker exit with work left
+            others_running = any(ledger.claimed(t.id) for t in ledger.tasks())
             ready = [t.id for t in ledger.tasks() if eligible(t) and ledger.state(t) == "ready"]
             if deadline_hit and ready:
                 print(json.dumps({"stop": "deadline", "ready_left": len(ready)}), flush=True)
                 return 4
+            if ready:              # became ready after the admission pass (e.g. another allocation just finished it)
+                continue
             waiting = [t.id for t in ledger.tasks() if eligible(t) and ledger.state(t) in ("waiting", "running")]
+            if waiting and not deadline_hit and idle_minutes > 0 and others_running:
+                idle_since = idle_since or time.time()
+                if time.time() - idle_since < 60 * idle_minutes:
+                    time.sleep(poll_seconds)
+                    continue
             print(json.dumps({"stop": "no task this worker may start", "waiting_on_dependencies_or_other_workers": len(waiting)}),
                   flush=True)
             return 0

@@ -12,7 +12,8 @@
 # (cap 8 CPU allocations, at most 4 at once, 10 minutes between observed starts: use horeka-fullrun-wave.sh).
 # Needs: CODE (pinned clean checkout), LEDGER (planned ledger folder). Optional: SIF (default $W/containers/geodml-cpu.sif;
 # RUNTIME=venv uses $W/environment/fullrun-cpu instead), CORES (default 76 physical cores), MARGIN_MIN (default 15),
-# MIN_FREE_GB (default 100), MIN_FREE_INODES (default 2000000).
+# MIN_FREE_GB (default 100), MIN_FREE_INODES (default 2000000), IDLE_MIN (default 20: wait that long for dependencies
+# another allocation is running before giving the node back).
 # Exit: 0 nothing left this node may start; 4 deadline with ready tasks left (resubmit through the wave helper); 2 storage.
 set -euo pipefail
 W=${GEODML_WORKSPACE:-/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen}
@@ -43,7 +44,7 @@ else
 fi
 rc=0
 (cd "$CODE" && GEODML_GIT_COMMIT=$COMMIT "${RUN[@]}" -u -m analysis.fullrun worker --ledger "$LEDGER" --cores "$CORES" \
-  --end-epoch "$END" --margin-minutes "$MARGIN_MIN" --job "$SLURM_JOB_ID") || rc=$?
+  --end-epoch "$END" --margin-minutes "$MARGIN_MIN" --idle-minutes "${IDLE_MIN:-20}" --job "$SLURM_JOB_ID") || rc=$?
 (cd "$CODE" && "$RT/bin/python" -m analysis.fullrun status --ledger "$LEDGER") || true
 echo "fullrun cpu: exit $rc end $(date -u +%FT%TZ)"
 exit "$rc"

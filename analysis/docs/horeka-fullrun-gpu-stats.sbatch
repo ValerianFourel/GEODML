@@ -10,8 +10,8 @@
 #SBATCH --no-requeue
 # GPU statistics of the full run (ledger planned with "gpu_stats": true): up to four 1-GPU statistics tasks at once
 # (funnel stage models, generator decisions, steelman generator and fixed effects, all with --backend cuda), plus the
-# embedding tasks (all four GPUs, validated LLM2Vec profile) when they are ready. Wall time 04:00:00 is a PLACEHOLDER:
-# allocations of this script need Valerian's explicit approval (proposed: up to 3 allocations of 4 hours, 4 A100 each).
+# embedding tasks (all four GPUs, validated LLM2Vec profile) when they are ready. Approved by Valerian on 2026-10-08
+# ("launch them all"): submitted by horeka-fullrun-launch.sh with --time 03:00:00, at most 1 at once, cap 3 (36 GPU-hours).
 # Needs CODE, LEDGER. Optional: GPU_SIF (default $W/containers/geodml-gpu.sif), MARGIN_MIN (default 15), CPU_STEPS (1: let
 # this node also run CPU-only tasks with its spare cores in a second worker).
 # Exit: 0 nothing left this node may start; 4 deadline with ready tasks left (resubmit after reconcile); 2 storage/CUDA.
@@ -40,7 +40,7 @@ PY
 WRAP=$(mktemp -d)/py; printf '#!/bin/bash\nexec %s python "$@"\n' "${RUN[*]}" > "$WRAP"; chmod +x "$WRAP"
 rc=0
 (cd "$CODE" && "$RT/bin/python" -u -m analysis.fullrun worker --ledger "$LEDGER" --gpu --devices 4 --cores 64 --python "$WRAP" \
-  --end-epoch "$END" --margin-minutes "$MARGIN_MIN" --min-start-minutes 20 --job "$SLURM_JOB_ID") || rc=$?
+  --end-epoch "$END" --margin-minutes "$MARGIN_MIN" --min-start-minutes 20 --idle-minutes "${IDLE_MIN:-20}" --job "$SLURM_JOB_ID") || rc=$?
 (cd "$CODE" && "$RT/bin/python" -m analysis.fullrun status --ledger "$LEDGER") || true
 echo "fullrun gpu-stats: exit $rc end $(date -u +%FT%TZ)"
 exit "$rc"

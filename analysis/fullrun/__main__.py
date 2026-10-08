@@ -5,6 +5,8 @@
   worker    --ledger DIR [--gpu] [--stage S ...]     run ready tasks in this allocation until none is ready or the deadline
   status    --ledger DIR                             counts by state and stage, remaining estimate, disk and inodes
   reconcile --ledger DIR                             release claims of allocations Slurm reports terminal
+  retry     --ledger DIR [--task ID ...]             make failed tasks ready again (after a fix or a transient error)
+  repin     --ledger DIR --old-code A --new-code B   point unfinished tasks at a fixed checkout (no task may be claimed)
   merge     funnel|trace --output DIR SHARD...       merge keyword-hash extraction shards
   hub       inventory|missing|fetch ...              reconcile with the Hub and import missing bundles (login node only)
 
@@ -52,6 +54,14 @@ def main(argv=None) -> int:
     q.add_argument("--job", default=os.environ.get("SLURM_JOB_ID", f"local-{os.getpid()}"))
     q.add_argument("--devices", type=int, default=4, help="GPU worker: device slots (CUDA_VISIBLE_DEVICES 0..N-1)")
     q.add_argument("--python", help="interpreter for {PY} in task commands (default: this worker's own), e.g. a container wrapper")
+    q.add_argument("--idle-minutes", type=float, default=0.0, help="wait up to this long for dependencies another allocation runs")
+    q = sub.add_parser("retry")
+    q.add_argument("--ledger", type=Path, required=True)
+    q.add_argument("--task", action="append", help="only these task ids (default: every failed task)")
+    q = sub.add_parser("repin")
+    q.add_argument("--ledger", type=Path, required=True)
+    q.add_argument("--old-code", required=True)
+    q.add_argument("--new-code", required=True)
     for name in ("status", "reconcile"):
         q = sub.add_parser(name)
         q.add_argument("--ledger", type=Path, required=True)
@@ -89,9 +99,15 @@ def main(argv=None) -> int:
         end = a.end_epoch or time.time() + 3600 * a.hours
         return L.work(L.Ledger(a.ledger), job=a.job, cores=a.cores, end_epoch=end, margin_minutes=a.margin_minutes,
                       stages=set(a.stage) if a.stage else None, gpu=a.gpu, min_start_minutes=a.min_start_minutes,
-                      devices=a.devices, python=a.python)
+                      devices=a.devices, python=a.python, idle_minutes=a.idle_minutes)
     if a.command == "status":
         print(json.dumps(L.Ledger(a.ledger).status(), indent=1))
+        return 0
+    if a.command == "retry":
+        print(json.dumps({"reset": L.Ledger(a.ledger).retry(a.task)}))
+        return 0
+    if a.command == "repin":
+        print(json.dumps({"repinned": len(L.Ledger(a.ledger).repin(a.old_code, a.new_code))}))
         return 0
     if a.command == "reconcile":
         print(json.dumps({"released": L.Ledger(a.ledger).reconcile(a.job)}))

@@ -198,3 +198,53 @@ def test_chain_smoke_runs_end_to_end_on_the_fixture(pipeline, tmp_path):  # noqa
     failed = {p.name: p.read_text()[-1500:] for p in (led.root / "logs").glob("*.log") if not led.done(p.name.split(".")[0])}
     assert led.status()["states"] == {"done": len(tasks)}, failed
     assert (tmp_path / "fr/smoke-chain/steelman/RESULTS.md").exists()
+
+
+def test_retry_resets_only_failed_tasks(tmp_path):
+    led = L.Ledger(tmp_path / "ledger")
+    flag = tmp_path / "fixed"
+    led.write_tasks([task("flaky", f"import pathlib, sys; sys.exit(0 if pathlib.Path({str(flag)!r}).exists() else 3)"), task("ok", "pass")])
+    assert run(led) == 0
+    assert led.state(led.tasks()[0]) == "failed" and led.done("ok")
+    flag.write_text("x")                                     # "the fix"
+    assert led.retry() == ["flaky"] and led.state(led.tasks()[0]) == "ready"
+    s = led.status()
+    assert s["ready_cpu"] == 1 and s["ready_gpu"] == 0 and s["open_cpu"] == 1
+    assert run(led) == 0 and led.done("flaky")
+    assert len(list((led.root / "failed-archive").glob("flaky.*.jsonl"))) == 1
+    assert led.retry() == []
+
+
+def test_idle_worker_waits_for_a_dependency_running_elsewhere(tmp_path):
+    led = L.Ledger(tmp_path / "ledger")
+    led.write_tasks([task("dep", "pass"), task("after", "pass", ["dep"])])
+    assert led.claim(led.tasks()[0], "other")                # another allocation runs the dependency
+    t0 = time.time()
+    rc = L.work(led, job="j1", cores=2, end_epoch=time.time() + 3600, margin_minutes=0, stages=None, gpu=False,
+                min_start_minutes=0, poll_seconds=0.05, idle_minutes=0.01)
+    assert rc == 0 and 0.5 <= time.time() - t0 < 10 and not led.done("after")   # bounded wait, then exit 0
+
+    def finish_elsewhere():
+        time.sleep(0.3)
+        led.finish(led.tasks()[0], "other", 0, 1.0, "c")
+    th = threading.Thread(target=finish_elsewhere)
+    led.claim(led.tasks()[0], "other")
+    th.start()
+    rc = L.work(led, job="j1", cores=2, end_epoch=time.time() + 3600, margin_minutes=0, stages=None, gpu=False,
+                min_start_minutes=0, poll_seconds=0.05, idle_minutes=1)
+    th.join()
+    assert rc == 0 and led.done("after")                     # picked up as soon as the dependency finished
+
+
+def test_repin_points_unfinished_tasks_at_the_new_checkout(tmp_path):
+    led = L.Ledger(tmp_path / "ledger")
+    led.write_tasks([L.Task("a", "s", ["py", "/c/old/x.py"], []), L.Task("b", "s", ["py", "/c/old/y.py", "--out", "/o"], ["a"])])
+    led.finish(led.tasks()[0], "j", 0, 1.0, "c")
+    led.claim(led.tasks()[1], "j2")
+    with pytest.raises(SystemExit):
+        led.repin("/c/old", "/c/new")                        # refused while a task is claimed
+    (led.root / "claims" / "b.json").unlink()
+    assert led.repin("/c/old", "/c/new") == ["b"]
+    a, b = led.tasks()
+    assert a.argv == ["py", "/c/old/x.py"] and b.argv == ["py", "/c/new/y.py", "--out", "/o"]
+    assert (led.root / "tasks.jsonl.before-repin-0").exists() and (led.root / "repins.jsonl").exists()

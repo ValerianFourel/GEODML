@@ -9,6 +9,40 @@ Estimate [H, from the Mac steelman run, the funnel handoff and the planner's per
 tasks in total on the CPU path; with `"gpu_stats": true` (section 5b) about 60 CPU-hours plus 1–2 four-GPU allocations (both keyword splits run every part); one 76-core node delivers about 400 core-hours in 6 hours, so
 3 to 5 CPU allocations; 1 GPU allocation of about 1.5 hours. New disk: 20–40 GB plus the Hub import (5–15 GB).
 
+## Launch everything (2026-10-08: "launch them all")
+
+Valerian's "launch them all" (2026-10-08) approves the GPU-statistics allocations: at most 1 at once, 3 hours each, cap 3
+(36 GPU-hours), in addition to the CPU approval above. The ledger routes to the GPU only the estimators that passed their
+gates (`"gpu_stats": ["generator", "fe"]`); the funnel stage models and generator decisions stay on CPU, because their
+gate compared against early-stopped CPU fits (`analysis/fullrun/validation/REPORT.md`). Moving them would change
+published funnel numbers at the 1e-3 level and needs a separate decision.
+
+`horeka-fullrun-launch.sh` is the only thing to start. It runs on the login node and does no computation. Every 5
+minutes it reconciles the ledger and reports new failures with their log tails. It then admits at most one allocation,
+GPU first, when all of these hold:
+- no full-run job is pending;
+- fewer than 5 jobs of yours exist, counting the Gemma bouts and open sallocs;
+- the latest observed start of any of your jobs is at least 10 minutes old;
+- storage is above its thresholds;
+- the caps allow it.
+
+It never cancels, extends or requeues anything. Its exit codes:
+
+| Exit | Meaning |
+|---|---|
+| 0 | everything is done |
+| 3 | failed tasks block the rest |
+| 5 | the caps are used up with work left |
+| 2 | storage fell below its threshold |
+
+`horeka-fullrun-relaunch.sh` reports what failed and can relaunch:
+- with no options it only reports;
+- `--repin NEWCODE` points unfinished tasks at a fixed, clean checkout;
+- `--retry-all` or `--retry ID` gives failed tasks two fresh attempts;
+- `--launch` restarts the launcher.
+
+Caps are counted across relaunches in `$FR/launch/submissions.tsv`.
+
 ## 0. Variables and status
 
 ```bash
