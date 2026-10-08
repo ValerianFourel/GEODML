@@ -225,3 +225,24 @@ inference); Qwen Gemma judgments (none exist).
 - Run layout on HoreKa: output `$FR/run1`, ledger `$FR/run1/ledger`, launcher logs `$FR/run1/launch`, Slurm logs
   `$FR/run1/slurm`. The smoke outputs in `$FR` stay separate.
 - Not verified yet: no allocation of the real run has started. Results come back via block 7 of `horeka-fullrun.md`.
+
+## Update 2026-10-08 (morning): run2 submitted (commit fdba5e2)
+
+- The development-node test (dev_accelerated, job 5187074) found three problems, now fixed in fdba5e2:
+  - the empty `hub-import` folder made every extraction fail, so planning now refuses sources without sealed tables;
+  - a failed attempt's `.partial` folder blocked every retry, so the worker now sets it aside;
+  - a worker-exit race.
+- Mixed GPU nodes run the supervisor (`fullrun mixed`): a CPU worker with 72 cores plus the GPU worker.
+- The second development-node test, job 5187088, finished 38/38 with exit 0 on real data and real GPUs. It covered
+  extraction, assembly, funnel, decisions, every steelman part, the generator and fixed-effects strata on CUDA, the
+  device slots, and a real 4-GPU Qwen embedding.
+- `run1` is abandoned and none of its tasks ran. The 13 jobs that used it were cancelled.
+- `run2`: `$FR/run2`, 300 tasks, no hub-import sources. The Hub check found 0 missing cells.
+- Submitted 2026-10-08, all pending:
+  - 12 mixed GPU-node jobs, 5187091–5187102: accelerated, 4 A100, 8 h, CPU_STEPS=1.
+  - 8 cpuonly jobs, 5187103–5187110: 6 h.
+  - Valerian explicitly overrode the concurrency limit and the start gap ("send all of the jobs now").
+- `scontrol top` is denied to users on HoreKa. The full-run jobs queue behind Valerian's 157 pending Gemma bouts.
+- Earlier estimates: accelerated about 2026-10-11 19:42, cpuonly about 2026-10-12 14:27. The deadline is the 12th.
+- Next: monitor with `fullrun status`. On failures run `horeka-fullrun-relaunch.sh`. When `"done": 300`, bring back
+  `run2/paper-results.tar.gz` via block 7 of the runbook, then update the final RESULTS, IMPORTANT.html and this handoff.
