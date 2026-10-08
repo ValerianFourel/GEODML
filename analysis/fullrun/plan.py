@@ -210,6 +210,17 @@ def build(cfg: dict) -> list[Task]:
     return tasks
 
 
+def unusable_sources(cfg: dict) -> list[str]:
+    """Source roots without a sealed task_definitions table (data/task_definitions/*.manifest.json): every extraction
+    would fail on them, e.g. a Hub import folder into which nothing was imported."""
+    bad = []
+    for spec in cfg["sources"]:
+        root = Path(spec.rsplit(":", 1)[0])
+        if not any((root / "data" / "task_definitions").glob("*.manifest.json")):
+            bad.append(spec)
+    return bad
+
+
 def load_config(path: Path) -> dict:
     cfg = json.loads(Path(path).read_text())
     for key in ("code", "output", "sources", "snapshots", "axis_map", "population", "corpus", "features", "archive", "search_root"):

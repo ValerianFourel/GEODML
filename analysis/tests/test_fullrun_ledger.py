@@ -295,3 +295,25 @@ def test_mixed_smoke_routes_like_the_full_run(tmp_path):
     assert not by["chain-steelman-report"].gpu and not by["smoke-relocation-sample"].gpu
     assert by["smoke-embed-sample-qwen"].gpu and by["smoke-embed-sample-qwen"].gpus == 0
     assert all("/smoke-mixed" in a for a in by["smoke-embed-sample-qwen"].argv[3:])
+
+
+def test_retry_sets_aside_an_interrupted_partial_output(tmp_path):
+    led = L.Ledger(tmp_path / "ledger")
+    out = tmp_path / "extract"
+    (tmp_path / "extract.partial").mkdir()                              # left by a failed or killed attempt
+    code = "import pathlib, sys; p = pathlib.Path(sys.argv[2]); assert not p.with_name(p.name + '.partial').exists(); p.mkdir()"
+    led.write_tasks([L.Task("x", "test", [sys.executable, "-c", code, "--output", str(out)], []),
+                     L.Task("y", "test", ["bash", "-c", f'"$0" -c "pass" --output {tmp_path}/other', sys.executable], [])])
+    (tmp_path / "other.partial").mkdir()
+    assert run(led) == 0 and led.done("x") and led.done("y") and out.is_dir()
+    assert len(list(tmp_path.glob("extract.partial.interrupted-*"))) == 1
+    assert len(list(tmp_path.glob("other.partial.interrupted-*"))) == 1
+
+
+def test_plan_refuses_sources_without_sealed_tables(tmp_path):
+    good, empty = tmp_path / "good", tmp_path / "hub-import"
+    (good / "data" / "task_definitions").mkdir(parents=True)
+    (good / "data" / "task_definitions" / "000.manifest.json").write_text("{}")
+    (empty / "control" / "task-ledger").mkdir(parents=True)
+    cfg = {"sources": [f"{good}:qwen38", f"{empty}:llama4"]}
+    assert plan.unusable_sources(cfg) == [f"{empty}:llama4"]

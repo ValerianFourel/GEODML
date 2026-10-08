@@ -229,6 +229,25 @@ def fill(argv: list, values: dict) -> list:
     return [str(a).format(**values) for a in argv]
 
 
+def set_aside_partials(argv: list) -> list[str]:
+    """Before an attempt: move an earlier attempt's ``<output>.partial`` folder (the scripts write there and rename at the
+    end; none resumes from it) to ``<output>.partial.interrupted-<time>``, kept for inspection, so a retry can start. The
+    outputs are the values of --output, also inside ``bash -c`` strings."""
+    import re
+    outputs = [b for a, b in zip(argv, argv[1:]) if a == "--output"]
+    for a in argv:
+        if isinstance(a, str) and " " in a:
+            outputs += re.findall(r"--output[ =]([^\s'\"]+)", a)
+    moved = []
+    for out in outputs:
+        partial = Path(out + ".partial")
+        if partial.exists():
+            target = Path(f"{partial}.interrupted-{int(time.time())}")
+            partial.rename(target)
+            moved.append(str(target))
+    return moved
+
+
 def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minutes: float, stages: set | None,
          gpu: bool, min_start_minutes: float = 10.0, poll_seconds: float = 5.0, devices: int = 4,
          python: str | None = None, idle_minutes: float = 0.0) -> int:
@@ -285,6 +304,8 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
                 free_slots = [d for d in free_slots if d not in slots]
                 values = {"PY": python or sys.executable, "WORKERS": need, "MINUTES": max(1, int(minutes_left())), "JOB": job}
                 log = open(ledger.root / "logs" / f"{task.id}.{job}.log", "a")
+                for moved in set_aside_partials(fill(task.argv, values)):
+                    log.write(f"# earlier interrupted output set aside: {moved}\n")
                 log.write(f"# {time.strftime('%Y-%m-%dT%H:%M:%S')} job {job} commit {commit}\n# {' '.join(fill(task.argv, values))}\n")
                 log.flush()
                 env = {**os.environ, "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
@@ -302,16 +323,16 @@ def work(ledger: Ledger, *, job: str, cores: int, end_epoch: float, margin_minut
         if running or admitted:
             idle_since = None
         if not running and not admitted:
-            # claims first, readiness second: finish() writes "done" before it removes the claim, so a dependency that
-            # finishes between the two reads shows up as ready instead of letting this worker exit with work left
+            # read claims, then waiting, then ready: finish() writes "done" before removing the claim, so a dependency
+            # finishing between any two reads leaves its dependants visible as waiting or as ready, never as neither
             others_running = any(ledger.claimed(t.id) for t in ledger.tasks())
+            waiting = [t.id for t in ledger.tasks() if eligible(t) and ledger.state(t) in ("waiting", "running")]
             ready = [t.id for t in ledger.tasks() if eligible(t) and ledger.state(t) == "ready"]
             if deadline_hit and ready:
                 print(json.dumps({"stop": "deadline", "ready_left": len(ready)}), flush=True)
                 return 4
             if ready:              # became ready after the admission pass (e.g. another allocation just finished it)
                 continue
-            waiting = [t.id for t in ledger.tasks() if eligible(t) and ledger.state(t) in ("waiting", "running")]
             if waiting and not deadline_hit and idle_minutes > 0 and others_running:
                 idle_since = idle_since or time.time()
                 if time.time() - idle_since < 60 * idle_minutes:

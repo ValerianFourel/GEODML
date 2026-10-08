@@ -93,7 +93,11 @@ def main(argv=None) -> int:
 
     if a.command == "plan":
         from analysis.fullrun import plan
-        tasks = plan.build(plan.load_config(a.config))
+        cfg = plan.load_config(a.config)
+        bad = plan.unusable_sources(cfg)
+        if bad:
+            raise SystemExit(f"sources without a sealed task_definitions table (remove them from the config): {bad}")
+        tasks = plan.build(cfg)
         ledger = L.Ledger(a.ledger)
         ledger.write_tasks(tasks)
         (ledger.root / "config.json").write_text(a.config.read_text())
@@ -103,6 +107,9 @@ def main(argv=None) -> int:
     if a.command == "smoke":
         from analysis.fullrun import plan, smoke
         cfg = plan.load_config(a.config)
+        bad = plan.unusable_sources(cfg)
+        if bad:
+            raise SystemExit(f"sources without a sealed task_definitions table (remove them from the config): {bad}")
         tasks = smoke.mixed(cfg) if a.mixed else smoke.chain(cfg) if a.chain else smoke.build(cfg, a.gpu)
         L.Ledger(a.ledger).write_tasks(tasks)
         print(json.dumps({"smoke_tasks": [t.id for t in tasks]}))
