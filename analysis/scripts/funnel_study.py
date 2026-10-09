@@ -244,8 +244,12 @@ def assemble(args) -> int:
     if manifest["row_table_digest"] != features_manifest["row_table_digest"]:
         raise ValueError("feature table and extract use different snapshot row tables")
     answers = readiness.read_jsonl(extract_dir / "answers.jsonl.gz")
-    items = np.load(extract_dir / "items.npz")
-    events = np.load(extract_dir / "events.npz")
+    # Read each array once: indexing an NpzFile decompresses the whole member on every access, and the loops below
+    # slice per answer (about 7 full reads per answer; ~570 h on the full run).
+    with np.load(extract_dir / "items.npz") as archive:
+        items = dict(archive)
+    with np.load(extract_dir / "events.npz") as archive:
+        events = dict(archive)
     n_rows = int(features_manifest["counts"]["rows"])
     rf = row_feature_table(features_dir, n_rows)
     keyword_rows = defaultdict(list)

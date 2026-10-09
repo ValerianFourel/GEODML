@@ -375,10 +375,10 @@ def build(datasets, output, *, axis_map=None, permutations=200, seed=20261004, s
 
 
 def _git_commit():
-    import subprocess
-    result = subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "HEAD"],
-                            capture_output=True, text=True)
-    return result.stdout.strip() or None
+    """The checkout's commit; ``GEODML_GIT_COMMIT`` wins (the full-run container mounts the checkout without git)."""
+    from analysis.scripts.page_readiness_ordering import git_commit
+    commit = git_commit()
+    return None if commit == "unavailable" else commit
 
 
 def main(argv=None):

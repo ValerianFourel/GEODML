@@ -135,6 +135,33 @@ def test_analyze_in_shards_then_report(pipeline, monkeypatch):
         study.main(report_args)
 
 
+def test_assemble_reads_each_extract_array_once_and_writes_the_same_tables(pipeline, monkeypatch):
+    """Per-answer indexing of an NpzFile re-decompresses the whole member each time (~570 h on the full run)."""
+    reads = {}
+    original = np.lib.npyio.NpzFile.__getitem__
+
+    def counting(self, key):
+        name = (getattr(self.fid, "name", None) or str(self.zip.filename), key)
+        reads[name] = reads.get(name, 0) + 1
+        return original(self, key)
+
+    monkeypatch.setattr(np.lib.npyio.NpzFile, "__getitem__", counting)
+    again = pipeline["tmp"] / "assembled-again"
+    inputs = pipeline["inputs"]
+    assert study.main(["assemble", "--extract", str(pipeline["extract"]), "--features", str(pipeline["features"]),
+                       "--replay", str(pipeline["replay"]), "--corpus-package", str(inputs["corpus"]),
+                       "--qwen-prompts", str(pipeline["tmp"] / "prompts-qwen"), "--mistral-prompts", str(pipeline["tmp"] / "prompts-mistral"),
+                       "--qwen-map", str(inputs["maps"]["qwen"]), "--mistral-map", str(inputs["maps"]["mistral"]),
+                       "--output", str(again)]) == 0
+    extract_reads = {k: n for k, n in reads.items() if str(pipeline["extract"]) in k[0]}
+    assert extract_reads and max(extract_reads.values()) == 1, extract_reads
+    for name in ("u.npz", "candidates.npz", "presented.npz", "row_features.npz"):
+        with np.load(pipeline["assembled"] / name) as before, np.load(again / name) as after:
+            assert sorted(before.files) == sorted(after.files)
+            for key in before.files:
+                np.testing.assert_array_equal(before[key], after[key])
+
+
 def test_assemble_refuses_a_feature_table_from_other_snapshots(pipeline):
     manifest = json.loads((pipeline["features"] / "manifest.json").read_text())
     manifest["row_table_digest"] = "0" * 64

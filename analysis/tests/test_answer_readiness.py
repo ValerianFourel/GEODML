@@ -34,6 +34,17 @@ def test_export_keeps_natural_answers_deduplicated_in_embed_page_format(tmp_path
         answers.load_export(tmp_path / "export")
 
 
+def test_export_records_the_pinned_commit_where_git_is_missing(tmp_path, monkeypatch):
+    """The full-run container mounts the checkout without git; GEODML_GIT_COMMIT carries the commit instead."""
+    roots = {"qwen38": dataset(tmp_path / "qwen38", model="qwen38")}
+    path = axis_map(tmp_path, [{"candidate_id": "q1", answers.AXIS: 0.3}])
+    monkeypatch.setenv("PATH", str(tmp_path / "no-binaries"))
+    monkeypatch.setenv("GEODML_GIT_COMMIT", "f" * 40)
+    assert answers.export(roots, path, tmp_path / "export")["git_commit"] == "f" * 40
+    monkeypatch.delenv("GEODML_GIT_COMMIT")
+    assert answers.export(roots, path, tmp_path / "export-2")["git_commit"] is None
+
+
 def test_text_features_count_markers_per_100_words():
     features = answers.text_features("You should buy it now. Visit www.shop.com today!\n1. Order online for $20.")
     # you should buy it now visit www shop com today order online for
