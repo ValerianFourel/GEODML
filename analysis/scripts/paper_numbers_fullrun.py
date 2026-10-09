@@ -552,7 +552,7 @@ def stage_tables(b: Bundle) -> str:
         label = f"tab:a3-stage-{suf.lower()}"
         first_label = first_label or label
         rows = []
-        rows.append("\\begin{table*}[p]\n\\centering\\scriptsize\n\\renewcommand{\\arraystretch}{0.94}\n\\begin{tabular}{@{}lcccc@{}}\n\\toprule")
+        rows.append("\\begin{table*}[tp]\n\\centering\\scriptsize\n\\renewcommand{\\arraystretch}{0.94}\n\\begin{tabular}{@{}lcccc@{}}\n\\toprule")
         rows.append(" & Retrieval & Literal prompt search & Shortlist & Ranking \\\\\n & $R\\mid U$ & $R_0\\mid U$ & $P\\mid C$ & $K\\mid P$ \\\\\n\\midrule")
         stages = ["R|U", "R0|U", "P|C", "K|P"]
         current_block = None
@@ -596,13 +596,13 @@ def stage_tables(b: Bundle) -> str:
 def keep_order_tables(b: Bundle) -> str:
     """Keep models (three strata) and order models (four strata), held-out keywords: one table pair per decision."""
     dec = b.dec["strata"]
-    out = []
+    part_a, part_b = [], []
     for decision, cells in (("keep", [c for c in CELLS if c[0] != "qwen38 · Parallel"]), ("order", CELLS)):
         ncol = len(cells)
         title = "Keep" if decision == "keep" else "Order"
 
         def head():
-            return ("\\begin{table*}[p]\n\\centering\\scriptsize\n\\setlength{\\tabcolsep}{4pt}\n\\renewcommand{\\arraystretch}{0.94}\n"
+            return ("\\begin{table*}[tp]\n\\centering\\scriptsize\n\\setlength{\\tabcolsep}{4pt}\n\\renewcommand{\\arraystretch}{0.94}\n"
                     f"\\begin{{tabular}}{{@{{}}l*{{{ncol}}}{{c}}@{{}}}}\n\\toprule\n"
                     f" & \\multicolumn{{{ncol}}}{{c@{{}}}}{{{title} model}} \\\\\n\\cmidrule(l){{2-{1 + ncol}}}\n"
                     " & " + " & ".join(t for _, _, t in cells) + " \\\\\n\\midrule")
@@ -657,7 +657,7 @@ def keep_order_tables(b: Bundle) -> str:
         else:
             cap = ("Order models on the held-out keywords, part~1: Plackett--Luce over kept snippets, one pick per choice set; layout as in Table~\\ref{tab:a3-keep-a}.")
         rows.append(f"\\caption{{{cap}}}\n\\label{{tab:a3-{decision}-a}}\n\\end{{table*}}\n")
-        out.append(f"% src: {b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.counts, {decision} (block_shares, features, position_effects)\n" + "\n".join(rows))
+        part_a.append(f"% src: {b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.counts, {decision} (block_shares, features, position_effects)\n" + "\n".join(rows))
         # part b: blocks C1 and C2
         rows = [head()]
         current = None
@@ -671,8 +671,8 @@ def keep_order_tables(b: Bundle) -> str:
         rows.append("\\bottomrule\n\\end{tabular}")
         rows.append(f"\\caption{{{title} models on the held-out keywords, part~2 (off-page SEO and the unseen page body), read as Table~\\ref{{tab:a3-{decision}-a}}. "
                     "Missing-data indicators and two further indicators are fitted but not shown.}\n" + f"\\label{{tab:a3-{decision}-b}}\n\\end{{table*}}\n")
-        out.append(f"% src: {b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.{decision} features of blocks C1 and C2\n" + "\n".join(rows))
-    return "\n".join(out)
+        part_b.append(f"% src: {b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.{decision} features of blocks C1 and C2\n" + "\n".join(rows))
+    return "\n".join(part_a + part_b)
 
 
 def decomposition_table(b: Bundle) -> str:
