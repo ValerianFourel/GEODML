@@ -669,7 +669,9 @@ def keep_order_tables(b: Bundle) -> str:
                 rows.append(f"\\multicolumn{{{ncol + 1}}}{{@{{}}l}}{{\\textit{{{dict(BLOCKS)[blk]}}}}} \\\\")
             rows.extend(feature_row(feat, name))
         rows.append("\\bottomrule\n\\end{tabular}")
-        rows.append(f"\\caption{{{title} models on the held-out keywords, part~2 (off-page SEO and the unseen page body), read as Table~\\ref{{tab:a3-{decision}-a}}. "
+        no_keep = (" Qwen under Parallel Expansion keeps \\ShareKeptQP{} of shown links, so its keep decision is held at the observed set and not modelled."
+                   if decision == "keep" else "")
+        rows.append(f"\\caption{{{title} models on the held-out keywords, part~2 (off-page SEO and the unseen page body), read as Table~\\ref{{tab:a3-{decision}-a}}.{no_keep} "
                     "Missing-data indicators and two further indicators are fitted but not shown.}\n" + f"\\label{{tab:a3-{decision}-b}}\n\\end{{table*}}\n")
         part_b.append(f"% src: {b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.{decision} features of blocks C1 and C2\n" + "\n".join(rows))
     return "\n".join(part_a + part_b)
