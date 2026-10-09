@@ -160,6 +160,31 @@ class Ledger:
             reset.append(task.id)
         return reset
 
+    def redo(self, stages: list[str]) -> list[str]:
+        """After a fix that changes finished results: make the done tasks of ``stages``, and every done task that depends
+        on them, ready again. Done records move to done-archive/ (kept); outputs are untouched (a new commit writes its
+        own cache). Refused while any task is claimed."""
+        if any((self.root / "claims").glob("*.json")):
+            raise SystemExit("redo refused: tasks are claimed (wait for the allocations to end, then reconcile)")
+        tasks = self.tasks()
+        redo = {t.id for t in tasks if t.stage in stages}
+        grown = True
+        while grown:
+            grown = False
+            for t in tasks:
+                if t.id not in redo and redo.intersection(t.deps):
+                    redo.add(t.id)
+                    grown = True
+        archive = self.root / "done-archive"
+        archive.mkdir(exist_ok=True)
+        moved = []
+        for t in tasks:
+            if t.id in redo and self.done(t.id):
+                n = len(list(archive.glob(f"{t.id}.*.json")))
+                (self.root / "done" / f"{t.id}.json").rename(archive / f"{t.id}.{n}.json")
+                moved.append(t.id)
+        return moved
+
     def repin(self, old_code: str, new_code: str) -> list[str]:
         """Point every unfinished task at a new checkout (after a fix; done tasks keep their records and commits).
         Refused while any task is claimed: a running worker records its own checkout's commit."""

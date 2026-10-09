@@ -386,8 +386,15 @@ def driver_columns(z, u, x, on_keyword, topic) -> dict:
 
 def selection_rows(event, selected, generation, *, z, u, on_keyword, topic) -> DriverRows:
     """Top-k Plackett–Luce rows of the reranker's shortlist: in each event the kept candidates are
-    picked in score order, each from the candidates not yet picked. No position effects."""
+    picked in score order, each from the candidates not yet picked. No position effects.
+    Picks are renumbered 0..k-1 within each event, so a subset of candidates (e.g. complete cases that drop an
+    earlier pick) gives the ranking restricted to that subset, which is again top-k Plackett–Luce; a gap would
+    push later picks into the next event's choice sets."""
     _, event = np.unique(event, return_inverse=True)
+    picks = np.flatnonzero(selected >= 0)
+    picks = picks[np.lexsort((selected[picks], event[picks]))]
+    selected = selected.copy()
+    selected[picks] = np.arange(len(picks)) - np.searchsorted(event[picks], event[picks])
     kept = np.bincount(event, selected >= 0).astype(np.int64)
     repeat = np.where(selected >= 0, selected + 1, kept[event])
     row = np.repeat(np.arange(len(event)), repeat)

@@ -7,6 +7,7 @@
   reconcile --ledger DIR                             release claims of allocations Slurm reports terminal
   mixed     --ledger DIR --job J --end-epoch E --cpu-cmd A --gpu-cmd B   one GPU node running both kinds of task
   retry     --ledger DIR [--task ID ...]             make failed tasks ready again (after a fix or a transient error)
+  redo      --ledger DIR --stage S [--stage S ...]   rerun a stage's done tasks and their done dependents (no task may be claimed)
   repin     --ledger DIR --old-code A --new-code B   point unfinished tasks at a fixed checkout (no task may be claimed)
   merge     funnel|trace --output DIR SHARD...       merge keyword-hash extraction shards
   hub       inventory|missing|fetch ...              reconcile with the Hub and import missing bundles (login node only)
@@ -70,6 +71,9 @@ def main(argv=None) -> int:
     q = sub.add_parser("retry")
     q.add_argument("--ledger", type=Path, required=True)
     q.add_argument("--task", action="append", help="only these task ids (default: every failed task)")
+    q = sub.add_parser("redo")
+    q.add_argument("--ledger", type=Path, required=True)
+    q.add_argument("--stage", action="append", required=True, help="stage whose done tasks (and their done dependents) rerun")
     q = sub.add_parser("repin")
     q.add_argument("--ledger", type=Path, required=True)
     q.add_argument("--old-code", required=True)
@@ -128,6 +132,9 @@ def main(argv=None) -> int:
                            commands={"cpu": ["bash", a.cpu_cmd], "gpu": ["bash", a.gpu_cmd]}, log=lambda m: print(m, flush=True))
     if a.command == "retry":
         print(json.dumps({"reset": L.Ledger(a.ledger).retry(a.task)}))
+        return 0
+    if a.command == "redo":
+        print(json.dumps({"redo": L.Ledger(a.ledger).redo(a.stage)}))
         return 0
     if a.command == "repin":
         print(json.dumps({"repinned": len(L.Ledger(a.ledger).repin(a.old_code, a.new_code))}))

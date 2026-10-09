@@ -202,6 +202,21 @@ def test_selection_rows_expand_each_pick_over_the_candidates_not_yet_picked():
     assert rows.generation.tolist() == [5] * 7 + [6] * 3
 
 
+def test_selection_rows_restrict_the_ranking_when_an_earlier_pick_is_dropped():
+    """Complete cases can drop a picked candidate; the rest must stay inside their own event's choice sets."""
+    event = np.array([0, 0, 0, 0, 1, 1, 1])
+    selected = np.array([1, -1, 0, -1, -1, 0, -1])
+    full = stages.selection_rows(event, selected, event, z=np.arange(7.0), u=np.zeros(7), on_keyword=np.zeros(7),
+                                 topic=np.arange(7.0))
+    keep = np.array([0, 1, 3, 4, 5, 6])  # candidate 2 (event 0's first pick) has missing features
+    sub = stages.selection_rows(event[keep], selected[keep], event[keep], z=keep.astype(float), u=np.zeros(6),
+                                on_keyword=np.zeros(6), topic=np.arange(6.0))
+    assert sub.sets == 2 and int(sub.set.max()) == sub.sets - 1
+    assert sub.set.tolist() == [0, 0, 0, 1, 1, 1]  # event 0: candidate 0 picked from {0, 1, 3}; event 1 unchanged
+    assert sub.z[sub.chosen].tolist() == [0.0, 5.0]
+    assert full.sets == 3  # gap-free input is unchanged (see the test above)
+
+
 def test_shortlisting_model_recovers_planted_preferences():
     rng = np.random.default_rng(4)
     theta, events, n, k = np.array([0.8, 1.5, 0.0, -0.6]), 800, 15, 4

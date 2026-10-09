@@ -251,6 +251,23 @@ def test_repin_points_unfinished_tasks_at_the_new_checkout(tmp_path):
     assert (led.root / "tasks.jsonl.before-repin-0").exists() and (led.root / "repins.jsonl").exists()
 
 
+def test_redo_reopens_a_stage_and_its_done_dependents_only(tmp_path):
+    led = L.Ledger(tmp_path / "ledger")
+    led.write_tasks([L.Task("prep", "prepare", ["x"], []), L.Task("fit", "funnel", ["x"], ["prep"]),
+                     L.Task("other", "steelman", ["x"], ["prep"]), L.Task("report", "report", ["x"], ["fit"])])
+    for t in led.tasks():
+        led.finish(t, "j", 0, 1.0, "c")
+    (led.root / "claims" / "fit.json").write_text("{}")     # a live allocation still holds a claim
+    with pytest.raises(SystemExit):
+        led.redo(["funnel"])                                 # refused while a task is claimed
+    (led.root / "claims" / "fit.json").unlink()
+    assert sorted(led.redo(["funnel"])) == ["fit", "report"]
+    assert led.done("prep") and led.done("other") and not led.done("fit") and not led.done("report")
+    assert led.state(led.tasks()[1]) == "ready" and led.state(led.tasks()[3]) == "waiting"
+    assert (led.root / "done-archive" / "fit.0.json").exists()
+    assert led.redo(["funnel"]) == []                        # nothing done left to reopen
+
+
 def test_mixed_node_supervisor_runs_cpu_then_gpu_then_cpu(tmp_path):
     """Workers that exit as soon as they are idle (the failure the supervisor exists for): the GPU task becomes ready
     only after a CPU task, and the last CPU task only after the GPU task; one node must still finish all three."""
