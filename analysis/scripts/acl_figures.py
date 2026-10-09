@@ -319,7 +319,7 @@ def fig2(plt, out_dir: Path) -> list[str]:
 # ---------------------------------------------------------------- figure 3
 
 def fig3(plt, out_dir: Path) -> list[str]:
-    """The pipeline in four panels: prompts on the axis, the generation grid, search in the mini internet, judges and analysis."""
+    """The pipeline in four panels: prompts on the axis, the generation grid, search in the mini internet, the analysis."""
     t = TESTBED
     fig = plt.figure(figsize=(DOUBLE, 2.7))
     ax = fig.add_axes((0, 0, 1, 1))
@@ -327,7 +327,7 @@ def fig3(plt, out_dir: Path) -> list[str]:
     ax.set_ylim(0.12, 1)
     ax.axis("off")
     heads = [(0.005, "1  Prompts on the axis"), (0.255, "2  Generation grid"), (0.53, "3  Search in the mini internet"),
-             (0.79, "4  Judges and analysis")]
+             (0.79, "4  Analysis")]
     for x, h in heads:
         ax.text(x, 0.975, h, fontsize=7.6, fontweight="bold", va="top")
     # column 1
@@ -362,15 +362,14 @@ def fig3(plt, out_dir: Path) -> list[str]:
         _arrow(ax, (0.6475, a), (0.6475, b))
     _arrow(ax, (0.50, 0.62), (0.53, 0.84))
     # column 4
-    _box(ax, 0.79, 0.74, 0.205, 0.16, "LLM judge (development only)\nGemma-4-31B grades how much of\nthe answer each shown source\n"
-         "supports; no result rests on it", size=5.9, face="#f6f3ec")
-    _box(ax, 0.79, 0.46, 0.205, 0.24, "the same frozen axis applied to\nqueries, pages and answers:\nQ, $R_0$, R, C, P, K, A\n\n"
+    _box(ax, 0.79, 0.64, 0.205, 0.26, "the same frozen axis applied to\nqueries, pages and answers:\nQ, $R_0$, R, C, P, K, A\n\n"
          "within-keyword slope of each\nstage on x; keyword bootstrap,\nwithin-keyword shuffles of x", size=5.9)
-    _box(ax, 0.79, 0.27, 0.205, 0.15, "does intent enter the shortlist\n(queries, cross-encoder) or the\ngenerator's keep and order?",
+    _box(ax, 0.79, 0.40, 0.205, 0.18, "keep and order models with the\nshortlist fixed; verdicts by rules\nregistered before the analysis", size=5.9)
+    _box(ax, 0.79, 0.20, 0.205, 0.15, "does intent enter the shortlist\n(queries, cross-encoder) or the\ngenerator's keep and order?",
          size=6.0, edge=ACTION, weight="bold")
-    _arrow(ax, (0.765, 0.335), (0.79, 0.55))
-    _arrow(ax, (0.765, 0.335), (0.79, 0.80), ls="--")
-    _arrow(ax, (0.8925, 0.46), (0.8925, 0.42))
+    _arrow(ax, (0.765, 0.335), (0.79, 0.77))
+    _arrow(ax, (0.8925, 0.64), (0.8925, 0.58))
+    _arrow(ax, (0.8925, 0.40), (0.8925, 0.35))
     ax.text(0.53, 0.20, "U (the topic's own rows), $R_0$, R, C, P, K: the stage sets of the funnel; Q and A: the texts the generator writes.",
             fontsize=5.9, color=MUTED, va="top")
     return _save(fig, out_dir, "fig3-pipeline")
