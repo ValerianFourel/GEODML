@@ -319,59 +319,46 @@ def fig2(plt, out_dir: Path) -> list[str]:
 # ---------------------------------------------------------------- figure 3
 
 def fig3(plt, out_dir: Path) -> list[str]:
+    """The pipeline in three panels: prompts on the axis, the generation grid, search in the mini internet."""
     t = TESTBED
-    fig = plt.figure(figsize=(DOUBLE, 2.7))
+    fig = plt.figure(figsize=(DOUBLE, 2.55))
     ax = fig.add_axes((0, 0, 1, 1))
     ax.set_xlim(0, 1)
-    ax.set_ylim(0.12, 1)
+    ax.set_ylim(0.1, 1)
     ax.axis("off")
-    heads = [(0.005, "1  Prompts on the axis"), (0.255, "2  Generation grid"), (0.53, "3  Search in the mini internet"),
-             (0.79, "4  Judges and analysis")]
-    for x, h in heads:
+    for x, h in ((0.005, "1  Prompts on the axis"), (0.345, "2  Generation grid"), (0.675, "3  Search in the mini internet")):
         ax.text(x, 0.975, h, fontsize=7.6, fontweight="bold", va="top")
     # column 1
-    _box(ax, 0.005, 0.80, 0.22, 0.10, f"{t['keywords']:,} keyword topics\n(B2B software, frozen)", size=6.4)
-    _box(ax, 0.005, 0.62, 0.22, 0.13, "Qwen3-32B and Gemma-4-31B write\nprompts toward targets on the axis;\n"
-         "model review + text checks", size=6.1)
-    _box(ax, 0.005, 0.44, 0.22, 0.13, "measure each prompt with two frozen\nLLM2Vec views (Qwen3-8B, Mistral-7B)\n"
-         "→ position $x \\in [0, 1]$", size=6.1)
-    _box(ax, 0.005, 0.28, 0.22, 0.11, f"{t['prompts']:,} prompts, 18–30 per topic\nrebuild check: difference 0.0",
-         size=6.3, edge=INFO, weight="bold")
-    _gradient(ax, 0.02, 0.215, 0.215, 0.025)
-    ax.text(0.02, 0.19, "information", fontsize=5.6, color=INFO, va="top")
-    ax.text(0.215, 0.19, "action", fontsize=5.6, color=ACTION, va="top", ha="right")
+    _box(ax, 0.005, 0.80, 0.30, 0.10, f"{t['keywords']:,} keyword topics (B2B software, frozen)", size=6.4)
+    _box(ax, 0.005, 0.62, 0.30, 0.13, "Qwen3-32B and Gemma-4-31B write prompts\ntoward targets on the axis;\nmodel review and text checks", size=6.2)
+    _box(ax, 0.005, 0.44, 0.30, 0.13, "two frozen LLM2Vec views (Qwen3-8B, Mistral-7B)\nplace each prompt on the axis\n"
+         "→ position $x \\in [0, 1]$ (percentile)", size=6.2)
+    _box(ax, 0.005, 0.28, 0.30, 0.11, f"{t['prompts']:,} prompts, 18–30 per topic;\nthe same views place pages, queries and answers",
+         size=6.2, edge=INFO, weight="bold")
+    _gradient(ax, 0.02, 0.29, 0.215, 0.025)
+    ax.text(0.02, 0.19, "information seeking", fontsize=5.8, color=INFO, va="top")
+    ax.text(0.29, 0.19, "action ready", fontsize=5.8, color=ACTION, va="top", ha="right")
     for a, b in ((0.80, 0.75), (0.62, 0.57), (0.44, 0.39)):
-        _arrow(ax, (0.115, a), (0.115, b))
+        _arrow(ax, (0.155, a), (0.155, b))
     # column 2
-    _box(ax, 0.255, 0.74, 0.245, 0.16, "2 generators\nLlama-4-Scout-17B-16E · Qwen3.8-27B\n(temperature 0, pinned)",
-         size=6.2)
-    _box(ax, 0.255, 0.49, 0.245, 0.21, "2 search methods\nParallel Expansion: 3 queries at once\n→ pooled → top 7\n"
-         "Reactive Loop: up to 3 searches,\neach → top 3, may stop early", size=6.0)
-    _box(ax, 0.255, 0.33, 0.245, 0.12, "2 engines (frozen snapshots)\nDuckDuckGo · SearXNG", size=6.2)
-    _box(ax, 0.255, 0.15, 0.245, 0.14, f"3 evidence conditions\n→ {t['cells_per_prompt']} cells per prompt,\n"
+    _box(ax, 0.345, 0.76, 0.29, 0.14, "2 generators, temperature 0\nLlama-4-Scout-17B-16E · Qwen3.8-27B", size=6.3)
+    _box(ax, 0.345, 0.50, 0.29, 0.22, "2 search methods\nParallel Expansion: 3 queries at once,\npooled rows → top 7 shown\n"
+         "Reactive Loop: up to 3 searches in turn,\neach → top 3 shown; may stop early", size=6.1)
+    _box(ax, 0.345, 0.34, 0.29, 0.12, "2 engine snapshots (frozen)\nDuckDuckGo · SearXNG", size=6.3)
+    _box(ax, 0.345, 0.15, 0.29, 0.15, f"3 evidence conditions (natural, ablated, shuffled)\n→ {t['cells_per_prompt']} cells per prompt,\n"
          "≈ 312k answers per generator", size=6.1, weight="bold")
-    _arrow(ax, (0.227, 0.335), (0.255, 0.80))
+    _arrow(ax, (0.305, 0.335), (0.345, 0.83))
     # column 3
-    _box(ax, 0.53, 0.78, 0.235, 0.12, "the AI writes its own search\nqueries  [Q]", size=6.3, edge=ACTION)
-    _box(ax, 0.53, 0.61, 0.235, 0.13, f"frozen corpus-wide search returns\n{t['results_per_search']} rows per query  [R]",
-         size=6.2)
-    _box(ax, 0.53, 0.44, 0.235, 0.13, "cross-encoder scores the candidates [C]\nand keeps a shortlist  [P]", size=6.2)
-    _box(ax, 0.53, 0.27, 0.235, 0.13, "generator ranks the sources it used [K]\nand writes the answer  [A]", size=6.2,
-         edge=INFO)
-    for a, b in ((0.78, 0.74), (0.61, 0.57), (0.44, 0.40)):
-        _arrow(ax, (0.6475, a), (0.6475, b))
-    _arrow(ax, (0.50, 0.62), (0.53, 0.84))
-    # column 4
-    _box(ax, 0.79, 0.74, 0.205, 0.16, "LLM judges (ongoing)\nNemotron-3-Nano: relevance order\nGemma-4-31B SI-v4: which\n"
-         "sources the answer rests on", size=5.9, face="#f6f3ec")
-    _box(ax, 0.79, 0.46, 0.205, 0.24, "same frozen axis applied to\nqueries, pages and answers:\nQ → R → C → P → K → A\n\n"
-         "within-keyword slope of each\nstage on x; keyword bootstrap,\nwithin-keyword permutations", size=5.9)
-    _box(ax, 0.79, 0.27, 0.205, 0.15, "does intent enter the pool\n(retrieval, reranker) or the\nordering by the generator?",
-         size=6.0, edge=ACTION, weight="bold")
-    _arrow(ax, (0.765, 0.335), (0.79, 0.55))
-    _arrow(ax, (0.765, 0.335), (0.79, 0.80), ls="--")
-    _arrow(ax, (0.8925, 0.46), (0.8925, 0.42))
-    ax.text(0.53, 0.20, "Q, R, C, P, K, A: the stages measured on the axis (Section 5).", fontsize=6, color=MUTED, va="top")
+    _box(ax, 0.675, 0.78, 0.32, 0.12, "the generator writes its own search queries  [Q]", size=6.3, edge=ACTION)
+    _box(ax, 0.675, 0.60, 0.32, 0.14, f"frozen word-overlap search over all topics' rows:\n{t['results_per_search']} rows per query  [R]\n"
+         "(the same search on the prompt's own text: $R_0$, a reference)", size=6.0)
+    _box(ax, 0.675, 0.43, 0.32, 0.13, "cross-encoder scores the candidates  [C]\nand keeps a shortlist  [P]", size=6.2)
+    _box(ax, 0.675, 0.24, 0.32, 0.15, "generator keeps and orders the sources it cites  [K]\nand writes the answer  [A]", size=6.2, edge=INFO)
+    for a, b in ((0.78, 0.74), (0.60, 0.56), (0.43, 0.39)):
+        _arrow(ax, (0.835, a), (0.835, b))
+    _arrow(ax, (0.635, 0.61), (0.675, 0.84))
+    ax.text(0.675, 0.19, "U (the topic's own rows), $R_0$, R, C, P, K: the stage sets of the funnel; Q and A: the texts the generator writes.",
+            fontsize=5.9, color=MUTED, va="top")
     return _save(fig, out_dir, "fig3-pipeline")
 
 

@@ -543,162 +543,156 @@ def macros(b: Bundle) -> tuple[list[str], list[str]]:
 
 
 # ---------------------------------------------------------------- appendix tables
-def stage_tables(b: Bundle) -> str:
-    """One full odds-ratio table per generator x method, held-out keywords."""
+COMPACT_FEATURES = [("intent_alignment", "Alignment $-|u-x|$"), ("intent_x_prompt", "Intent $\\times(x-\\frac12)$"),
+                    ("topic_similarity", "Topic similarity"), ("on_keyword", "Same keyword"), ("dfs_organic_count", "Domain size"),
+                    ("stored_position", "Stored position")]
+STAGE_LABEL = {"R|U": "Retrieval $R\\mid U$", "P|C": "Shortlist $P\\mid C$", "K|P": "Ranking $K\\mid P$"}
+
+
+def _or_cell(f, *, star: bool = False) -> tuple:
+    """(estimate, interval) strings for one odds ratio; the star marks an intent term beyond 95% of the shuffles."""
+    if f is None:
+        return "--", ""
+    est = f"{f['odds_ratio_per_sd']:.2f}"
+    if star and f.get("permutation_p") is not None and f["permutation_p"] < 0.05:
+        est += "$^{*}$"
+    lo, hi = (math.exp(c) for c in f["ci95"])
+    return est, f"[{lo:.2f}, {hi:.2f}]"
+
+
+def _two_line_rows(label: str, cells: list, slot: str) -> list:
+    """A model as two table rows: estimates, then intervals in a smaller grey line."""
+    top = f"{label} & " + " & ".join(est for est, _ in cells) + f" & {slot} \\\\"
+    low = " & " + " & ".join(f"{{\\tiny\\color{{gray}}{iv}}}" if iv else "" for _, iv in cells) + " & \\\\[1pt]"
+    return [top, low]
+
+
+def _slot_cell(position_effects) -> str:
+    """Second and seventh shown slot against the first, on the log-odds scale."""
+    if not position_effects or len(position_effects) < 2:
+        return "--"
+    second = neg(f"{position_effects[1]:+.2f}")
+    seventh = neg(f"{position_effects[6]:+.2f}") if len(position_effects) > 6 else "--"
+    return f"{second} / {seventh}"
+
+
+def compact_or_table(b: Bundle) -> str:
+    """One table for every inclusion, keep and order model: the headline features per SD, by cell and step."""
     main = b.funnel["models"]["main"]
-    parts = []
-    first_label = None
-    for s, suf, title in CELLS:
-        label = f"tab:a3-stage-{suf.lower()}"
-        first_label = first_label or label
-        rows = []
-        rows.append("\\begin{table*}[tp]\n\\centering\\scriptsize\n\\renewcommand{\\arraystretch}{0.94}\n\\begin{tabular}{@{}lcccc@{}}\n\\toprule")
-        rows.append(" & Retrieval & Literal prompt search & Shortlist & Ranking \\\\\n & $R\\mid U$ & $R_0\\mid U$ & $P\\mid C$ & $K\\mid P$ \\\\\n\\midrule")
-        stages = ["R|U", "R0|U", "P|C", "K|P"]
-        current_block = None
-        for blk, feat, name in FEATURES:
-            if blk != current_block:
-                current_block = blk
-                rows.append(f"\\multicolumn{{5}}{{@{{}}l}}{{\\textit{{{dict(BLOCKS)[blk]}}}}} \\\\")
-            cells = []
-            pcells = []
-            for stage in stages:
-                f = main[s][stage]["features"]
-                if feat in f:
-                    cells.append(orci(f[feat]))
-                    pcells.append(pval(f[feat]["permutation_p"]))
-                else:
-                    cells.append("--")
-                    pcells.append("--")
-            rows.append(f"\\quad {name} & " + " & ".join(cells) + " \\\\")
-            if feat in SHUFFLE_FEATURES:
-                rows.append("\\qquad shuffle $p$ & " + " & ".join(pcells) + " \\\\")
-        rows.append("\\midrule\n\\multicolumn{5}{@{}l}{\\textit{Fit lost when the block is dropped}} \\\\")
-        for blk, bname in BLOCKS:
-            rows.append(f"\\quad {bname} & " + " & ".join(pct1(main[s][st]["blocks"][blk]["fit_share"]) for st in stages) + " \\\\")
-        rows.append("\\quad Page-body bar, 95th pct.\\ of $|\\beta|$ & " + " & ".join(f"{b.funnel['negative_control_null'][s][st]['quantile']:.3f}" for st in stages) + " \\\\")
-        rows.append("\\quad Choice sets & " + " & ".join(num(main[s][st].get("choice_sets", main[s][st].get("answers", 0))) for st in stages) + " \\\\")
-        rows.append("\\bottomrule\n\\end{tabular}")
-        if label == first_label:
-            cap = (f"Stage models for {title}, held-out keywords, all blocks fitted together. Cells give the odds ratio per SD with its 95\\% keyword-bootstrap interval; "
-                   "shuffle $p$ cannot fall below 0.005. $R_0\\mid U$ refits retrieval with inclusion defined as the frozen search's top \\NRowsPerQuery{} rows for the prompt text; "
-                   "$K\\mid P$ treats the cited sources as ordered picks from the shortlist, mixing keep and order (Tables~\\ref{tab:a3-keep-a}--\\ref{tab:a3-keep-b} separate them). "
-                   "A dash marks a feature absent from the model (every row of $U$ is the keyword's own). The lower panel gives the fit lost when each block is dropped, "
-                   "the page-body bar (\\S\\ref{sec:unread}) and the number of choice sets. Missing-data indicators and two further indicators are fitted but not shown.")
-        else:
-            cap = f"Stage models for {title}, held-out keywords; layout and notes as in Table~\\ref{{{first_label}}}."
-        rows.append(f"\\caption{{{cap}}}\n\\label{{{label}}}\n\\end{{table*}}\n")
-        src = f"% src: {b.root.name}/paper-results/funnel-confirmation/results.json models.main[{s}] (features, blocks.fit_share, choice_sets); negative_control_null[{s}]"
-        parts.append(src + "\n" + "\n".join(rows))
-    return "\n".join(parts)
-
-
-def keep_order_tables(b: Bundle) -> str:
-    """Keep models (three strata) and order models (four strata), held-out keywords: one table pair per decision."""
     dec = b.dec["strata"]
-    part_a, part_b = [], []
-    for decision, cells in (("keep", [c for c in CELLS if c[0] != "qwen38 · Parallel"]), ("order", CELLS)):
-        ncol = len(cells)
-        title = "Keep" if decision == "keep" else "Order"
-
-        def head():
-            return ("\\begin{table*}[tp]\n\\centering\\scriptsize\n\\setlength{\\tabcolsep}{4pt}\n\\renewcommand{\\arraystretch}{0.94}\n"
-                    f"\\begin{{tabular}}{{@{{}}l*{{{ncol}}}{{c}}@{{}}}}\n\\toprule\n"
-                    f" & \\multicolumn{{{ncol}}}{{c@{{}}}}{{{title} model}} \\\\\n\\cmidrule(l){{2-{1 + ncol}}}\n"
-                    " & " + " & ".join(t for _, _, t in cells) + " \\\\\n\\midrule")
-
-        def feature_row(feat, name, shuffle=False):
-            vals, ps = [], []
-            for s, _, _ in cells:
-                f = dec[s][decision]["features"]
-                vals.append(orci(f[feat]) if feat in f else "--")
-                ps.append(pval(f[feat]["permutation_p"]) if feat in f else "--")
-            rows = [f"\\quad {name} & " + " & ".join(vals) + " \\\\"]
-            if shuffle:
-                rows.append("\\qquad shuffle $p$ & " + " & ".join(ps) + " \\\\")
-            return rows
-
-        count_key = "keep_informative_answers" if decision == "keep" else "order_choice_sets"
-        rows = [head()]
-        rows.append("Decisions modelled & " + " & ".join(num(dec[s]["counts"][count_key]) for s, _, _ in cells) + " \\\\")
-        rows.append("Pseudo-$R^2$ & " + " & ".join(f"{dec[s][decision]['pseudo_r2']:.2f}" for s, _, _ in cells) + " \\\\")
-        rows.append(f"\\midrule\n\\multicolumn{{{ncol + 1}}}{{@{{}}l}}{{\\textit{{Pratt share of the explained part, by block}}}} \\\\")
-        for blk, bname in BLOCKS + [("slot", "Shown slot")]:
-            rows.append(f"\\quad {bname} & " + " & ".join(pct1(dec[s][decision]["block_shares"][blk]) for s, _, _ in cells) + " \\\\")
-        rows.append(f"\\midrule\n\\multicolumn{{{ncol + 1}}}{{@{{}}l}}{{\\textit{{Odds ratio per SD [95\\% interval]}}}} \\\\")
-        current = None
-        for blk, feat, name in FEATURES:
-            if blk not in ("A1", "A2", "A3", "A4", "B"):
+    head = (" & " + " & ".join(name for _, name in COMPACT_FEATURES) + " & Slot 2 / 7 \\\\\n"
+            " & " + " & ".join("" for _ in COMPACT_FEATURES) + " & vs slot 1 \\\\\n\\midrule")
+    rows = ["\\begin{table*}[t]\n\\centering\\scriptsize\n\\setlength{\\tabcolsep}{3pt}\n\\renewcommand{\\arraystretch}{0.9}\n"
+            "\\begin{tabular}{@{}l*{6}{c}c@{}}\n\\toprule", head]
+    r0 = main[CELLS[0][0]]["R0|U"]["features"]
+    rows += _two_line_rows("$R_0\\mid U$, one fit", [_or_cell(r0.get(feat), star=feat in SHUFFLE_FEATURES) for feat, _ in COMPACT_FEATURES], "--")
+    for s_, suf, title in CELLS:
+        rows.append(f"\\addlinespace[1pt]\\multicolumn{{8}}{{@{{}}l}}{{\\textit{{{title}}}}} \\\\")
+        for stage in ("R|U", "P|C", "K|P"):
+            f = main[s_][stage]["features"]
+            slot = _slot_cell(main[s_][stage].get("position_effects")) if stage == "K|P" else "--"
+            rows += _two_line_rows("\\hspace{0.6em}" + STAGE_LABEL[stage], [_or_cell(f.get(feat), star=feat in SHUFFLE_FEATURES) for feat, _ in COMPACT_FEATURES], slot)
+        for decision, label in (("keep", "Keep"), ("order", "Order")):
+            if decision == "keep" and not b.gen["strata"][s_]["keep_modelled"]:
                 continue
-            if blk != current:
-                current = blk
-                rows.append(f"\\multicolumn{{{ncol + 1}}}{{@{{}}l}}{{\\textit{{{dict(BLOCKS)[blk]}}}}} \\\\")
-            rows.extend(feature_row(feat, name, shuffle=feat in SHUFFLE_FEATURES))
-        if decision == "keep":
-            rows.append(f"\\multicolumn{{{ncol + 1}}}{{@{{}}l}}{{\\textit{{Shown slot: odds ratio per SD of the 0/1 indicator, against slot 1}}}} \\\\")
-            max_slots = max(len([k for k in dec[s]["keep"]["features"] if k.startswith("shown_slot_")]) for s, _, _ in cells)
-            for i in range(1, max_slots + 1):
-                vals = [orci(dec[s]["keep"]["features"][f"shown_slot_{i}"]) if f"shown_slot_{i}" in dec[s]["keep"]["features"] else "--" for s, _, _ in cells]
-                rows.append(f"\\quad Slot {i + 1} & " + " & ".join(vals) + " \\\\")
-        else:
-            rows.append(f"\\multicolumn{{{ncol + 1}}}{{@{{}}l}}{{\\textit{{Shown slot: term on the log-odds scale, against slot 1}}}} \\\\")
-            max_pos = max(len(dec[s]["order"]["position_effects"]) for s, _, _ in cells)
-            for i in range(1, max_pos):
-                vals = []
-                for s, _, _ in cells:
-                    pe = dec[s]["order"]["position_effects"]
-                    vals.append(neg(f"{pe[i]:+.2f}") if i < len(pe) else "--")
-                rows.append(f"\\quad Slot {i + 1} & " + " & ".join(vals) + " \\\\")
-        rows.append("\\bottomrule\n\\end{tabular}")
-        if decision == "keep":
-            cap = ("Keep models on the held-out keywords, part~1: a conditional logit over each answer's shown snippets given how many it keeps, fitted to the "
-                   "informative answers; block shares are Pratt shares as in Table~\\ref{tab:shares}; odds ratios and shuffle $p$ read as in Table~\\ref{tab:a3-stage-lp}. "
-                   "Qwen under Parallel Expansion keeps \\ShareKeptQP{} of shown links and has no keep model.")
-        else:
-            cap = ("Order models on the held-out keywords, part~1: Plackett--Luce over kept snippets, one pick per choice set; layout as in Table~\\ref{tab:a3-keep-a}.")
-        rows.append(f"\\caption{{{cap}}}\n\\label{{tab:a3-{decision}-a}}\n\\end{{table*}}\n")
-        part_a.append(f"% src: {b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.counts, {decision} (block_shares, features, position_effects)\n" + "\n".join(rows))
-        # part b: blocks C1 and C2
-        rows = [head()]
-        current = None
-        for blk, feat, name in FEATURES:
-            if blk not in ("C1", "C2"):
-                continue
-            if blk != current:
-                current = blk
-                rows.append(f"\\multicolumn{{{ncol + 1}}}{{@{{}}l}}{{\\textit{{{dict(BLOCKS)[blk]}}}}} \\\\")
-            rows.extend(feature_row(feat, name))
-        rows.append("\\bottomrule\n\\end{tabular}")
-        no_keep = (" Qwen under Parallel Expansion keeps \\ShareKeptQP{} of shown links, so its keep decision is held at the observed set and not modelled."
-                   if decision == "keep" else "")
-        rows.append(f"\\caption{{{title} models on the held-out keywords, part~2 (off-page SEO and the unseen page body), read as Table~\\ref{{tab:a3-{decision}-a}}.{no_keep} "
-                    "Missing-data indicators and two further indicators are fitted but not shown.}\n" + f"\\label{{tab:a3-{decision}-b}}\n\\end{{table*}}\n")
-        part_b.append(f"% src: {b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.{decision} features of blocks C1 and C2\n" + "\n".join(rows))
-    return "\n".join(part_a + part_b)
+            f = dec[s_][decision]["features"]
+            slot = _slot_cell(dec[s_][decision].get("position_effects")) if decision == "order" else "--"
+            rows += _two_line_rows("\\hspace{0.6em}" + label, [_or_cell(f.get(feat), star=feat in SHUFFLE_FEATURES) for feat, _ in COMPACT_FEATURES], slot)
+    rows.append("\\bottomrule\n\\end{tabular}")
+    rows.append("\\caption{The inclusion, keep and order models on the held-out keywords, headline features only: odds ratio per SD, with its 95\\% keyword-bootstrap interval beneath, "
+                "every block fitted together (\\S\\ref{sec:funnel}). The prompt-text search is one fit: the four per-cell fits agree within rounding. "
+                "$^{*}$: the intent term lies beyond 95\\% of the within-keyword shuffles of $x$ (reported, never decisional). A dash marks a feature absent from the model. "
+                "The last column gives the shown-slot terms of the ranking and order models, the second and seventh slot against the first on the log-odds scale; "
+                "the keep models' slot indicators, every other feature and the exploration-keyword fits are in the supplementary CSV files.}\n\\label{tab:a3-compact}\n\\end{table*}\n")
+    return (f"% src: {b.root.name}/paper-results/funnel-confirmation/results.json models.main[*] (features, position_effects); "
+            f"{b.root.name}/paper-results/decisions-confirmation/decisions.json strata.*.keep/order (features, position_effects); generator.json keep_modelled\n" + "\n".join(rows))
+
+
+def block_loss_table(b: Bundle) -> str:
+    """Fit lost when each block is dropped, per inclusion model, with the page-body bar."""
+    main = b.funnel["models"]["main"]
+    rows = ["\\begin{table*}[t]\n\\centering\\scriptsize\n\\setlength{\\tabcolsep}{3.5pt}\n\\begin{tabular}{@{}l*{7}{c}c@{}}\n\\toprule",
+            " & Intent & Topic and same keyword & Snippet text & URL string & Engine signals & Off-page SEO & Page body (unseen) & Page-body bar \\\\\n\\midrule"]
+
+    def line(label, stage_block, q):
+        return f"{label} & " + " & ".join(pct1(stage_block["blocks"][blk]["fit_share"]) for blk, _ in BLOCKS) + f" & {q:.3f} \\\\"
+
+    first = CELLS[0][0]
+    rows.append(line("$R_0\\mid U$, one fit", main[first]["R0|U"], b.funnel["negative_control_null"][first]["R0|U"]["quantile"]))
+    for s_, suf, title in CELLS:
+        rows.append(f"\\addlinespace[2pt]\\multicolumn{{9}}{{@{{}}l}}{{\\textit{{{title}}}}} \\\\")
+        for stage in ("R|U", "P|C", "K|P"):
+            rows.append(line("\\quad " + STAGE_LABEL[stage], main[s_][stage], b.funnel["negative_control_null"][s_][stage]["quantile"]))
+    rows.append("\\bottomrule\n\\end{tabular}")
+    rows.append("\\caption{Fit lost when each block is dropped from an inclusion model (blocks of Table~\\ref{tab:feature-blocks}), held-out keywords, and the page-body bar, "
+                "the 95th percentile of $|\\beta|$ per SD over the unseen page-body features (\\S\\ref{sec:unread}). Pratt shares of the keep and order models: Table~\\ref{tab:shares}.}\n"
+                "\\label{tab:a3-blocks}\n\\end{table*}\n")
+    return f"% src: {b.root.name}/paper-results/funnel-confirmation/results.json models.main[*].blocks.*.fit_share; negative_control_null[*].quantile\n" + "\n".join(rows)
+
+
+def write_supplement(b: Bundle, out: Path) -> list:
+    """Every coefficient of every model, both splits, as CSV files for the supplementary material."""
+    import csv
+    sup = out / "supplement"
+    sup.mkdir(parents=True, exist_ok=True)
+    written = []
+    stage_path = sup / "inclusion_models_full.csv"
+    with stage_path.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["split", "cell", "specification", "stage", "feature", "block", "beta_per_sd", "odds_ratio_per_sd", "ci95_low", "ci95_high", "permutation_p"])
+        for split, res in (("confirmation", b.funnel), ("exploration", b.funnel_x)):
+            for spec, models in res["models"].items():
+                for cell, stages in models.items():
+                    for stage, model in stages.items():
+                        for feat, f in sorted(model["features"].items()):
+                            w.writerow([split, cell, spec, stage, feat, f.get("block"), f"{f['beta_per_sd']:.6f}", f"{f['odds_ratio_per_sd']:.6f}",
+                                        f"{f['ci95'][0]:.6f}", f"{f['ci95'][1]:.6f}", "" if f.get("permutation_p") is None else f"{f['permutation_p']:.6f}"])
+    written.append(stage_path)
+    blocks_path = sup / "inclusion_models_blocks.csv"
+    with blocks_path.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["split", "cell", "specification", "stage", "block", "fit_share", "page_body_bar_q95", "position_effects_log_odds"])
+        for split, res in (("confirmation", b.funnel), ("exploration", b.funnel_x)):
+            for spec, models in res["models"].items():
+                for cell, stages in models.items():
+                    for stage, model in stages.items():
+                        q = res.get("negative_control_null", {}).get(cell, {}).get(stage, {}).get("quantile", "")
+                        pe = model.get("position_effects") or []
+                        for blk, v in sorted(model["blocks"].items()):
+                            w.writerow([split, cell, spec, stage, blk, f"{v['fit_share']:.6f}", q if q == "" else f"{q:.6f}", " ".join(f"{x:.4f}" for x in pe)])
+    written.append(blocks_path)
+    ko_path = sup / "keep_order_models_full.csv"
+    with ko_path.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["cell", "decision", "feature", "block", "beta_per_sd", "odds_ratio_per_sd", "ci95_low", "ci95_high", "permutation_p", "pratt_share", "pseudo_r2", "decisions"])
+        for cell, strata in b.dec["strata"].items():
+            for decision in ("keep", "order"):
+                model = strata[decision]
+                n = strata["counts"]["keep_informative_answers" if decision == "keep" else "order_choice_sets"]
+                for feat, f in sorted(model["features"].items()):
+                    w.writerow([cell, decision, feat, f.get("block"), f"{f['beta_per_sd']:.6f}", f"{f['odds_ratio_per_sd']:.6f}", f"{f['ci95'][0]:.6f}", f"{f['ci95'][1]:.6f}",
+                                "" if f.get("permutation_p") is None else f"{f['permutation_p']:.6f}", f"{model['shares'].get(feat, float('nan')):.6f}", f"{model['pseudo_r2']:.6f}", n])
+                pe = model.get("position_effects") or []
+                if pe:
+                    w.writerow([cell, decision, "position_effects_log_odds", "slot", " ".join(f"{x:.4f}" for x in pe), "", "", "", "", "", f"{model['pseudo_r2']:.6f}", n])
+    written.append(ko_path)
+    return written
 
 
 def decomposition_table(b: Bundle) -> str:
-    rows = ["\\begin{table*}[t]\n\\centering\\scriptsize\n\\setlength{\\tabcolsep}{4pt}\n\\begin{tabular}{@{}llcccccc@{}}\n\\toprule",
-            "Cell & Feature & Retrieval & Shortlist & Ranking & Total log RR & Shortlist share & Ranking share \\\\",
-            " & & $R\\mid U$ & $P\\mid C$ & $K\\mid P$ & $K\\mid U$ & & \\\\\n\\midrule"]
-    feats = (("intent_alignment", "Alignment $-|u-x|$"), ("topic_similarity", "Topic similarity"), ("dfs_organic_count", "Domain size"))
-    for s, suf, title in CELLS:
-        for i, (feat, name) in enumerate(feats):
-            d = b.funnel["decomposition"][s][feat]
-            lr = d["log_rr"]
-            tot = d["total_log_rr_K_given_U"]
-            lo, hi = d["ci95_total"]
-            cell = title if i == 0 else ""
-            rows.append(f"{cell} & {name} & {neg(f'{lr['retrieval|U']:+.3f}')} & {neg(f'{lr['shortlist|C']:+.3f}')} & {neg(f'{lr['ranking|P']:+.3f}')} & "
-                        f"{neg(f'{tot:+.3f}')} {ci(lo, hi)} & {pct(d['share']['shortlist|C'])} {pctci(*d['share_ci95']['shortlist|C'])} & {pct(d['share']['ranking|P'])} \\\\")
-        if s != CELLS[-1][0]:
-            rows.append("\\addlinespace[2pt]")
+    rows = ["\\begin{table*}[t]\n\\centering\\scriptsize\n\\setlength{\\tabcolsep}{6pt}\n\\begin{tabular}{@{}lcccccc@{}}\n\\toprule",
+            "Cell & Retrieval & Shortlist & Ranking & Total log RR & Shortlist share & Ranking share \\\\",
+            " & $R\\mid U$ & $P\\mid C$ & $K\\mid P$ & $K\\mid U$ & & \\\\\n\\midrule"]
+    for s_, suf, title in CELLS:
+        d = b.funnel["decomposition"][s_]["intent_alignment"]
+        lr = d["log_rr"]; tot = d["total_log_rr_K_given_U"]; lo, hi = d["ci95_total"]
+        rows.append(f"{title} & {neg(f'{lr['retrieval|U']:+.3f}')} & {neg(f'{lr['shortlist|C']:+.3f}')} & {neg(f'{lr['ranking|P']:+.3f}')} & "
+                    f"{neg(f'{tot:+.3f}')} {ci(lo, hi)} & {pct(d['share']['shortlist|C'])} {pctci(*d['share_ci95']['shortlist|C'])} & {pct(d['share']['ranking|P'])} \\\\")
     rows.append("\\bottomrule\n\\end{tabular}")
-    rows.append("\\caption{Exact decomposition of the log risk ratio (RR) that a row of $U$ is cited, top against bottom quartile of the feature within each answer's own rows "
+    rows.append("\\caption{Exact decomposition of the log risk ratio (RR) that a row of $U$ is cited, top against bottom quartile of alignment $-|u-x|$ within each answer's own rows "
                 "(answers weighted equally), held-out keywords. The step terms sum to the total (95\\% keyword-bootstrap interval) together with the scoring term $C\\mid R$, "
-                "which lies within $\\pm 0.006$ in every row and is omitted (the Reactive Loop scores every retrieved row, so there it is zero); the last two columns are the "
-                "shortlist and ranking terms' shares of the total.}\n\\label{tab:a3-decomp}\n\\end{table*}\n")
-    return f"% src: {b.root.name}/paper-results/funnel-confirmation/results.json decomposition[*].{{intent_alignment,topic_similarity,dfs_organic_count}} (log_rr, total_log_rr_K_given_U, ci95_total, share, share_ci95)\n" + "\n".join(rows)
+                "within $\\pm 0.002$ in every cell and omitted; the last two columns are the shortlist and ranking terms' shares of the total.}\n\\label{tab:a3-decomp}\n\\end{table*}\n")
+    return f"% src: {b.root.name}/paper-results/funnel-confirmation/results.json decomposition[*].intent_alignment (log_rr, total_log_rr_K_given_U, ci95_total, share, share_ci95)\n" + "\n".join(rows)
 
 
 def verdict_table(b: Bundle) -> str:
@@ -753,7 +747,7 @@ def funnel_predictions_table(b: Bundle) -> str:
             cells.append(f"{neg(f'{x['estimate']:+.3f}')} {ci(*x['ci95'])}")
         rows.append(f"{tag}: {name} & " + " & ".join(cells) + " \\\\")
     rows.append("\\bottomrule\n\\end{tabular}")
-    rows.append("\\caption{The funnel study's pre-registered predictions on the held-out keywords (coefficient per SD with its 95\\% keyword-bootstrap interval). A prediction replicates if, in all four cells, "
+    rows.append("\\caption{The four predictions of the funnel study, the stage-model analysis registered before the admission study (Appendix~\\ref{app:protocol}), on the held-out keywords (coefficient per SD with its 95\\% keyword-bootstrap interval). A prediction replicates if, in all four cells, "
                 "the coefficient has the predicted sign, its interval excludes 0 and its shuffle $p<0.05$; P3 also requires the generator coefficient to clear the page-body bar. None met the rule.}\n\\label{tab:a3-predictions}\n\\end{table*}\n")
     return f"% src: {b.root.name}/paper-results/funnel-confirmation/results.json confirmatory (P1-P4: estimate, ci95, replicates)\n" + "\n".join(rows)
 
@@ -803,13 +797,13 @@ def main(argv=None):
         "\\newcommand{\\AthreeVerdictTable}{%\n" + verdict_table(b) + "}\n",
         "\\newcommand{\\AthreePredictionTable}{%\n" + funnel_predictions_table(b) + "}\n",
         "\\newcommand{\\AthreeDecompTable}{%\n" + decomposition_table(b) + "}\n",
-        "\\newcommand{\\AthreeIntentTextTable}{%\n" + intent_text_table(b) + "}\n",
-        "\\newcommand{\\AthreeStageTables}{%\n" + stage_tables(b) + "}\n",
-        "\\newcommand{\\AthreeKeepOrderTables}{%\n" + keep_order_tables(b) + "}\n",
+        "\\newcommand{\\AthreeCompactORTable}{%\n" + compact_or_table(b) + "}\n",
+        "\\newcommand{\\AthreeBlockLossTable}{%\n" + block_loss_table(b) + "}\n",
     ])
     (out / "A3-generated-tables.tex").write_text(tables)
+    supplement = write_supplement(b, out)
     (out / "dossier.md").write_text("# Full-run numbers dossier\n" + "\n".join(doc) + "\n")
-    print(f"wrote {len(macro_lines)} macros to {out / 'numbers-heldout.tex'}; tables and dossier alongside")
+    print(f"wrote {len(macro_lines)} macros to {out / 'numbers-heldout.tex'}; tables, dossier and {len(supplement)} supplement CSVs alongside")
 
 
 if __name__ == "__main__":
