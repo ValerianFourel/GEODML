@@ -134,3 +134,40 @@ def test_fig9_search_methods_renders_pdf_png_and_a_compiling_tikz_twin(tmp_path,
         done = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "fig9-search-methods-tikz.tex"],
                               cwd=tmp_path, capture_output=True, text=True, timeout=180)
         assert done.returncode == 0, done.stdout[-2000:]
+
+
+def test_fig10_puts_every_stage_on_the_prompt_scale_and_refuses_a_non_monotone_map(tmp_path):
+    import gzip
+    rng = np.random.default_rng(3)
+    n = 3000
+    x, keyword = rng.uniform(0, 1, n), rng.integers(0, 30, n)
+    logistic = lambda z: 1 / (1 + np.exp(-2 * z))
+    z_prompt = np.log(x / (1 - x)) / 2  # the inverse of the map: prompts sit on the identity
+    u_values = {t: 0.3 + 0.1 * x + rng.normal(0, 0.03, n) for t in ("R", "P", "K")}
+    z_values = {"Q": 0.8 * z_prompt + rng.normal(0, 0.1, n), "A": 0.5 * z_prompt, "R0": np.full(n, -0.8)}
+    mask = np.ones(n, bool)
+    block_u = stages.stage_curves(x, keyword, u_values, mask)
+    block_z = stages.stage_curves(x, keyword, z_values, mask)
+    groups = {f"{m} · {e}": {"natural": {"u": block_u, "z": block_z}} for m in ("llama4", "qwen38")
+              for e in ("duckduckgo", "searxng", "both engines")}
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps({"curves": {"bins": 20, "groups": groups}}))
+    coords = tmp_path / "coords.jsonl.gz"
+    zs = rng.normal(0, 1, 500)
+    with gzip.open(coords, "wt") as stream:
+        for z in zs:
+            stream.write(json.dumps({"consensus_axis_1_z": float(z), "answer_axis_percentile": float(logistic(z))}) + "\n")
+    deciles = [{"decile": d, "mean_x": (d + 0.5) / 10, "mean_K": 0.4, "mean_oracle_P": 0.45, "mean_oracle_U": 0.3 + 0.03 * d, "answers": 10}
+               for d in range(10)]
+    supply = tmp_path / "supply.json"
+    supply.write_text(json.dumps({"strata": {f"{m} · {me}": {"deciles": deciles} for m in ("llama4", "qwen38") for me in ("Parallel", "Reactive")}}))
+    knots = figs.prompt_scale_map(figs.read_coordinates(coords))
+    assert abs(np.interp(0.0, *knots) - 0.5) < 0.02  # the map recovers the logistic prompt scale
+    mean, lo, hi = figs._mapped(knots, block_z, "A")
+    assert np.all(lo <= mean) and np.all(mean <= hi)
+    assert figs.main(["render", "--results", str(results), "--coordinates", str(coords), "--supply", str(supply),
+                      "--output-dir", str(tmp_path / "out")]) == 0
+    assert (tmp_path / "out" / "fig10-intent-stages.pdf").stat().st_size > 1000
+    with pytest.raises(ValueError, match="monotone"):
+        figs.prompt_scale_map([{"consensus_axis_1_z": 0.0, "answer_axis_percentile": 0.9},
+                               {"consensus_axis_1_z": 1.0, "answer_axis_percentile": 0.1}])

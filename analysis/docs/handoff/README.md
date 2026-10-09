@@ -194,3 +194,5 @@ supersede them with a new dated document that links back.
 - 2026-10-08 — [START HERE IN 48 H: full run submitted (run2) and how to analyse its results](2026-10-08_fullrun-results-analysis_handoff.md)
 
 - 2026-10-09 — [START HERE: full run finished; held-out results for the intent study and the paper changes they require](2026-10-09_fullrun-results-intent_handoff.md)
+
+- 2026-10-09 — [Paper rewritten on the held-out results of both generators; stage figure; generated numbers](2026-10-09_paper-heldout-rewrite_handoff.md)

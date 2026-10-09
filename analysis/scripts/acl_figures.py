@@ -856,6 +856,114 @@ def fig8_stage_intent(plt, explore: dict, out_dir: Path) -> list[str]:
         "page intent of the items\n(0–1 prompt scale)", "fig8-stage-intent", "Descriptive.", out_dir)
 
 
+# ---------------------------------------------------------------- figure 10: every stage on the prompt scale
+
+def prompt_scale_map(coordinate_rows):
+    """Knots (z, x) of the monotone map from the axis's native scale (consensus z) to the prompt percentile x.
+
+    Each row carries both coordinates of one text, computed with the frozen prompt scale (np.interp over the
+    sorted prompt values), so the map is exact at its knots and linear between them.
+    """
+    import numpy as np
+    z = np.asarray([r["consensus_axis_1_z"] for r in coordinate_rows], float)
+    x = np.asarray([r["answer_axis_percentile"] for r in coordinate_rows], float)
+    keep = np.isfinite(z) & np.isfinite(x)
+    order = np.argsort(z[keep], kind="stable")
+    z, x = z[keep][order], x[keep][order]
+    if len(z) < 2 or np.any(np.diff(x) < -1e-9):
+        raise ValueError("coordinates do not give a monotone map from z to the prompt scale")
+    zu, first = np.unique(z, return_index=True)
+    return zu, x[first]
+
+
+def _mapped(knots, block, term):
+    """Bin means and ±1.96 SE bands of a z-scale term, carried onto the prompt scale through the map."""
+    import numpy as np
+    entry = block["terms"].get(term)
+    if not entry:
+        return None
+    z, x = knots
+    m = np.asarray([np.nan if v is None else v for v in entry["mean"]], float)
+    se = np.asarray([np.nan if v is None else v for v in entry["se_keyword_cluster"]], float)
+    return np.interp(m, z, x), np.interp(m - 1.96 * se, z, x), np.interp(m + 1.96 * se, z, x)
+
+
+def fig10_intent_stages(plt, results: dict, knots, out_dir: Path, *, supply: dict | None = None, condition="natural") -> list[str]:
+    """Panel (a): the agent's queries and the answer text against the prompt; (b), (c): the page sets per generator."""
+    import numpy as np
+    from matplotlib.lines import Line2D
+    groups = results.get("curves", {}).get("groups", {})
+    models = [m for m in ("llama4", "qwen38") if f"{m} · both engines" in groups]
+    if not models:
+        raise ValueError("results.json has no 'both engines' curves")
+    fig, axes = plt.subplots(1, 1 + len(models), figsize=(DOUBLE, 1.95), gridspec_kw={"wspace": 0.3})
+    axes = np.atleast_1d(axes)
+    for ax in axes:
+        ax.set_xlim(0, 1)
+        ax.set_xlabel("prompt position $x$")
+        ax.grid(color="#eef1f3", lw=0.5)
+        ax.spines[["top", "right"]].set_visible(False)
+    a = axes[0]
+    a.plot([0, 1], [0, 1], color=MUTED, ls="--", lw=0.8, label="the prompt itself")
+    for m in models:
+        zb = groups[f"{m} · both engines"][condition]["z"]
+        xs = np.asarray(_centers(zb))
+        for term, ls, lw, label in (("Q", "-", 1.2, "queries [Q]"), ("A", "-.", 1.0, "answer text [A]")):
+            got = _mapped(knots, zb, term)
+            if got is None:
+                continue
+            mean, lo, hi = got
+            a.plot(xs, mean, color=MODEL.get(m, INK), ls=ls, lw=lw, label=f"{MODEL_LABEL.get(m, m)}: {label}")
+            a.fill_between(xs, lo, hi, color=MODEL.get(m, INK), alpha=0.14, lw=0)
+    a.set_ylim(0, 1)
+    a.set_ylabel("position on the axis (prompt scale)")
+    a.set_title("(a) texts the agent writes", loc="left")
+    a.legend(frameon=False, loc="upper left", handlelength=2.2)
+    lows, highs = [], []
+    for ax, m, letter in zip(axes[1:], models, "bc"):
+        group = groups[f"{m} · both engines"][condition]
+        colour = MODEL.get(m, INK)
+        xs = np.asarray(_centers(group["u"]))
+        got = _mapped(knots, group["z"], "R0")
+        if got is not None:
+            ax.plot(xs, got[0], color=MUTED, ls="-.", lw=0.9)
+        _series(ax, group["u"], "R", color=colour, ls=":", band=False, lw=0.9)
+        _series(ax, group["u"], "P", color=colour, ls="--", band=False, lw=0.9)
+        _series(ax, group["u"], "K", color=colour, ls="-", lw=1.2)
+        for method, marker in (("Parallel", "o"), ("Reactive", "s")):
+            deciles = (supply or {}).get("strata", {}).get(f"{m} · {method}", {}).get("deciles")
+            if deciles:
+                ax.plot([d["mean_x"] for d in deciles], [d["mean_oracle_U"] for d in deciles], color="#8a8f94", lw=0.7,
+                        marker=marker, ms=2.2, mfc="white", mew=0.6)
+        ax.plot([0, 1], [0, 1], color=MUTED, ls="--", lw=0.8)
+        values = [v for line in ax.get_lines() if len(line.get_ydata()) > 2 for v in line.get_ydata() if np.isfinite(v)]
+        lows.append(min(values)); highs.append(max(values))
+        ax.set_title(f"({letter}) pages, {MODEL_LABEL.get(m, m)}", loc="left")
+    for ax in axes[1:]:
+        ax.set_ylim(max(0, min(lows) - 0.03), min(1, max(highs) + 0.03))
+    axes[1].set_ylabel("page intent (prompt scale)")
+    handles = [Line2D([], [], color=MUTED, ls="-.", lw=0.9), Line2D([], [], color=MUTED, ls=":", lw=0.9),
+               Line2D([], [], color=MUTED, ls="--", lw=0.9), Line2D([], [], color=MUTED, ls="-", lw=1.2)]
+    labels = ["frozen search on the prompt text [R0]", "retrieved by the agent’s queries [R]", "shortlist shown [P]", "cited sources [K]"]
+    if supply:
+        handles.append(Line2D([], [], color="#8a8f94", lw=0.7, marker="o", ms=2.2, mfc="white", mew=0.6))
+        labels.append("best own-keyword rows (oracle; ○ Parallel, □ Reactive)")
+    fig.legend(handles, labels, frameon=False, loc="lower center", ncol=len(labels), bbox_to_anchor=(0.5, -0.16), handlelength=2.4,
+               columnspacing=1.2)
+    fig.text(0.5, -0.27, f"{condition} condition; all keywords; 20 bins of $x$ (0 information, 1 action); bands ±1.96 keyword-clustered SE. "
+             "Queries, answers and the prompt-text search are measured on the axis’s native scale and carried onto the prompt scale through the "
+             "frozen prompt map; pages are page intent $u$. Oracle: held-out keywords, deciles of $x$. Dashed: position equal to the prompt’s. Descriptive.",
+             ha="center", fontsize=6.0, color=MUTED, wrap=True)
+    return _save(fig, out_dir, "fig10-intent-stages")
+
+
+def read_coordinates(path: Path):
+    import gzip
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", encoding="utf-8") as stream:
+        return [json.loads(line) for line in stream if line.strip()]
+
+
 # ---------------------------------------------------------------- CLI
 
 def main(argv=None) -> int:
@@ -882,6 +990,9 @@ def main(argv=None) -> int:
     p.add_argument("--facet", choices=["engine", "method"], default="method", help="split figure 4 by search engine or search method")
     p.add_argument("--funnel-results", type=Path, help="results.json of funnel_study.py report (fig5, fig6)")
     p.add_argument("--explore", type=Path, help="explore.json of funnel_explore.py (fig7, fig8)")
+    p.add_argument("--coordinates", type=Path, help="jsonl(.gz) rows with consensus_axis_1_z and answer_axis_percentile "
+                                                   "(answers-analysis/answer_coordinates.jsonl.gz); with --results draws fig10")
+    p.add_argument("--supply", type=Path, help="steelman supply.json: the own-keyword oracle ceiling in fig10")
     p.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "axis-examples":
@@ -923,8 +1034,12 @@ def main(argv=None) -> int:
     if args.axis_examples:
         written["fig1"] = fig1(plt, json.loads(args.axis_examples.read_text(encoding="utf-8")), args.output_dir)
     if args.results:
-        written["fig4"] = fig4(plt, json.loads(args.results.read_text(encoding="utf-8")), args.output_dir,
-                               condition=args.condition, facet=args.facet)
+        results = json.loads(args.results.read_text(encoding="utf-8"))
+        written["fig4"] = fig4(plt, results, args.output_dir, condition=args.condition, facet=args.facet)
+        if args.coordinates:
+            supply = json.loads(args.supply.read_text(encoding="utf-8")) if args.supply else None
+            written["fig10"] = fig10_intent_stages(plt, results, prompt_scale_map(read_coordinates(args.coordinates)),
+                                                   args.output_dir, supply=supply, condition=args.condition)
     if args.funnel_results:
         funnel = json.loads(args.funnel_results.read_text(encoding="utf-8"))
         written["fig5"] = fig5_funnel(plt, funnel, args.output_dir)
