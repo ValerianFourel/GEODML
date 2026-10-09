@@ -888,72 +888,125 @@ def _mapped(knots, block, term):
     return np.interp(m, z, x), np.interp(m - 1.96 * se, z, x), np.interp(m + 1.96 * se, z, x)
 
 
+def _end_labels(ax, items, *, x=1.012, min_gap, fontsize=7.0):
+    """Short labels just outside the right axis edge, one per line, pushed apart so they never overlap."""
+    items = sorted(items, key=lambda t: t[0])
+    ys = [y for y, _, _ in items]
+    for i in range(1, len(ys)):
+        ys[i] = max(ys[i], ys[i - 1] + min_gap)
+    lo, hi = ax.get_ylim()
+    overflow = ys[-1] - (hi - min_gap / 2)
+    if overflow > 0:
+        ys = [y - overflow for y in ys]
+    for y, (_, text, colour) in zip(ys, items):
+        ax.text(x, y, text, ha="left", va="center", fontsize=fontsize, color=colour, clip_on=False, fontweight="semibold")
+
+
+def _diagonal_label(ax, text, at, *, fontsize=6.5):
+    """Text set along the y = x line, rotated with the axes' aspect."""
+    import numpy as np
+    p0 = ax.transData.transform((at, at)); p1 = ax.transData.transform((at + 0.1, at + 0.1))
+    angle = np.degrees(np.arctan2(p1[1] - p0[1], p1[0] - p0[0]))
+    ax.text(at, at, text, rotation=angle, rotation_mode="anchor", ha="center", va="bottom", fontsize=fontsize, color=MUTED,
+            transform_rotates_text=False)
+
+
 def fig10_intent_stages(plt, results: dict, knots, out_dir: Path, *, supply: dict | None = None, condition="natural") -> list[str]:
-    """Panel (a): the agent's queries and the answer text against the prompt; (b), (c): the page sets per generator."""
+    """(a) the agent's queries and answer text against the prompt; (b), (c) the page sets per generator with the supply ceiling.
+
+    Every line is named on the plot (legend in (a), end labels in (b)/(c)) and in a key under the figure.
+    """
     import numpy as np
     from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
     groups = results.get("curves", {}).get("groups", {})
     models = [m for m in ("llama4", "qwen38") if f"{m} · both engines" in groups]
     if not models:
         raise ValueError("results.json has no 'both engines' curves")
-    fig, axes = plt.subplots(1, 1 + len(models), figsize=(DOUBLE, 1.95), gridspec_kw={"wspace": 0.3})
+    band = "#b9c0c6"
+    fig, axes = plt.subplots(1, 1 + len(models), figsize=(DOUBLE, 3.25),
+                             gridspec_kw={"wspace": 0.34, "width_ratios": [1.1] + [1] * len(models)})
     axes = np.atleast_1d(axes)
     for ax in axes:
         ax.set_xlim(0, 1)
-        ax.set_xlabel("prompt position $x$")
+        ax.set_xticks([0, 0.25, 0.5, 0.75, 1.0])
+        ax.set_xlabel("prompt position $x$", fontsize=8)
         ax.grid(color="#eef1f3", lw=0.5)
         ax.spines[["top", "right"]].set_visible(False)
+        ax.tick_params(labelsize=7.5)
+    # ---- (a) the texts the agent writes
     a = axes[0]
-    a.plot([0, 1], [0, 1], color=MUTED, ls="--", lw=0.8, label="the prompt itself")
+    a.plot([0, 1], [0, 1], color=MUTED, ls="--", lw=0.9, label="the prompt itself ($y = x$)")
     for m in models:
         zb = groups[f"{m} · both engines"][condition]["z"]
         xs = np.asarray(_centers(zb))
-        for term, ls, lw, label in (("Q", "-", 1.2, "queries [Q]"), ("A", "-.", 1.0, "answer text [A]")):
+        for term, ls, lw, what in (("Q", "-", 1.7, "queries (Q)"), ("A", (0, (4, 1.5, 1, 1.5)), 1.4, "answer (A)")):
             got = _mapped(knots, zb, term)
             if got is None:
                 continue
             mean, lo, hi = got
-            a.plot(xs, mean, color=MODEL.get(m, INK), ls=ls, lw=lw, label=f"{MODEL_LABEL.get(m, m)}: {label}")
+            a.plot(xs, mean, color=MODEL.get(m, INK), ls=ls, lw=lw, label=f"{MODEL_LABEL.get(m, m).split('-')[0]}: {what}")
             a.fill_between(xs, lo, hi, color=MODEL.get(m, INK), alpha=0.14, lw=0)
     a.set_ylim(0, 1)
-    a.set_ylabel("position on the axis (prompt scale)")
-    a.set_title("(a) texts the agent writes", loc="left")
-    a.legend(frameon=False, loc="upper left", handlelength=2.2)
+    a.set_ylabel("position on the prompt scale", fontsize=8)
+    a.set_title("(a) Texts the agent writes", loc="left", fontsize=8.5)
+    a.legend(frameon=False, loc="lower right", handlelength=2.0, handletextpad=0.6, fontsize=6.8, borderaxespad=0.4, labelspacing=0.5)
+    # ---- (b), (c) the page sets per generator
+    stage_style = {"R0": dict(ls=(0, (4, 1.5, 1, 1.5)), lw=1.1, colour=MUTED), "R": dict(ls=":", lw=1.5), "P": dict(ls="--", lw=1.5), "K": dict(ls="-", lw=1.9)}
+    stage_tag = {"R0": "R$_0$", "R": "R", "P": "P", "K": "K"}
     lows, highs = [], []
+    panels = []
     for ax, m, letter in zip(axes[1:], models, "bc"):
         group = groups[f"{m} · both engines"][condition]
         colour = MODEL.get(m, INK)
         xs = np.asarray(_centers(group["u"]))
+        ends = []
         got = _mapped(knots, group["z"], "R0")
         if got is not None:
-            ax.plot(xs, got[0], color=MUTED, ls="-.", lw=0.9)
-        _series(ax, group["u"], "R", color=colour, ls=":", band=False, lw=0.9)
-        _series(ax, group["u"], "P", color=colour, ls="--", band=False, lw=0.9)
-        _series(ax, group["u"], "K", color=colour, ls="-", lw=1.2)
-        for method, marker in (("Parallel", "o"), ("Reactive", "s")):
+            ax.plot(xs, got[0], color=MUTED, ls=stage_style["R0"]["ls"], lw=stage_style["R0"]["lw"])
+            ends.append((got[0][-1], stage_tag["R0"], MUTED))
+        for term in ("R", "P", "K"):
+            if _series(ax, group["u"], term, color=colour, ls=stage_style[term]["ls"], band=(term == "K"), lw=stage_style[term]["lw"]):
+                ends.append((group["u"]["terms"][term]["mean"][-1], stage_tag[term], colour))
+        oracle = {}
+        for method in ("Parallel", "Reactive"):
             deciles = (supply or {}).get("strata", {}).get(f"{m} · {method}", {}).get("deciles")
             if deciles:
-                ax.plot([d["mean_x"] for d in deciles], [d["mean_oracle_U"] for d in deciles], color="#8a8f94", lw=0.7,
-                        marker=marker, ms=2.2, mfc="white", mew=0.6)
-        ax.plot([0, 1], [0, 1], color=MUTED, ls="--", lw=0.8)
+                oracle[method] = (np.asarray([d["mean_x"] for d in deciles]), np.asarray([d["mean_oracle_U"] for d in deciles]))
+        if oracle:
+            curves = list(oracle.values())
+            ox = curves[0][0]
+            oy = np.vstack([np.interp(ox, cx, cy) for cx, cy in curves])
+            ax.fill_between(ox, oy.min(axis=0), oy.max(axis=0), color=band, alpha=0.55, lw=0)
+            ax.plot(ox, oy.mean(axis=0), color="#7f878d", lw=0.8)
+            ends.append((float(oy.mean(axis=0)[-1]), "ceiling", "#5f676d"))
+        ax.plot([0, 1], [0, 1], color=MUTED, ls="--", lw=0.9)
         values = [v for line in ax.get_lines() if len(line.get_ydata()) > 2 for v in line.get_ydata() if np.isfinite(v)]
         lows.append(min(values)); highs.append(max(values))
-        ax.set_title(f"({letter}) pages, {MODEL_LABEL.get(m, m)}", loc="left")
-    for ax in axes[1:]:
-        ax.set_ylim(max(0, min(lows) - 0.03), min(1, max(highs) + 0.03))
-    axes[1].set_ylabel("page intent (prompt scale)")
-    handles = [Line2D([], [], color=MUTED, ls="-.", lw=0.9), Line2D([], [], color=MUTED, ls=":", lw=0.9),
-               Line2D([], [], color=MUTED, ls="--", lw=0.9), Line2D([], [], color=MUTED, ls="-", lw=1.2)]
-    labels = ["frozen search on the prompt text [R0]", "retrieved by the agent’s queries [R]", "shortlist shown [P]", "cited sources [K]"]
-    if supply:
-        handles.append(Line2D([], [], color="#8a8f94", lw=0.7, marker="o", ms=2.2, mfc="white", mew=0.6))
-        labels.append("best own-keyword rows (oracle; ○ Parallel, □ Reactive)")
-    fig.legend(handles, labels, frameon=False, loc="lower center", ncol=len(labels), bbox_to_anchor=(0.5, -0.16), handlelength=2.4,
-               columnspacing=1.2)
-    fig.text(0.5, -0.27, f"{condition} condition; all keywords; 20 bins of $x$ (0 information, 1 action); bands ±1.96 keyword-clustered SE. "
-             "Queries, answers and the prompt-text search are measured on the axis’s native scale and carried onto the prompt scale through the "
-             "frozen prompt map; pages are page intent $u$. Oracle: held-out keywords, deciles of $x$. Dashed: position equal to the prompt’s. Descriptive.",
-             ha="center", fontsize=6.0, color=MUTED, wrap=True)
+        ax.set_title(f"({letter}) Pages, {MODEL_LABEL.get(m, m)}", loc="left", fontsize=8.5)
+        panels.append((ax, ends))
+    lo, hi = max(0, min(lows) - 0.03), min(1, max(highs) + 0.045)
+    for ax, ends in panels:
+        ax.set_ylim(lo, hi)
+        _end_labels(ax, ends, min_gap=(hi - lo) * 0.085)
+        _diagonal_label(ax, "the prompt itself", at=lo + 0.86 * (hi - lo))
+    axes[1].set_ylabel("page intent $u$ (prompt scale)", fontsize=8)
+    for ax in axes[2:]:
+        ax.tick_params(labelleft=False)
+    handles = [Line2D([], [], color=INK, ls="-", lw=1.7), Line2D([], [], color=INK, ls=(0, (4, 1.5, 1, 1.5)), lw=1.4),
+               Line2D([], [], color=INK, ls="-", lw=1.9), Line2D([], [], color=INK, ls="--", lw=1.5),
+               Line2D([], [], color=INK, ls=":", lw=1.5), Line2D([], [], color=MUTED, ls=stage_style["R0"]["ls"], lw=1.1),
+               Patch(facecolor=band, alpha=0.55), Line2D([], [], color=MUTED, ls="--", lw=0.9)]
+    labels = ["Q  (panel a) the search queries the agent writes, placed on the axis",
+              "A  (panel a) the agent’s final answer text, placed on the axis",
+              "K  (b, c) the sources the answer cites, weighted by cited rank",
+              "P  (b, c) the shortlist the cross-encoder shows the generator",
+              "R  (b, c) the pages the agent’s queries retrieve",
+              "R$_0$  (b, c) frozen search on the prompt’s own text, a reference the agent never issues",
+              "ceiling  (b, c) the keyword’s own pages closest to the prompt; the band spans the two methods",
+              "the prompt itself ($y = x$): a text or page sitting exactly where the prompt sits"]
+    fig.legend(handles, labels, frameon=False, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0.0), handlelength=2.6,
+               columnspacing=1.4, fontsize=6.8, labelspacing=0.5)
     return _save(fig, out_dir, "fig10-intent-stages")
 
 
