@@ -422,3 +422,16 @@ def test_excluded_nodes_file_keeps_new_bouts_off_a_broken_node(cluster):
     (ctl / 'gemma-exclude-nodes').write_text('hkn0515; rm -rf /\n')
     with pytest.raises(ValueError, match="invalid node list"):
         sender.excluded_nodes(c.plan)
+
+
+def test_invalid_excluded_nodes_leaves_no_empty_attempt(cluster):
+    c = cluster()
+    ctl = Path(c.plan['workspace']) / 'control'
+    ctl.mkdir(parents=True, exist_ok=True)
+    (ctl / 'gemma-exclude-nodes').write_text('hkn0515\nhkn0807\n')
+    with pytest.raises(ValueError, match="invalid node list"):
+        run(c)
+    assert not list(Path(c.plan['workspace']).rglob('attempt-*'))
+    (ctl / 'gemma-exclude-nodes').write_text('hkn0515,hkn0807\n')
+    run(c)  # restart after fixing the file submits normally
+    assert c.excludes and set(c.excludes) == {'--exclude=hkn0515,hkn0807'}

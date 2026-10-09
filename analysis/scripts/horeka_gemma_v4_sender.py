@@ -410,12 +410,13 @@ def submit(root, plan, state, shard, item):
         raise ValueError("frozen shard configuration changed")
     number = item["submission_attempts"] + 1
     directory = Path(shard["directory"])
+    # Validate the node list before creating the attempt: an empty attempt directory blocks every restart.
+    exclude = excluded_nodes(plan)
     attempt = directory / "submissions" / f"attempt-{number:04d}"
     attempt.mkdir(parents=True, exist_ok=False)
     token = hashlib.sha256((str(root) + state["plan_sha256"] + shard["id"] + str(number)).encode()).hexdigest()[:32]
     comment = "geodml-gemma-v4:" + token
     (directory / "logs").mkdir(exist_ok=True)
-    exclude = excluded_nodes(plan)
     command = ["sbatch", "--parsable", f"--account={plan['account']}", "--partition=accelerated",
                *([f"--exclude={exclude}"] if exclude else []),
                "--nodes=1", "--ntasks=1", "--cpus-per-task=32", "--gres=gpu:4", "--mem=0",

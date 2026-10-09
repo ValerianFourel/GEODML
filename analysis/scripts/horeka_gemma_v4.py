@@ -576,7 +576,8 @@ def start(args):
                 spec["map_validation_attempts"] = attempts
             if recovery_of:
                 spec["recovery_of"] = recovery_of
-                spec["authorization"] += f" Labelled map recovery of {recovery_of}, requested by Valerian on 2026-10-07."
+                spec["authorization"] += (f" Labelled recovery of {recovery_of} judging only the cells in "
+                                            f"{Path(cells_path).name}, requested by Valerian (failed maps 2026-10-07, unfinished cells 2026-10-09).")
             save(root / "judge-config.json", settings)
             save(root / "preparation.json", spec)
         spec = read(root / "preparation.json")
