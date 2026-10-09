@@ -34,4 +34,8 @@ def test_generated_macros_are_valid_control_sequences(tmp_path):
     assert len(names) == len(set(names)) > 1000
     assert all(re.fullmatch(r"[A-Za-z]+", n) for n in names)
     tables = (tmp_path / "A3-generated-tables.tex").read_text()
-    assert tables.count("\\begin{table*}") == tables.count("\\end{table*}") == 12
+    # verdicts, predictions, decomposition, the compact odds-ratio table and the block-loss table
+    assert tables.count("\\begin{table*}") == tables.count("\\end{table*}") == 5
+    for name in ("inclusion_models_full.csv", "inclusion_models_blocks.csv", "keep_order_models_full.csv"):
+        rows = (tmp_path / "supplement" / name).read_text().splitlines()
+        assert len(rows) > 100 and rows[0].count(",") >= 7
