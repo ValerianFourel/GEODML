@@ -362,8 +362,8 @@ def fig3(plt, out_dir: Path) -> list[str]:
         _arrow(ax, (0.6475, a), (0.6475, b))
     _arrow(ax, (0.50, 0.62), (0.53, 0.84))
     # column 4
-    _box(ax, 0.79, 0.74, 0.205, 0.16, "LLM judges (development only)\nNemotron-3-Nano: relevance order\nGemma-4-31B: which sources\n"
-         "the answer rests on", size=5.9, face="#f6f3ec")
+    _box(ax, 0.79, 0.74, 0.205, 0.16, "LLM judge (development only)\nGemma-4-31B grades which\nsources the answer rests on;\n"
+         "no result rests on it", size=5.9, face="#f6f3ec")
     _box(ax, 0.79, 0.46, 0.205, 0.24, "the same frozen axis applied to\nqueries, pages and answers:\nQ, $R_0$, R, C, P, K, A\n\n"
          "within-keyword slope of each\nstage on x; keyword bootstrap,\nwithin-keyword shuffles of x", size=5.9)
     _box(ax, 0.79, 0.27, 0.205, 0.15, "does intent enter the shortlist\n(queries, cross-encoder) or the\ngenerator's keep and order?",
