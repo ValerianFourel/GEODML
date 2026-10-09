@@ -96,3 +96,19 @@ def test_a_redirected_report_pointer_is_refused(tmp_path):
     (root / "shards/shard-0000/results/reports/latest.json").write_text(json.dumps({"directory": "../x"}))
     with pytest.raises(ValueError, match="invalid report pointer"):
         pub.collect(root)
+
+
+def test_include_unfinished_publishes_settled_incomplete_shards_as_partial(tmp_path):
+    root = run(tmp_path, ["finished", "incomplete", "incomplete", None])
+    live = root / "shards/shard-0002/results/reports/w1/summary.json"
+    live.write_text(json.dumps({"status": "incomplete", "states": {"done": 1, "running": 2}}))
+    store = Store()
+    assert pub.publish(store, [pub.collect(root)], apply=False)["runs"][0]["shards_partial"] == []
+    report = pub.publish(store, [pub.collect(root, include_unfinished=True)], apply=True)
+    assert report["runs"][0]["shards_partial"] == ["shard-0001"]  # shard-0002 still has running tasks
+    assert report["runs"][0]["shards_pending"] == ["shard-0002", "shard-0003"]
+    assert "reviews/gemma-si-v4/gemma-v4-abc/shards/shard-0001/cells.jsonl.gz" in store.files
+    assert "reviews/gemma-si-v4/gemma-v4-abc/shards/shard-0002/cells.jsonl.gz" not in store.files
+    manifest = json.loads(store.files["reviews/gemma-si-v4/gemma-v4-abc/export-manifest.json"])
+    row = {s["shard"]: s for s in manifest["shards"]}["shard-0001"]
+    assert row["status"] == "incomplete" and row["published"] is True

@@ -4,8 +4,10 @@
 For each run root (a five-hour-bout plan) it takes, per shard, the latest judge report written at the end of
 a bout: cells.jsonl.gz (every cell with its source grades, raw outputs and metrics), maps.jsonl (every answer
 map, failed ones marked) and summary.json. Only shards whose report says finished or finished_with_failures
-are published; others are listed as pending and can be published by a later rerun. Run-level files: plan.json,
-judge-config.json and frozen/manifest.json.
+are published; others are listed as pending and can be published by a later rerun. With --include-unfinished,
+an `incomplete` shard whose latest report has no running tasks is also published as a partial snapshot (its
+manifest row keeps status incomplete; a later rerun replaces it once the shard finishes). Run-level files:
+plan.json, judge-config.json and frozen/manifest.json.
 
 Hub layout: reviews/gemma-si-v4/<plan_id>/{plan.json,...}, .../shards/<shard>/<file>, and
 .../export-manifest.json (sha256 and bytes of every file, shard status and counts), written last.
@@ -34,7 +36,7 @@ def git_blob_id(raw: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()
 
 
-def collect(root: Path) -> dict:
+def collect(root: Path, include_unfinished: bool = False) -> dict:
     """Local files to publish for one run, keyed by Hub path, plus the shard table."""
     root = root.resolve()
     plan = json.loads((root / "plan.json").read_text())
@@ -57,7 +59,10 @@ def collect(root: Path) -> dict:
             summary = json.loads((report / "summary.json").read_text())
             row.update(status=summary.get("status"), report=writer, states=summary.get("states", {}),
                        inference_failures=summary.get("inference_failures"))
-            if summary.get("status") in DONE:
+            partial = (include_unfinished and summary.get("status") == "incomplete"
+                       and not summary.get("states", {}).get("running"))
+            row["published"] = summary.get("status") in DONE or partial
+            if row["published"]:
                 for name in SHARD_FILES:
                     path = report / name
                     if not path.is_file():
@@ -84,8 +89,9 @@ def publish(store, runs: list[dict], *, apply: bool, batch_bytes: int = 400_000_
     remote = store.hashes(sorted(local), revision)
     todo = [n for n in sorted(local) if not matches(n, remote.get(n))]
     report = {"runs": [{"plan_id": r["plan_id"], "root": r["root"], "files": len(r["files"]),
-                        "shards_published": sum(s["status"] in DONE for s in r["shards"]),
-                        "shards_pending": [s["shard"] for s in r["shards"] if s["status"] not in DONE]} for r in runs],
+                        "shards_published": sum(bool(s.get("published")) for s in r["shards"]),
+                        "shards_partial": [s["shard"] for s in r["shards"] if s.get("published") and s["status"] not in DONE],
+                        "shards_pending": [s["shard"] for s in r["shards"] if not s.get("published")]} for r in runs],
               "files_total": len(local), "files_to_upload": len(todo),
               "bytes_to_upload": sum(local[n]["bytes"] for n in todo), "applied": False}
     if not apply:
@@ -143,8 +149,10 @@ def main(argv=None) -> int:
     parser.add_argument("--run", type=Path, action="append", required=True, help="Gemma v4 run root with plan.json")
     parser.add_argument("--repo-id", default="ValerianFourel/geodml-experiment-v2-paper-private")
     parser.add_argument("--apply", action="store_true", help="upload; without it only counts are printed")
+    parser.add_argument("--include-unfinished", action="store_true",
+                        help="also publish incomplete shards without running tasks, as labelled partial snapshots")
     args = parser.parse_args(argv)
-    runs = [collect(root) for root in args.run]
+    runs = [collect(root, args.include_unfinished) for root in args.run]
     from analysis.interpretability.pipeline.agentic_hour_sync import HubStore
     report = publish(HubStore(args.repo_id), runs, apply=args.apply)
     print(json.dumps(report, indent=1))
