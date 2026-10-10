@@ -196,3 +196,5 @@ supersede them with a new dated document that links back.
 - 2026-10-09 — [START HERE: full run finished; held-out results for the intent study and the paper changes they require](2026-10-09_fullrun-results-intent_handoff.md)
 
 - 2026-10-09 — [Paper rewritten on the held-out results of both generators; stage figure; generated numbers](2026-10-09_paper-heldout-rewrite_handoff.md)
+
+- 2026-10-10 — [Anonymous code and data release for ARR; next: the HoreKa export of the processed traces (Figure 3 and the stage chain from data)](2026-10-10_anonymous-release_handoff.md)
