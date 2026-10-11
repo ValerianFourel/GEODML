@@ -332,7 +332,16 @@ def test_readout_end_to_end_on_a_toy_world(tmp_path):
     assert summary["directions"] == 6
     # outputs: macros, the generated table, the CSV and the face-validity file
     tex = (out / "numbers-axis2.tex").read_text()
-    for macro in ("\\AxTwoStageTable", "\\AxTwoSlKLP", "\\AxTwoCISlKQR", "\\AxTwoViewPrompts", "\\AxTwoRhoEval",
+    assert "pending" not in tex and "\\begin{table" not in tex
+    table_file = (out / "table-axis2.tex").read_text()
+    assert "\\label{tab:axis2}" in table_file and "\\AxTwoSlKLP{}" in table_file and "\\AxTwoSlQQR{}" in table_file
+    import re
+    body = table_file.split("\n", 2)[2]
+    assert not re.search(r"[+-]0\.\d", body)  # no number of its own: every cell is a macro
+    defined = set(re.findall(r"\\newcommand\{\\(\w+)\}", tex))
+    assert set(re.findall(r"\\((?:AxOne|AxTwo|RndSd|NAxTwo)[A-Za-z]*)", body)) <= defined
+    assert len((out / "stages-axis2.csv").read_text().splitlines()) > 100
+    for macro in ("\\AxTwoSlKLP", "\\AxTwoCISlKQR", "\\AxTwoViewPrompts", "\\AxTwoRhoEval",
                   "\\AxTwoKwRangeShare", "\\AxTwoKwRangeHalfShare", "\\AxTwoWriterR", "\\RndSdMedKLP", "\\AxTwoSlQLP",
                   "\\AxTwoViewAnswers", "\\AxTwoSlKMin", "\\AxTwoSlKMax", "\\RndSdMedKMin", "\\RndSdTopK", "\\AxTwoAboveRandom",
                   "\\AxOneWithinRandom", "\\NAxTwoStageCells", "\\AxOneSdKMax", "\\AxOneAboveRandomMedianAtK", "\\NAxTwoCells"):
@@ -346,11 +355,10 @@ def test_readout_end_to_end_on_a_toy_world(tmp_path):
     assert again.read_text().splitlines()[2:] == tex.splitlines()[2:]
     table = (tmp_path / "table.tex").read_text()
     assert table.count("\\begin{table*}") == 1 and "\\label{tab:axis2}" in table and "\\newcommand" not in table
+    assert table.splitlines()[2:] == table_file.splitlines()[2:]
     assert "\\AxTwoBinFirstHigh" in tex and "\\AxTwoBinLastLow" in tex
     with pytest.raises(ValueError, match="refusing to overwrite"):
         ax.main(["macros", "--results", str(out / "results.json"), "--output", str(again)])
-    assert "\\label{tab:axis2}" in tex and "pending" not in tex
-    assert len((out / "stages-axis2.csv").read_text().splitlines()) > 100
     face = (out / "face-validity.txt").read_text()
     assert "15 prompts highest on axis 2" in face and "calibration items" in face and "nearly equal x" in face
 
