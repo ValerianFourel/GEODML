@@ -335,7 +335,7 @@ def test_readout_end_to_end_on_a_toy_world(tmp_path):
     for macro in ("\\AxTwoStageTable", "\\AxTwoSlKLP", "\\AxTwoCISlKQR", "\\AxTwoViewPrompts", "\\AxTwoRhoEval",
                   "\\AxTwoKwRangeShare", "\\AxTwoKwRangeHalfShare", "\\AxTwoWriterR", "\\RndSdMedKLP", "\\AxTwoSlQLP",
                   "\\AxTwoViewAnswers", "\\AxTwoSlKMin", "\\AxTwoSlKMax", "\\RndSdMedKMin", "\\RndSdTopK", "\\AxTwoAboveRandom",
-                  "\\AxOneWithinRandom", "\\NAxTwoStageCells", "\\AxOneSdKMax", "\\AxOneAboveRandomMedianAtK"):
+                  "\\AxOneWithinRandom", "\\NAxTwoStageCells", "\\AxOneSdKMax", "\\AxOneAboveRandomMedianAtK", "\\NAxTwoCells"):
         assert macro in tex, macro
     spec = results["specificity"]["heldout"]
     assert spec["pairs"] == 4 * len(ax.TABLE_STAGES) and 0 <= spec["axis2_controls_above_all_random"] <= spec["pairs"]

@@ -888,21 +888,22 @@ def write_macros(results: dict, path: Path, table_path: Path | None = None) -> l
         spread_over_cells(lambda e: est(e, "axis2", "percentile", "controls", stage), 3, f"AxTwoSl{sm}", f"axis2.percentile.controls.{stage}")
         spread_over_cells(lambda e: est(e, "axis2", "percentile", "raw", stage), 3, f"AxTwoRawSl{sm}", f"axis2.percentile.raw.{stage}")
         spread_over_cells(lambda e: est(e, "axis1", "percentile", "raw", stage), 3, f"AxOneSl{sm}", f"axis1.percentile.raw.{stage}")
-        spread_over_cells(lambda e: est(e, "axis1", "sd", "raw", stage), 2, f"AxOneSd{sm}", f"axis1.sd.raw.{stage}")
-        spread_over_cells(lambda e: est(e, "axis2", "sd", "controls", stage), 2, f"AxTwoSd{sm}", f"axis2.sd.controls.{stage}")
+        spread_over_cells(lambda e: est(e, "axis1", "sd", "raw", stage), 3, f"AxOneSd{sm}", f"axis1.sd.raw.{stage}")
+        spread_over_cells(lambda e: est(e, "axis2", "sd", "controls", stage), 3, f"AxTwoSd{sm}", f"axis2.sd.controls.{stage}")
     for stage in TABLE_STAGES:
         sm = _stage_macro(stage)
         for key, tag in (("random_summary", ""), ("random_summary_raw", "Raw")):
             cells_ = results[key]["heldout"]
             values = [cells_[c][stage]["median"] for c in cells_ if cells_[c].get(stage)]
             if values:
-                m(f"RndSd{tag}Med{sm}Min", fmt.slope(min(values), 2), f"min over cells of {key}.heldout.*.{stage}.median")
-                m(f"RndSd{tag}Med{sm}Max", fmt.slope(max(values), 2), f"max over cells of {key}.heldout.*.{stage}.median")
+                m(f"RndSd{tag}Med{sm}Min", fmt.slope(min(values), 3), f"min over cells of {key}.heldout.*.{stage}.median")
+                m(f"RndSd{tag}Med{sm}Max", fmt.slope(max(values), 3), f"max over cells of {key}.heldout.*.{stage}.median")
                 tops = [cells_[c][stage]["max_abs"] for c in cells_ if cells_[c].get(stage)]
-                m(f"RndSd{tag}Top{sm}", f"{max(tops):.2f}", f"max over cells of {key}.heldout.*.{stage}.max_abs")
+                m(f"RndSd{tag}Top{sm}", f"{max(tops):.3f}", f"max over cells of {key}.heldout.*.{stage}.max_abs")
     spec = specificity(results["readout"]).get("heldout")
     if spec:
         m("NAxTwoStageCells", str(spec["pairs"]), "specificity.heldout.pairs (page stages R0, R, P, I, K x cells)")
+        m("NAxTwoCells", str(len(ro)), "cells of readout.heldout")
         m("AxTwoAboveRandom", str(spec["axis2_controls_above_all_random"]), "specificity.heldout.axis2_controls_above_all_random")
         m("AxOneWithinRandom", str(spec["axis1_raw_within_random_range"]), "specificity.heldout.axis1_raw_within_random_range")
         m("AxOneBelowRandomMedian", str(spec["axis1_raw_below_random_median"]), "specificity.heldout.axis1_raw_below_random_median")
