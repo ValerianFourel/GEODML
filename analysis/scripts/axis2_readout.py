@@ -7,6 +7,7 @@ random-direction specificity controls.
         [--calibration DIR] [--text-coordinates FILE] [--stored-chain FILE] --output DIR
     python -m analysis.scripts.axis2_readout texts --traces DIR --queries-qwen DIR --queries-mistral DIR \
         --answers-qwen DIR --answers-mistral DIR --answers-index FILE --output DIR
+    python -m analysis.scripts.axis2_readout macros --results RESULTS_JSON --output numbers-axis2.tex
 
 Placement. Every text is placed on axis 2 exactly as on axis 1: the L2-normalised embedding minus the map's
 development mean, the raw coordinate on the view's second supervised axis a_v2 (the first two left singular vectors
@@ -71,6 +72,7 @@ SPLITS = (("heldout", "held-out"), ("all", None))
 RUBRICS = ("information_seeking_reverse", "evaluation", "selection_commitment", "action_implementation")
 SEED, SHUFFLE_SEED, RANDOM_SEED = 20261007, 20261008, 20261012
 AXES = ("axis1", "axis2")
+TABLE_STAGES = ("R0", "R", "P", "I", "K")  # the page stages of the table (C equals R up to deduplication)
 PROMPT_FILE = "question_embeddings.restricted-local.npz"
 
 
@@ -600,7 +602,7 @@ def within_share(values: np.ndarray, keyword: np.ndarray) -> float:
     return float(np.sum((values - group_mean(values, keyword)) ** 2) / total) if total > 0 else float("nan")
 
 
-def keyword_spread(values: np.ndarray, keyword: np.ndarray, threshold: float = 0.3) -> dict:
+def keyword_spread(values: np.ndarray, keyword: np.ndarray, thresholds=(0.3, 0.5)) -> dict:
     """Per keyword: SD, interquartile range and range of the values, summarised over keywords."""
     order = np.argsort(keyword, kind="stable")
     groups = np.split(np.asarray(values, float)[order], np.flatnonzero(np.diff(keyword[order])) + 1)
@@ -613,7 +615,7 @@ def keyword_spread(values: np.ndarray, keyword: np.ndarray, threshold: float = 0
                 "mean": float(v.mean())}
 
     return {"keywords": len(groups), "sd": summary(sd), "iqr": summary(iqr), "range": summary(span),
-            "share_range_at_least": {"threshold": threshold, "share": float(np.mean(span >= threshold))}}
+            "share_range_at_least": {str(t): float(np.mean(span >= t)) for t in thresholds}}
 
 
 def quadratic_within(x: np.ndarray, y: np.ndarray, keyword: np.ndarray) -> dict:
@@ -725,6 +727,35 @@ def random_summary(readout_cell: dict, random_names: list[str], stage: str, vari
             "max": float(values.max()), "directions": int(len(values))}
 
 
+def specificity(readout: dict) -> dict:
+    """Per split, over the table's page stages and cells: how often axis 2 (with controls) lies above every random
+    direction (with controls), and axis 1 (raw) inside the random directions' range (raw), in SD units."""
+    out = {}
+    for split, cells in readout.items():
+        pairs = above = within = below = 0
+        detail = {}
+        for code, entry in cells.items():
+            d = entry["directions"]
+            names = [k for k in d if k.startswith("random_")]
+            if not names:
+                continue
+            for s in TABLE_STAGES:
+                rc = [d[k]["sd"]["controls"]["slopes"][s]["estimate"] for k in names]
+                rr = [d[k]["sd"]["raw"]["slopes"][s]["estimate"] for k in names]
+                a2 = d["axis2"]["sd"]["controls"]["slopes"][s]["estimate"]
+                a1 = d["axis1"]["sd"]["raw"]["slopes"][s]["estimate"]
+                pairs += 1
+                above += a2 > max(rc)
+                within += min(rr) <= a1 <= max(rr)
+                below += a1 < float(np.median(rr))
+                detail[f"{code}:{s}"] = {"axis1_raw": a1, "random_raw_min": min(rr), "random_raw_median": float(np.median(rr)),
+                                         "random_raw_max": max(rr), "axis2_controls": a2, "random_controls_max": max(rc)}
+        if pairs:
+            out[split] = {"stages": list(TABLE_STAGES), "pairs": pairs, "axis2_controls_above_all_random": above,
+                          "axis1_raw_within_random_range": within, "axis1_raw_below_random_median": below, "detail": detail}
+    return out
+
+
 def stored_chain_check(readout_split: dict, stored_path: Path | None) -> dict | None:
     """The axis-1 percentile readout against the stored stage chain of the same split (estimates and intervals)."""
     if stored_path is None or not Path(stored_path).exists():
@@ -809,7 +840,8 @@ def write_macros(results: dict, path: Path) -> list[str]:
         m(f"Ax{name}KwSD", r2(sp["sd"]["median"]), f"prompt_diagnostics.all.spread.{axis}.sd.median")
         m(f"Ax{name}KwIQR", r2(sp["iqr"]["median"]), f"prompt_diagnostics.all.spread.{axis}.iqr.median")
         m(f"Ax{name}KwRange", r2(sp["range"]["median"]), f"prompt_diagnostics.all.spread.{axis}.range.median")
-        m(f"Ax{name}KwRangeShare", fmt.pct(sp["share_range_at_least"]["share"]), f"prompt_diagnostics.all.spread.{axis}.share_range_at_least (0.3)")
+        m(f"Ax{name}KwRangeShare", fmt.pct(sp["share_range_at_least"]["0.3"]), f"prompt_diagnostics.all.spread.{axis}.share_range_at_least.0.3")
+        m(f"Ax{name}KwRangeHalfShare", fmt.pct(sp["share_range_at_least"]["0.5"]), f"prompt_diagnostics.all.spread.{axis}.share_range_at_least.0.5")
         m(f"Ax{name}WithinVar", fmt.pct(d["within_keyword_variance_share"][axis]), f"prompt_diagnostics.all.within_keyword_variance_share.{axis}")
     if "writer" in d:
         m("AxTwoWriterR", r2(d["writer"]["x2_within_keyword_pearson"]), "prompt_diagnostics.all.writer.x2_within_keyword_pearson")
@@ -831,13 +863,52 @@ def write_macros(results: dict, path: Path) -> list[str]:
                 w = _cell(e, unit_d, "sd", variant, stage)
                 if w is not None:
                     m(f"{name}{_stage_macro(stage)}{code}", fmt.slope(w["estimate"], 2), f"readout.heldout.{code}.directions.{unit_d}.sd.{variant}.slopes.{stage}")
-            rnd = results["random_summary"]["heldout"][code].get(stage, {})
-            if rnd:
-                m(f"RndSdMed{_stage_macro(stage)}{code}", fmt.slope(rnd["median"], 2), f"random_summary.heldout.{code}.{stage}.median")
-                m(f"RndSdMax{_stage_macro(stage)}{code}", f"{rnd['max_abs']:.2f}", f"random_summary.heldout.{code}.{stage}.max_abs")
+            for key, tag in (("random_summary", ""), ("random_summary_raw", "Raw")):
+                rnd = results[key]["heldout"][code].get(stage, {})
+                if rnd:
+                    m(f"RndSd{tag}Med{_stage_macro(stage)}{code}", fmt.slope(rnd["median"], 2), f"{key}.heldout.{code}.{stage}.median")
+                    m(f"RndSd{tag}Max{_stage_macro(stage)}{code}", f"{rnd['max_abs']:.2f}", f"{key}.heldout.{code}.{stage}.max_abs")
+    # ranges over the four cells (held-out) of the quantities the text quotes
+    def spread_over_cells(getter, digits, name, src):
+        values = [getter(ro[c]) for c in ro]
+        values = [v for v in values if v is not None]
+        if values:
+            m(f"{name}Min", fmt.slope(min(values), digits), f"min over cells of {src}")
+            m(f"{name}Max", fmt.slope(max(values), digits), f"max over cells of {src}")
+
+    def est(entry, direction, unit, variant, stage):
+        v = _cell(entry, direction, unit, variant, stage)
+        return None if v is None else v["estimate"]
+
+    for stage in (*TEXT_STAGES, *TABLE_STAGES):
+        sm = _stage_macro(stage)
+        spread_over_cells(lambda e: est(e, "axis2", "percentile", "controls", stage), 3, f"AxTwoSl{sm}", f"axis2.percentile.controls.{stage}")
+        spread_over_cells(lambda e: est(e, "axis2", "percentile", "raw", stage), 3, f"AxTwoRawSl{sm}", f"axis2.percentile.raw.{stage}")
+        spread_over_cells(lambda e: est(e, "axis1", "percentile", "raw", stage), 3, f"AxOneSl{sm}", f"axis1.percentile.raw.{stage}")
+        spread_over_cells(lambda e: est(e, "axis1", "sd", "raw", stage), 2, f"AxOneSd{sm}", f"axis1.sd.raw.{stage}")
+        spread_over_cells(lambda e: est(e, "axis2", "sd", "controls", stage), 2, f"AxTwoSd{sm}", f"axis2.sd.controls.{stage}")
+    for stage in TABLE_STAGES:
+        sm = _stage_macro(stage)
+        for key, tag in (("random_summary", ""), ("random_summary_raw", "Raw")):
+            cells_ = results[key]["heldout"]
+            values = [cells_[c][stage]["median"] for c in cells_ if cells_[c].get(stage)]
+            if values:
+                m(f"RndSd{tag}Med{sm}Min", fmt.slope(min(values), 2), f"min over cells of {key}.heldout.*.{stage}.median")
+                m(f"RndSd{tag}Med{sm}Max", fmt.slope(max(values), 2), f"max over cells of {key}.heldout.*.{stage}.median")
+                tops = [cells_[c][stage]["max_abs"] for c in cells_ if cells_[c].get(stage)]
+                m(f"RndSd{tag}Top{sm}", f"{max(tops):.2f}", f"max over cells of {key}.heldout.*.{stage}.max_abs")
+    spec = specificity(results["readout"]).get("heldout")
+    if spec:
+        m("NAxTwoStageCells", str(spec["pairs"]), "specificity.heldout.pairs (page stages R0, R, P, I, K x cells)")
+        m("AxTwoAboveRandom", str(spec["axis2_controls_above_all_random"]), "specificity.heldout.axis2_controls_above_all_random")
+        m("AxOneWithinRandom", str(spec["axis1_raw_within_random_range"]), "specificity.heldout.axis1_raw_within_random_range")
+        m("AxOneBelowRandomMedian", str(spec["axis1_raw_below_random_median"]), "specificity.heldout.axis1_raw_below_random_median")
+        rz = [spec["detail"][f"{c}:R0"] for c in ro]
+        m("AxOneBelowRandomMedianAtRz", str(sum(d["axis1_raw"] < d["random_raw_median"] for d in rz)), "specificity.heldout.detail[*:R0] axis1 below the random median")
     table = stage_table(results)
     header = ("% numbers-axis2.tex -- generated by analysis/scripts/axis2_readout.py (the readout on axis 2); do not edit by hand.\n"
-              f"% Results file: {results['output_name']}/results.json, created {results['created_at']}. Cell suffixes LP, LR, QP, QR.\n")
+              f"% Results file: {results['output_name']}/results.json, created {results['created_at']} at commit {results['git_commit'][:7]}; "
+              f"macros written at commit {readiness.git_commit()[:7]}. Cell suffixes LP, LR, QP, QR.\n")
     path.write_text(header + "\n".join(lines) + "\n\n" + "\\newcommand{\\AxTwoStageTable}{%\n" + table + "}\n")
     return lines
 
@@ -848,37 +919,40 @@ def stage_table(results: dict) -> str:
     have = [s for s in ("Q", "R0", "R", "P", "I", "K", "A") if any(_cell(ro[c], "axis2", "percentile", "controls", s) for c in cells)]
     labels = {"Q": "$Q$\\ \\ agent's queries", "R0": "$R_0$\\ frozen search on the prompt text", "R": "$R$\\ \\ rows the agent's queries retrieve",
               "P": "$P$\\ \\ shortlist", "I": "$I$\\ \\ \\ first $L$ shown pages, shown order", "K": "$K$\\ \\ cited sources", "A": "$A$\\ \\ answer text"}
+    width = len(cells) + 1
     rows = ["\\begin{table*}[t]", "\\centering\\scriptsize", "\\setlength{\\tabcolsep}{4pt}\\renewcommand{\\arraystretch}{0.95}",
             "\\begin{tabular}{@{}l" + "c" * len(cells) + "@{}}", "\\toprule",
             " & " + " & ".join(CELL_NAMES[c] for c in cells) + " \\\\", "\\midrule",
-            f"\\multicolumn{{{len(cells) + 1}}}{{@{{}}l}}{{\\textit{{Slope of the stage's axis-2 position on the prompt's, with $x$ and $x^2$ as controls (percentile units)}}}} \\\\"]
+            f"\\multicolumn{{{width}}}{{@{{}}l}}{{\\textit{{(a) Slope of the stage's axis-2 position on the prompt's, $x$ and $x^2$ as controls (percentile units)}}}} \\\\"]
     for s in have:
         vals = []
         for c in cells:
             v = _cell(ro[c], "axis2", "percentile", "controls", s)
             vals.append("--" if v is None else f"{fmt.slope(v['estimate'])} {fmt.ci(*v['ci95'])}")
         rows.append(f"{labels[s]} & " + " & ".join(vals) + " \\\\")
-    rows.append("\\midrule")
-    rows.append(f"\\multicolumn{{{len(cells) + 1}}}{{@{{}}l}}{{\\textit{{SD units: axis 1 / axis 2 (with controls) / random directions, median (largest $|\\beta|$)}}}} \\\\")
-    for s in have:
-        vals = []
-        for c in cells:
-            a1 = _cell(ro[c], "axis1", "sd", "raw", s)
-            a2 = _cell(ro[c], "axis2", "sd", "controls", s)
-            rnd = results["random_summary"]["heldout"][c].get(s, {})
-            part = [fmt.slope(a1["estimate"], 2) if a1 else "--", fmt.slope(a2["estimate"], 2) if a2 else "--",
-                    (f"{fmt.slope(rnd['median'], 2)} ({rnd['max_abs']:.2f})" if rnd else "--")]
-            vals.append(" / ".join(part))
-        rows.append(f"{labels[s]} & " + " & ".join(vals) + " \\\\")
+    blocks = (("raw", "axis1", "random_summary_raw", "(b) SD units, no controls: axis 1 / random directions, median (largest absolute)"),
+              ("controls", "axis2", "random_summary", "(c) SD units, $x$ and $x^2$ as controls: axis 2 / random directions, median (largest absolute)"))
+    for variant, axis, key, title in blocks:
+        rows.append("\\midrule")
+        rows.append(f"\\multicolumn{{{width}}}{{@{{}}l}}{{\\textit{{{title}}}}} \\\\")
+        for s in have:
+            vals = []
+            for c in cells:
+                a = _cell(ro[c], axis, "sd", variant, s)
+                rnd = results[key]["heldout"][c].get(s, {})
+                vals.append((fmt.slope(a["estimate"], 2) if a else "--") + " / "
+                            + (f"{fmt.slope(rnd['median'], 2)} ({rnd['max_abs']:.2f})" if rnd else "--"))
+            rows.append(f"{labels[s]} & " + " & ".join(vals) + " \\\\")
     rows.append("\\midrule")
     rows.append("Answers & " + " & ".join(fmt.num(ro[c]["directions"]["axis2"]["percentile"]["controls"]["answers"]) for c in cells) + " \\\\")
+    per_view = results["settings"]["random_directions_per_view"]
     rows += ["\\bottomrule", "\\end{tabular}",
              "\\caption{The stage readout on axis 2, held-out keywords (natural condition, answers citing at least one source). "
-             "Upper block: within-keyword change in the stage's mean axis-2 position from $x_2=0$ to $x_2=1$, with the axis-1 position $x$ and $x^2$ "
-             "as controls; brackets are 95\\% keyword-bootstrap intervals. Lower block: the same slopes with positions in standard deviations of the prompts' "
-             "coordinate (a slope of 1 means the stage moves as far along the direction as the prompt): axis 1 without controls, axis 2 with them, and "
-             "\\NAxTwoRandom{} random directions orthogonal to both axes, five per encoder view, read with the same controls"
-             + (" (page stages only: queries and answers have stored axis positions, not embeddings)" if any(t in have for t in TEXT_STAGES) else "")
+             "(a)~Within-keyword change in the stage's mean axis-2 position from $x_2=0$ to $x_2=1$, with the axis-1 position $x$ and $x^2$ "
+             "as controls; brackets are 95\\% keyword-bootstrap intervals. (b, c)~The same slopes with positions in standard deviations of the "
+             "prompts' coordinate, so that a slope of 1 means the stage moves as far along the direction as the prompt, beside the median and "
+             f"largest absolute slope of \\NAxTwoRandom{{}} random directions orthogonal to both axes ({per_view} per encoder view), read the same way"
+             + ("; queries and answers have stored axis positions, not embeddings, so random directions cover the page stages" if any(t in have for t in TEXT_STAGES) else "")
              + ". Associations only.}", "\\label{tab:axis2}", "\\end{table*}"]
     return "\n".join(rows) + "\n"
 
@@ -932,6 +1006,23 @@ def face_validity(path: Path, prompts: dict, pages: dict, cal: dict | None, keyw
         lo, hi = idx[np.argmin(prompts["x2"][idx])], idx[np.argmax(prompts["x2"][idx])]
         rows += [f"  [{kw}]", "   low " + fmt_prompt(lo).strip(), "   high " + fmt_prompt(hi).strip()]
     block("Within keyword: lowest and highest prompt on axis 2 (10 held-out keywords, seeded)", rows)
+    pairs = []
+    for kw in np.unique(prompts["keyword"]):
+        idx = np.flatnonzero(prompts["keyword"] == kw)
+        idx = idx[np.argsort(prompts["x"][idx], kind="stable")]
+        for a_ in range(len(idx)):
+            for b_ in range(a_ + 1, len(idx)):
+                i, j = idx[a_], idx[b_]
+                if prompts["x"][j] - prompts["x"][i] >= 0.02:
+                    break
+                if 0.3 < prompts["x"][i] < 0.8:
+                    lo, hi = (i, j) if prompts["x2"][i] < prompts["x2"][j] else (j, i)
+                    pairs.append((prompts["x2"][hi] - prompts["x2"][lo], kw, lo, hi))
+    pairs.sort(key=lambda t: (-t[0], t[1]))
+    rows = []
+    for gap, kw, lo, hi in pairs[:12]:
+        rows += [f"  [{kw}] axis-2 gap {gap:.2f}", "   low " + fmt_prompt(lo).strip(), "   high " + fmt_prompt(hi).strip()]
+    block("Same keyword, nearly equal x (difference below 0.02, 0.3 < x < 0.8): the 12 pairs farthest apart on axis 2", rows)
     order = np.argsort(pages["u2"], kind="stable")
     page_row = lambda i: f"  u2={pages['u2'][i]:.3f}  u={pages['u'][i]:.3f}  {pages['text'][i][:220]!r}"  # noqa: E731
     block("10 pages lowest on axis 2", [page_row(i) for i in order[:10]])
@@ -1091,6 +1182,7 @@ def run(args) -> int:
     summaries_raw = {split: {code: {s: random_summary(entry, random_names, s, "raw") for s in (*CHAIN, *TEXT_STAGES)}
                              for code, entry in cells.items()} for split, cells in readout_results.items()}
     checks["stored_chain_heldout"] = stored_chain_check(readout_results["heldout"], args.stored_chain)
+    specificity_summary = specificity(readout_results)
 
     # positions, reliability and prompt diagnostics
     keyword_of_prompt = dict(zip(a["prompt_id"], a["keyword"]))
@@ -1152,7 +1244,8 @@ def run(args) -> int:
                             "queries_and_answers": texts is not None},
                "maps": {v: {"map_id": maps[v].map_id, "rubric_loadings": rubric_loadings(maps[v])} for v in VIEWS},
                "checks": checks, "positions": positions, "calibration": calibration, "prompt_diagnostics": diagnostics,
-               "readout": readout_results, "random_summary": summaries, "random_summary_raw": summaries_raw}
+               "readout": readout_results, "random_summary": summaries, "random_summary_raw": summaries_raw,
+               "specificity": specificity_summary}
     inputs = {"traces_manifest": readiness.identity(Path(args.traces) / "manifest.json"),
               "trace_answers": readiness.identity(Path(args.traces) / "trace_answers.parquet"),
               "stage_items": readiness.identity(Path(args.traces) / "stage_items.parquet"),
@@ -1217,7 +1310,16 @@ def main(argv=None) -> int:
     t.add_argument("--answers-mistral", type=Path, required=True)
     t.add_argument("--answers-index", type=Path, required=True, help="answers-export/observations.jsonl.gz")
     t.add_argument("--output", type=Path, required=True)
+    mc = sub.add_parser("macros", help="rewrite numbers-axis2.tex from a results.json")
+    mc.add_argument("--results", type=Path, required=True)
+    mc.add_argument("--output", type=Path, required=True)
     args = p.parse_args(argv)
+    if args.command == "macros":
+        if args.output.exists():
+            raise ValueError(f"refusing to overwrite {args.output}")
+        lines = write_macros(json.loads(args.results.read_text()), args.output)
+        log("macros written", output=str(args.output), macros=len(lines))
+        return 0
     return run(args) if args.command == "run" else export_texts(args)
 
 

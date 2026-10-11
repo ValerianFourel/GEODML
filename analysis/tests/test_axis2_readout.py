@@ -333,12 +333,23 @@ def test_readout_end_to_end_on_a_toy_world(tmp_path):
     # outputs: macros, the generated table, the CSV and the face-validity file
     tex = (out / "numbers-axis2.tex").read_text()
     for macro in ("\\AxTwoStageTable", "\\AxTwoSlKLP", "\\AxTwoCISlKQR", "\\AxTwoViewPrompts", "\\AxTwoRhoEval",
-                  "\\AxTwoKwRangeShare", "\\AxTwoWriterR", "\\RndSdMedKLP", "\\AxTwoSlQLP", "\\AxTwoViewAnswers"):
+                  "\\AxTwoKwRangeShare", "\\AxTwoKwRangeHalfShare", "\\AxTwoWriterR", "\\RndSdMedKLP", "\\AxTwoSlQLP",
+                  "\\AxTwoViewAnswers", "\\AxTwoSlKMin", "\\AxTwoSlKMax", "\\RndSdMedKMin", "\\RndSdTopK", "\\AxTwoAboveRandom",
+                  "\\AxOneWithinRandom", "\\NAxTwoStageCells", "\\AxOneSdKMax"):
         assert macro in tex, macro
+    spec = results["specificity"]["heldout"]
+    assert spec["pairs"] == 4 * len(ax.TABLE_STAGES) and 0 <= spec["axis2_controls_above_all_random"] <= spec["pairs"]
+    assert set(results["prompt_diagnostics"]["all"]["spread"]["x2"]["share_range_at_least"]) == {"0.3", "0.5"}
+    # the macros subcommand rewrites the same file from results.json and refuses to overwrite
+    again = tmp_path / "again.tex"
+    assert ax.main(["macros", "--results", str(out / "results.json"), "--output", str(again)]) == 0
+    assert again.read_text().splitlines()[2:] == tex.splitlines()[2:]
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        ax.main(["macros", "--results", str(out / "results.json"), "--output", str(again)])
     assert "\\label{tab:axis2}" in tex and "pending" not in tex
     assert len((out / "stages-axis2.csv").read_text().splitlines()) > 100
     face = (out / "face-validity.txt").read_text()
-    assert "15 prompts highest on axis 2" in face and "calibration items" in face
+    assert "15 prompts highest on axis 2" in face and "calibration items" in face and "nearly equal x" in face
 
 
 def test_run_without_queries_and_answers_reads_pages_only(tmp_path):
@@ -355,3 +366,13 @@ def test_run_without_queries_and_answers_reads_pages_only(tmp_path):
     assert "writer" not in results["prompt_diagnostics"]["all"]
     tex = (out / "numbers-axis2.tex").read_text()
     assert "\\AxTwoSlKQR" in tex and "\\AxTwoSlQQR" not in tex and "AxTwoViewCalib" not in tex
+
+
+def test_horeka_runner_parses_and_stays_on_cpu_inside_its_allocation():
+    import subprocess
+    script = Path(__file__).resolve().parents[1] / "docs" / "horeka-axis2-readout.sh"
+    subprocess.run(["bash", "-n", str(script)], check=True)
+    text = "\n".join(line for line in script.read_text().splitlines() if not line.lstrip().startswith("#"))
+    for banned in ("cpuonly", "scancel", "sbatch", "salloc", "--gres=gpu"):
+        assert banned not in text, banned
+    assert "axis2_readout texts" in text and "axis2_readout run" in text and "refusing to overwrite" in text
