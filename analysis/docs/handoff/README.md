@@ -198,3 +198,5 @@ supersede them with a new dated document that links back.
 - 2026-10-09 — [Paper rewritten on the held-out results of both generators; stage figure; generated numbers](2026-10-09_paper-heldout-rewrite_handoff.md)
 
 - 2026-10-10 — [Anonymous code and data release for ARR; next: the HoreKa export of the processed traces (Figure 3 and the stage chain from data)](2026-10-10_anonymous-release_handoff.md)
+
+- 2026-10-12 — [Axis-2 readout: the stage readout on the maps' second direction, random-direction controls, HoreKa blocks for queries and answers](2026-10-12_axis2-readout_handoff.md)
