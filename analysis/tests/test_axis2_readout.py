@@ -335,15 +335,18 @@ def test_readout_end_to_end_on_a_toy_world(tmp_path):
     for macro in ("\\AxTwoStageTable", "\\AxTwoSlKLP", "\\AxTwoCISlKQR", "\\AxTwoViewPrompts", "\\AxTwoRhoEval",
                   "\\AxTwoKwRangeShare", "\\AxTwoKwRangeHalfShare", "\\AxTwoWriterR", "\\RndSdMedKLP", "\\AxTwoSlQLP",
                   "\\AxTwoViewAnswers", "\\AxTwoSlKMin", "\\AxTwoSlKMax", "\\RndSdMedKMin", "\\RndSdTopK", "\\AxTwoAboveRandom",
-                  "\\AxOneWithinRandom", "\\NAxTwoStageCells", "\\AxOneSdKMax"):
+                  "\\AxOneWithinRandom", "\\NAxTwoStageCells", "\\AxOneSdKMax", "\\AxOneAboveRandomMedianAtK"):
         assert macro in tex, macro
     spec = results["specificity"]["heldout"]
     assert spec["pairs"] == 4 * len(ax.TABLE_STAGES) and 0 <= spec["axis2_controls_above_all_random"] <= spec["pairs"]
     assert set(results["prompt_diagnostics"]["all"]["spread"]["x2"]["share_range_at_least"]) == {"0.3", "0.5"}
     # the macros subcommand rewrites the same file from results.json and refuses to overwrite
     again = tmp_path / "again.tex"
-    assert ax.main(["macros", "--results", str(out / "results.json"), "--output", str(again)]) == 0
+    assert ax.main(["macros", "--results", str(out / "results.json"), "--output", str(again), "--table", str(tmp_path / "table.tex")]) == 0
     assert again.read_text().splitlines()[2:] == tex.splitlines()[2:]
+    table = (tmp_path / "table.tex").read_text()
+    assert table.count("\\begin{table*}") == 1 and "\\label{tab:axis2}" in table and "\\newcommand" not in table
+    assert "\\AxTwoBinFirstHigh" in tex and "\\AxTwoBinLastLow" in tex
     with pytest.raises(ValueError, match="refusing to overwrite"):
         ax.main(["macros", "--results", str(out / "results.json"), "--output", str(again)])
     assert "\\label{tab:axis2}" in tex and "pending" not in tex
