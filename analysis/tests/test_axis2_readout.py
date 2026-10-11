@@ -140,7 +140,7 @@ def build_world(root: Path, seed: int = 7) -> dict:
     ids = [p["id"] for p in prompts]
     x_all = ax.percentile_rank(placed_prompts.consensus[:, 0], ids)
     mapped = [i for i, p in enumerate(prompts) if p["keyword"] is not None]
-    scale = ax.prompt_scale(placed_prompts.consensus[mapped, 0])
+    scale = ax.prompt_scale(placed_prompts.consensus[:, 0])  # every embedded prompt, as the stored page positions
     u, _ = scale.percentile(placed_pages.consensus[:, 0])
     pq.write_table(pa.table({"row": np.arange(len(pages)), "text": [p["text"] for p in pages],
                              "qwen_raw_axis_1": raw["qwen"][:, 0], "qwen_raw_axis_2": raw["qwen"][:, 1],
@@ -302,6 +302,7 @@ def test_readout_end_to_end_on_a_toy_world(tmp_path):
     assert max(checks["chain_values_max_abs_difference"].values()) < 1e-12
     assert max(checks["chain_values_nan_mismatch"].values()) == 0
     assert checks["prompts"]["max_abs_x_difference"] == 0.0 and checks["answers_x_max_abs_difference"] == 0.0
+    assert checks["pages"]["max_abs_u_difference"] < 1e-12
     # prompt positions: percentiles on [0, 1], ordered against the planted t2 (flipped by the sign)
     import pandas as pd
     table = pd.read_csv(out / "prompts-axis2.csv.gz")

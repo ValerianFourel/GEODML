@@ -13,7 +13,8 @@ development mean, the raw coordinate on the view's second supervised axis a_v2 (
 of the ridge rubric coefficients are a_v1 and a_v2), the battery's development z-scaling, the battery's Procrustes
 rotation of the Mistral view onto the Qwen view, the mean of the two views (consensus) and, for prompts, the
 percentile rank among all embedded prompts with ties broken by prompt id; pages, queries and answers are interpolated
-on the sorted consensus values of the prompts in the final axis map (`PromptScale`, as for axis 1). The sign of axis 2
+on the sorted consensus values of all embedded prompts (`PromptScale`; the stored axis-1 page positions use this scale
+of 26,009 prompts, which the final axis map's slim copy of 26,008 rows does not reproduce). The sign of axis 2
 is fixed so that higher means a higher evaluation rubric score: the sign of the evaluation column's loading on the
 Qwen view's a_2 (the rotation carries the Mistral view onto the Qwen orientation).
 
@@ -986,12 +987,10 @@ def run(args) -> int:
     in_map = prompt_index.get_indexer([str(r["candidate_id"]) for r in final_rows])
     if (in_map < 0).any():
         raise ValueError("the final axis map holds prompts without embeddings")
-    scale_mask = np.zeros(len(prompt_ids), bool)
-    scale_mask[in_map] = True
-    scales = Scales(prompts, prompt_ids, scale_mask, directions)
+    scales = Scales(prompts, prompt_ids, np.ones(len(prompt_ids), bool), directions)  # the scale of the stored page positions
     archived_z = np.asarray([float(r["consensus_axis_1_z"]) for r in final_rows])
     archived_x = np.asarray([float(r["axis_1_percentile_0_1"]) for r in final_rows])
-    checks["prompts"] = {"embedded": len(prompt_ids), "in_final_axis_map": int(scale_mask.sum()),
+    checks["prompts"] = {"embedded": len(prompt_ids), "in_final_axis_map": int(len(in_map)),
                          "max_abs_consensus_axis_1_z_difference": float(np.max(np.abs(prompts.consensus[in_map, 0] - archived_z))),
                          "max_abs_x_difference": float(np.max(np.abs(scales.prompt_percentile["axis1"][in_map] - archived_x)))}
     records = load_prompt_records(args.prompt_records)
@@ -1198,7 +1197,7 @@ def main(argv=None) -> int:
     r.add_argument("--prompt-embeddings", type=Path, required=True, help="final-audit/projections with <view>/shard-*/" + PROMPT_FILE)
     r.add_argument("--maps", type=Path, required=True, help="folder with <view>/readiness_embedding_map.json")
     r.add_argument("--battery", type=Path, required=True, help="readiness_robustness_battery.json or its folder")
-    r.add_argument("--final-axis-map", type=Path, required=True, help="final-axis-map.jsonl(.gz): the prompts of the percentile scale")
+    r.add_argument("--final-axis-map", type=Path, required=True, help="final-axis-map.jsonl(.gz): archived x, for the reproduction check")
     r.add_argument("--prompt-records", type=Path, help="prompt texts, keywords and writers (snapshot prompts.jsonl.gz)")
     r.add_argument("--calibration", type=Path, help="archive root with maps/<view>/readiness_supervised_subspace_coordinates.jsonl")
     r.add_argument("--text-coordinates", type=Path, help="text_coordinates.parquet of the `texts` stage (queries, answers)")
