@@ -36,7 +36,7 @@ read on Q and A anywhere without re-embedding (GPU; not proposed for the paper).
 `analysis/docs/horeka-axis2-readout.sh`. Reuses `steelman.chain.chain`, `within_keyword_ols`, `steelman.tables.stage_values`
 and `replay_values`, `intent_stages.keyword_draws` (seed 20261007, keyword codes in the funnel order) and `shuffle_draws`
 (seed 20261008), `PromptScale`, the battery alignment. Random directions: five per view, seed 20261012, orthogonal to
-span(a_v1, a_v2) to 3e-17. Tests: 7 new + 76 related existing pass.
+span(a_v1, a_v2) to 3e-17. Tests: 77 pass (7 new, 70 related existing: intent stages, release export, steelman, page readiness, paper numbers, answers).
 
 Checks of the Mac run [F]: the axis-1 readout reproduces the stored held-out chain (slopes, 95% intervals, answer counts,
 four cells) to 7e-17; stage values to 2e-14; x exactly; page positions to 3e-14 once the page scale uses all 26,009
