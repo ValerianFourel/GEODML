@@ -309,7 +309,8 @@ def step_score(a) -> int:
     results = a.run_dir / "results"
     pairs = pd.read_parquet(results / "shards.parquet")
     tables = load_bundle(a.bundle)
-    shards = [s for s in sorted(pairs["shard"].unique()) if s % a.workers == a.worker
+    by_shard = {int(s): f for s, f in pairs.groupby("shard", sort=True)}
+    shards = [s for s in by_shard if s % a.workers == a.worker
               and not (results / "scores" / f"shard-{s:05d}.parquet").exists()]
     if not shards:
         return 0
@@ -326,7 +327,7 @@ def step_score(a) -> int:
             status = 4
             break
         t0 = time.time()
-        part = pairs[pairs["shard"] == s]
+        part = by_shard[s]
         values = []
         for prompt_id, group in part.groupby("prompt_id", sort=False):
             rows = page.loc[group["row_id"].to_numpy()]
@@ -345,7 +346,7 @@ def step_score(a) -> int:
                 {**environment(a.model, a.fake_models), "revision": BGE_REVISION, "batch_size": 32,
                  "model_load_seconds": load_seconds, "shards_done": len(durations),
                  "shards_assigned": len(shards), "pairs_per_second": (
-                     float(sum(len(pairs[pairs["shard"] == s]) for s in shards[:len(durations)]) / sum(durations))
+                     float(sum(len(by_shard[s]) for s in shards[:len(durations)]) / sum(durations))
                      if durations else None), "deadline_checkpoint": status == 4})
     return status
 
