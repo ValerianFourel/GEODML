@@ -42,3 +42,24 @@ bash $W/code-www-robustness/analysis/www_robustness/run_horeka.sh "$SLURM_JOB_ID
 
 Outputs: `$W/runs/www-robustness/<RUN_ID>/results/` (dense_searches, dense_items, shards and scores parquet files; the
 embeddings in `results/embed/` need not be copied back), `diagnostics/` (versions, GPU, timings) and `logs/`.
+
+## ARR author response (2026-10-19): one batch job, `run_rebuttal.sbatch`
+
+Same scoring as above, on the rebuttal bundle (paper repository, branch `rebuttal-bm25`, `www/data/rebuttal_bm25/bundle`:
+the new pairs of nokw, bm25 and the Pyserini-default bm25l, 3,850,905, plus 43,308 validation pairs), preceded by an
+exact Lucene check of bm25l (`lucene_check.py`; Anserini fat jar and a standalone Java 21 from `setup_lucene.sh`,
+downloaded once on a login node). Exploratory. Resources: 1 node, 4 A100, `--time=01:00:00` (4 GPU-hours); estimate
+15–35 min for about 4.5–5.5 M pairs at an assumed 700–1,500 pairs/s per A100 [H], plus 2–5 min for the Lucene check.
+One resubmission with the same RUN_ID if shards remain (exit 4); budget 8 GPU-hours. Cheaper: none without changing
+scores (fp16 would weaken gate G2).
+
+```bash
+# login node, once
+W=/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen
+bash $W/code-rebuttal/analysis/www_robustness/setup_lucene.sh
+# submit
+sbatch --export=ALL,CODE=$W/code-rebuttal,BUNDLE=$W/runs/www-robustness/bundle-rebuttal-20261019,RUN_ID=rebuttal-20261019 \
+  $W/code-rebuttal/analysis/www_robustness/run_rebuttal.sbatch
+```
+
+Copy back `results/` without `results/embed/`, plus `diagnostics/` and `logs/`.
