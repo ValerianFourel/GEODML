@@ -312,8 +312,10 @@ def cmd_run(a) -> int:
     path = run_dir / "config.json"
     if path.exists():
         old = json.loads(path.read_text())
-        if old != config:
-            diff = sorted(k for k in set(old) | set(config) if old.get(k) != config.get(k))
+        # The score-cache file list may grow between resumes: a cached score is the same model's score of the same
+        # pair, and every part summary records how many scores came from which source.
+        if {k: v for k, v in old.items() if k != "score_cache"} != {k: v for k, v in config.items() if k != "score_cache"}:
+            diff = sorted(k for k in set(old) | set(config) if old.get(k) != config.get(k) and k != "score_cache")
             print(f"refused: run-dir {run_dir} was started with different settings: {diff}", file=sys.stderr)
             return 2
     else:

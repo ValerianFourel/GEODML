@@ -22,12 +22,15 @@ PY=${PYTHON:-$DATA/venv/bin/python}  # needs aiohttp + brotli (the API answers b
 BUNDLE=${BUNDLE:-$DATA/bundle-20261022}
 CACHE=${CACHE:-$DATA/score-cache-pre.parquet}
 SNAP=${SNAPSHOTS:-$DATA/snapshots-release}
-if [ -n "${CELL_IDS:-}" ]; then  # a sampled cell list (build_bundle.py sample-cells) instead of a prompt list
-  SELECT=(--cell-ids "$CELL_IDS"); LIST=$CELL_IDS
+if [ "${ALL:-0}" = 1 ]; then  # every Parallel cell of the bundle
+  SELECT=(); LIST=$BUNDLE/manifest.json; NAME=parallel
+elif [ -n "${CELL_IDS:-}" ]; then  # a sampled cell list (build_bundle.py sample-cells) instead of a prompt list
+  SELECT=(--cell-ids "$CELL_IDS"); LIST=$CELL_IDS; NAME=$(basename "$LIST" .txt)
 else
   PROMPT_IDS=${PROMPT_IDS:-$DATA/first-1000.txt}; SELECT=(--prompt-ids "$PROMPT_IDS"); LIST=$PROMPT_IDS
+  NAME=$(basename "$LIST" .txt)
 fi
-RUN="$DATA/runs/llama4-$ARM-local-$(basename "$LIST" .txt)"
+RUN="$DATA/runs/llama4-$ARM-local-${RUN_NAME:-$NAME}"
 for p in "$PY" "$BUNDLE/manifest.json" "$CACHE" "$LIST" "$SNAP/duckduckgo.jsonl" "$SNAP/searxng.jsonl"; do
   test -e "$p" || { echo "missing $p" >&2; exit 2; }
 done
@@ -45,7 +48,7 @@ export SIGIR_API_KEY="$KEY" GEODML_ADMISSION_STOP_FILE="$RUN/STOP" PYTHONDONTWRI
 unset KEY
 status=0
 caffeinate -i "$PY" -u "$CODE/analysis/sigir_bm25/generate.py" run --bundle "$BUNDLE" --run-dir "$RUN" \
-  --model llama4 --retriever "$ARM" --methods Parallel-Expansion-v1 "${SELECT[@]}" \
+  --model llama4 --retriever "$ARM" --methods Parallel-Expansion-v1 ${SELECT[@]+"${SELECT[@]}"} \
   --snapshot "duckduckgo=$SNAP/duckduckgo.jsonl" --snapshot "searxng=$SNAP/searxng.jsonl" \
   --base-url "$BASE" --served-model llama-4-scout --api-key-env SIGIR_API_KEY \
   --cache-only --score-cache "$CACHE" --query-max-tokens 256 --final-max-tokens 4096 \
@@ -54,6 +57,6 @@ caffeinate -i "$PY" -u "$CODE/analysis/sigir_bm25/generate.py" run --bundle "$BU
   2>&1 | tee -a "$RUN/run.log" || status=${PIPESTATUS[0]}
 unset SIGIR_API_KEY
 "$PY" "$CODE/analysis/sigir_bm25/generate.py" status --bundle "$BUNDLE" --run-dir "$RUN" --model llama4 \
-  "${SELECT[@]}" --methods Parallel-Expansion-v1 || true
+  ${SELECT[@]+"${SELECT[@]}"} --methods Parallel-Expansion-v1 || true
 echo "exit $status (0 done, 4 cells left (unscored pairs or stopped), 3 breaker: API failures)"
 exit $status
