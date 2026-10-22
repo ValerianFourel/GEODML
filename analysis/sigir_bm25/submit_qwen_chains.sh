@@ -7,13 +7,17 @@
 # starts, at most five allocations at once). Within a chain each job waits for the previous one with afternotok:
 # exit 4 (deadline checkpoint) starts it, exit 0 (the shard is done) cancels the rest of the chain, any other failure
 # writes CHAIN_STOP and every later job exits at once. Optional: TIME (06:00:00), PHASES (64:128), DEVICE (cuda-pool),
-# AFTER (a job id the first job of every chain waits for, afterany). Every submission is appended to submissions.tsv.
+# AFTER (a job id the first job of every chain waits for, afterany), RESERVATION (e.g. casualnet, the project's
+# reserved accelerated nodes the original Qwen bouts used), MAX_PARALLEL (default 5, the AGENTS.md cap; up to 16 only
+# with Valerian's explicit approval, as for the Qwen bouts in casualnet). Every submission goes to submissions.tsv.
 set -euo pipefail
 W=${GEODML_WORKSPACE:-/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen}
 CODE=${CODE:?}; BUNDLE=${BUNDLE:?}; RUN_ID=${RUN_ID:?}; BOUT_CONFIG=${BOUT_CONFIG:?}; ACCOUNT=${ACCOUNT:?}
 SHARDS=${1:-5}; JOBS=${2:-4}
 TIME=${TIME:-06:00:00}; PHASES=${PHASES:-64:128}; DEVICE=${DEVICE:-cuda-pool}; AFTER=${AFTER:-}
-[ "$SHARDS" -ge 1 ] && [ "$SHARDS" -le 5 ] || { echo "SHARDS must be 1..5 (at most five allocations at once)" >&2; exit 2; }
+RESERVATION=${RESERVATION:-}; MAX_PARALLEL=${MAX_PARALLEL:-5}
+[ "$MAX_PARALLEL" -ge 1 ] && [ "$MAX_PARALLEL" -le 16 ] || { echo "MAX_PARALLEL must be 1..16" >&2; exit 2; }
+[ "$SHARDS" -ge 1 ] && [ "$SHARDS" -le "$MAX_PARALLEL" ] || { echo "SHARDS must be 1..$MAX_PARALLEL" >&2; exit 2; }
 [ "$JOBS" -ge 1 ] && [ "$JOBS" -le 8 ] || { echo "JOBS must be 1..8" >&2; exit 2; }
 test -z "$(git -C "$CODE" status --porcelain --untracked-files=all)" || { echo "dirty checkout: $CODE" >&2; exit 2; }
 for p in "$BUNDLE/manifest.json" "$BOUT_CONFIG" "$CODE/analysis/sigir_bm25/run_qwen_bm25.sbatch"; do
@@ -23,12 +27,13 @@ RUN="$W/runs/sigir-bm25/$RUN_ID"
 [ -s "$RUN/CHAIN_STOP" ] && { echo "$RUN/CHAIN_STOP exists; read it and delete it first" >&2; exit 2; }
 mkdir -p "$RUN"
 LOG="$RUN/submissions.tsv"
-[ -s "$LOG" ] || printf 'submitted_utc\tshard\tshards\tjob_in_chain\tjob_id\tdepends_on\ttime\tphases\tdevice\tcommit\n' > "$LOG"
+[ -s "$LOG" ] || printf 'submitted_utc\tshard\tshards\tjob_in_chain\tjob_id\tdepends_on\ttime\tphases\tdevice\tcommit\treservation\n' > "$LOG"
 COMMIT=$(git -C "$CODE" rev-parse HEAD)
 for s in $(seq 0 $((SHARDS - 1))); do
   prev=$AFTER
   for j in $(seq 1 "$JOBS"); do
     opts=()
+    [ -n "$RESERVATION" ] && opts+=(--reservation="$RESERVATION")
     if [ "$j" -eq 1 ]; then
       [ "$s" -gt 0 ] && opts+=(--begin=now+$((s * 10))minutes)
       [ -n "$prev" ] && opts+=(--dependency=afterany:"$prev")
@@ -39,8 +44,8 @@ for s in $(seq 0 $((SHARDS - 1))); do
       --job-name="geodml-sigir-qwen-s$s" \
       --export="ALL,CODE=$CODE,BUNDLE=$BUNDLE,RUN_ID=$RUN_ID,BOUT_CONFIG=$BOUT_CONFIG,PHASES=$PHASES,DEVICE=$DEVICE,SHARD=$s,SHARDS=$SHARDS" \
       --output="$W/runs/sigir-bm25/$RUN_ID-s$s-%j.out" "$CODE/analysis/sigir_bm25/run_qwen_bm25.sbatch")
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$s" "$SHARDS" "$j" "$id" "${prev:--}" \
-      "$TIME" "$PHASES" "$DEVICE" "$COMMIT" >> "$LOG"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$s" "$SHARDS" "$j" "$id" "${prev:--}" \
+      "$TIME" "$PHASES" "$DEVICE" "$COMMIT" "${RESERVATION:--}" >> "$LOG"
     echo "shard $s job $j: $id${prev:+ (after $prev)}"
     prev=$id
   done
