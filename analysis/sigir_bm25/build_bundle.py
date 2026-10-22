@@ -298,6 +298,28 @@ def cmd_sample_prompts(a) -> int:
     return 0
 
 
+def cmd_sample_cells(a) -> int:
+    """A seeded random sample of one model's cells, N per method, from one split's prompts (cell-id lists per method)."""
+    release, bundle, out = Path(a.release), Path(a.bundle), Path(a.out)
+    ans = pd.read_parquet(release / "answers.parquet", columns=["prompt_id", "split"]).drop_duplicates()
+    allowed = set(ans.loc[ans["split"].astype(str) == a.split, "prompt_id"].astype(str)) if a.split != "any" else None
+    cells = pd.read_parquet(bundle / f"cells-{a.model}.parquet")
+    if allowed is not None:
+        cells = cells[cells["prompt_id"].isin(allowed)]
+    out.mkdir(parents=True, exist_ok=True)
+    report = {"model": a.model, "split": a.split, "seed": a.seed, "per_method": a.n_per_method, "files": {}}
+    for method, short in ((PARALLEL, "parallel"), (REACTIVE, "reactive")):
+        pool = cells[cells["method"] == method].sort_values("cell_id")
+        pick = pool.iloc[np.random.default_rng(a.seed).permutation(len(pool))[:a.n_per_method]]
+        path = out / f"{a.model}-{short}-{len(pick)}.txt"
+        path.write_text("".join(c + "\n" for c in pick["cell_id"]))
+        report["files"][short] = {"path": str(path), "cells": int(len(pick)), "pool": int(len(pool)),
+                                  "engines": pick["engine"].value_counts().to_dict(),
+                                  "prompts": int(pick["prompt_id"].nunique()), "sha256": sha256_file(path)}
+    print(json.dumps(report, indent=1))
+    return 0
+
+
 def cmd_snapshots(a) -> int:
     """Per-engine snapshot JSONL from the release rows (row_id order), the frozen search's own input format.
     The rows are the inference-time snapshot's usable rows (gate G1; check-orig reproduced the logged shortlists),
@@ -404,6 +426,14 @@ def main(argv=None) -> int:
     sp.add_argument("--order", default="random", choices=("random", "first"),
                     help="random (seeded) or the first N in the release's prompt order")
     sp.add_argument("--seed", type=int, default=ORDER_SEED)
+    sc = sub.add_parser("sample-cells")
+    sc.add_argument("--release", required=True)
+    sc.add_argument("--bundle", required=True)
+    sc.add_argument("--out", required=True)
+    sc.add_argument("--model", default="llama4", choices=MODELS)
+    sc.add_argument("--n-per-method", type=int, default=5000)
+    sc.add_argument("--split", default="held-out", choices=("held-out", "exploration", "any"))
+    sc.add_argument("--seed", type=int, default=ORDER_SEED)
     sn = sub.add_parser("snapshots")
     sn.add_argument("--release", required=True)
     sn.add_argument("--out", required=True)
@@ -414,7 +444,8 @@ def main(argv=None) -> int:
     o.add_argument("--sample", type=int, default=2000)
     a = p.parse_args(argv)
     return {"cells": cmd_cells, "check-bm25": cmd_check_bm25, "pairs": cmd_pairs, "cache": cmd_cache,
-            "check-orig": cmd_check_orig, "sample-prompts": cmd_sample_prompts, "snapshots": cmd_snapshots}[a.cmd](a)
+            "check-orig": cmd_check_orig, "sample-prompts": cmd_sample_prompts, "snapshots": cmd_snapshots,
+            "sample-cells": cmd_sample_cells}[a.cmd](a)
 
 
 if __name__ == "__main__":

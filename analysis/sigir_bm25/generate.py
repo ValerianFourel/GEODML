@@ -326,6 +326,9 @@ def cmd_run(a) -> int:
         cells = cells[cells["prompt_id"].isin(keep)]
     if a.methods:  # e.g. Parallel-Expansion-v1 only, when the reranker can only come from the cache
         cells = cells[cells["method"].isin(set(a.methods.split(",")))]
+    if a.cell_ids:  # a sampled set of cells (runtime selection, like --prompt-ids)
+        want = {x.strip() for x in Path(a.cell_ids).read_text().splitlines() if x.strip()}
+        cells = cells[cells["cell_id"].isin(want)]
     mine = set(cells["cell_id"])
     done = {c: s for c, s in finished(run_dir).items() if c in mine}
     todo = cells[~cells["cell_id"].isin(done)]
@@ -358,6 +361,9 @@ def cmd_status(a) -> int:
         cells = cells[cells["prompt_id"].isin(keep)]
     if a.methods:
         cells = cells[cells["method"].isin(set(a.methods.split(",")))]
+    if a.cell_ids:
+        want = {x.strip() for x in Path(a.cell_ids).read_text().splitlines() if x.strip()}
+        cells = cells[cells["cell_id"].isin(want)]
     done = finished(Path(a.run_dir))
     c = cells.assign(status=cells["cell_id"].map(done).fillna("pending"))
     table = c.groupby(["method", "engine", "status"]).size().unstack(fill_value=0)
@@ -394,6 +400,7 @@ def main(argv=None) -> int:
     r.add_argument("--limit", type=int, default=0, help="stop once this many cells are finished (pilots)")
     r.add_argument("--prompt-ids", help="file with one prompt_id per line: run only these prompts' cells")
     r.add_argument("--methods", help="comma-separated method ids to run (default: both)")
+    r.add_argument("--cell-ids", help="file with one cell_id per line: run only these cells")
     r.add_argument("--cache-only", action="store_true", help="reranker scores only from --score-cache (no local "
                    "model); cells with an unscored pair are retried later, never recorded")
     r.add_argument("--shard", type=int, default=0, help="this allocation's slice: cells with order %% shards == shard")
@@ -404,6 +411,7 @@ def main(argv=None) -> int:
     s.add_argument("--model", required=True, choices=("qwen38", "llama4"))
     s.add_argument("--prompt-ids", help="count only these prompts' cells")
     s.add_argument("--methods", help="count only these methods (comma-separated)")
+    s.add_argument("--cell-ids", help="count only these cells")
     a = p.parse_args(argv)
     return cmd_run(a) if a.cmd == "run" else cmd_status(a)
 

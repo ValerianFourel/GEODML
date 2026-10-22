@@ -51,11 +51,13 @@ ARGS=(--bundle "$BUNDLE" --run-dir "$RUN" --model llama4 --retriever "$ARM"
       --timeout 300 --transport-retries 5 --request-concurrency "${REQUEST_CONCURRENCY:-32}"
       --cell-concurrency "${CELL_CONCURRENCY:-48}" --limit "${LIMIT:-0}")
 [ -n "${PROMPT_IDS:-}" ] && ARGS+=(--prompt-ids "$PROMPT_IDS")
+[ -n "${CELL_IDS:-}" ] && ARGS+=(--cell-ids "$CELL_IDS")
+[ -n "${METHODS:-}" ] && ARGS+=(--methods "$METHODS")
 status=0
 "$PY" -u "$CODE/analysis/sigir_bm25/generate.py" run "${ARGS[@]}" > "$RUN/logs/generate-$JOB.log" 2>&1 || status=$?
 unset CHEAPER_INFERENCE_API_KEY
 tail -n 3 "$RUN/logs/generate-$JOB.log"
 "$PY" "$CODE/analysis/sigir_bm25/generate.py" status --bundle "$BUNDLE" --run-dir "$RUN" --model llama4 \
-  ${PROMPT_IDS:+--prompt-ids "$PROMPT_IDS"} || true
+  ${PROMPT_IDS:+--prompt-ids "$PROMPT_IDS"} ${CELL_IDS:+--cell-ids "$CELL_IDS"} ${METHODS:+--methods "$METHODS"} || true
 echo "end $(date -u +%FT%TZ) exit $status (0 done, 4 deadline checkpoint, 3 breaker, 2 refused)"
 exit $status

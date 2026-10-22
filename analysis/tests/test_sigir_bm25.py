@@ -295,6 +295,13 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(self.run_cli(FakeClient()), 0)  # the same run-dir continues with every prompt
         self.assertEqual(len(generate.finished(self.run_dir)), 4)
 
+    def test_cell_ids_limit_the_run_to_those_cells(self):
+        one = self.cells.iloc[0]["cell_id"]
+        ids = Path(self.tmp.name) / "cells.txt"
+        ids.write_text(one + "\n")
+        self.assertEqual(self.run_cli(FakeClient(), "--cell-ids", str(ids)), 0)
+        self.assertEqual([r["cell_id"] for r in self.records()], [one])
+
     def test_cache_only_runs_cached_cells_and_retries_the_rest_later(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
