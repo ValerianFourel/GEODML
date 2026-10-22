@@ -35,7 +35,7 @@ for s in $(seq 0 $((SHARDS - 1))); do
     else
       opts+=(--dependency=afternotok:"$prev" --kill-on-invalid-dep=yes)
     fi
-    id=$(sbatch --parsable --account="$ACCOUNT" --partition=accelerated --time="$TIME" "${opts[@]}" \
+    id=$(sbatch --parsable --account="$ACCOUNT" --partition=accelerated --time="$TIME" ${opts[@]+"${opts[@]}"} \
       --job-name="geodml-sigir-qwen-s$s" \
       --export="ALL,CODE=$CODE,BUNDLE=$BUNDLE,RUN_ID=$RUN_ID,BOUT_CONFIG=$BOUT_CONFIG,PHASES=$PHASES,DEVICE=$DEVICE,SHARD=$s,SHARDS=$SHARDS" \
       --output="$W/runs/sigir-bm25/$RUN_ID-s$s-%j.out" "$CODE/analysis/sigir_bm25/run_qwen_bm25.sbatch")
