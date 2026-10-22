@@ -151,7 +151,8 @@ def scientific_config(a, manifest: dict, adapters: dict) -> dict:
             "snapshots": {e: ad.snapshot_sha256 for e, ad in sorted(adapters.items())},
             "bm25_fingerprints": {e: getattr(getattr(ad, "index", None), "fingerprint", None)
                                   for e, ad in sorted(adapters.items())},
-            "cross_encoder": a.cross_encoder or "lexical-overlap (test only)",
+            "cross_encoder": (f"precomputed {BGE_ID}@{BGE_REVISION} (cache only)" if a.cache_only
+                              else a.cross_encoder or "lexical-overlap (test only)"),
             "score_cache": [Path(p).name for p in a.score_cache]}
 
 
@@ -161,7 +162,15 @@ def make_adapters(a) -> dict:
     return {e: cls(e, Path(p)) for e, p in snapshots.items()}
 
 
+BGE_ID, BGE_REVISION = "BAAI/bge-reranker-v2-m3", "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
+
+
 def make_scorer(a):
+    if a.cache_only:  # precomputed scores only (no local model): a missing pair fails that cell's compaction
+        if not a.score_cache:
+            raise SystemExit("refused: --cache-only needs --score-cache")
+        return CachedScorer(None, load_cache(Path(p) for p in a.score_cache), model_id=BGE_ID,
+                            model_revision=BGE_REVISION)
     if a.cross_encoder and a.device == "cuda-pool":
         base = cuda_pool(a.cross_encoder)
     elif a.cross_encoder:
@@ -315,6 +324,8 @@ def cmd_run(a) -> int:
     if a.prompt_ids:  # a pilot subset (runtime selection: a later run without it continues the same run-dir)
         keep = {x.strip() for x in Path(a.prompt_ids).read_text().splitlines() if x.strip()}
         cells = cells[cells["prompt_id"].isin(keep)]
+    if a.methods:  # e.g. Parallel-Expansion-v1 only, when the reranker can only come from the cache
+        cells = cells[cells["method"].isin(set(a.methods.split(",")))]
     mine = set(cells["cell_id"])
     done = {c: s for c, s in finished(run_dir).items() if c in mine}
     todo = cells[~cells["cell_id"].isin(done)]
@@ -345,6 +356,8 @@ def cmd_status(a) -> int:
     if a.prompt_ids:
         keep = {x.strip() for x in Path(a.prompt_ids).read_text().splitlines() if x.strip()}
         cells = cells[cells["prompt_id"].isin(keep)]
+    if a.methods:
+        cells = cells[cells["method"].isin(set(a.methods.split(",")))]
     done = finished(Path(a.run_dir))
     c = cells.assign(status=cells["cell_id"].map(done).fillna("pending"))
     table = c.groupby(["method", "engine", "status"]).size().unstack(fill_value=0)
@@ -380,6 +393,9 @@ def main(argv=None) -> int:
     r.add_argument("--breaker", type=int, default=20, help="consecutive transport-failed cells that stop the run")
     r.add_argument("--limit", type=int, default=0, help="stop once this many cells are finished (pilots)")
     r.add_argument("--prompt-ids", help="file with one prompt_id per line: run only these prompts' cells")
+    r.add_argument("--methods", help="comma-separated method ids to run (default: both)")
+    r.add_argument("--cache-only", action="store_true", help="reranker scores only from --score-cache (no local "
+                   "model); cells with an unscored pair are retried later, never recorded")
     r.add_argument("--shard", type=int, default=0, help="this allocation's slice: cells with order %% shards == shard")
     r.add_argument("--shards", type=int, default=1, help="number of slices run by parallel allocations")
     s = sub.add_parser("status")
@@ -387,6 +403,7 @@ def main(argv=None) -> int:
     s.add_argument("--run-dir", required=True)
     s.add_argument("--model", required=True, choices=("qwen38", "llama4"))
     s.add_argument("--prompt-ids", help="count only these prompts' cells")
+    s.add_argument("--methods", help="count only these methods (comma-separated)")
     a = p.parse_args(argv)
     return cmd_run(a) if a.cmd == "run" else cmd_status(a)
 

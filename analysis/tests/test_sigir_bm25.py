@@ -295,6 +295,19 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(self.run_cli(FakeClient()), 0)  # the same run-dir continues with every prompt
         self.assertEqual(len(generate.finished(self.run_dir)), 4)
 
+    def test_cache_only_runs_cached_cells_and_retries_the_rest_later(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        empty = Path(self.tmp.name) / "empty.parquet"
+        pq.write_table(pa.table({"key": pa.array([], pa.binary()), "score": pa.array([], pa.float64()),
+                                 "source": pa.array([], pa.string())}), empty)
+        status = self.run_cli(FakeClient(), "--cache-only", "--score-cache", str(empty),
+                              "--methods", PARALLEL, "--breaker", "100")
+        self.assertEqual(status, 4)  # every Parallel cell lacks scores: none recorded, all left for later
+        self.assertEqual(self.records(), [])
+        config = json.loads((self.run_dir / "config.json").read_text())
+        self.assertIn("cache only", config["cross_encoder"])
+
     def test_stop_file_checkpoints_without_writing(self):
         stop = Path(self.tmp.name) / "STOP"
         stop.write_text("")

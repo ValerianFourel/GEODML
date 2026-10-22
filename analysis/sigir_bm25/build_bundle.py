@@ -176,13 +176,15 @@ def cmd_check_bm25(a) -> int:
     return 0 if ok else 3
 
 
-def bm25_parallel_pairs(release: Path, bundle: Path) -> pd.DataFrame:
+def bm25_parallel_pairs(release: Path, bundle: Path, prompt_ids: set[str] | None = None) -> pd.DataFrame:
     """(prompt_id, row_id) of every Parallel cell's BM25 pool: the three logged queries' top 20, first row per URL."""
     idx = engine_indexes(release)
     pairs = set()
     for path in sorted(bundle.glob("cells-*.parquet")):
         cells = pd.read_parquet(path)
         cells = cells[cells["method"] == PARALLEL]
+        if prompt_ids is not None:
+            cells = cells[cells["prompt_id"].isin(prompt_ids)]
         for e, f in cells.groupby("engine"):
             rows, index = idx[e]
             rid, url = rows["row_id"].to_numpy(), rows["url"].tolist()
@@ -219,7 +221,8 @@ def known_scores(release: Path, runs: list[str]) -> pd.DataFrame:
 def cmd_pairs(a) -> int:
     release, bundle, out = Path(a.release), Path(a.bundle), Path(a.out)
     out.mkdir(parents=True, exist_ok=False)
-    need = bm25_parallel_pairs(release, bundle)
+    keep = ({x.strip() for x in Path(a.prompt_ids).read_text().splitlines() if x.strip()} if a.prompt_ids else None)
+    need = bm25_parallel_pairs(release, bundle, keep)
     known = known_scores(release, a.scores)
     todo = need.merge(known[["prompt_id", "row_id"]], how="left", indicator=True)
     todo = todo[todo["_merge"] == "left_only"].drop(columns="_merge")
@@ -278,15 +281,38 @@ def cmd_sample_prompts(a) -> int:
     """A fixed random sample of prompts (one split), as a prompt-id list for generate.py --prompt-ids."""
     release, bundle, out = Path(a.release), Path(a.bundle), Path(a.out)
     ans = pd.read_parquet(release / "answers.parquet", columns=["prompt_id", "split"]).drop_duplicates()
-    pool = set(pd.read_parquet(bundle / "prompts.parquet", columns=["prompt_id"])["prompt_id"])
-    ids = sorted(set(ans.loc[ans["split"].astype(str) == a.split, "prompt_id"].astype(str)) & pool)
+    order = pd.read_parquet(bundle / "prompts.parquet", columns=["prompt_id"])["prompt_id"].tolist()  # release order
+    allowed = set(order) if a.split == "any" else set(ans.loc[ans["split"].astype(str) == a.split, "prompt_id"].astype(str))
+    ids = [p for p in order if p in allowed]
     if a.n > len(ids):
         raise SystemExit(f"only {len(ids)} {a.split} prompts")
-    pick = [ids[i] for i in np.random.default_rng(a.seed).permutation(len(ids))[:a.n]]
+    if a.order == "first":
+        pick = ids[:a.n]
+    else:
+        ids = sorted(ids)
+        pick = [ids[i] for i in np.random.default_rng(a.seed).permutation(len(ids))[:a.n]]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(p + "\n" for p in pick))
-    print(json.dumps({"prompts": len(pick), "split": a.split, "pool": len(ids), "seed": a.seed,
+    print(json.dumps({"prompts": len(pick), "split": a.split, "order": a.order, "pool": len(ids), "seed": a.seed,
                       "sha256": sha256_file(out), "out": str(out)}, indent=1))
+    return 0
+
+
+def cmd_snapshots(a) -> int:
+    """Per-engine snapshot JSONL from the release rows (row_id order), the frozen search's own input format.
+    The rows are the inference-time snapshot's usable rows (gate G1; check-orig reproduced the logged shortlists),
+    but the file bytes differ from the HoreKa originals, so traces carry this file's own sha256."""
+    release, out = Path(a.release), Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    pages = pd.read_parquet(release / "pages.parquet", columns=["row_id", "engine", "keyword", "position", "url",
+                                                                 "title", "snippet"]).sort_values("row_id")
+    report = {}
+    for e in ENGINES:
+        rows = pages[pages["engine"].astype(str) == e][["keyword", "position", "title", "url", "snippet"]]
+        path = out / f"{e}.jsonl"
+        path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows.to_dict("records")))
+        report[e] = {"rows": int(len(rows)), "sha256": sha256_file(path), "path": str(path)}
+    print(json.dumps(report, indent=1))
     return 0
 
 
@@ -368,13 +394,19 @@ def main(argv=None) -> int:
         s.add_argument("--scores", action="append", default=[], help="a score_pairs.py run directory (repeatable)")
         if name == "pairs":
             s.add_argument("--shard-size", type=int, default=25000)
+            s.add_argument("--prompt-ids", help="only these prompts' Parallel cells")
     sp = sub.add_parser("sample-prompts")
     sp.add_argument("--release", required=True)
     sp.add_argument("--bundle", required=True)
     sp.add_argument("--out", required=True)
     sp.add_argument("--n", type=int, default=1000)
-    sp.add_argument("--split", default="held-out", choices=("held-out", "exploration"))
+    sp.add_argument("--split", default="held-out", choices=("held-out", "exploration", "any"))
+    sp.add_argument("--order", default="random", choices=("random", "first"),
+                    help="random (seeded) or the first N in the release's prompt order")
     sp.add_argument("--seed", type=int, default=ORDER_SEED)
+    sn = sub.add_parser("snapshots")
+    sn.add_argument("--release", required=True)
+    sn.add_argument("--out", required=True)
     o = sub.add_parser("check-orig")
     o.add_argument("--release", required=True)
     o.add_argument("--bundle", required=True)
@@ -382,7 +414,7 @@ def main(argv=None) -> int:
     o.add_argument("--sample", type=int, default=2000)
     a = p.parse_args(argv)
     return {"cells": cmd_cells, "check-bm25": cmd_check_bm25, "pairs": cmd_pairs, "cache": cmd_cache,
-            "check-orig": cmd_check_orig, "sample-prompts": cmd_sample_prompts}[a.cmd](a)
+            "check-orig": cmd_check_orig, "sample-prompts": cmd_sample_prompts, "snapshots": cmd_snapshots}[a.cmd](a)
 
 
 if __name__ == "__main__":
