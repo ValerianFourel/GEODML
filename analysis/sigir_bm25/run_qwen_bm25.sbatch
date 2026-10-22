@@ -15,7 +15,9 @@
 #   sbatch --account=<account> --export=ALL,CODE=<clean checkout>,BUNDLE=<bundle>,RUN_ID=<id>,BOUT_CONFIG=<config.json>
 #     run_qwen_bm25.sbatch
 # Production: add --partition=accelerated --time=<approved walltime>. Optional exports: RETRIEVER (bm25 | orig),
-#   SCORE_CACHE (score-cache parquet), PHASES (space-separated REQUEST:CELL[:SECONDS], default "4:12"), LIMIT.
+#   SCORE_CACHE (score-cache parquet), PHASES (space-separated REQUEST:CELL[:SECONDS], default "4:12"), LIMIT,
+#   SHARD and SHARDS: parallel allocations each take the disjoint slice order % SHARDS == SHARD of the cells; every
+#   slice gets its own chain, all write to the same run directory (one part file per job).
 # Resumable: resubmit with the same RUN_ID; finished cells are skipped. Exit 4 = deadline checkpoint.
 # Chain: --dependency=afternotok:<previous> --kill-on-invalid-dep=yes. Exit 4 starts the next job, exit 0 (all cells
 #   done) cancels the rest; any other failure writes $RUN/CHAIN_STOP and the next job exits at once.
@@ -35,7 +37,8 @@ if [ -s "$RUN/CHAIN_STOP" ]; then
   echo "stopped by an earlier job, nothing run (delete $RUN/CHAIN_STOP to go on):"; cat "$RUN/CHAIN_STOP"; exit 0
 fi
 stop() { echo "$(date -u +%FT%TZ) job $JOB: $1" | tee -a "$RUN/CHAIN_STOP" >&2; }
-ARGS=(execute --bout-config "$BOUT_CONFIG" --bundle "$BUNDLE" --run-dir "$RUN" --retriever "${RETRIEVER:-bm25}")
+ARGS=(execute --bout-config "$BOUT_CONFIG" --bundle "$BUNDLE" --run-dir "$RUN" --retriever "${RETRIEVER:-bm25}"
+      --shard "${SHARD:-0}" --shards "${SHARDS:-1}")
 [ -n "${SCORE_CACHE:-}" ] && ARGS+=(--score-cache "$SCORE_CACHE")
 [ -n "${LIMIT:-}" ] && ARGS+=(--limit "$LIMIT")
 for phase in ${PHASES:-4:12}; do ARGS+=(--phase "$phase"); done

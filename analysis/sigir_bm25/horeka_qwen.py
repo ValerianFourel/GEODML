@@ -57,7 +57,7 @@ def generate_command(python: str, repo: Path, config: dict, profile: dict, a, re
         command += ["--score-cache", str(path)]
     if a.limit:
         command += ["--limit", str(a.limit)]
-    return command
+    return command + ["--shard", str(a.shard), "--shards", str(a.shards)]
 
 
 def phase_script(commands: list[tuple[list[str], int | None]]) -> str:
@@ -164,6 +164,8 @@ def main(argv=None) -> int:
     e.add_argument("--score-cache", action="append", default=[], type=Path)
     e.add_argument("--phase", action="append", type=parse_phase, help="REQUEST:CELL[:SECONDS], in order")
     e.add_argument("--limit", type=int, default=0)
+    e.add_argument("--shard", type=int, default=0, help="this allocation's slice of the cells")
+    e.add_argument("--shards", type=int, default=1, help="slices run by parallel allocations")
     e.add_argument("--cache-base", type=Path, help="vLLM caches (default: next to the bout's serving cache)")
     a = p.parse_args(argv)
     return execute(a)

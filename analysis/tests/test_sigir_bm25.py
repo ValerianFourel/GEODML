@@ -244,6 +244,17 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(len(generate.finished(self.run_dir)), 4)
         self.assertLessEqual(len({p for p, _ in client.calls}), 3)
 
+    def test_shards_are_disjoint_and_cover_every_cell(self):
+        first, second = FakeClient(), FakeClient()
+        self.assertEqual(self.run_cli(first, "--shard", "0", "--shards", "2"), 0)
+        after_first = set(generate.finished(self.run_dir))
+        self.assertEqual(after_first, set(self.cells.loc[self.cells["order"] % 2 == 0, "cell_id"]))
+        self.assertEqual(self.run_cli(second, "--shard", "1", "--shards", "2"), 0)
+        self.assertEqual(set(generate.finished(self.run_dir)), set(self.cells["cell_id"]))
+        self.assertEqual(len(self.records()), 4)
+        with self.assertRaises(SystemExit):
+            self.run_cli(FakeClient(), "--shard", "2", "--shards", "2")
+
     def test_stop_file_checkpoints_without_writing(self):
         stop = Path(self.tmp.name) / "STOP"
         stop.write_text("")
@@ -283,7 +294,8 @@ class HorekaCommandTest(unittest.TestCase):
         with self.assertRaises(Exception):
             horeka_qwen.parse_phase("4")
         a = horeka_qwen.main.__globals__["argparse"].Namespace(
-            bundle=Path("/b"), run_dir=Path("/r"), retriever="bm25", score_cache=[Path("/c.parquet")], limit=0)
+            bundle=Path("/b"), run_dir=Path("/r"), retriever="bm25", score_cache=[Path("/c.parquet")], limit=0,
+            shard=3, shards=8)
         config = {"inputs": {"SEARCH_AGENTIC_DDG_SNAPSHOT": "/s/ddg.parquet",
                              "SEARCH_AGENTIC_SEARXNG_SNAPSHOT": "/s/sx.parquet"}, "cross_encoder": "/m/bge"}
         profile = {"serving": {"public_base_url": "http://127.0.0.1:8010/v1"}, "model": {"model_id": "Qwen/X"}}
@@ -291,7 +303,7 @@ class HorekaCommandTest(unittest.TestCase):
         self.assertIn("--disable-thinking", cmd)
         for flag, value in (("--final-max-tokens", "2048"), ("--query-max-tokens", "256"), ("--model", "qwen38"),
                             ("--served-model", "Qwen/X"), ("--request-concurrency", "32"), ("--device", "cpu"),
-                            ("--score-cache", "/c.parquet")):
+                            ("--score-cache", "/c.parquet"), ("--shard", "3"), ("--shards", "8")):
             self.assertEqual(cmd[cmd.index(flag) + 1], value)
         script = horeka_qwen.phase_script([(["echo", "a b"], 900), (["echo", "c"], None)])
         self.assertIn("GEODML_ROLE_END_TIME=$(( $(date +%s) + 900 )) echo 'a b'; status=$?", script)

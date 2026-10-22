@@ -304,12 +304,16 @@ def cmd_run(a) -> int:
             return 2
     else:
         path.write_text(json.dumps(config, indent=1, sort_keys=True) + "\n")
-    done = finished(run_dir)
+    if not 0 <= a.shard < a.shards:
+        raise SystemExit("refused: --shard must be in [0, --shards)")
+    cells = cells[cells["order"] % a.shards == a.shard]  # disjoint random slices for parallel allocations
+    mine = set(cells["cell_id"])
+    done = {c: s for c, s in finished(run_dir).items() if c in mine}
     todo = cells[~cells["cell_id"].isin(done)]
     if a.limit:
         todo = todo.head(max(0, a.limit - len(done)))
     print(json.dumps({"cells": len(cells), "finished": len(done), "to_run": len(todo), "retriever": a.retriever,
-                      "model": a.model, "started_at": utc()}), flush=True)
+                      "model": a.model, "shard": f"{a.shard}/{a.shards}", "started_at": utc()}), flush=True)
     if todo.empty:
         return 0
     budget = AllocationBudget.from_environment()
@@ -323,7 +327,7 @@ def cmd_run(a) -> int:
             return await run_cells(a, todo, prompts, adapters, scorer, client, budget, part)
 
     status = asyncio.run(main())
-    if status == 0 and a.limit == 0 and len(finished(run_dir)) < len(cells):
+    if status == 0 and a.limit == 0 and len(set(finished(run_dir)) & mine) < len(cells):
         return 4
     return status
 
@@ -363,6 +367,8 @@ def main(argv=None) -> int:
     r.add_argument("--transport-retries", type=int, default=0)
     r.add_argument("--breaker", type=int, default=20, help="consecutive transport-failed cells that stop the run")
     r.add_argument("--limit", type=int, default=0, help="stop once this many cells are finished (pilots)")
+    r.add_argument("--shard", type=int, default=0, help="this allocation's slice: cells with order %% shards == shard")
+    r.add_argument("--shards", type=int, default=1, help="number of slices run by parallel allocations")
     s = sub.add_parser("status")
     s.add_argument("--bundle", required=True)
     s.add_argument("--run-dir", required=True)
