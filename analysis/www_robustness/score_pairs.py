@@ -17,6 +17,8 @@ pages, prompts, queries, answers, answer_queries, pairs_to_score, pairs_logged).
                                      longest snippet); shard j belongs to worker j mod n; no shard is started that
                                      could not finish before --deadline-epoch; --only-shards limits a side check
   status                             shards done and the measured pairs per second
+  compare   --against RUN_DIR        the --only-shards scored under --run-dir against the same shards of RUN_DIR:
+                                     every pair matched and max |difference| <= --tolerance, else exit 3
 
 Outputs under --run-dir: results/ (embed/, dense_searches.parquet, dense_items.parquet, shards.parquet,
 scores/shard-NNNNN.parquet with .json timing), diagnostics/ (one manifest per step and worker). Every file is written
@@ -369,9 +371,29 @@ def step_status(a) -> int:
     return 0
 
 
+def step_compare(a) -> int:
+    """The --only-shards rescored under --run-dir against the same shards of --against; exit 3 if any differs."""
+    if not a.only_shards or a.against is None:
+        _fail("compare needs --only-shards and --against")
+    rows = []
+    for s in sorted({int(x) for x in a.only_shards.split(",")}):
+        name = f"scores/shard-{s:05d}"
+        old, new = (pd.read_parquet(r / "results" / f"{name}.parquet") for r in (a.against, a.run_dir))
+        m = old.merge(new, on=["prompt_id", "row_id", "purpose"], suffixes=("_old", "_new"))
+        diff = float((m["score_old"] - m["score_new"]).abs().max()) if len(m) else float("inf")
+        old_s, new_s = (json.loads((r / "results" / f"{name}.json").read_text())["seconds"] for r in (a.against, a.run_dir))
+        rows.append({"shard": s, "pairs": len(old), "matched": len(m), "max_abs_diff": diff, "seconds_against": old_s,
+                     "seconds": new_s, "passed": bool(len(m) == len(old) == len(new) and diff <= a.tolerance)})
+    out = {"git_commit": git_commit(), "against": str(a.against), "tolerance": a.tolerance, "shards": rows,
+           "passed": all(r["passed"] for r in rows)}
+    atomic_json(a.run_dir / "results" / "compare.json", out)
+    print(json.dumps(out, indent=1))
+    return 0 if out["passed"] else 3
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("step", choices=["embed", "retrieve", "score", "status"])
+    p.add_argument("step", choices=["embed", "retrieve", "score", "status", "compare"])
     p.add_argument("--bundle", type=Path)
     p.add_argument("--run-dir", type=Path, required=True)
     p.add_argument("--model", help="local snapshot directory of the step's model")
@@ -382,13 +404,17 @@ def main(argv=None) -> int:
     p.add_argument("--first-shard-seconds", type=float, default=90.0)
     p.add_argument("--only-shards", default="", help="score: comma-separated shard numbers (a side check of shards "
                    "already scored, in a separate --run-dir holding a copy of results/shards.parquet)")
+    p.add_argument("--against", type=Path, help="compare: the run directory that scored the same shards first")
+    p.add_argument("--tolerance", type=float, default=1e-4, help="compare: largest allowed |score difference| "
+                   "(gate G2's TOL_SCORE in the paper repository)")
     p.add_argument("--fake-models", action="store_true")
     a = p.parse_args(argv)
-    if a.step != "status" and a.bundle is None:
+    if a.step not in ("status", "compare") and a.bundle is None:
         _fail("--bundle is required")
     if a.step in ("embed", "score") and not a.fake_models and not a.model:
         _fail("--model is required")
-    return {"embed": step_embed, "retrieve": step_retrieve, "score": step_score, "status": step_status}[a.step](a)
+    return {"embed": step_embed, "retrieve": step_retrieve, "score": step_score, "status": step_status,
+            "compare": step_compare}[a.step](a)
 
 
 if __name__ == "__main__":
