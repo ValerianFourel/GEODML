@@ -137,6 +137,37 @@ class CachedScorerTest(unittest.TestCase):
             CachedScorer(None, table, model_id="m").score("q", [b])
 
 
+class DevicePoolTest(unittest.TestCase):
+    class Replica:
+        deterministic, model_id, model_revision = True, "/m/bge", None
+
+        def __init__(self, fail=None):
+            self.fail, self.calls = fail, 0
+
+        def score(self, query, snippets):
+            self.calls += 1
+            if self.fail:
+                raise self.fail
+            return [float(len(s.text)) for s in snippets]
+
+    def test_oom_falls_back_to_cpu_and_other_errors_propagate(self):
+        from analysis.sigir_bm25.reranker import DevicePoolScorer
+        rows = [Snippet.from_mapping({"url": "https://a.example.com/", "title": "A", "text": "abc"})]
+        cpu = self.Replica()
+        oom = DevicePoolScorer([self.Replica(RuntimeError("CUDA out of memory. Tried to allocate"))],
+                               fallback_factory=lambda: cpu)
+        self.assertEqual(oom.score("q", rows), [3.0])
+        self.assertEqual(oom.counts, Counter({"cpu_after_oom": 1}))
+        self.assertEqual(oom.model_id, "/m/bge")
+        ok = DevicePoolScorer([self.Replica(), self.Replica()])
+        self.assertEqual([ok.score("q", rows) for _ in range(3)], [[3.0]] * 3)
+        self.assertEqual(sum(ok.counts.values()), 3)
+        broken = DevicePoolScorer([self.Replica(ValueError("bad input"))], fallback_factory=lambda: cpu)
+        with self.assertRaises(ValueError):
+            broken.score("q", rows)
+        self.assertEqual(broken.score.__self__._free.qsize(), 1)  # the replica is returned after an error
+
+
 class FakeClient:
     """An OpenAI-compatible client double: answers by request purpose, records purposes and seeds."""
 
@@ -295,14 +326,14 @@ class HorekaCommandTest(unittest.TestCase):
             horeka_qwen.parse_phase("4")
         a = horeka_qwen.main.__globals__["argparse"].Namespace(
             bundle=Path("/b"), run_dir=Path("/r"), retriever="bm25", score_cache=[Path("/c.parquet")], limit=0,
-            shard=3, shards=8)
+            shard=3, shards=8, device="cuda-pool")
         config = {"inputs": {"SEARCH_AGENTIC_DDG_SNAPSHOT": "/s/ddg.parquet",
                              "SEARCH_AGENTIC_SEARXNG_SNAPSHOT": "/s/sx.parquet"}, "cross_encoder": "/m/bge"}
         profile = {"serving": {"public_base_url": "http://127.0.0.1:8010/v1"}, "model": {"model_id": "Qwen/X"}}
         cmd = horeka_qwen.generate_command("/py", Path("/repo"), config, profile, a, 32, 64)
         self.assertIn("--disable-thinking", cmd)
         for flag, value in (("--final-max-tokens", "2048"), ("--query-max-tokens", "256"), ("--model", "qwen38"),
-                            ("--served-model", "Qwen/X"), ("--request-concurrency", "32"), ("--device", "cpu"),
+                            ("--served-model", "Qwen/X"), ("--request-concurrency", "32"), ("--device", "cuda-pool"),
                             ("--score-cache", "/c.parquet"), ("--shard", "3"), ("--shards", "8")):
             self.assertEqual(cmd[cmd.index(flag) + 1], value)
         script = horeka_qwen.phase_script([(["echo", "a b"], 900), (["echo", "c"], None)])

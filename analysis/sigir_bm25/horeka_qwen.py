@@ -50,7 +50,7 @@ def generate_command(python: str, repo: Path, config: dict, profile: dict, a, re
                "--snapshot", "duckduckgo=" + inputs["SEARCH_AGENTIC_DDG_SNAPSHOT"],
                "--snapshot", "searxng=" + inputs["SEARCH_AGENTIC_SEARXNG_SNAPSHOT"],
                "--base-url", profile["serving"]["public_base_url"], "--served-model", profile["model"]["model_id"],
-               "--cross-encoder", config["cross_encoder"], "--device", "cpu",
+               "--cross-encoder", config["cross_encoder"], "--device", a.device,
                "--query-max-tokens", str(QUERY_MAX_TOKENS), "--final-max-tokens", str(FINAL_MAX_TOKENS),
                "--disable-thinking", "--request-concurrency", str(request), "--cell-concurrency", str(cell)]
     for path in a.score_cache:
@@ -164,6 +164,8 @@ def main(argv=None) -> int:
     e.add_argument("--score-cache", action="append", default=[], type=Path)
     e.add_argument("--phase", action="append", type=parse_phase, help="REQUEST:CELL[:SECONDS], in order")
     e.add_argument("--limit", type=int, default=0)
+    e.add_argument("--device", default="cuda-pool", help="cross-encoder device (generate.py --device); cpu is the "
+                   "original run's, cuda-pool puts one replica on each GPU next to vLLM")
     e.add_argument("--shard", type=int, default=0, help="this allocation's slice of the cells")
     e.add_argument("--shards", type=int, default=1, help="slices run by parallel allocations")
     e.add_argument("--cache-base", type=Path, help="vLLM caches (default: next to the bout's serving cache)")

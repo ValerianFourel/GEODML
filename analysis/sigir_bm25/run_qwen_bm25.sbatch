@@ -14,7 +14,9 @@
 # Submit (smoke, dev_accelerated, 1 h):
 #   sbatch --account=<account> --export=ALL,CODE=<clean checkout>,BUNDLE=<bundle>,RUN_ID=<id>,BOUT_CONFIG=<config.json>
 #     run_qwen_bm25.sbatch
-# Production: add --partition=accelerated --time=<approved walltime>. Optional exports: RETRIEVER (bm25 | orig),
+# Production: add --partition=accelerated --time=06:00:00 (a full four-A100 node per job, as the full run). The
+#   cross-encoder runs as one replica per GPU next to vLLM (DEVICE=cuda-pool, default; DEVICE=cpu is the original's
+#   CPU scoring, which left the GPUs idle in the 22 Oct smoke test). Optional exports: RETRIEVER (bm25 | orig),
 #   SCORE_CACHE (score-cache parquet), PHASES (space-separated REQUEST:CELL[:SECONDS], default "4:12"), LIMIT,
 #   SHARD and SHARDS: parallel allocations each take the disjoint slice order % SHARDS == SHARD of the cells; every
 #   slice gets its own chain, all write to the same run directory (one part file per job).
@@ -38,7 +40,7 @@ if [ -s "$RUN/CHAIN_STOP" ]; then
 fi
 stop() { echo "$(date -u +%FT%TZ) job $JOB: $1" | tee -a "$RUN/CHAIN_STOP" >&2; }
 ARGS=(execute --bout-config "$BOUT_CONFIG" --bundle "$BUNDLE" --run-dir "$RUN" --retriever "${RETRIEVER:-bm25}"
-      --shard "${SHARD:-0}" --shards "${SHARDS:-1}")
+      --shard "${SHARD:-0}" --shards "${SHARDS:-1}" --device "${DEVICE:-cuda-pool}")
 [ -n "${SCORE_CACHE:-}" ] && ARGS+=(--score-cache "$SCORE_CACHE")
 [ -n "${LIMIT:-}" ] && ARGS+=(--limit "$LIMIT")
 for phase in ${PHASES:-4:12}; do ARGS+=(--phase "$phase"); done

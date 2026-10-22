@@ -50,6 +50,7 @@ from analysis.interpretability.pipeline.inference_budget import AllocationBudget
 from analysis.scripts.run_acl_arr_vllm import VllmChatClient
 from analysis.scripts.run_agentic_search_integration_smoke import FrozenSnapshotSearchAdapter, VllmAgentGenerator
 from analysis.sigir_bm25.bm25 import Bm25SnapshotSearchAdapter
+from analysis.sigir_bm25.reranker import cuda_pool
 from analysis.sigir_bm25.score_cache import CachedScorer, load_cache
 
 FORMAT = "sigir-bm25-generation-v1"
@@ -161,7 +162,9 @@ def make_adapters(a) -> dict:
 
 
 def make_scorer(a):
-    if a.cross_encoder:
+    if a.cross_encoder and a.device == "cuda-pool":
+        base = cuda_pool(a.cross_encoder)
+    elif a.cross_encoder:
         base = SentenceTransformersCrossEncoderScorer(a.cross_encoder, model_revision=None, device=a.device,
                                                       batch_size=32, local_files_only=True)
     else:
@@ -277,6 +280,8 @@ async def run_cells(a, cells: pd.DataFrame, prompts: dict[str, str], adapters: d
         stop["reason"] = stop["reason"] or "allocation_deadline"
     summary = {"finished_at": utc(), "written": dict(stats), "stop_reason": stop["reason"],
                "remaining_in_queue": len(queue), "score_cache": dict(getattr(scorer, "counts", {})),
+               "reranker_device": a.device,
+               "reranker_calls_by_device": dict(getattr(getattr(scorer, "base", scorer), "counts", {})),
                "packages": packages()}
     (part.with_suffix(".summary.json")).write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n")
     print(json.dumps(summary, sort_keys=True), flush=True)
@@ -356,7 +361,8 @@ def main(argv=None) -> int:
     r.add_argument("--served-model", required=True)
     r.add_argument("--api-key-env", help="environment variable holding an external API key (https only)")
     r.add_argument("--cross-encoder", help="local bge-reranker-v2-m3 snapshot; omitted only in tests")
-    r.add_argument("--device", default="cpu")
+    r.add_argument("--device", default="cpu", help="cross-encoder device: cpu (the original), cuda, cuda:N, or "
+                   "cuda-pool (one replica per visible GPU next to vLLM, CPU fallback on out-of-memory)")
     r.add_argument("--score-cache", action="append", default=[], help="score-cache parquet (repeatable)")
     r.add_argument("--query-max-tokens", type=int, default=256)
     r.add_argument("--final-max-tokens", type=int, required=True)
