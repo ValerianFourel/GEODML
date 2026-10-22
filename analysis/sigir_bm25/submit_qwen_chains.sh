@@ -9,13 +9,16 @@
 # writes CHAIN_STOP and every later job exits at once. Optional: TIME (06:00:00), PHASES (64:128), DEVICE (cuda-pool),
 # AFTER (a job id the first job of every chain waits for, afterany), RESERVATION (e.g. casualnet, the project's
 # reserved accelerated nodes the original Qwen bouts used), MAX_PARALLEL (default 5, the AGENTS.md cap; up to 16 only
-# with Valerian's explicit approval, as for the Qwen bouts in casualnet). Every submission goes to submissions.tsv.
+# with Valerian's explicit approval, as for the Qwen bouts in casualnet), GAP_MIN (minutes between the chains' first
+# starts, default 10; 0 lets them all start at once). JOBS=1 submits independent jobs with no dependency at all
+# (Valerian, 2026-10-22: 16 independent 6-hour jobs in casualnet, one per reserved node, rather than chains).
+# Every submission goes to submissions.tsv.
 set -euo pipefail
 W=${GEODML_WORKSPACE:-/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen}
 CODE=${CODE:?}; BUNDLE=${BUNDLE:?}; RUN_ID=${RUN_ID:?}; BOUT_CONFIG=${BOUT_CONFIG:?}; ACCOUNT=${ACCOUNT:?}
 SHARDS=${1:-5}; JOBS=${2:-4}
 TIME=${TIME:-06:00:00}; PHASES=${PHASES:-64:128}; DEVICE=${DEVICE:-cuda-pool}; AFTER=${AFTER:-}
-RESERVATION=${RESERVATION:-}; MAX_PARALLEL=${MAX_PARALLEL:-5}
+RESERVATION=${RESERVATION:-}; MAX_PARALLEL=${MAX_PARALLEL:-5}; GAP_MIN=${GAP_MIN:-10}
 [ "$MAX_PARALLEL" -ge 1 ] && [ "$MAX_PARALLEL" -le 16 ] || { echo "MAX_PARALLEL must be 1..16" >&2; exit 2; }
 [ "$SHARDS" -ge 1 ] && [ "$SHARDS" -le "$MAX_PARALLEL" ] || { echo "SHARDS must be 1..$MAX_PARALLEL" >&2; exit 2; }
 [ "$JOBS" -ge 1 ] && [ "$JOBS" -le 8 ] || { echo "JOBS must be 1..8" >&2; exit 2; }
@@ -35,7 +38,7 @@ for s in $(seq 0 $((SHARDS - 1))); do
     opts=()
     [ -n "$RESERVATION" ] && opts+=(--reservation="$RESERVATION")
     if [ "$j" -eq 1 ]; then
-      [ "$s" -gt 0 ] && opts+=(--begin=now+$((s * 10))minutes)
+      [ "$s" -gt 0 ] && [ "$GAP_MIN" -gt 0 ] && opts+=(--begin=now+$((s * GAP_MIN))minutes)
       [ -n "$prev" ] && opts+=(--dependency=afterany:"$prev")
     else
       opts+=(--dependency=afternotok:"$prev" --kill-on-invalid-dep=yes)
