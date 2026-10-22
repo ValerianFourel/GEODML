@@ -17,7 +17,8 @@ ARM=${1:?usage: run_llama_local.sh bm25|orig}
 [[ "$ARM" == bm25 || "$ARM" == orig ]] || { echo "ARM must be bm25 or orig" >&2; exit 2; }
 CODE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 DATA=${SIGIR_BM25_DATA:-$HOME/Hamburg/GEODML_Unified/sigir_bm25_data}
-PY=${PYTHON:-$HOME/miniconda3/bin/python3}
+PY=${PYTHON:-$DATA/venv/bin/python}  # needs aiohttp + brotli (the API answers brotli-compressed), pandas, pyarrow,
+                                    # numpy, scipy; no torch: $DATA/venv/bin/pip install aiohttp brotli pandas pyarrow numpy scipy
 BUNDLE=${BUNDLE:-$DATA/bundle-20261022}
 CACHE=${CACHE:-$DATA/score-cache-pre.parquet}
 PROMPT_IDS=${PROMPT_IDS:-$DATA/first-1000.txt}
