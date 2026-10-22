@@ -342,6 +342,9 @@ def cmd_run(a) -> int:
 
 def cmd_status(a) -> int:
     cells, _, _ = load_cells(Path(a.bundle), a.model)
+    if a.prompt_ids:
+        keep = {x.strip() for x in Path(a.prompt_ids).read_text().splitlines() if x.strip()}
+        cells = cells[cells["prompt_id"].isin(keep)]
     done = finished(Path(a.run_dir))
     c = cells.assign(status=cells["cell_id"].map(done).fillna("pending"))
     table = c.groupby(["method", "engine", "status"]).size().unstack(fill_value=0)
@@ -383,6 +386,7 @@ def main(argv=None) -> int:
     s.add_argument("--bundle", required=True)
     s.add_argument("--run-dir", required=True)
     s.add_argument("--model", required=True, choices=("qwen38", "llama4"))
+    s.add_argument("--prompt-ids", help="count only these prompts' cells")
     a = p.parse_args(argv)
     return cmd_run(a) if a.cmd == "run" else cmd_status(a)
 

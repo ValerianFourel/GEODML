@@ -22,7 +22,9 @@ off; Llama 256/4096), bge-reranker-v2-m3 on CPU, cell ids. Parallel Expansion re
 | `generate.py` | resumable runner (`run`, `status`); JSONL part files, one line per finished cell |
 | `horeka_qwen.py`, `run_qwen_bm25.sbatch` | Qwen on HoreKa under the original serving setup |
 | `run_scores.sbatch` | GPU scores for the uncached Parallel pairs (`www_robustness/score_pairs.py score`) |
-| `run_llama_api.sh` | Llama through the API, on the Mac |
+| `run_llama_api.sbatch` | Llama through the API on a HoreKa GPU node (reranker on the 4 GPUs, no vLLM) |
+| `run_llama_api.sh` | the same on a Mac with a usable torch (not the Intel Mac: about one reranker pair per second) |
+| `submit_qwen_chains.sh` | Qwen production: parallel slices (`SHARDS`), optional follow-ups (`CONTINUE=1`), `RESERVATION` |
 
 ## Steps
 
