@@ -286,6 +286,15 @@ class RunnerTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_cli(FakeClient(), "--shard", "2", "--shards", "2")
 
+    def test_prompt_ids_limit_the_run_to_those_prompts(self):
+        ids = Path(self.tmp.name) / "ids.txt"
+        ids.write_text("p2\n")
+        self.assertEqual(self.run_cli(FakeClient(), "--prompt-ids", str(ids)), 0)
+        self.assertEqual({r["prompt_id"] for r in self.records()}, {"p2"})
+        self.assertEqual(len(self.records()), 2)
+        self.assertEqual(self.run_cli(FakeClient()), 0)  # the same run-dir continues with every prompt
+        self.assertEqual(len(generate.finished(self.run_dir)), 4)
+
     def test_stop_file_checkpoints_without_writing(self):
         stop = Path(self.tmp.name) / "STOP"
         stop.write_text("")

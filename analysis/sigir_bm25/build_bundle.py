@@ -274,6 +274,22 @@ def cmd_cache(a) -> int:
     return 0
 
 
+def cmd_sample_prompts(a) -> int:
+    """A fixed random sample of prompts (one split), as a prompt-id list for generate.py --prompt-ids."""
+    release, bundle, out = Path(a.release), Path(a.bundle), Path(a.out)
+    ans = pd.read_parquet(release / "answers.parquet", columns=["prompt_id", "split"]).drop_duplicates()
+    pool = set(pd.read_parquet(bundle / "prompts.parquet", columns=["prompt_id"])["prompt_id"])
+    ids = sorted(set(ans.loc[ans["split"].astype(str) == a.split, "prompt_id"].astype(str)) & pool)
+    if a.n > len(ids):
+        raise SystemExit(f"only {len(ids)} {a.split} prompts")
+    pick = [ids[i] for i in np.random.default_rng(a.seed).permutation(len(ids))[:a.n]]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("".join(p + "\n" for p in pick))
+    print(json.dumps({"prompts": len(pick), "split": a.split, "pool": len(ids), "seed": a.seed,
+                      "sha256": sha256_file(out), "out": str(out)}, indent=1))
+    return 0
+
+
 def cmd_check_orig(a) -> int:
     """Original search + logged queries + cached scores, no LLM: must reproduce each sampled logged shortlist."""
     import asyncio
@@ -352,6 +368,13 @@ def main(argv=None) -> int:
         s.add_argument("--scores", action="append", default=[], help="a score_pairs.py run directory (repeatable)")
         if name == "pairs":
             s.add_argument("--shard-size", type=int, default=25000)
+    sp = sub.add_parser("sample-prompts")
+    sp.add_argument("--release", required=True)
+    sp.add_argument("--bundle", required=True)
+    sp.add_argument("--out", required=True)
+    sp.add_argument("--n", type=int, default=1000)
+    sp.add_argument("--split", default="held-out", choices=("held-out", "exploration"))
+    sp.add_argument("--seed", type=int, default=ORDER_SEED)
     o = sub.add_parser("check-orig")
     o.add_argument("--release", required=True)
     o.add_argument("--bundle", required=True)
@@ -359,7 +382,7 @@ def main(argv=None) -> int:
     o.add_argument("--sample", type=int, default=2000)
     a = p.parse_args(argv)
     return {"cells": cmd_cells, "check-bm25": cmd_check_bm25, "pairs": cmd_pairs, "cache": cmd_cache,
-            "check-orig": cmd_check_orig}[a.cmd](a)
+            "check-orig": cmd_check_orig, "sample-prompts": cmd_sample_prompts}[a.cmd](a)
 
 
 if __name__ == "__main__":

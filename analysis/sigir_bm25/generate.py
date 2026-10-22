@@ -312,6 +312,9 @@ def cmd_run(a) -> int:
     if not 0 <= a.shard < a.shards:
         raise SystemExit("refused: --shard must be in [0, --shards)")
     cells = cells[cells["order"] % a.shards == a.shard]  # disjoint random slices for parallel allocations
+    if a.prompt_ids:  # a pilot subset (runtime selection: a later run without it continues the same run-dir)
+        keep = {x.strip() for x in Path(a.prompt_ids).read_text().splitlines() if x.strip()}
+        cells = cells[cells["prompt_id"].isin(keep)]
     mine = set(cells["cell_id"])
     done = {c: s for c, s in finished(run_dir).items() if c in mine}
     todo = cells[~cells["cell_id"].isin(done)]
@@ -373,6 +376,7 @@ def main(argv=None) -> int:
     r.add_argument("--transport-retries", type=int, default=0)
     r.add_argument("--breaker", type=int, default=20, help="consecutive transport-failed cells that stop the run")
     r.add_argument("--limit", type=int, default=0, help="stop once this many cells are finished (pilots)")
+    r.add_argument("--prompt-ids", help="file with one prompt_id per line: run only these prompts' cells")
     r.add_argument("--shard", type=int, default=0, help="this allocation's slice: cells with order %% shards == shard")
     r.add_argument("--shards", type=int, default=1, help="number of slices run by parallel allocations")
     s = sub.add_parser("status")
