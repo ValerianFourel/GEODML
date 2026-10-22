@@ -12,13 +12,15 @@
 # with Valerian's explicit approval, as for the Qwen bouts in casualnet), GAP_MIN (minutes between the chains' first
 # starts, default 10; 0 lets them all start at once). JOBS=1 submits independent jobs with no dependency at all
 # (Valerian, 2026-10-22: 16 independent 6-hour jobs in casualnet, one per reserved node, rather than chains).
+# CONTINUE=1 adds JOBS follow-ups per shard after that shard's latest job in submissions.tsv (same SHARDS):
+# each starts only if the previous one ended at its deadline with cells left (afternotok), else Slurm cancels it.
 # Every submission goes to submissions.tsv.
 set -euo pipefail
 W=${GEODML_WORKSPACE:-/hkfs/work/workspace/scratch/uhh_bbf7367-geodml-qwen}
 CODE=${CODE:?}; BUNDLE=${BUNDLE:?}; RUN_ID=${RUN_ID:?}; BOUT_CONFIG=${BOUT_CONFIG:?}; ACCOUNT=${ACCOUNT:?}
 SHARDS=${1:-5}; JOBS=${2:-4}
 TIME=${TIME:-06:00:00}; PHASES=${PHASES:-64:128}; DEVICE=${DEVICE:-cuda-pool}; AFTER=${AFTER:-}
-RESERVATION=${RESERVATION:-}; MAX_PARALLEL=${MAX_PARALLEL:-5}; GAP_MIN=${GAP_MIN:-10}
+RESERVATION=${RESERVATION:-}; MAX_PARALLEL=${MAX_PARALLEL:-5}; GAP_MIN=${GAP_MIN:-10}; CONTINUE=${CONTINUE:-0}
 [ "$MAX_PARALLEL" -ge 1 ] && [ "$MAX_PARALLEL" -le 16 ] || { echo "MAX_PARALLEL must be 1..16" >&2; exit 2; }
 [ "$SHARDS" -ge 1 ] && [ "$SHARDS" -le "$MAX_PARALLEL" ] || { echo "SHARDS must be 1..$MAX_PARALLEL" >&2; exit 2; }
 [ "$JOBS" -ge 1 ] && [ "$JOBS" -le 8 ] || { echo "JOBS must be 1..8" >&2; exit 2; }
@@ -34,10 +36,16 @@ LOG="$RUN/submissions.tsv"
 COMMIT=$(git -C "$CODE" rev-parse HEAD)
 for s in $(seq 0 $((SHARDS - 1))); do
   prev=$AFTER
+  if [ "$CONTINUE" = 1 ]; then
+    prev=$(awk -F'\t' -v s="$s" -v n="$SHARDS" 'NR > 1 && $2 == s && $3 == n { id = $5 } END { print id }' "$LOG")
+    [ -n "$prev" ] || { echo "CONTINUE=1: no earlier job of shard $s/$SHARDS in $LOG" >&2; exit 2; }
+  fi
   for j in $(seq 1 "$JOBS"); do
     opts=()
     [ -n "$RESERVATION" ] && opts+=(--reservation="$RESERVATION")
-    if [ "$j" -eq 1 ]; then
+    if [ "$j" -eq 1 ] && [ "$CONTINUE" = 1 ]; then
+      opts+=(--dependency=afternotok:"$prev" --kill-on-invalid-dep=yes)
+    elif [ "$j" -eq 1 ]; then
       [ "$s" -gt 0 ] && [ "$GAP_MIN" -gt 0 ] && opts+=(--begin=now+$((s * GAP_MIN))minutes)
       [ -n "$prev" ] && opts+=(--dependency=afterany:"$prev")
     else
