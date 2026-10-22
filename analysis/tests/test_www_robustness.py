@@ -94,6 +94,40 @@ class ScorePairsTest(unittest.TestCase):
             self.assertEqual(sp.main(["retrieve", *base, "--shard-size", "7"]), 0)
             self.assertEqual(before, {p: p.stat().st_mtime_ns for p in (run / "results").rglob("*.parquet")})
 
+    def test_only_shards_scores_just_those(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle, run = write_bundle(root), root / "run"
+            base = ["--bundle", str(bundle), "--run-dir", str(run), "--fake-models", "--workers", "1", "--worker", "0"]
+            self.assertEqual(sp.main(["embed", *base]), 0)
+            self.assertEqual(sp.main(["retrieve", *base, "--shard-size", "7"]), 0)
+            self.assertEqual(sp.main(["score", *base, "--only-shards", "0,2"]), 0)
+            done = sorted(p.name for p in (run / "results").glob("scores/shard-*.parquet"))
+            self.assertEqual(done, ["shard-00000.parquet", "shard-00002.parquet"])
+
+    def test_cross_encoder_score_pairs_batches_by_length_in_input_order(self):
+        from analysis.interpretability.pipeline.agentic_search import SentenceTransformersCrossEncoderScorer, Snippet
+
+        class Stub:  # stands in for sentence_transformers.CrossEncoder; a pair's value depends on that pair only
+            def __init__(self):
+                self.batches = []
+
+            def predict(self, pairs, batch_size, show_progress_bar):
+                self.batches += [pairs[i:i + batch_size] for i in range(0, len(pairs), batch_size)]
+                return np.asarray([len(q) * 1000.0 + len(d) for q, d in pairs])
+
+        rng = np.random.default_rng(5)
+        pairs = [(f"prompt {'x' * int(rng.integers(0, 9))}",
+                  Snippet.from_mapping({"url": f"https://u{i}.example", "title": f"t{i}",
+                                        "text": "w " * int(rng.integers(1, 400))})) for i in range(50)]
+        scorer = SentenceTransformersCrossEncoderScorer("stub", batch_size=4)
+        scorer._model = Stub()
+        got = scorer.score_pairs(pairs)
+        self.assertEqual(got, [scorer.score(q, [s])[0] for q, s in pairs])
+        lengths = [len(q) + len(d) for b in scorer._model.batches[:13] for q, d in b]
+        self.assertEqual(lengths, sorted(lengths))
+        self.assertEqual(scorer.score_pairs([]), [])
+
     def test_top_matches_naive_order_with_ties(self):
         rng = np.random.default_rng(11)
         for trial in range(200):

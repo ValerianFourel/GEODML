@@ -12,8 +12,10 @@ pages, prompts, queries, answers, answer_queries, pairs_to_score, pairs_logged).
                                      the pairs still to score and their shard plan
   score     --worker i --workers n   BAAI/bge-reranker-v2-m3 through the pipeline's own scorer
                                      (SentenceTransformersCrossEncoderScorer: batch 32, fp32) on (prompt text,
-                                     title + "\\n" + snippet), one prompt at a time; shard j belongs to worker j mod n;
-                                     no shard is started that could not finish before --deadline-epoch
+                                     title + "\\n" + snippet); a shard's pairs are batched by length across prompts
+                                     (score_pairs; until 22 Oct one prompt at a time, which padded every batch to its
+                                     longest snippet); shard j belongs to worker j mod n; no shard is started that
+                                     could not finish before --deadline-epoch; --only-shards limits a side check
   status                             shards done and the measured pairs per second
 
 Outputs under --run-dir: results/ (embed/, dense_searches.parquet, dense_items.parquet, shards.parquet,
@@ -310,7 +312,8 @@ def step_score(a) -> int:
     pairs = pd.read_parquet(results / "shards.parquet")
     tables = load_bundle(a.bundle)
     by_shard = {int(s): f for s, f in pairs.groupby("shard", sort=True)}
-    shards = [s for s in by_shard if s % a.workers == a.worker
+    only = {int(x) for x in a.only_shards.split(",")} if a.only_shards else None
+    shards = [s for s in by_shard if s % a.workers == a.worker and (only is None or s in only)
               and not (results / "scores" / f"shard-{s:05d}.parquet").exists()]
     if not shards:
         return 0
@@ -328,14 +331,13 @@ def step_score(a) -> int:
             break
         t0 = time.time()
         part = by_shard[s]
-        values = []
-        for prompt_id, group in part.groupby("prompt_id", sort=False):
-            rows = page.loc[group["row_id"].to_numpy()]
-            snippets = [Snippet.from_mapping({"url": u, "title": t, "text": x})
-                        for u, t, x in zip(rows["url"], rows["title"], rows["snippet"])]
-            values.extend(model.score(ptext[prompt_id], snippets))
-        order = part.groupby("prompt_id", sort=False).ngroup().to_numpy()  # values follow the groups' order
-        part = part.iloc[np.argsort(order, kind="stable")]
+        rows = page.loc[part["row_id"].to_numpy()]
+        pairs_in = [(ptext[p], Snippet.from_mapping({"url": u, "title": t, "text": x}))
+                    for p, u, t, x in zip(part["prompt_id"], rows["url"], rows["title"], rows["snippet"])]
+        if hasattr(model, "score_pairs"):  # the cross-encoder: the whole shard, batched by length
+            values = model.score_pairs(pairs_in)
+        else:  # the fake lexical scorer scores each pair on its own
+            values = [v for q, snip in pairs_in for v in model.score(q, [snip])]
         out = part[["prompt_id", "row_id", "purpose"]].assign(score=np.asarray(values, np.float64),
                                                                 fake=bool(a.fake_models))
         atomic_parquet(results / "scores" / f"shard-{s:05d}.parquet", out)
@@ -378,6 +380,8 @@ def main(argv=None) -> int:
     p.add_argument("--shard-size", type=int, default=25000)
     p.add_argument("--deadline-epoch", type=float, default=0.0)
     p.add_argument("--first-shard-seconds", type=float, default=90.0)
+    p.add_argument("--only-shards", default="", help="score: comma-separated shard numbers (a side check of shards "
+                   "already scored, in a separate --run-dir holding a copy of results/shards.parquet)")
     p.add_argument("--fake-models", action="store_true")
     a = p.parse_args(argv)
     if a.step != "status" and a.bundle is None:

@@ -241,7 +241,24 @@ class SentenceTransformersCrossEncoderScorer:
     def score(self, query: str, snippets: list[Snippet]) -> list[float]:
         if not snippets:
             return []
-        pairs = [(query, f"{row.title}\n{row.text}") for row in snippets]
+        return self._predict([(query, f"{row.title}\n{row.text}") for row in snippets])
+
+    def score_pairs(self, pairs: Sequence[tuple[str, Snippet]]) -> list[float]:
+        """Scores (query, snippet) pairs of any number of queries; values come back in input order.
+
+        Same model, text and batch size as score(), but pairs of similar length share a batch, which cuts padding
+        when a few snippets are very long. A value can differ from score()'s by floating-point rounding only.
+        """
+        texts = [(query, f"{row.title}\n{row.text}") for query, row in pairs]
+        order = sorted(range(len(texts)), key=lambda i: len(texts[i][0]) + len(texts[i][1]))
+        result = [0.0] * len(texts)
+        for i, value in zip(order, self._predict([texts[i] for i in order])):
+            result[i] = value
+        return result
+
+    def _predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+        if not pairs:
+            return []
         values = self._load().predict(
             pairs,
             batch_size=self.batch_size,
