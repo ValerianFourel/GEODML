@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=geodml-sigir-scores
-#SBATCH --partition=dev_accelerated
+#SBATCH --partition=accelerated
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:4

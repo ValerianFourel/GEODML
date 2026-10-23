@@ -30,7 +30,7 @@ off; Llama 256/4096), bge-reranker-v2-m3 on CPU, cell ids. Parallel Expansion re
 
 1. Mac: `build_bundle.py cells`, then `check-bm25` (must report every list identical).
 2. Mac: `build_bundle.py pairs --scores <rebuttal HoreKa run>`; copy the pairs bundle and the cells bundle to HoreKa.
-3. HoreKa: `run_scores.sbatch` (dev_accelerated, chain until done); copy `results/scores` back.
+3. HoreKa: `run_scores.sbatch` (accelerated, 1 h, one follow-up if needed); copy `results/scores` back.
 4. Mac: `build_bundle.py cache --scores <rebuttal run> --scores <new scores run>`; copy the cache to HoreKa.
 5. HoreKa: one Qwen bout's `config.json` gives the serving setup and snapshot paths; copy the two snapshot files to the
    Mac for the Llama arms.
