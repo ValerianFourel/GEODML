@@ -370,5 +370,75 @@ class HorekaCommandTest(unittest.TestCase):
         self.assertTrue(script.endswith("exit $status"))
 
 
+class FakeHub:
+    """The parts of HfApi publish_hf uses: a private flag, a file tree with LFS for big files, folder uploads."""
+
+    def __init__(self, private=True):
+        self.private, self.files, self.uploads = private, {}, 0
+
+    def repo_info(self, repo, repo_type):
+        return type("Info", (), {"private": self.private})()
+
+    def list_repo_tree(self, repo, path_in_repo, recursive, repo_type):
+        out = []
+        for path, data in self.files.items():
+            if path.startswith(path_in_repo + "/"):
+                lfs = {"sha256": hashlib.sha256(data).hexdigest()} if len(data) > 10 else None
+                blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+                out.append(type("RepoFile", (), {"path": path, "size": len(data), "blob_id": blob, "lfs": lfs})())
+        return out
+
+    def upload_folder(self, repo_id, repo_type, folder_path, path_in_repo, commit_message):
+        self.uploads += 1
+        for p in Path(folder_path).rglob("*"):
+            if p.is_file():
+                self.files[f"{path_in_repo}/{p.relative_to(folder_path).as_posix()}"] = p.read_bytes()
+        return type("Commit", (), {"oid": "c0ffee"})()
+
+
+class PublishHfTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / "run"
+        (self.dir / "parts").mkdir(parents=True)
+        (self.dir / "parts" / "a.jsonl.gz").write_bytes(b"x" * 100)
+        (self.dir / "config.json").write_text("{}")
+        self.args = ["--folder", str(self.dir), "--path-in-repo", "sigir-bm25/run"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_uploads_once_writes_a_manifest_and_verifies_lfs_and_git_files(self):
+        from analysis.sigir_bm25 import publish_hf
+        hub = FakeHub()
+        self.assertEqual(publish_hf.main(self.args, api=hub), 0)
+        manifest = json.loads((self.dir / "MANIFEST.json").read_text())
+        self.assertEqual(sorted(manifest["files"]), ["config.json", "parts/a.jsonl.gz"])
+        self.assertEqual(manifest["files"]["config.json"]["sha256"], hashlib.sha256(b"{}").hexdigest())
+        self.assertIn("sigir-bm25/run/MANIFEST.json", hub.files)
+        self.assertEqual(publish_hf.main(self.args, api=hub), 0)  # rerun: already verified, nothing sent
+        self.assertEqual(hub.uploads, 1)
+
+    def test_refuses_a_public_dataset_and_a_differing_remote_file(self):
+        from analysis.sigir_bm25 import publish_hf
+        self.assertEqual(publish_hf.main(self.args, api=FakeHub(private=False)), 2)
+        hub = FakeHub()
+        hub.files["sigir-bm25/run/config.json"] = b'{"other": 1}'
+        self.assertEqual(publish_hf.main(self.args, api=hub), 2)
+        self.assertEqual(hub.uploads, 0)
+
+    def test_a_corrupted_upload_fails_the_check(self):
+        from analysis.sigir_bm25 import publish_hf
+        hub = FakeHub()
+        real = hub.upload_folder
+
+        def corrupt(**kw):
+            out = real(**kw)
+            hub.files["sigir-bm25/run/parts/a.jsonl.gz"] = b"y" * 100
+            return out
+        hub.upload_folder = corrupt
+        self.assertEqual(publish_hf.main(self.args, api=hub), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
